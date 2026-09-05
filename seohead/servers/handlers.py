@@ -881,11 +881,21 @@ def _audit_crawl_result(
     # analyzer, and only meets the SF-shaped audit here.
     link_position: dict[str, Any] = {}
     if url and settings["link_position"]["classify"]:
+        from urllib.parse import urlsplit
+
         from seohead.crawl.linkgraph import inlink_composition
 
         if stored_scan is None:
-            link_position = inlink_composition(result.links)
+            # The crawled site's own host: the in-memory graph holds every edge the
+            # crawl recorded, external destinations included, and without a host it
+            # would advise adding a contextual link to somebody else's site (#208).
+            link_position = inlink_composition(result.links, urlsplit(url).hostname or "")
         else:
+            # The stored graph needs no equivalent: its population is built from
+            # destinations that appear in the pages table, so an uncrawled external
+            # URL is outside it by construction -- a stricter filter than a host
+            # match, and it labels itself "crawled_destinations" rather than
+            # claiming to have judged the whole graph.
             from seohead.crawl.sql_graph import StoredGraph
             from seohead.crawl.sql_graph_output import composition
 

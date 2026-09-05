@@ -12,6 +12,7 @@ This module is pure and never imports ``seohead.sf``: it works only from
 
 from __future__ import annotations
 
+import urllib.parse
 from collections import Counter
 from typing import Any
 
@@ -24,7 +25,22 @@ from seohead.crawl.spider import LinkEdge
 BOILERPLATE_POSITIONS: tuple[str, ...] = ("nav", "header", "sidebar", "footer")
 
 
-def inlink_composition(links: list[LinkEdge]) -> dict[str, Any]:
+def _is_external(destination: str, internal_host: str) -> bool:
+    """Whether a destination sits on a host other than the crawled site.
+
+    Compared by hostname, not netloc: ``https://example.com:443/x`` is the same
+    site as ``https://example.com/x``, and a port is not a different company.
+    ``tools.parser.is_external`` already draws the line there, and a crawl that
+    reached the URL at all has had its scope decide the question once already.
+
+    A destination with no host cannot be judged and is treated as internal,
+    matching ``sf.core.inlinks``'s reading of the same case for exports.
+    """
+    host = (urllib.parse.urlparse(destination).hostname or "").lower()
+    return bool(host) and host != internal_host
+
+
+def inlink_composition(links: list[LinkEdge], internal_host: str = "") -> dict[str, Any]:
     """Group a crawl's recorded links by destination and by position.
 
     Counts distinct (destination, source, position) triples, so a link
@@ -32,17 +48,34 @@ def inlink_composition(links: list[LinkEdge]) -> dict[str, Any]:
     two — the same "how many pages link here" question ``sf.core.inlinks``
     answers for Screaming Frog exports.
 
+    ``internal_host`` is the site being crawled. Destinations on any other host
+    are counted in ``edges_external`` and take no further part: "this page is
+    linked only from the footer, never from body copy" is advice to add a
+    contextual link, and nobody can add one to somebody else's site (#208). The
+    edges themselves stay in ``SpiderResult.links`` — this excludes them from a
+    conclusion, it does not discard the evidence. ``sf.core.inlinks`` partitions
+    the same way for Screaming Frog exports; this is that rule, not a second one.
+
+    Without an ``internal_host`` nothing can be told apart, so every destination
+    is reported as unpartitioned and ``boilerplate_only`` is withheld from all of
+    them: an unknown population must read as "not measured", never as "all
+    internal".
+
     Edges with no ``position`` (because the crawl did not pass
     ``classify_links=True``) are counted separately as ``edges_unclassified``
-    and never folded into any bucket: a disabled classifier must read as
-    "not measured", not as "no boilerplate links found".
+    and never folded into any bucket, for the same reason.
     """
+    internal_host = (internal_host or "").lower()
     dedup: set[tuple[str, str, str]] = set()
     by_dest: dict[str, Counter[str]] = {}
     unclassified = 0
+    external = 0
     for edge in links:
         if not edge.position:
             unclassified += 1
+            continue
+        if internal_host and _is_external(edge.destination, internal_host):
+            external += 1
             continue
         key = (edge.destination, edge.source, edge.position)
         if key in dedup:
@@ -63,7 +96,7 @@ def inlink_composition(links: list[LinkEdge]) -> dict[str, Any]:
                 # neither "content" nor "other" appears) and at least one
                 # inlink was classified at all — a page with zero classified
                 # inlinks is "unmeasured", not "boilerplate only".
-                "boilerplate_only": bool(counts) and boilerplate == total,
+                "boilerplate_only": bool(internal_host) and bool(counts) and boilerplate == total,
             }
         )
     pages.sort(key=lambda p: p["url"])
@@ -86,6 +119,10 @@ def inlink_composition(links: list[LinkEdge]) -> dict[str, Any]:
         "measured": len(dedup) > 0,
         "edges_classified": len(dedup),
         "edges_unclassified": unclassified,
+        # Recorded rather than merely dropped, so a reader can see that the
+        # population the conclusion was drawn from is smaller than the graph.
+        "edges_external": external,
+        "population": "internal" if internal_host else "unpartitioned",
         "classified_fraction": round(len(dedup) / total_edges, 4) if total_edges else 0.0,
         "pages_with_inlinks": len(pages),
         "pages_boilerplate_only": boilerplate_only_urls,

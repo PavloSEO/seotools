@@ -123,7 +123,10 @@ def test_composition_and_raw_inlink_counts_match_legacy_for_recorded_page_destin
     eligible = [
         edge for edge in edges if edge.destination in {port_page, plain_page, fragment_page}
     ]
-    legacy = inlink_composition(eligible)
+    # The crawled host: without it the composition withholds boilerplate_only
+    # entirely (#208), and the two paths would differ for that reason rather
+    # than for a real one.
+    legacy = inlink_composition(eligible, "example.test")
     rows = list(graph.iter_composition_rows())
     metadata = graph.composition_metadata().as_dict()
 
