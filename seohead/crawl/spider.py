@@ -39,7 +39,11 @@ from seohead.crawl.collect import (
     _write,
     fetch_one,
 )
-from seohead.crawl.settings import checked_url_budget, resolve_credential_headers
+from seohead.crawl.settings import (
+    DEFAULT_SEGMENT,
+    checked_url_budget,
+    resolve_credential_headers,
+)
 from seohead.crawl.throttle import MAX_CONCURRENCY_CEILING, MAX_DELAY_S, Throttle
 from seohead.recon.net import UA, http_client, normalize_url, registrable_domain
 from seohead.tools.robots import crawl_delay, is_allowed, match_path, parse_robots
@@ -320,6 +324,30 @@ def _read_links_jsonl(path: str) -> list[LinkEdge]:
 
 
 @dataclass(frozen=True)
+class SegmentRule:
+    """One named segment: matches a URL by path prefix, exact host, or a regex over
+    the whole URL -- the three shapes a multilingual or multi-regional site uses
+    (path prefix, subdomain, or a wholly separate domain -- #358).
+
+    Evaluated in declaration order by ``Scope.segment_for`` -- first match wins,
+    so overlapping rules are predictable rather than accidental, exactly as #21
+    specifies for segment rules in general.
+    """
+
+    name: str
+    prefix: str = ""
+    host: str = ""
+    pattern: re.Pattern[str] | None = None
+
+    def matches(self, url: str, path: str, host: str) -> bool:
+        if self.prefix and path.startswith(self.prefix):
+            return True
+        if self.host and host == self.host:
+            return True
+        return bool(self.pattern and self.pattern.search(url))
+
+
+@dataclass(frozen=True)
 class Scope:
     """Which discovered URLs a crawl may fetch.
 
@@ -333,6 +361,8 @@ class Scope:
     include_patterns: tuple[re.Pattern[str], ...] = ()
     exclude_patterns: tuple[re.Pattern[str], ...] = ()
     exclude_hosts: frozenset[str] = frozenset()
+    segments: tuple[SegmentRule, ...] = ()
+    segments_only: frozenset[str] = frozenset()
 
     @classmethod
     def from_config(cls, scope: dict[str, Any] | None) -> Scope:
@@ -344,12 +374,38 @@ class Scope:
             exclude_hosts=frozenset(
                 host.lower().lstrip(".") for host in scope.get("exclude_hosts") or ()
             ),
+            segments=tuple(
+                SegmentRule(
+                    name=item["name"],
+                    prefix=item.get("prefix") or "",
+                    host=(item.get("host") or "").lower(),
+                    pattern=re.compile(item["pattern"]) if item.get("pattern") else None,
+                )
+                for item in scope.get("segments") or ()
+            ),
+            segments_only=frozenset(scope.get("segments_only") or ()),
         )
+
+    def segment_for(self, url: str) -> str:
+        """The one named segment this URL belongs to -- every URL gets exactly
+        one, a declared segment or the built-in ``DEFAULT_SEGMENT`` (#358)."""
+        parts = urlsplit(url)
+        host = (parts.hostname or "").lower()
+        for rule in self.segments:
+            if rule.matches(url, parts.path, host):
+                return rule.name
+        return DEFAULT_SEGMENT
 
     def is_internal(self, url: str, start_host: str) -> bool:
         host = (urlsplit(url).hostname or "").lower()
         if not host:
             return False
+        # A segment naming an exact host is the operator declaring that host part
+        # of this crawl -- a subdomain or a wholly separate domain (#358) -- so it
+        # is internal regardless of scope.internal, which is what lets "separate
+        # domain" segments work without also being asked to crawl the entire web.
+        if any(host == rule.host for rule in self.segments if rule.host):
+            return True
         if self.internal == "registrable_domain":
             return registrable_domain(host) == registrable_domain(start_host)
         return host == start_host
@@ -365,6 +421,8 @@ class Scope:
             return "excluded_by_pattern"
         if self.include_patterns and not any(p.search(url) for p in self.include_patterns):
             return "not_included_by_pattern"
+        if self.segments_only and self.segment_for(url) not in self.segments_only:
+            return "outside_segment"
         return ""
 
 

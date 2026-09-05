@@ -320,6 +320,33 @@ def _rewrite_pages_sidecar(path: str, pages: list[Any]) -> None:
         raise
 
 
+def _segment_counts(
+    pages: list[Any], issues: list[dict[str, Any]], scope_config: dict[str, Any]
+) -> dict[str, dict[str, int]]:
+    """Page and issue counts per named segment (#358).
+
+    Every URL is assigned to exactly one segment -- a declared one, or the
+    built-in "default" -- via the same ``Scope`` rules that (optionally) also
+    restrict what gets fetched, so these counts always sum to the ungrouped
+    totals reported elsewhere in the same audit.
+    """
+    from seohead.crawl.spider import Scope
+
+    rules = Scope.from_config(scope_config)
+    counts: dict[str, dict[str, int]] = {}
+
+    def bucket(name: str) -> dict[str, int]:
+        return counts.setdefault(name, {"pages": 0, "issues": 0})
+
+    for page in pages:
+        bucket(rules.segment_for(page.url))["pages"] += 1
+    for issue in issues:
+        target = issue.get("target_url")
+        if target:
+            bucket(rules.segment_for(target))["issues"] += 1
+    return counts
+
+
 def crawl_site(
     url: str | None = None,
     urls: list[str] | None = None,
@@ -506,6 +533,11 @@ def crawl_site(
             "sitemap_urls": sitemap_seed["sitemap_urls"],
             "sitemap_seeded": len(result.seed_urls),
         }
+        if settings["scope"]["segments_only"]:
+            # #358's acceptance criterion: a crawl scoped to a segment must say so
+            # in its own run output, not leave it to be inferred from which URLs
+            # happen to be missing.
+            discovery["segments_only"] = settings["scope"]["segments_only"]
     else:
         result = collect_urls(
             urls or [],
@@ -791,6 +823,13 @@ def crawl_site(
         {},
         sitemap_summary,
     ).to_json()
+    # Page and issue counts per named segment (#358) -- only when the operator
+    # actually declared segments, so a plain crawl's audit.json is unchanged.
+    audit["segments"] = (
+        _segment_counts(result.pages, audit["issues"], settings["scope"])
+        if settings["scope"]["segments"]
+        else {}
+    )
 
     tasks_written: dict[str, str] = {}
     if out_dir:
@@ -828,6 +867,7 @@ def crawl_site(
         "limitations": result.limitations,
         "link_position": link_position,
         "summary": audit["summary"],
+        "segments": audit["segments"],
         "checks_skipped": len(audit["run"].get("checks_skipped", [])),
         "out_dir": out_dir,
         # See the matching keys in audit["run"] for why these are surfaced twice: a caller
