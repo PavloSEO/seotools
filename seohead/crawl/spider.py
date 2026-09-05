@@ -39,12 +39,11 @@ from seohead.crawl.collect import (
     _write,
     fetch_one,
 )
-from seohead.crawl.settings import resolve_credential_headers
+from seohead.crawl.settings import checked_url_budget, resolve_credential_headers
 from seohead.crawl.throttle import MAX_CONCURRENCY_CEILING, MAX_DELAY_S, Throttle
 from seohead.recon.net import UA, http_client, normalize_url, registrable_domain
 from seohead.tools.robots import crawl_delay, is_allowed, match_path, parse_robots
 
-MAX_URLS_CEILING = 10_000
 MAX_DEPTH_CEILING = 20
 ROBOTS_TOKEN = "SEOHEAD-Tools"
 EMPTY_ROBOTS = {"allow": [], "disallow": [], "groups": [], "crawl_delay": None}
@@ -590,7 +589,7 @@ def crawl_site(
     if not start or not host or " " in host or "." not in host:
         raise ValueError(f"not a crawlable URL: {start_url!r}")
     rules = scope if isinstance(scope, Scope) else Scope.from_config(scope)
-    limit = max(1, min(int(max_urls), MAX_URLS_CEILING))
+    limit = checked_url_budget(max_urls)
     depth_limit = max(0, min(int(max_depth), MAX_DEPTH_CEILING))
     max_concurrency = max(1, min(int(concurrency), MAX_CONCURRENCY_CEILING))
     if state_path:

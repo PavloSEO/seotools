@@ -27,7 +27,7 @@ from urllib.parse import urljoin, urlsplit
 import httpx
 
 from seohead.crawl.cache import ResponseCache
-from seohead.crawl.settings import resolve_credential_headers
+from seohead.crawl.settings import checked_url_budget, resolve_credential_headers
 from seohead.crawl.throttle import MAX_DELAY_S, Throttle
 from seohead.recon.net import UA, BlockedRedirectError, http_client, pinned_target, validate_url
 from seohead.tools.parser import parse_html
@@ -35,7 +35,6 @@ from seohead.tools.robots import is_allowed, match_path, parse_robots
 
 SCHEMA_VERSION = "crawl.v1"
 
-MAX_URLS_CEILING = 10_000
 MAX_RESPONSE_BYTES = 5 * 1024 * 1024
 DEFAULT_TIMEOUT_S = 15.0
 # Matches seohead.tools.redirects's own hop cap; a chain that has not landed by
@@ -685,7 +684,7 @@ def collect_urls(
     entirely (into ``robots_blocked`` instead); ``"report_only"`` fetches it
     anyway and only records that it would have been blocked.
     """
-    limit = max(1, min(int(max_urls), MAX_URLS_CEILING))
+    limit = checked_url_budget(max_urls)
     result = CrawlResult()
     throttle = Throttle(min_delay=min_delay, max_delay=max_delay_seconds, adaptive=adaptive)
     started = clock()
