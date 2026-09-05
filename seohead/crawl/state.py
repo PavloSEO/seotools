@@ -20,10 +20,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 # v2 adds forms and start_page_evidence (issue #188). v3 adds robots_blocked
-# (issue #349). A file from an older schema is rejected rather than read with
-# the new field empty: a resumed crawl that silently drops a finding it had
-# already produced is exactly the failure this bump prevents.
-SCHEMA_VERSION = "crawl_state.v3"
+# (issue #349). v4 adds accepted_seed_urls (issue #348 extension). A file from
+# an older schema is rejected rather than read with the new field empty: a
+# resumed crawl that silently drops a finding it had already produced is
+# exactly the failure this bump prevents.
+SCHEMA_VERSION = "crawl_state.v4"
 
 
 @dataclass
@@ -61,6 +62,14 @@ class CrawlState:
     # checkpoint, or the resumed audit silently loses BLOCKED_BY_ROBOTS
     # findings the uninterrupted crawl would have kept.
     robots_blocked: list[str] = field(default_factory=list)
+    # Sitemap (or other caller-supplied) seeds this crawl accepted into the
+    # frontier, across the whole logical crawl, not just this invocation
+    # (issue #348 extension). Without it, a resumed run re-evaluates an
+    # already-accepted seed against ``seen``, finds it already there, and
+    # skips appending it to ``result.seed_urls`` -- so a completed resumed
+    # audit reports fewer (or zero) sitemap-seeded URLs than the identical
+    # uninterrupted crawl, even though it fetched them.
+    accepted_seed_urls: list[str] = field(default_factory=list)
 
 
 def ensure_safe_dir(directory: str) -> None:
@@ -115,6 +124,7 @@ def load(path: str, start_url: str, config_fingerprint: str = "") -> tuple[Crawl
         forms = [dict(entry) for entry in raw.get("forms") or []]
         start_page_evidence = dict(raw.get("start_page_evidence") or {})
         robots_blocked = [str(u) for u in raw.get("robots_blocked") or []]
+        accepted_seed_urls = [str(u) for u in raw.get("accepted_seed_urls") or []]
     except (TypeError, ValueError, AttributeError):
         # AttributeError: excluded/query_budget present but not JSON objects
         # (e.g. a list), so ``.items()`` itself fails.
@@ -130,6 +140,7 @@ def load(path: str, start_url: str, config_fingerprint: str = "") -> tuple[Crawl
         forms=forms,
         start_page_evidence=start_page_evidence,
         robots_blocked=robots_blocked,
+        accepted_seed_urls=accepted_seed_urls,
     )
     return state, f"resuming from checkpoint: {len(queue)} URL(s) queued, {len(seen)} seen"
 
@@ -148,6 +159,7 @@ def save(path: str, state: CrawlState) -> None:
         "forms": state.forms,
         "start_page_evidence": state.start_page_evidence,
         "robots_blocked": state.robots_blocked,
+        "accepted_seed_urls": state.accepted_seed_urls,
     }
     tmp_path = f"{path}.tmp"
     with open(tmp_path, "w", encoding="utf-8") as handle:

@@ -745,6 +745,12 @@ def crawl_site(
             # completed report-only audit needs every blocked URL ever seen,
             # not only ones fetched after this checkpoint.
             result.robots_blocked.extend(loaded_state.robots_blocked)
+            # Seeds already accepted before this checkpoint (issue #348
+            # extension). ``seen`` alone cannot answer "was this a seed": an
+            # accepted seed is added to ``seen`` too, so the loop below would
+            # otherwise find it already there and silently drop it from
+            # ``result.seed_urls`` on every resume.
+            result.seed_urls.extend(loaded_state.accepted_seed_urls)
         else:
             queue = deque([(start, 0)])
             seen = {_canonical_key(start)}
@@ -1138,6 +1144,7 @@ def crawl_site(
                         forms=[dataclasses.asdict(form) for form in result.forms],
                         start_page_evidence=dict(result.start_page_evidence),
                         robots_blocked=list(result.robots_blocked),
+                        accepted_seed_urls=list(result.seed_urls),
                     ),
                 )
 
