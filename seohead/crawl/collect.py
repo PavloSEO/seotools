@@ -76,6 +76,10 @@ class PageRecord:
     # seohead.sf.core.rules (charset/doctype/viewport/uses-text-compression) —
     # see seohead/sf/core/lighthouse.py for the correspondence.
     content_encoding: str = ""
+    # The page's own <meta http-equiv="refresh"> declaration, as written.
+    # Projected as SF's "Meta Refresh 1" so META_REFRESH_REDIRECT reaches the
+    # same verdict from a native crawl as from an export.
+    meta_refresh: str = ""
     charset: str = ""
     doctype: str = ""
     viewport: str = ""
@@ -226,6 +230,7 @@ def _record_from_parsed(parsed: dict) -> dict[str, Any]:
         "charset": _text_of(parsed.get("charset")),
         "doctype": _text_of(parsed.get("doctype")),
         "viewport": _text_of(parsed.get("viewport")),
+        "meta_refresh": _text_of(parsed.get("meta_refresh")),
         "title_outside_head": position.get("title_outside_head"),
         "meta_description_outside_head": position.get("meta_description_outside_head"),
         "canonical_outside_head": position.get("canonical_outside_head"),

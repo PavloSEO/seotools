@@ -164,6 +164,10 @@ class ParsedPage(_ParsedPageOptional):
     charset: str | None
     doctype: str | None
     viewport: str | None
+    # The <meta http-equiv="refresh"> content attribute exactly as written,
+    # "" when the page declares none -- the same fact SF's Meta Refresh 1
+    # column carries, so one check reads it whichever source produced it.
+    meta_refresh: str
     og: dict[str, str]
     twitter: dict[str, str]
     headings: dict[str, list[str]]

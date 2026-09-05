@@ -659,6 +659,11 @@ def check_content_quality(ctx: AuditContext) -> None:
         ctx.skip("GRAMMAR_ERRORS", "no Grammar Errors column (enable grammar-check in SF)")
 
 
+# The "url=" part of a meta refresh: its presence is what separates a redirect
+# from a timed reload of the same page.
+_REFRESH_TARGET_RE = re.compile(r"url\s*=", re.IGNORECASE)
+
+
 def check_directives_extra(ctx: AuditContext) -> None:
     for page in ctx.html_pages():
         rec = _rec(page)
@@ -678,11 +683,17 @@ def check_directives_extra(ctx: AuditContext) -> None:
                 target_url=page.url,
                 details={"directive": unavailable_after},
             )
-        if rec.get("meta_refresh"):
+        refresh = str(rec.get("meta_refresh") or "")
+        # A refresh that names no target reloads this same page; calling that a
+        # redirect is a wrong finding, and the fix text -- "replace it with a
+        # 301" -- is advice that would break the page. The check reads the same
+        # declaration whichever source supplied it, so this holds for a Screaming
+        # Frog export and a native crawl alike.
+        if refresh and _REFRESH_TARGET_RE.search(refresh):
             ctx.add(
                 "META_REFRESH_REDIRECT",
                 target_url=page.url,
-                details={"meta_refresh": rec.get("meta_refresh")},
+                details={"meta_refresh": refresh},
             )
 
 

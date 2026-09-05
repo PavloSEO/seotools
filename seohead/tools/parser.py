@@ -392,6 +392,31 @@ def _hreflang_tags(soup: BeautifulSoup) -> list[Any]:
     return out
 
 
+def meta_refresh_content(soup: BeautifulSoup) -> str:
+    """The first ``<meta http-equiv="refresh">``'s content attribute, as written.
+
+    ``extract_url_sources`` already finds this tag, but only to resolve the URL
+    inside it for link discovery -- the declaration itself was never surfaced, so
+    META_REFRESH_REDIRECT could read it from a Screaming Frog export and never
+    from a native crawl.
+
+    The raw content is kept rather than the parsed target, because that is what
+    SF's *Meta Refresh 1* column carries and the audit has to reach the same
+    verdict whichever source produced the evidence. A refresh inside a
+    ``<template>`` is inert and is not a declaration, the same rule
+    ``extract_url_sources`` applies a few lines below.
+    """
+    for meta in soup.find_all("meta"):
+        if _has_ancestor(meta, _INERT_LINK_CONTAINERS):
+            continue
+        equiv = meta.get("http-equiv") or ""
+        if isinstance(equiv, list):
+            equiv = " ".join(equiv)
+        if equiv.lower().strip() == "refresh":
+            return collapse_whitespace(cast("str | None", meta.get("content")) or "")
+    return ""
+
+
 def robots_directives(*values: str | None) -> set[str]:
     """Split robots directive strings into lowercase tokens, Google-effective only.
 
@@ -1103,6 +1128,7 @@ def parse_html(html: str, final_url: str, options: dict[str, Any] | None = None)
         result["charset"] = document_charset(html)
         result["doctype"] = document_doctype(html)
         result["viewport"] = _meta_content(soup, name="viewport")
+        result["meta_refresh"] = meta_refresh_content(soup)
     else:
         result["title"] = None
         result["meta_description"] = None
@@ -1112,6 +1138,7 @@ def parse_html(html: str, final_url: str, options: dict[str, Any] | None = None)
         result["charset"] = None
         result["doctype"] = None
         result["viewport"] = None
+        result["meta_refresh"] = ""
 
     if opts["canonical"]:
         canonical_tag = _canonical_tag(soup)
