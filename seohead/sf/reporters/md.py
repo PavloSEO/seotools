@@ -71,9 +71,22 @@ def write_markdown(result: AuditResult, path: str) -> str:
         w("> The findings below describe the failed run, not the state of the site.")
     else:
         w(f"**Health score: {s.get('health_score')} / 100**")
+        if s.get("health_score_basis"):
+            w("")
+            w(f"_{_esc(s['health_score_basis'])}_")
         if s.get("health_score_scope"):
             w("")
             w(f"_{_esc(s['health_score_scope'])}_")
+        coverage = s.get("check_coverage")
+        if coverage:
+            w("")
+            w(
+                f"- Checks: **{coverage.get('checks_fired', 0)} fired**, "
+                f"{coverage.get('checks_skipped', 0)} skipped, "
+                f"{coverage.get('checks_silent', 0)} silent, "
+                f"{coverage.get('checks_disabled', 0)} disabled "
+                f"(of {coverage.get('checks_total', 0)} total)"
+            )
     w("")
     totals = s.get("totals", {})
     w(
@@ -144,27 +157,30 @@ def write_markdown(result: AuditResult, path: str) -> str:
         _render_sitemap(w, s["sitemap"])
 
     # 7. appendix
-    skipped = run.get("checks_skipped", [])
+    # Read from the authoritative dataclass lists on the result, not from
+    # ``run`` — those keys only exist in the mapping that AuditResult.to_json()
+    # builds for JSON serialization, and this renderer never sees that copy.
+    skipped = result.skipped
     if skipped:
         w("## Appendix: skipped checks")
         w("")
         w("| Check | Reason |")
         w("|---|---|")
         for sk in skipped:
-            w(f"| `{sk['id']}` | {_esc(sk['reason'])} |")
+            w(f"| `{sk.id}` | {_esc(sk.reason)} |")
         w("")
 
     # A disabled check is an operator's own choice, not missing evidence, but
     # it must still be visible here rather than passing as a clean result
     # (issue #177).
-    disabled = run.get("checks_disabled", [])
+    disabled = result.disabled
     if disabled:
         w("## Appendix: disabled checks")
         w("")
         w("| Check |")
         w("|---|")
         for d in disabled:
-            w(f"| `{d['id']}` |")
+            w(f"| `{d.id}` |")
         w("")
 
     text = "\n".join(lines) + "\n"

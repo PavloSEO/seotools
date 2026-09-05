@@ -406,6 +406,128 @@ def test_circuit_breaker_trip_point_is_stable_regardless_of_thread_scheduling():
             assert len(result.pages) == baseline
 
 
+def test_breaker_trip_merges_later_completions_from_the_same_batch(tmp_path):
+    """#304: ordered consumption stops at the URL that trips the breaker, but
+    later URLs in the same batch run concurrently and may already have a
+    response by then. Those completions must be recorded and dropped from the
+    checkpoint, not requeued as if they were never dispatched — a genuinely
+    unresolved URL in the same batch must still be requeued as before.
+
+    p1-p4 fail first to build the streak to one short of the trip threshold.
+    p5-p8 land in the next batch: p5 waits for p6 and p7 to be dispatched,
+    releases them, waits for both to finish, then raises the fifth timeout
+    that trips the breaker. p8 sleeps past the point where the breaker result
+    is consumed, so it is still running (never completed) when this batch's
+    remainder is sorted into "keep" versus "requeue".
+    """
+    targets = [f"/p{i}" for i in range(1, 9)]
+    site = {
+        "https://example.com/robots.txt": FakeResponse(
+            "User-agent: *\n", headers={"content-type": "text/plain"}
+        ),
+        "https://example.com/": page(*targets),
+    }
+
+    p6_started = threading.Event()
+    p7_started = threading.Event()
+    release_successes = threading.Event()
+    p6_finished = threading.Event()
+    p7_finished = threading.Event()
+
+    def fetch(url: str):
+        if url == "https://example.com/p6":
+            p6_started.set()
+            assert release_successes.wait(2), "p5 never released p6"
+            p6_finished.set()
+            return page()
+        if url == "https://example.com/p7":
+            p7_started.set()
+            assert release_successes.wait(2), "p5 never released p7"
+            p7_finished.set()
+            return page()
+        if url == "https://example.com/p5":
+            assert p6_started.wait(2), "p6 was not dispatched alongside p5"
+            assert p7_started.wait(2), "p7 was not dispatched alongside p5"
+            release_successes.set()
+            assert p6_finished.wait(2), "p6 did not finish before p5"
+            assert p7_finished.wait(2), "p7 did not finish before p5"
+            # The events above only mark that p6/p7's own function bodies are
+            # done; the executor still has to record each future's result on
+            # its own thread. A short pause closes that window so both
+            # futures are reliably `.done()` by the time this raise lets the
+            # main thread consume p5's own (ordered) result.
+            time.sleep(0.05)
+            raise TimeoutError("synthetic fifth timeout")
+        if url == "https://example.com/p8":
+            time.sleep(0.5)
+            return page()
+        # p1-p4: fail immediately, no synchronization needed.
+        return site.get(url, TimeoutError("read timed out"))
+
+    def wrapped(url: str):
+        value = fetch(url)
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+    state_path = str(tmp_path / "state.json")
+    result = crawl_site(
+        "https://example.com/",
+        fetcher=wrapped,
+        sleeper=lambda _s: None,
+        min_delay=0,
+        max_urls=50,
+        concurrency=4,
+        adaptive=False,
+        state_path=state_path,
+    )
+
+    assert result.finish_reason == "errors"
+    recorded = {p.url for p in result.pages}
+    assert p6_finished.is_set() and p7_finished.is_set()
+
+    # The positive control: p6 and p7 finished before the breaker's own
+    # result was consumed, so they must be recorded, not requeued.
+    assert "https://example.com/p6" in recorded
+    assert "https://example.com/p7" in recorded
+
+    with open(state_path, encoding="utf-8") as fh:
+        saved = json.load(fh)
+    queued = {u for u, _d in saved["queue"]}
+
+    assert "https://example.com/p6" not in queued
+    assert "https://example.com/p7" not in queued
+
+    # The negative control: p8 never finished by the time the batch's
+    # remainder was sorted, so it must stay on the checkpointed frontier
+    # rather than being silently treated as recorded.
+    assert "https://example.com/p8" not in recorded
+    assert "https://example.com/p8" in queued
+
+    # Resuming must not repeat the two requests that already completed.
+    hits: list[str] = []
+
+    def resumed_fetch(url: str):
+        hits.append(url)
+        return page()
+
+    resumed = crawl_site(
+        "https://example.com/",
+        fetcher=resumed_fetch,
+        sleeper=lambda _s: None,
+        min_delay=0,
+        max_urls=50,
+        concurrency=4,
+        adaptive=False,
+        state_path=state_path,
+    )
+    assert resumed.resumed is True
+    assert resumed.finish_reason == "finished"
+    assert "https://example.com/p6" not in hits
+    assert "https://example.com/p7" not in hits
+    assert "https://example.com/p8" in hits
+
+
 def test_the_url_budget_is_exact_under_concurrency():
     site, _ = _fanned_out_site(20)
     result = crawl_site(

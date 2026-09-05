@@ -128,6 +128,7 @@ def _parse_sitemap_bytes(
     failures: list[str] | None = None,
     documents: list[dict[str, Any]] | None = None,
     source: str = "",
+    truncated: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Return [{loc, lastmod}], recursing through <sitemapindex> with guards.
 
@@ -135,6 +136,12 @@ def _parse_sitemap_bytes(
     caller can report a partial parse instead of silently undercounting) — a document that
     came back 200 with an unescaped ``&`` or a stray DOCTYPE is not the same fact as "no
     sitemap exists here", and reporting it as one is worse than naming the failure (#146).
+
+    ``truncated`` is the distinct case of the depth guard below: the index that hit
+    ``MAX_SITEMAP_DEPTH`` fetched and parsed cleanly, it simply was not followed any
+    deeper. That is neither "no sitemap exists" nor "this document is broken" — it is
+    incomplete evidence of a different shape, and conflating it with either of the other
+    two used to report a deeply-nested index as a fetched, genuinely empty sitemap (#312).
 
     This uses ``defusedxml``'s strict, non-recovering parser rather than the lenient,
     ``recover=True`` lxml parser ``seohead/tools/sitemap.py`` uses for the same document
@@ -168,6 +175,8 @@ def _parse_sitemap_bytes(
     out: list[dict[str, Any]] = []
     if tag == "sitemapindex":
         if depth >= MAX_SITEMAP_DEPTH:
+            if truncated is not None and source:
+                truncated.append(source)
             return []
         for sm in root.findall("sm:sitemap", _NS) or root.findall("sitemap"):
             loc = sm.findtext("sm:loc", namespaces=_NS) or sm.findtext("loc")
@@ -191,6 +200,7 @@ def _parse_sitemap_bytes(
                         failures,
                         documents,
                         loc,
+                        truncated,
                     )
                 )
             elif failures is not None:
@@ -357,8 +367,26 @@ def _check_protocol_limits(
 # main entry
 # --------------------------------------------------------------------------
 def run_sitemap(
-    ctx: AuditContext, sitemap_url: str | None = None, compare_with_crawl: bool = True
+    ctx: AuditContext,
+    sitemap_url: str | None = None,
+    compare_with_crawl: bool = True,
+    sitemap_urls: list[str] | None = None,
+    crawl_partial: bool = False,
 ) -> dict[str, Any]:
+    """``sitemap_urls``, when given, is every discovered sitemap root the caller wants
+    audited (#311) -- auto-discovery can find more than one independent ``Sitemap:``
+    directive in robots.txt, and each is its own document with its own protocol-limit
+    and duplicate-URL evidence. ``sitemap_url`` alone (its first entry, by convention)
+    still selects the single-target behaviour an explicit ``--sitemap`` or an SF export
+    needs, so passing both is safe and the list wins when both are given.
+
+    ``crawl_partial`` tells this function the crawl that produced ``ctx.pages`` did not
+    reach the whole frontier -- a URL limit, a duration limit, an interruption. A
+    thresholded sitemap-versus-link-graph verdict (SITEMAP_DESYNC) is a claim about the
+    whole graph, and the unfetched remainder could still hold the very edges the verdict
+    depends on, so it is withheld by name rather than computed on an incomplete graph
+    (#362).
+    """
     summary: dict[str, Any] = {}
     cfg_live = ctx.config.get("live_recheck", {})
     ua = cfg_live.get(
@@ -371,7 +399,17 @@ def run_sitemap(
     _emit_from_export(ctx, "sitemap_non_200", "SITEMAP_URL_4XX_5XX")
     _emit_from_export(ctx, "sitemap_redirects", "SITEMAP_URL_3XX")
     _emit_from_export(ctx, "sitemap_non_indexable", "SITEMAP_URL_NON_INDEXABLE")
-    _emit_from_export(ctx, "sitemap_orphan", "SITEMAP_ORPHAN")
+    # Kept as its own list, not just a count: the summary below (#368) needs the
+    # declared orphan URLs themselves to tell a crawled-but-orphaned page apart
+    # from one Internal:All merely happened to include.
+    sf_orphans = _urls_from_export(ctx, "sitemap_orphan")
+    for orphan_url in sf_orphans:
+        ctx.add(
+            "SITEMAP_ORPHAN",
+            target_url=orphan_url,
+            details={"in_sitemap": True},
+            evidence={"export": ctx.exports.files.get("sitemap_orphan")},
+        )
     not_in = _urls_from_export(ctx, "sitemap_not_in")
     for url in not_in:
         ctx.add("URL_NOT_IN_SITEMAP", target_url=url)
@@ -381,9 +419,10 @@ def run_sitemap(
     sitemap_documents: list[dict[str, Any]] = []
     declared_in_robots: bool | None = None
     sitemaps_declared: list[str] = []
-    want_network = bool(sitemap_url) or cfg_live.get("enabled", False)
+    want_network = bool(sitemap_url) or bool(sitemap_urls) or cfg_live.get("enabled", False)
     base = _base_url(ctx)
     fetch_failures: list[str] = []
+    depth_truncated: list[str] = []
     # Whether a sitemap was actually pursued over the network, as opposed to merely
     # requested-but-unable (no base host) — the SITEMAP_DESYNC skip reason below needs this
     # to tell "nobody asked for a sitemap" apart from "one was fetched and came back unusable"
@@ -410,7 +449,18 @@ def run_sitemap(
                     target_url=_site_target(ctx, base),
                     details={"rules": blocked_res[:10]},
                 )
-        targets = [sitemap_url] if sitemap_url else (sitemaps_declared or [f"{base}/sitemap.xml"])
+        if sitemap_urls:
+            # Every discovered root, de-duplicated but order-preserved (#311) --
+            # auto-discovery may have found several independent ``Sitemap:``
+            # directives, and each is audited in full rather than only the first.
+            seen_targets: set[str] = set()
+            targets = [
+                t for t in sitemap_urls if t and not (t in seen_targets or seen_targets.add(t))
+            ]
+        elif sitemap_url:
+            targets = [sitemap_url]
+        else:
+            targets = sitemaps_declared or [f"{base}/sitemap.xml"]
         # SSRF allow-list: the base host plus the hosts of explicitly-given sitemaps.
         allowed_hosts = {_host(base)} | {_host(t) for t in targets if t}
         allowed_hosts.discard("")
@@ -428,16 +478,26 @@ def run_sitemap(
                         failures=fetch_failures,
                         documents=sitemap_documents,
                         source=sm_url,
+                        truncated=depth_truncated,
                     )
                 )
             else:
                 fetch_failures.append(sm_url)
-        if fetch_failures:
-            summary["sitemap_fetch_failures"] = fetch_failures[:20]
+        if fetch_failures or depth_truncated:
+            if fetch_failures:
+                summary["sitemap_fetch_failures"] = fetch_failures[:20]
+            if depth_truncated:
+                summary["sitemap_depth_truncated"] = depth_truncated[:20]
             ctx.add(
                 "SITEMAP_FETCH_INCOMPLETE",
                 target_url=base,
-                details={"failed_count": len(fetch_failures), "examples": fetch_failures[:10]},
+                details={
+                    "failed_count": len(fetch_failures),
+                    "examples": fetch_failures[:10],
+                    "depth_truncated_count": len(depth_truncated),
+                    "depth_truncated_examples": depth_truncated[:10],
+                    "max_depth": MAX_SITEMAP_DEPTH,
+                },
             )
     else:
         # No sitemap URL is known (no export, no explicit sitemap_url, live_recheck
@@ -469,6 +529,12 @@ def run_sitemap(
 
     # Prefer the richer source for the URL set / lastmod analysis.
     sitemap_locs = [e["loc"] for e in sitemap_entries] or sf_in
+    # True only when the URL set came from the SF export (``sitemap_in``) rather than a
+    # live fetch above -- the distinction #368's summary fix below needs: a native/live
+    # fetch's ``ctx.pages`` are the crawl's own link-followed pages, a reasonable proxy for
+    # "linked", but an SF export's Internal:All also contains pages Screaming Frog reached
+    # by requesting the sitemap directly, so presence there is not proof of an internal link.
+    using_export_sitemap = bool(sf_in) and not sitemap_entries
 
     # --- 3. lastmod staleness -------------------------------------------
     lastmod_summary = _analyze_lastmod(ctx, sitemap_entries, base)
@@ -512,6 +578,15 @@ def run_sitemap(
         # is the cruder of the two. Skipping by name keeps the check accounted
         # for; it is not silently absent.
         ctx.skip("SITEMAP_DESYNC", "the caller reconciles the sitemap against its own crawl")
+    elif sitemap_keys and crawl_partial:
+        # A thresholded site-wide verdict is unprovable from a graph the crawl did not
+        # finish walking -- the unfetched frontier could hold exactly the pages that
+        # would flip either percentage below the warn threshold (#362).
+        ctx.skip(
+            "SITEMAP_DESYNC",
+            "crawl is partial: a sitemap-versus-link-graph verdict cannot be proven "
+            "when the crawl did not reach every URL",
+        )
     elif sitemap_keys:
         threshold = ctx.thresholds["sitemap_desync_pct_warn"]
         # direction 1: indexable pages crawled but missing from the sitemap
@@ -533,6 +608,16 @@ def run_sitemap(
             )
     elif not network_attempted:
         ctx.skip("SITEMAP_DESYNC", "no sitemap URL set (no export and network disabled)")
+    elif depth_truncated:
+        # Distinct from a fetch/parse failure (#312): every attempted document came back
+        # and parsed, but a nested index hit the depth cap before yielding a single URL,
+        # so the empty URL set here is incomplete evidence, not a genuinely empty sitemap.
+        ctx.skip(
+            "SITEMAP_DESYNC",
+            f"sitemap traversal hit the depth cap ({MAX_SITEMAP_DEPTH} levels) before "
+            f"{len(depth_truncated)} descendant document(s) were followed: "
+            f"{depth_truncated[:5]}",
+        )
     elif fetch_failures:
         # Network was enabled and every declared sitemap document was reached, but not one
         # of them yielded a usable URL set (fetch error, or a parse failure such as an
@@ -550,7 +635,8 @@ def run_sitemap(
     summary.update(
         {
             "declared_in_robots": declared_in_robots,
-            "sitemaps": sitemaps_declared or ([sitemap_url] if sitemap_url else []),
+            "sitemaps": sitemaps_declared
+            or (list(sitemap_urls) if sitemap_urls else ([sitemap_url] if sitemap_url else [])),
             "urls_in_sitemap": len(sitemap_keys),
             "urls_in_crawl_indexable": len(indexable_index),
             "in_sitemap_not_in_crawl": len(in_sitemap_not_crawl),
@@ -566,8 +652,39 @@ def run_sitemap(
         # which crawl mode produced the report. Full lists, not the capped
         # 20-item examples above — this is the first-class output, not a
         # threshold-gated issue detail.
-        summary["in_sitemap_and_linked"] = sorted(pages_index[k] for k in sitemap_keys & pages_keys)
-        summary["in_sitemap_not_linked"] = in_sitemap_not_crawl
+        if using_export_sitemap and ctx.exports.has("sitemap_orphan"):
+            # SF's own dedicated evidence for "no internal link reaches this" is the
+            # Orphan URLs export, not membership in Internal:All -- Internal:All only
+            # proves Screaming Frog crawled the URL, which it also does for a sitemap
+            # URL it reached by requesting the sitemap directly (#368). A declared URL
+            # absent from Internal:All entirely is still not-linked by construction (no
+            # link exists to a page nothing ever crawled) and remains separately named
+            # under in_sitemap_not_in_crawl below -- it is folded in here too, but that
+            # narrower fact is not lost, just not the only source for this broader list.
+            orphan_index = _normalized_index(sf_orphans)
+            not_linked_keys = (set(orphan_index) & sitemap_keys) | (sitemap_keys - pages_keys)
+            summary["in_sitemap_not_linked"] = sorted(
+                orphan_index.get(k, sitemap_index.get(k, k)) for k in not_linked_keys
+            )
+            summary["in_sitemap_and_linked"] = sorted(
+                pages_index[k] for k in (sitemap_keys & pages_keys) - not_linked_keys
+            )
+        elif using_export_sitemap:
+            # No Orphan URLs export was supplied: Internal:All membership alone is not
+            # proof an internal link reaches the page, so the navigation-reachability
+            # lists are named unavailable rather than filled with that guess. The
+            # crawl-presence facts this would otherwise borrow from are still reported,
+            # under their own honest names, a few lines above
+            # (in_sitemap_not_in_crawl / in_crawl_not_in_sitemap).
+            summary["in_sitemap_linked_unavailable"] = (
+                "no Sitemaps: Orphan URLs export; Internal: All presence is not proof "
+                "of an internal link"
+            )
+        else:
+            summary["in_sitemap_and_linked"] = sorted(
+                pages_index[k] for k in sitemap_keys & pages_keys
+            )
+            summary["in_sitemap_not_linked"] = in_sitemap_not_crawl
         summary["linked_not_in_sitemap"] = in_crawl_not_sitemap
     return summary
 

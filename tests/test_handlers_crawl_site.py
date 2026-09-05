@@ -575,6 +575,37 @@ def test_low_link_score_is_withheld_on_a_partial_native_crawl(monkeypatch):
     assert complete["summary"]["by_check"].get("LOW_LINK_SCORE") == 1
 
 
+def test_low_link_score_withholding_is_recorded_not_silent(tmp_path, monkeypatch):
+    """Absent from the findings is not the whole acceptance criterion: #246
+    requires the withheld check land in checks_skipped with a partial-graph
+    reason. ``aggregate._withhold_graph_wide_findings`` used to call
+    ``ctx.skip()`` on a check that had already fired -- ``skip()`` no-ops on
+    an id already in ``_fired_ids`` by design (see ``ctx.retract``'s own
+    docstring) -- so the finding vanished from ``issues`` but never reached
+    ``ctx.skipped`` either, reading as "silent" (never invoked) exactly like
+    a check nobody ran. That is indistinguishable from the very confusion
+    this withholding pass exists to prevent."""
+    monkeypatch.setattr(
+        spider_mod,
+        "crawl_site",
+        lambda *a, **kw: _partial_link_graph_result(partial=True, finish_reason="url_limit"),
+    )
+    handlers.crawl_site(url="https://example.test/", out_dir=str(tmp_path))
+    audit = json.loads((tmp_path / "audit.json").read_text())
+
+    skipped_ids = {s["id"] for s in audit["run"]["checks_skipped"]}
+    assert "LOW_LINK_SCORE" in skipped_ids, "withheld finding must be named in checks_skipped"
+    reason = next(
+        s["reason"] for s in audit["run"]["checks_skipped"] if s["id"] == "LOW_LINK_SCORE"
+    )
+    assert "partial" in reason
+
+    # Negative control: a check that never ran at all (never fired, never
+    # withheld) is the one category that legitimately reads as silent -- the
+    # bug's signature was LOW_LINK_SCORE joining that bucket by accident.
+    assert "LOW_LINK_SCORE" not in audit["summary"]["check_coverage"]["checks_silent_ids"]
+
+
 def test_inlink_boilerplate_only_is_withheld_on_a_partial_native_crawl(tmp_path, monkeypatch):
     """INLINK_BOILERPLATE_ONLY is a universal claim -- 'never linked from body
     content' -- computed by crawl_site itself rather than through
@@ -621,3 +652,111 @@ def test_inlink_boilerplate_only_is_withheld_on_a_partial_native_crawl(tmp_path,
     )
     complete_out = handlers.crawl_site(url=f"{base}/", config=str(config))
     assert complete_out["summary"]["by_check"].get("INLINK_BOILERPLATE_ONLY") == 1
+
+
+def test_a_native_crawl_writes_the_backlog_beside_its_audit(monkeypatch, tmp_path):
+    """A crawl done without Screaming Frog produced findings and no list of what to do
+    about them. build_tasks has always accepted an audit document and crawl_site has
+    always produced one; the two were simply never joined — the fourth instance in this
+    repository of a module written and left unreachable (#128, #154, #165, #226)."""
+    import json
+
+    import seohead.crawl.spider as spider_mod
+    from seohead.crawl.spider import SpiderResult
+
+    result = SpiderResult()
+    result.pages = [
+        PageRecord(url="https://example.com/", status_code=200, content_type="text/html")
+    ]
+    monkeypatch.setattr(spider_mod, "crawl_site", lambda *a, **kw: result)
+
+    out = tmp_path / "run"
+    handlers.crawl_site(url="https://example.com/", out_dir=str(out))
+
+    assert (out / "audit.json").is_file()
+    assert (out / "tasks.json").is_file(), "the backlog must land beside the audit"
+    assert (out / "tasks.md").is_file()
+
+    backlog = json.loads((out / "tasks.json").read_text(encoding="utf-8"))
+    assert backlog["source"], "the backlog names the run it came from"
+    assert "# Audit Tasks" in (out / "tasks.md").read_text(encoding="utf-8")
+
+
+def test_the_backlog_can_be_turned_off(monkeypatch, tmp_path):
+    """It is a written artefact, not a finding, so an operator who does not want the two
+    extra files can say so — and the audit is unaffected either way."""
+    import seohead.crawl.spider as spider_mod
+    from seohead.crawl.spider import SpiderResult
+
+    result = SpiderResult()
+    result.pages = [
+        PageRecord(url="https://example.com/", status_code=200, content_type="text/html")
+    ]
+    monkeypatch.setattr(spider_mod, "crawl_site", lambda *a, **kw: result)
+
+    config = tmp_path / "crawl.json"
+    config.write_text('{"output": {"write_tasks": false}}', encoding="utf-8")
+    out = tmp_path / "run"
+    handlers.crawl_site(url="https://example.com/", out_dir=str(out), config=str(config))
+
+    assert (out / "audit.json").is_file()
+    assert not (out / "tasks.json").exists()
+    assert not (out / "tasks.md").exists()
+
+
+def test_same_origin_blank_link_is_absent_from_unsafe_cross_origin_summary(monkeypatch, tmp_path):
+    """Issue #336: a same-origin target="_blank" link with no rel token is not a security
+    finding, so it must not reach summary.by_check for either CLI or MCP's shared handler."""
+    edge = LinkEdge(
+        source="https://example.test/",
+        destination="https://example.test/account",
+        anchor="account",
+        nofollow=False,
+        target="_blank",
+    )
+    monkeypatch.setattr(spider_mod, "crawl_site", lambda *a, **kw: SpiderResult(links=[edge]))
+
+    config = tmp_path / "crawl.json"
+    config.write_text(json.dumps({"link_attributes": {"capture": True}}), encoding="utf-8")
+
+    audit = handlers.crawl_site(url="https://example.test/", config=str(config))
+
+    assert audit["summary"]["by_check"].get("UNSAFE_CROSS_ORIGIN_LINK", 0) == 0
+
+
+def test_normal_spider_discovery_names_the_directive_policy(monkeypatch):
+    """Issue #332: the reference (docs/TOOL_REFERENCE.md) promises
+    ``discovery.directive_policy`` for crawl-site's own result, not only for list mode
+    -- a robots-blocked count with no stated policy is not self-explanatory."""
+
+    def fake(*args, **kwargs):
+        result = SpiderResult()
+        result.robots_blocked = ["https://example.com/private/"]
+        return result
+
+    monkeypatch.setattr(spider_mod, "crawl_site", fake)
+
+    out = handlers.crawl_site(url="https://example.com/", robots="report_only")
+
+    assert out["discovery"]["mode"] == "spider"
+    assert out["discovery"]["directive_policy"] == "report_only"
+    assert out["discovery"]["robots_blocked"] == 1
+
+
+def test_list_mode_directive_policy_still_matches_spider_mode(monkeypatch):
+    """Negative control: list mode already reported this field (the bug was the spider
+    branch omitting it) -- it must keep reporting the same value, unchanged."""
+    import seohead.crawl.collect as collect_mod
+
+    def fake_collect_urls(*args, **kwargs):
+        result = SpiderResult()
+        result.robots_blocked = ["https://example.com/private/"]
+        return result
+
+    monkeypatch.setattr(collect_mod, "collect_urls", fake_collect_urls)
+
+    out = handlers.crawl_site(urls=["https://example.com/"], robots="report_only")
+
+    assert out["discovery"]["mode"] == "list"
+    assert out["discovery"]["directive_policy"] == "report_only"
+    assert out["discovery"]["robots_blocked"] == 1

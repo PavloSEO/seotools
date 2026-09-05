@@ -95,6 +95,21 @@ def dataforseo_password() -> str:
     return read("dataforseo/password", "DATAFORSEO_PASSWORD")
 
 
+def dataforseo_ready() -> tuple[bool, dict[str, bool]]:
+    """Return DataForSEO readiness and its per-component status, without exposing secret values.
+
+    DataForSEO authenticates with HTTP Basic auth over login *and* password (see
+    ``DataForSEOClient._auth``); either one alone cannot authenticate a request. This is the
+    single readiness definition shared by provider wrappers and ``sources_doctor`` so the two
+    never drift back out of sync with what the client actually requires.
+    """
+    components = {
+        "login": available("dataforseo/login", "DATAFORSEO_LOGIN"),
+        "password": available("dataforseo/password", "DATAFORSEO_PASSWORD"),
+    }
+    return all(components.values()), components
+
+
 def gsc_access_token() -> str:
     """Search Console has no long-lived API key; this reads a short-lived OAuth2 bearer token.
 

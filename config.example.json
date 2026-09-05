@@ -5,11 +5,13 @@
       "/Applications/Screaming Frog SEO Spider.app/Contents/MacOS/ScreamingFrogSEOSpiderLauncher",
       "/Applications/Screaming Frog SEO Spider.app/Contents/MacOS/ScreamingFrogSEOSpiderCli",
       "/usr/bin/screamingfrogseospider",
+      "C:\\Program Files (x86)\\Screaming Frog SEO Spider\\ScreamingFrogSEOSpiderCli.exe",
       "C:\\Program Files\\Screaming Frog SEO Spider\\ScreamingFrogSEOSpiderCli.exe"
     ],
-    "seospiderconfig": "",
+    "seospiderconfig": "audit.seospiderconfig",
     "export_format": "csv",
-    "timeout_minutes": 30
+    "timeout_minutes": 30,
+    "expected_urls": 0
   },
   "profile": "full",
   "exports": {
@@ -21,7 +23,13 @@
       "Sitemaps:URLs In Sitemap",
       "Sitemaps:URLs Not In Sitemap",
       "Sitemaps:Orphan URLs",
-      "Sitemaps:Non-Indexable URLs In Sitemap"
+      "Sitemaps:Non-Indexable URLs In Sitemap",
+      "Page Titles:Multiple",
+      "Structured Data:Validation Errors",
+      "Structured Data:Validation Warnings",
+      "Security:Mixed Content",
+      "Images:Missing Alt Text",
+      "Images:Missing Size Attributes"
     ],
     "bulk": [
       "Response Codes:Client Error (4xx) Inlinks",
@@ -83,7 +91,14 @@
     "sitemap_lastmod_stale_days": 365,
     "sitemap_desync_pct_warn": 20,
     "templated_title_share": 0.6,
-    "bytes_per_word_x_median": 4.0
+    "bytes_per_word_x_median": 4.0,
+    "readability_flesch_min": 30,
+    "avg_words_per_sentence_max": 25,
+    "high_external_outlinks": 100,
+    "high_outlinks": 300,
+    "redirect_hop_cap": 20,
+    "link_score_low_ratio": 0.25,
+    "near_duplicate_similarity": 0.92
   },
   "requirements": {
     "require_canonical": true,
@@ -98,6 +113,28 @@
     "user_agent": "Mozilla/5.0 (compatible; SEOHEAD-Tools/3.0; +https://seohead.tech/seotools)",
     "max_urls": 5000,
     "timeout_s": 10
+  },
+  "tasks_pipeline": {
+    "include_severities": [
+      "critical",
+      "warning",
+      "notice"
+    ],
+    "group_by": "check",
+    "priority_map": {
+      "critical": "P1",
+      "warning": "P2",
+      "notice": "P3"
+    },
+    "effort_map": {
+      "critical": "high",
+      "warning": "medium",
+      "notice": "low"
+    },
+    "max_urls_per_task": 25,
+    "min_occurrences": 1,
+    "include_checks": [],
+    "exclude_checks": []
   },
   "checks": {},
   "severity_overrides": {},

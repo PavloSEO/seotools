@@ -75,6 +75,46 @@ def test_common_non_shell_info_strings_do_not_hide_the_command_after_them(tmp_pa
         )
 
 
+def test_apostrophe_in_comment_does_not_hide_the_command_after_it(tmp_path):
+    """Regression fixture for issue #388. ``_join_continuations`` used to count
+    quotes on the raw accumulated buffer, comments included, so a single
+    apostrophe in a ``# ...`` annotation between two commands left the quote
+    count odd forever and folded every later line of the block into one
+    buffer that no longer started with ``seohead``, hiding the second
+    command entirely."""
+    doc = (
+        "```bash\n"
+        "seohead parse --url https://example.com\n"
+        "# this comment's apostrophe should not hide what follows\n"
+        "seohead headers-check --url https://example.com\n"
+        "```\n"
+    )
+    root = _write_minimal_root(tmp_path, doc)
+    commands = extract_commands(root)
+    assert [c.raw for c in commands] == [
+        "seohead parse --url https://example.com",
+        "seohead headers-check --url https://example.com",
+    ]
+
+
+def test_genuine_multiline_quoted_argument_still_folds(tmp_path):
+    """Control for issue #388's fix: a real quoted JSON literal that wraps
+    across lines without a trailing backslash must still be recognised as one
+    logical command, not split by the comment-stripping change."""
+    doc = (
+        "```bash\n"
+        "seohead redirects-generate --input '{\n"
+        '"redirects": [{"from": "/a", "to": "/b"}]}\' --format nginx\n'
+        "```\n"
+    )
+    root = _write_minimal_root(tmp_path, doc)
+    commands = extract_commands(root)
+    assert [c.raw for c in commands] == [
+        "seohead redirects-generate --input "
+        '\'{\n"redirects": [{"from": "/a", "to": "/b"}]}\' --format nginx'
+    ]
+
+
 def test_real_documentation_extracts_at_least_the_pinned_floor():
     commands = extract_commands(ROOT)
     assert len(commands) >= MINIMUM_EXTRACTED_COMMANDS, (

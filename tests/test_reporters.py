@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -81,3 +82,91 @@ def test_md_escape_backslash_then_pipe():
     assert _esc(r"foo\bar") == r"foo\\bar"
     assert _esc("a|b") == r"a\|b"
     assert _esc(r"c\|d") == r"c\\\|d"
+
+
+def test_markdown_shows_score_basis_and_coverage_for_a_partial_run(result, tmp_path):
+    """Issue #353: a valid but incomplete audit must carry its qualification
+    (health_score_basis) and a coverage split next to the score, not just in
+    the JSON. The fixture-backed ``result`` fixture only supplies two of the
+    exports the full registry can use, so this is a real partial run."""
+    coverage = result.summary["check_coverage"]
+    assert coverage["checks_skipped"] > 0  # sanity: this run really is partial
+
+    path = write_markdown(result, str(tmp_path / "audit.md"))
+    text = Path(path).read_text(encoding="utf-8")
+
+    assert result.summary["health_score_basis"] in text
+    assert f"{coverage['checks_fired']} fired" in text
+    assert f"{coverage['checks_skipped']} skipped" in text
+    assert f"{coverage['checks_silent']} silent" in text
+    assert f"{coverage['checks_disabled']} disabled" in text
+
+
+def test_markdown_populates_skipped_and_disabled_appendices_from_the_result(result, tmp_path):
+    """Issue #353: the appendices must read AuditResult.skipped/.disabled
+    directly. Before the fix, the renderer read ``run["checks_skipped"]`` /
+    ``run["checks_disabled"]`` — keys that only exist on the copy built by
+    AuditResult.to_json(), never on the ``run`` mapping the renderer
+    actually holds — so the appendix rendered as if nothing were skipped."""
+    assert result.skipped  # sanity: this run has skipped checks to show
+
+    path = write_markdown(result, str(tmp_path / "audit.md"))
+    text = Path(path).read_text(encoding="utf-8")
+
+    assert "## Appendix: skipped checks" in text
+    first_skipped = result.skipped[0]
+    assert f"`{first_skipped.id}`" in text
+    assert first_skipped.reason in text
+    # Negative control: no disabled checks in this run, so that appendix
+    # must stay absent rather than printing an empty table.
+    assert "## Appendix: disabled checks" not in text
+
+
+def test_markdown_disabled_appendix_is_populated_when_a_check_is_turned_off(exports_dir, tmp_path):
+    from seohead.sf.config import load_config
+    from seohead.sf.core.audit import run_audit
+
+    config = load_config(None)
+    config.setdefault("checks", {})["BROKEN_INTERNAL_LINK"] = {"enabled": False}
+    disabled_result = run_audit(
+        input_mode="parse-exports",
+        exports_dir=exports_dir,
+        config=config,
+        log=lambda _: None,
+    )
+    assert disabled_result.disabled  # sanity: the switch actually disabled something
+
+    path = write_markdown(disabled_result, str(tmp_path / "audit.md"))
+    text = Path(path).read_text(encoding="utf-8")
+
+    assert "## Appendix: disabled checks" in text
+    assert "`BROKEN_INTERNAL_LINK`" in text
+
+
+def test_markdown_invalid_crawl_still_has_no_numeric_score(tmp_path):
+    """Issue #353's fourth acceptance criterion: an invalid crawl must keep
+    leading with its failure warning, with no numeric health score, even
+    after the score-basis/coverage line is added to the valid-run branch."""
+    import csv
+
+    from seohead.sf.config import load_config
+    from seohead.sf.core.aggregate import aggregate
+    from seohead.sf.core.context import AuditContext
+    from seohead.sf.core.loader import load_exports
+
+    path = tmp_path / "internal_all.csv"
+    with open(path, "w", encoding="utf-8-sig", newline="") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(["Address", "Content Type", "Status Code", "Status", "Indexability"])
+        writer.writerow(["https://example.com/", "", "0", "No Response", "Non-Indexable"])
+    ctx = AuditContext(load_exports(str(tmp_path)), load_config(None))
+    run = {"input_mode": "crawl", "generated_at": "2026-09-03T00:00:00Z", "project": "example"}
+    invalid_result = aggregate(ctx, run, {}, {})
+
+    out = tmp_path / "audit.md"
+    write_markdown(invalid_result, str(out))
+    md = out.read_text(encoding="utf-8")
+
+    assert "Crawl failed" in md
+    assert "Health score:" not in md
+    assert "checks_fired" not in md  # the coverage line only belongs to a valid run

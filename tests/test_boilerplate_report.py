@@ -25,6 +25,32 @@ def test_document_order_changes_the_boilerplate_hash():
     assert B.boilerplate_hash(ordered) != B.boilerplate_hash(reordered)
 
 
+def test_template_only_boilerplate_does_not_change_the_hash():
+    inert_footer = "<template><footer>Unreleased contact block</footer></template>"
+    assert B.boilerplate_hash(_GOOD_PAGE) == B.boilerplate_hash(
+        _GOOD_PAGE.replace("</body>", inert_footer + "</body>")
+    )
+
+
+def test_nested_template_content_does_not_create_a_minority_group():
+    def page(draft: str) -> str:
+        return (
+            "<html><body><header><nav>Same live menu"
+            f"<template><footer>{draft}</footer></template>"
+            "</nav></header><main>Article</main></body></html>"
+        )
+
+    report = B.boilerplate_consistency_report(
+        [
+            {"url": "https://example.test/a", "html": page("draft-a")},
+            {"url": "https://example.test/b", "html": page("draft-a")},
+            {"url": "https://example.test/c", "html": page("draft-b")},
+        ]
+    )
+
+    assert report["minority_groups"] == []
+
+
 def test_report_flags_exactly_the_page_with_the_truncated_footer():
     pages = [{"url": f"https://site.tld/p{i}", "html": _GOOD_PAGE} for i in range(1, 5)] + [
         {"url": "https://site.tld/old-legacy-page", "html": _BAD_PAGE}

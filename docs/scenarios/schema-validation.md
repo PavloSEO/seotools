@@ -96,8 +96,10 @@ The two layers, side by side, from one page:
 }
 ```
 
-That last finding is the common one. Correct, valid, eligible markup that produces nothing,
-because each block is an island. `linked_by_id: 0` says it in one number.
+That last finding is the common one. A disconnected top-level graph — `linked_by_id: 0` — is a
+local structural finding worth reviewing; it does not explain whether Google will show a rich
+result. Fixing the isolation with `@id` references is still worth doing, but do it as
+remediation of a structural finding, not as the diagnosis for a missing SERP feature.
 
 ## What it costs
 

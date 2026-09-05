@@ -4,7 +4,7 @@
 implementation, two faces: `seohead <command>` in the terminal and
 `seo_<command>` on the MCP server (`seohead mcp`). Five more `sf_*` tools cover
 the Screaming Frog crawl audit workflow specifically — see that section below
-and the generated [CHECKS.md](CHECKS.md) for the 138 checks it runs.
+and the generated [CHECKS.md](CHECKS.md) for the 139 checks it runs.
 
 This page is hand-written orientation: what each group is for, and the calling
 conventions shared across it. The generated [TOOL_REFERENCE.md](TOOL_REFERENCE.md)
@@ -76,8 +76,8 @@ because the rules could not be read, so the command never claims crawling is all
 | `citability-check` | How quotable a text is for an AI answer: direct answers, facts, structure. Fetching a URL scores the resolved content area's Markdown (nav/footer excluded), not the raw whole-document text |
 | `llms-txt-check` | Is there a `/llms.txt`, how useful it is to a model, is the brand mentioned |
 | `duplicate-check` | Near-duplicates via simhash + LSH: finds almost-identical texts in a large set without comparing all pairs; exact duplicates (by content hash) are reported separately and excluded from near-duplicate clusters. `--all-pages` also compares non-indexable items (default: indexable only) |
-| `markdown-extract` | Renders a page as Markdown in two scopes: `content_markdown` (boilerplate stripped, structure kept — worth diffing, scoring, or feeding to a model) and `full_markdown` (header/footer included, the input `boilerplate-report` hashes) |
-| `boilerplate-report` | Hashes header/nav/footer per page across a crawled corpus and reports minority template groups (fraction + sample URL), answering whether boilerplate is actually the same everywhere |
+| `markdown-extract` | Renders a page as Markdown in two scopes: `content_markdown` (boilerplate stripped, structure kept — worth diffing, scoring, or feeding to a model) and `full_markdown` (header/footer included, for reading — Markdown has already lost the tag structure `boilerplate-report` hashes, so it is not a valid input there) |
+| `boilerplate-report` | Hashes header/nav/footer *markup* per page across a crawled corpus and reports minority template groups (fraction + sample URL), answering whether boilerplate is actually the same everywhere; each page needs the original `html` or a precomputed `hash`, never Markdown |
 | `keywords-cluster` | Keyword clustering; the algorithm and parameters come via `--input` |
 | `render-check` | Raw HTML vs the rendered DOM + lab metrics. See the [js-render-check](../.claude/skills/js-render-check/SKILL.md) skill |
 
@@ -232,7 +232,7 @@ seohead sf tasks --json report/audit.json                            # backlog f
 Note: `sf tasks` takes the audit path via the required `--json` flag, not as
 a positional argument (`seohead/sf/cli.py`).
 
-**138 checks**: 12 critical, 63 warnings, 63 notices. Sources: SF exports,
+**139 checks**: 12 critical, 64 warnings, 63 notices. Sources: SF exports,
 derived metrics, inlink exports, the sitemap module, and heuristics.
 
 **Two modes.** A crawls by itself through the SF CLI (license required). B
@@ -272,7 +272,7 @@ seohead mcp        # stdio
 
 ## Where to go next
 - [TOOL_REFERENCE.md](TOOL_REFERENCE.md) — every tool's arguments, types, defaults, cost, and failure modes, generated from the MCP definitions
-- [CHECKS.md](CHECKS.md) — the 138 checks the SF crawl audit runs, generated from the registry
+- [CHECKS.md](CHECKS.md) — the 139 checks the SF crawl audit runs, generated from the registry
 - [ARCHITECTURE.md](ARCHITECTURE.md) — layers, invariants, where new code goes
 - [SKILLS.md](SKILLS.md) — which skill drives which tool
 - [DECISIONS.md](DECISIONS.md) — why it was decided this way and not another

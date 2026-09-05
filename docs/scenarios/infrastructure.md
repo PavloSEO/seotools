@@ -47,14 +47,21 @@ get either.
 seohead robots-check --url https://example.com
 ```
 
-**5. Whether the same site answers on more than one hostname.**
+**5. Whether this one origin consolidates to a single address.**
 
 ```bash
-seohead mirror-check --input '{"urls": ["https://example.com", "https://example.com/page"]}'
+seohead mirror-check --url https://example.com
 ```
 
-Two hostnames serving one site without a canonical between them is the oldest duplicate-content
-problem there is, and it never shows up in a single-host crawl.
+`mirror-check` takes one `url` (or `{"url": ...}` through `--input`) and derives every variant
+of *that* host itself — it does not compare two hostnames you supply. From the single origin it
+builds the bare/www × HTTP/HTTPS matrix, plus `/index.php`/`/index.html`, trailing-slash and
+case variants of the given path, and reports which ones 200 as live duplicates instead of
+redirecting to one canonical address. A bare host answering separately from its `www` twin,
+without a canonical between them, is the oldest duplicate-content problem there is, and it never
+shows up in a single-host crawl. Comparing two genuinely different hostnames (a staging donor
+domain against production, say) is not implemented — run `mirror-check` once per host and
+compare the results yourself.
 
 ## What comes out
 

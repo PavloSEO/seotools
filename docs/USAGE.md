@@ -148,3 +148,10 @@ the repo root): `thresholds`, `severity_overrides`,
 `checks.<ID>.enabled`, `tasks_pipeline`, plus the `sf_cli` block (path
 search list for the SF CLI). Numbers are not hardcoded in the source — a
 threshold is changed in config, not in code.
+
+`config.example.json` is a **complete template**, not a sparse override example: it lists
+every path `DEFAULT_CONFIG` (`seohead/sf/config.py`) currently defines, at that default's own
+value. `DEFAULT_CONFIG` stays the one semantic owner — the example is a projection of it,
+checked for parity by `tests/test_config_example_parity.py` — so copying the file and editing
+only what you mean to change is safe, and a config path added to the code without a matching
+line here fails that test rather than shipping a template that silently hides a control.

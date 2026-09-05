@@ -14,6 +14,12 @@ audit" into a silent report of last week's site. This module refuses that defaul
 - Otherwise the freshness lifetime is ``max-age`` when present, else computed from
   ``Expires`` against the response's own ``Date`` (or treated as already stale if ``Date`` is
   missing, since ``Expires`` cannot be anchored without it).
+- Freshness is judged against the *corrected initial age* (RFC 9111 4.2.3), not against how
+  long this cache has held the response. A response arriving through an intermediary that
+  already reports ``Age`` — or whose own ``Date`` shows it was already old on arrival — starts
+  its local freshness window partway spent, never restarted at zero just because SEOHEAD is the
+  one receiving it now. An invalid or negative ``Age`` is ignored, never used to shrink the
+  computed age (see ``corrected_initial_age``).
 - No freshness information at all -> stored, but immediately stale. This is the conservative
   reading of "unstated": a page that never says how long it is good for gets treated as good
   for zero seconds, not as good forever.
@@ -99,7 +105,16 @@ from seohead.crawl.state import ensure_safe_dir
 # missing field would have been silently read as a fabricated value (size 0); here a
 # schema-shaped-the-same entry simply fails the (now stricter) match and gets re-fetched, which
 # is a slower first run per stale entry, not an incorrect one — no bump earns its cost.
-SCHEMA_VERSION = "http_cache.v2"
+#
+# v3 (#352) added initial_age: the corrected initial age (RFC 9111 4.2.3) computed from the
+# response's own ``Age``/``Date`` at store time, kept separate from ``stored_at`` (local
+# receipt) so freshness is judged against ``initial_age + resident_time``, not resident time
+# alone. A v2 entry has no such field, and defaulting it to 0.0 would silently read every
+# pre-#352 disk entry as "just originated here" — exactly the bug this fix closes, just moved
+# from computation into deserialization. So, like v1, v2 entries are not read: ``_read`` already
+# discards anything whose ``schema_version`` does not match, which is a same-cost, slower-first-
+# fetch fallback, never a wrong hit.
+SCHEMA_VERSION = "http_cache.v3"
 DEFAULT_DIR = "~/.cache/seohead/http_cache"
 
 # Request headers folded into every entry's key regardless of what the origin names in Vary —
@@ -194,6 +209,61 @@ def freshness_lifetime(headers: dict[str, str]) -> tuple[float, bool]:
     return 0.0, False
 
 
+# RFC 9111 delta-seconds (used by ``Age``): ``1*DIGIT`` only — no sign, no decimal point, no
+# leading/trailing junk. A sign or a decimal already reads as "not a delta-seconds", so
+# ``"-5"`` and ``"5.0"`` are rejected the same way "banana" is, not parsed and then flipped.
+_MAX_DELTA_SECONDS = 2**31 - 1  # RFC 9111 section 5.1: cap rather than overflow.
+
+
+def _parse_delta_seconds(value: str) -> float | None:
+    """Parse one ``delta-seconds`` value (``Age``'s grammar), or ``None`` if invalid.
+
+    Section 5.1: a cache that cannot parse a field value as this grammar (or that produces a
+    value larger than can be represented) MUST ignore it — never invent a number from it, and
+    never let it shrink a corrected initial age below what ``Date`` alone would give.
+    """
+    value = value.strip()
+    if not value or not value.isascii() or not value.isdigit():
+        return None
+    digits = value.lstrip("0") or "0"
+    maximum = str(_MAX_DELTA_SECONDS)
+    if len(digits) > len(maximum) or (len(digits) == len(maximum) and digits > maximum):
+        return float(_MAX_DELTA_SECONDS)
+    return float(int(digits))
+
+
+def corrected_initial_age(headers: dict[str, str], receipt_time: float) -> float:
+    """RFC 9111 section 4.2.3's corrected initial age, without request/response round-trip
+    timing (this cache does not plumb the request's send time through to ``store``/``refresh``,
+    so ``response_delay`` is treated as 0 — the receipt instant stands in for both request_time
+    and response_time). That still yields the two signals the section is built from:
+
+    - ``apparent_age``: how much older the response's own ``Date`` says it already is than the
+      moment this cache received it — this is what catches a stale intermediary whose ``Age``
+      undersells the truth, or is missing outright.
+    - the sender's own ``Age`` value (ignored if syntactically invalid — see
+      ``_parse_delta_seconds``).
+
+    The corrected initial age is the larger of the two, per the RFC: never let a small or absent
+    ``Age`` undercut what ``Date`` already proves, and never let ``Date`` skew (clock drift
+    between this machine and the origin) undercut a larger stated ``Age``.
+    """
+    apparent_age = 0.0
+    date_hdr = headers.get("date")
+    if date_hdr:
+        with contextlib.suppress(ValueError, TypeError):
+            date_dt = parsedate_to_datetime(date_hdr)
+            if date_dt is not None:
+                apparent_age = max(0.0, receipt_time - date_dt.timestamp())
+    age_value = 0.0
+    age_hdr = headers.get("age")
+    if age_hdr is not None:
+        parsed = _parse_delta_seconds(age_hdr)
+        if parsed is not None:
+            age_value = parsed
+    return max(apparent_age, age_value)
+
+
 @dataclass
 class CacheEntry:
     """One stored representation of one URL."""
@@ -210,6 +280,10 @@ class CacheEntry:
     size_bytes: int = 0
     stored_at: float = 0.0
     max_age: float = 0.0
+    # Corrected initial age (RFC 9111 4.2.3) at the moment this cache received the response —
+    # see ``corrected_initial_age``. 0.0 for an origin-fresh response with no ``Age``/stale
+    # ``Date``; nonzero when the response arrived already partly aged (a shared proxy, a CDN).
+    initial_age: float = 0.0
 
     @property
     def etag(self) -> str:
@@ -220,7 +294,14 @@ class CacheEntry:
         return self.headers.get("last-modified", "")
 
     def is_fresh(self, now: float) -> bool:
-        return (now - self.stored_at) < self.max_age
+        """RFC 9111 4.2: fresh while ``freshness_lifetime > current_age``.
+
+        ``current_age`` is the age already on the response when this cache received it, plus
+        how long it has sat here since (the "resident time") — not just the resident time
+        alone, which is what let an already-stale upstream response look brand new.
+        """
+        current_age = self.initial_age + (now - self.stored_at)
+        return current_age < self.max_age
 
 
 @dataclass
@@ -293,6 +374,7 @@ class ResponseCache:
                 size_bytes=int(raw.get("size_bytes", 0)),
                 stored_at=float(raw.get("stored_at", 0.0)),
                 max_age=float(raw.get("max_age", 0.0)),
+                initial_age=float(raw.get("initial_age", 0.0)),
             )
         except (OSError, ValueError, KeyError, TypeError):
             return None
@@ -354,9 +436,11 @@ class ResponseCache:
         old_vary = {name.lower() for name in entry.vary_headers}
         vary_headers = [name.strip() for name in headers.get("vary", "").split(",") if name.strip()]
         new_vary = {name.lower() for name in vary_headers}
+        receipt_time = time.time()
         entry.headers = headers
-        entry.stored_at = time.time()
+        entry.stored_at = receipt_time
         entry.max_age = max_age
+        entry.initial_age = corrected_initial_age(headers, receipt_time)
         if headers.get("vary", "").strip() == "*" or new_vary != old_vary:
             # A new Vary selection needs request values that this entry did not record. Dropping
             # it is conservative: this revalidation still serves the confirmed body now, while
@@ -394,6 +478,7 @@ class ResponseCache:
         # actually recorded for matching also cover the crawler's own always-keyed headers, so
         # a later _match() sees User-Agent even when the origin never mentioned it.
         key_headers = {h.lower() for h in vary_headers} | set(CRAWLER_IDENTITY_HEADERS)
+        receipt_time = time.time()
         entry = CacheEntry(
             url=url,
             vary_headers=vary_headers,
@@ -402,8 +487,9 @@ class ResponseCache:
             headers=headers,
             body=body,
             size_bytes=size_bytes,
-            stored_at=time.time(),
+            stored_at=receipt_time,
             max_age=max_age,
+            initial_age=corrected_initial_age(headers, receipt_time),
         )
         self._write(entry)
         self._bump("stores")

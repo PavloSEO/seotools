@@ -161,6 +161,51 @@ def test_canonical_non_indexable_still_fires_when_no_variant_is_indexable(tmp_pa
     assert "https://blog.example.com/post" in fired.get("CANONICAL_NON_INDEXABLE", set())
 
 
+# #333: CANONICALISED / CANONICAL_NON_INDEXABLE must not be suppressed merely because
+# the source itself is already classified Non-Indexable/Canonicalised — that classification
+# is typically *caused by* the very canonical relationship the check exists to report.
+NONINDEX_TARGET = "https://blog.example.com/noindex-target"
+NONINDEX_SOURCE = "https://blog.example.com/source-to-noindex"
+
+
+def test_canonicalised_fires_even_when_the_source_is_already_marked_non_indexable(tmp_path):
+    rows = [
+        _row(
+            "https://blog.example.com/variant",
+            canonical="https://blog.example.com/preferred",
+            indexability="Non-Indexable",
+        ),
+        _row("https://blog.example.com/preferred"),
+    ]
+    fired = _fired(tmp_path, rows)
+    assert "https://blog.example.com/variant" in fired.get("CANONICALISED", set())
+
+
+def test_canonical_non_indexable_fires_even_when_the_source_is_already_canonicalised(tmp_path):
+    """A canonicalised source that points at a known non-indexable target must still
+    surface CANONICAL_NON_INDEXABLE — the buggy version suppressed both checks the moment
+    the source itself read Non-Indexable, hiding a real cross-canonical relationship."""
+    rows = [
+        _row(NONINDEX_TARGET, indexability="Non-Indexable", robots="noindex"),
+        _row(NONINDEX_SOURCE, canonical=NONINDEX_TARGET, indexability="Non-Indexable"),
+    ]
+    fired = _fired(tmp_path, rows)
+    assert NONINDEX_SOURCE in fired.get("CANONICALISED", set())
+    assert NONINDEX_SOURCE in fired.get("CANONICAL_NON_INDEXABLE", set())
+
+
+def test_canonical_missing_still_requires_an_indexable_source(tmp_path):
+    """Decoupling CANONICALISED/CANONICAL_NON_INDEXABLE from source indexability must not
+    also loosen CANONICAL_MISSING: a non-indexable page with no canonical stays silent."""
+    rows = [
+        _row("https://blog.example.com/noindex-no-canonical", indexability="Non-Indexable"),
+    ]
+    fired = _fired(tmp_path, rows)
+    assert "https://blog.example.com/noindex-no-canonical" not in fired.get(
+        "CANONICAL_MISSING", set()
+    )
+
+
 def test_a_canonical_chain_names_the_variant_that_answers(tmp_path):
     """The chain is rendered from the index too, so it must name the 200, not the 301."""
     rows = [

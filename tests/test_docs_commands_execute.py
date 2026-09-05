@@ -165,6 +165,10 @@ def test_documented_command_executes_or_at_least_still_parses(
     from seohead.cli import main as cli_main
 
     _seed_workdir(tmp_path, fixture_site)
+    if command.source.name == "robots-blocked.md":
+        (tmp_path / "config.json").write_text(
+            json.dumps({"robots": {"user_agent_token": "Googlebot"}}), encoding="utf-8"
+        )
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("SEOHEAD_ALLOW_PRIVATE_NETWORKS", "1")
     # A command with no explicit `echo ... |` payload still probes stdin for JSON

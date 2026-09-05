@@ -138,6 +138,10 @@ def analyze(url: str, results: list[dict[str, Any]], www_dns: dict[str, Any]) ->
     }
     finals = {v for v in origin_finals.values() if v}
     consolidated = len(finals) == 1
+    # Once origins converge, judge duplicates against the destination they
+    # actually converged on, not a hard-coded bare-https guess: a converged
+    # www-primary site must not be flagged against an origin nobody uses.
+    canonical_destination = next(iter(finals)) if consolidated else canon_https
 
     duplicates_200: list[str] = []
     downgrade: list[str] = []
@@ -151,7 +155,11 @@ def analyze(url: str, results: list[dict[str, Any]], www_dns: dict[str, Any]) ->
             dead.append({"variant": variant, "error": r.get("error")})
             continue
         answered_200_here = r.get("status") == 200 and not r.get("hops")
-        if r["group"] == "origin" and answered_200_here and _norm_final(r["url"]) != canon_https:
+        if (
+            r["group"] == "origin"
+            and answered_200_here
+            and _norm_final(r["url"]) != canonical_destination
+        ):
             duplicates_200.append(variant)  # this mirror remains independently accessible
         if r["group"] in ("index", "case") and answered_200_here:
             duplicates_200.append(variant)  # index or case variant returns a duplicate

@@ -1,5 +1,8 @@
 """Offline tests for the configurable content area (issue #19, part 1)."""
 
+import subprocess
+import sys
+
 from bs4 import BeautifulSoup
 
 from seohead.tools import content_area
@@ -35,6 +38,40 @@ def test_include_selector_wins_and_is_recorded():
     text = content_area.extract_area_text(root)
     assert "Widget" in text
     assert "Sign up now" not in text
+
+
+def test_template_candidates_never_win_visible_content_selection():
+    html = """<html><body>
+    <template><main id="draft">Unreleased draft</main></template>
+    <main id="published">Published guide</main>
+    </body></html>"""
+    soup = BeautifulSoup(html, features="lxml")
+
+    root, strategy = content_area.resolve_content_area(soup)
+    assert strategy == "auto_main"
+    assert content_area.extract_area_text(root) == "Published guide"
+
+    root, strategy = content_area.resolve_content_area(soup, {"include_selector": "main"})
+    assert strategy == "include_selector"
+    assert content_area.extract_area_text(root) == "Published guide"
+
+    root, strategy = content_area.resolve_content_area(soup, {"include_selector": "#draft"})
+    assert strategy == "fallback_default_body"
+    assert content_area.extract_area_text(root) == "Published guide"
+
+
+def test_content_area_direct_import_resolves_visible_candidates():
+    code = """from bs4 import BeautifulSoup
+from seohead.tools.content_area import extract_area_text, resolve_content_area
+soup = BeautifulSoup('<template><main>draft</main></template><main>live</main>', 'lxml')
+root, strategy = resolve_content_area(soup)
+assert strategy == 'auto_main'
+assert extract_area_text(root) == 'live'
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", code], check=False, capture_output=True, text=True
+    )
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_missing_selector_falls_back_and_says_so():

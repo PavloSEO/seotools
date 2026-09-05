@@ -184,6 +184,155 @@ def test_run_sitemap_reports_a_broken_sitemap_instead_of_claiming_none_was_set(
     assert "fetch/parse failed" in skipped["SITEMAP_DESYNC"]
 
 
+def test_depth_cap_reports_incomplete_evidence_not_a_fetched_empty_sitemap(monkeypatch, tmp_path):
+    """#312: a sitemap-index chain that reaches ``MAX_SITEMAP_DEPTH`` fetches and parses
+    every document cleanly -- it simply stops following children -- so the resulting empty
+    URL set must surface as truncated evidence (SITEMAP_FETCH_INCOMPLETE, a SITEMAP_DESYNC
+    skip that names the depth cap), never as "sitemap fetched but declared zero URLs"."""
+    ctx = _mini_ctx(tmp_path, ["https://example.com/"])
+    names = [f"https://example.com/{n}.xml" for n in range(7)]
+
+    def _index_doc(child):
+        return (
+            b'<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+            + f"<sitemap><loc>{child}</loc></sitemap>".encode()
+            + b"</sitemapindex>"
+        )
+
+    responses = {
+        "https://example.com/robots.txt": f"User-agent: *\nSitemap: {names[0]}\n".encode(),
+        **{names[n]: _index_doc(names[n + 1]) for n in range(6)},
+        names[6]: (
+            b'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+            b"<url><loc>https://example.com/page</loc></url></urlset>"
+        ),
+    }
+
+    def fake_fetch(url, ua, timeout, retries=2):
+        return responses.get(url)
+
+    monkeypatch.setattr(S, "_fetch", fake_fetch)
+    summary = S.run_sitemap(ctx, sitemap_url=names[0])
+
+    assert summary["urls_in_sitemap"] == 0
+    assert any(issue.check == "SITEMAP_FETCH_INCOMPLETE" for issue in ctx.issues), (
+        "a depth-truncated index must be named incomplete evidence, not silently empty"
+    )
+    skipped = {s.id: s.reason for s in ctx.skipped}
+    assert "SITEMAP_DESYNC" in skipped
+    assert skipped["SITEMAP_DESYNC"] != "sitemap fetched but declared zero URLs"
+    assert "depth cap" in skipped["SITEMAP_DESYNC"]
+
+
+def test_a_shallow_nested_index_is_unaffected_by_the_depth_guard(monkeypatch, tmp_path):
+    """Negative control for #312: a nested index that resolves well within the depth cap
+    keeps reporting real URLs and a real desync verdict -- the depth guard must not touch
+    a chain that never reaches it."""
+    ctx = _mini_ctx(tmp_path, ["https://example.com/page"])
+    root = "https://example.com/root.xml"
+    leaf = "https://example.com/leaf.xml"
+    responses = {
+        "https://example.com/robots.txt": f"User-agent: *\nSitemap: {root}\n".encode(),
+        root: (
+            b'<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+            + f"<sitemap><loc>{leaf}</loc></sitemap>".encode()
+            + b"</sitemapindex>"
+        ),
+        leaf: (
+            b'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+            b"<url><loc>https://example.com/page</loc></url></urlset>"
+        ),
+    }
+
+    def fake_fetch(url, ua, timeout, retries=2):
+        return responses.get(url)
+
+    monkeypatch.setattr(S, "_fetch", fake_fetch)
+    summary = S.run_sitemap(ctx, sitemap_url=root)
+
+    assert summary["urls_in_sitemap"] == 1
+    assert not any(issue.check == "SITEMAP_FETCH_INCOMPLETE" for issue in ctx.issues)
+    skipped = {s.id: s.reason for s in ctx.skipped}
+    assert "SITEMAP_DESYNC" not in skipped or "depth cap" not in skipped.get("SITEMAP_DESYNC", "")
+
+
+def test_a_genuinely_empty_urlset_still_reports_declared_zero(monkeypatch, tmp_path):
+    """Negative control for #312: a sitemap that fetches fine and truly declares zero
+    URLs (no index, no depth cap involved at all) keeps its original, honest reason."""
+    ctx = _mini_ctx(tmp_path, ["https://example.com/"])
+    empty = b'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>'
+
+    def fake_fetch(url, ua, timeout, retries=2):
+        if url == "https://example.com/robots.txt":
+            return b"User-agent: *\n"
+        if url == "https://example.com/sitemap.xml":
+            return empty
+        return None
+
+    monkeypatch.setattr(S, "_fetch", fake_fetch)
+    summary = S.run_sitemap(ctx, sitemap_url="https://example.com/sitemap.xml")
+
+    assert summary["urls_in_sitemap"] == 0
+    assert not any(issue.check == "SITEMAP_FETCH_INCOMPLETE" for issue in ctx.issues)
+    skipped = {s.id: s.reason for s in ctx.skipped}
+    assert skipped["SITEMAP_DESYNC"] == "sitemap fetched but declared zero URLs"
+
+
+def test_crawl_partial_withholds_sitemap_desync_as_a_named_skip(monkeypatch, tmp_path):
+    """#362: a thresholded sitemap-versus-crawl verdict from run_sitemap's own comparison
+    is unsound on a partial crawl -- the caller must be able to say so and get a named
+    skip instead of a fired finding."""
+    ctx = _mini_ctx(tmp_path, ["https://example.com/"])
+    sitemap_xml = (
+        b'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+        b"<url><loc>https://example.com/a</loc></url>"
+        b"<url><loc>https://example.com/b</loc></url>"
+        b"<url><loc>https://example.com/c</loc></url></urlset>"
+    )
+
+    def fake_fetch(url, ua, timeout, retries=2):
+        if url == "https://example.com/robots.txt":
+            return b"User-agent: *\nSitemap: https://example.com/sitemap.xml\n"
+        if url == "https://example.com/sitemap.xml":
+            return sitemap_xml
+        return None
+
+    monkeypatch.setattr(S, "_fetch", fake_fetch)
+    summary = S.run_sitemap(ctx, sitemap_url="https://example.com/sitemap.xml", crawl_partial=True)
+
+    assert summary["urls_in_sitemap"] == 3
+    assert not any(issue.check == "SITEMAP_DESYNC" for issue in ctx.issues)
+    skipped = {s.id: s.reason for s in ctx.skipped}
+    assert "SITEMAP_DESYNC" in skipped
+    assert "partial" in skipped["SITEMAP_DESYNC"]
+
+
+def test_a_complete_crawl_still_fires_sitemap_desync(monkeypatch, tmp_path):
+    """Negative control for #362: the identical fixture with ``crawl_partial=False``
+    (the default) still emits the finding -- withholding must be tied to partial state,
+    not the mere existence of the parameter."""
+    ctx = _mini_ctx(tmp_path, ["https://example.com/"])
+    sitemap_xml = (
+        b'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+        b"<url><loc>https://example.com/a</loc></url>"
+        b"<url><loc>https://example.com/b</loc></url>"
+        b"<url><loc>https://example.com/c</loc></url></urlset>"
+    )
+
+    def fake_fetch(url, ua, timeout, retries=2):
+        if url == "https://example.com/robots.txt":
+            return b"User-agent: *\nSitemap: https://example.com/sitemap.xml\n"
+        if url == "https://example.com/sitemap.xml":
+            return sitemap_xml
+        return None
+
+    monkeypatch.setattr(S, "_fetch", fake_fetch)
+    summary = S.run_sitemap(ctx, sitemap_url="https://example.com/sitemap.xml")
+
+    assert summary["urls_in_sitemap"] == 3
+    assert any(issue.check == "SITEMAP_DESYNC" for issue in ctx.issues)
+
+
 def test_stale_lastmod_names_the_crawled_home_page_not_a_bare_origin(monkeypatch, tmp_path):
     """#285: SITEMAP_STALE_LASTMOD used ``_base_url`` directly, a bare origin with no
     path -- it matches no row in pages.jsonl, so log-scan's findings_are_about_crawled_urls

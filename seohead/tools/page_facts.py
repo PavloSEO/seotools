@@ -204,6 +204,52 @@ def _microdata_prop(soup: BeautifulSoup, prop: str) -> str | None:
     return text or None
 
 
+# A sentinel distinct from ``None``: no Product scope can be resolved with
+# confidence, so price/rating microdata must not be read at all rather than
+# falling back to a page-wide search that could pick up an unrelated item.
+_AMBIGUOUS_SCOPE = object()
+
+
+def _top_level_itemscopes(soup: BeautifulSoup) -> list[Any]:
+    """Top-level ``itemscope`` elements: entities, not their nested properties.
+
+    ``aggregateRating`` is itself an ``itemscope`` nested inside a Product; it
+    must never be mistaken for a second competing entity.
+    """
+    out = []
+    for tag in soup.select("[itemscope]"):
+        if tag.find_parent(attrs={"itemscope": True}) is None:
+            out.append(tag)
+    return out
+
+
+def _primary_product_scope(soup: BeautifulSoup) -> Any:
+    """Find the single Microdata entity that facts like price/rating belong to.
+
+    Returns the element to search within, ``None`` when there is no competing
+    entity structure (legacy unscoped documents), or ``_AMBIGUOUS_SCOPE`` when
+    more than one candidate entity exists and none can be singled out — in
+    that case the caller must omit the fact rather than guess.
+    """
+    top_level = _top_level_itemscopes(soup)
+    product_scopes = [tag for tag in top_level if "Product" in (tag.get("itemtype") or "")]
+    if len(product_scopes) == 1:
+        return product_scopes[0]
+    if len(product_scopes) > 1:
+        h1 = soup.find("h1")
+        if h1 is not None:
+            containing = [s for s in product_scopes if h1 in s.find_all(True) or h1 is s]
+            if len(containing) == 1:
+                return containing[0]
+        return _AMBIGUOUS_SCOPE
+    # No typed Product scope. A single untyped/other-typed itemscope is still
+    # an unambiguous single entity and keeps the historical behaviour of
+    # markup that never declared an explicit ``itemtype``.
+    if len(top_level) == 1:
+        return top_level[0]
+    return None
+
+
 def _microdata_in_scope(soup: BeautifulSoup, scope_re: str, prop: str) -> str | None:
     """Read ``itemprop`` only inside an ``itemscope`` matching ``scope_re``.
 
@@ -264,10 +310,23 @@ def _organization(soup: BeautifulSoup, og: dict[str, str]) -> dict[str, Any]:
 _NON_PROSE = ("script", "style", "template", "noscript")
 
 
-def _price(soup: BeautifulSoup, text: str) -> dict[str, Any] | None:
-    """Extract a price from microdata, then heuristically from visible text."""
-    declared = _microdata_prop(soup, "price")
-    currency = _microdata_prop(soup, "priceCurrency")
+def _price(soup: BeautifulSoup, text: str, scope: Any) -> dict[str, Any] | None:
+    """Extract a price from microdata, then heuristically from visible text.
+
+    ``scope`` restricts the microdata read to the primary Product entity so a
+    related-item card elsewhere on the page is never mistaken for the target's
+    own price. See ``_primary_product_scope``.
+    """
+    if scope is _AMBIGUOUS_SCOPE:
+        # The visible-text fallback is page-wide too. With competing Product
+        # scopes, it has no safer ownership signal than the Microdata lookup,
+        # so returning a related card's price as a target fact would only turn
+        # an honest unknown into a different kind of guess.
+        return None
+    declared = currency = None
+    source = scope if scope is not None else soup
+    declared = _microdata_prop(source, "price")
+    currency = _microdata_prop(source, "priceCurrency")
     if declared:
         # Microdata states the currency in its own property, so the value is
         # usually a bare number: parse the amount when no marker accompanies it.
@@ -359,13 +418,21 @@ def _structure(soup: BeautifulSoup, breadcrumbs: list[dict[str, Any]] | None) ->
     }
 
 
-def _rating(soup: BeautifulSoup, text: str) -> dict[str, Any] | None:
-    """Extract a factual microdata rating or a heuristic ``4.5 out of 5`` match."""
-    val = _microdata_prop(soup, "ratingValue")
+def _rating(soup: BeautifulSoup, text: str, scope: Any) -> dict[str, Any] | None:
+    """Extract a factual microdata rating or a heuristic ``4.5 out of 5`` match.
+
+    ``scope`` restricts the microdata read to the primary Product entity, for
+    the same reason as ``_price``.
+    """
+    if scope is _AMBIGUOUS_SCOPE:
+        return None
+    source = scope if scope is not None else soup
+    val = _microdata_prop(source, "ratingValue")
     if val:
         return {
             "value": val,
-            "count": _microdata_prop(soup, "reviewCount") or _microdata_prop(soup, "ratingCount"),
+            "count": _microdata_prop(source, "reviewCount")
+            or _microdata_prop(source, "ratingCount"),
             "heuristic": False,
             "source": "microdata",
         }
@@ -409,6 +476,7 @@ def extract(html: str, url: str) -> dict[str, Any]:
     h1_list = base["headings"].get("h1") or []
     text = base["text"] or ""
     crumbs = _breadcrumbs(soup, doc_base)
+    product_scope = _primary_product_scope(soup)
 
     return {
         "url": url,
@@ -425,9 +493,9 @@ def extract(html: str, url: str) -> dict[str, Any]:
         "breadcrumbs": crumbs,
         "same_as": _same_as(soup, doc_base),
         "organization": _organization(soup, base["og"]),
-        "price": _price(soup, text),
+        "price": _price(soup, text, product_scope),
         "structure": _structure(soup, crumbs),
-        "rating": _rating(soup, text),
+        "rating": _rating(soup, text, product_scope),
         "existing_jsonld": base["jsonld"],
         "existing_types": _types_from_jsonld(base["jsonld"]),
     }

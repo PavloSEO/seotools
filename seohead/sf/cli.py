@@ -419,29 +419,47 @@ def main(argv: list[str] | None = None) -> int:
             except ValueError as error:
                 raise SystemExit(str(error)) from error
 
+            # rewrite_exports only understands CSV; an XLSX export behind the
+            # proxy would reach the analyzer full of 127.0.0.1 URLs (#217).
+            # Refuse before a single request goes out rather than produce a
+            # report that looks complete but points at a dead loopback port.
+            export_format = (load_config(args.config).get("sf_cli") or {}).get(
+                "export_format", "csv"
+            )
+            if str(export_format).strip().lower() != "csv":
+                raise SystemExit(
+                    f"--auth does not support sf_cli.export_format={export_format!r}: "
+                    "the loopback proxy's URL rewrite only covers CSV exports. "
+                    "Set sf_cli.export_format to csv, or drop --auth."
+                )
+
             auth_proxy = AuthProxy(source, user, password)
             proxy_base = auth_proxy.start()
             source = source.replace(auth_proxy.origin, proxy_base)
             cfg_overrides.setdefault("sf_cli", {})["_trusted_loopback_proxy"] = proxy_base
             log(f"[cli] protected site: crawling through local auth proxy {proxy_base}")
 
-        result = run_audit(
-            input_mode=input_mode,
-            source=source,
-            exports_dir=exports_dir,
-            config_path=args.config,
-            config_overrides=cfg_overrides or None,
-            sf_cli=args.sf_cli,
-            sitemap_url=args.sitemap,
-            profile=args.profile,
-            fetch_all_inlinks=args.fetch_all_inlinks or None,
-            live_recheck=args.live_recheck,
-            output_dir=os.path.join(args.out, "exports"),
-            url_rewrite=(auth_proxy.base_url, auth_proxy.origin) if auth_proxy else None,
-            log=log,
-        )
-        if auth_proxy:
-            auth_proxy.stop()
+        try:
+            result = run_audit(
+                input_mode=input_mode,
+                source=source,
+                exports_dir=exports_dir,
+                config_path=args.config,
+                config_overrides=cfg_overrides or None,
+                sf_cli=args.sf_cli,
+                sitemap_url=args.sitemap,
+                profile=args.profile,
+                fetch_all_inlinks=args.fetch_all_inlinks or None,
+                live_recheck=args.live_recheck,
+                output_dir=os.path.join(args.out, "exports"),
+                url_rewrite=(auth_proxy.base_url, auth_proxy.origin) if auth_proxy else None,
+                log=log,
+            )
+        finally:
+            # Bound to the crawl attempt, not the happy path: a failure here must
+            # not leave a credentialed proxy bound to a loopback port (#263).
+            if auth_proxy:
+                auth_proxy.stop()
     # The CLI converts any core failure into a concise user-facing error; verbose
     # mode still exposes the traceback for diagnosis.
     except Exception as err:

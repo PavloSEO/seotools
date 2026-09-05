@@ -275,7 +275,11 @@ def json_syntax_hint(text: str) -> str:
 
 
 def _flatten(
-    payload: Any, out: list[dict[str, Any]], path: str = "", contained: bool = False
+    payload: Any,
+    out: list[dict[str, Any]],
+    path: str = "",
+    contained: bool = False,
+    parent_key: str | None = None,
 ) -> None:
     """Flatten any JSON-LD payload while preserving each node's source path.
 
@@ -285,15 +289,20 @@ def _flatten(
     node is already connected to its parent by nesting; graph analysis must
     not also demand it carry an ``@id`` link, or ordinary anonymous markup
     reads as a disconnected island.
+
+    ``parent_key`` carries the enclosing node's identity (its ``@id``, or a
+    synthetic path-based key when it has none) so ``_graph_shape`` can union a
+    contained node with its parent even when several levels of anonymous
+    nesting sit between them and an ``@id`` further down.
     """
     if isinstance(payload, list):
         for i, item in enumerate(payload):
-            _flatten(item, out, f"{path}[{i}]", contained)
+            _flatten(item, out, f"{path}[{i}]", contained, parent_key)
         return
     if not isinstance(payload, dict):
         return
     if "@graph" in payload:
-        _flatten(payload["@graph"], out, f"{path}@graph", contained)
+        _flatten(payload["@graph"], out, f"{path}@graph", contained, parent_key)
         # An @graph wrapper may have properties, but it is not treated as an entity.
         return
     # A pure {"@id": ...} object is a reference, not an entity definition. Treating
@@ -301,13 +310,17 @@ def _flatten(
     if set(payload) <= {"@id"}:
         return
     node = dict(payload)
-    node["_path"] = path or "@root"
+    node_path = path or "@root"
+    node["_path"] = node_path
     node["_contained"] = contained
+    node_key = node.get("@id") or f"_path:{node_path}"
+    node["_key"] = node_key
+    node["_parent_key"] = parent_key if contained else None
     out.append(node)
     for key, value in payload.items():
         if key.startswith("@"):
             continue
-        _flatten(value, out, f"{path}.{key}" if path else key, True)
+        _flatten(value, out, f"{path}.{key}" if path else key, True, node_key)
 
 
 def _literal_ok(value: Any, ranges: list[str], vocab: dict[str, Any]) -> bool:
@@ -450,37 +463,76 @@ def _rich_results(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
-def _graph_shape(nodes: list[dict[str, Any]]) -> dict[str, Any]:
-    """Measure graph connectivity and identify entities with no ``@id`` connection.
+class _UnionFind:
+    """Minimal union-find over string keys, used to find connected components."""
 
-    Only top-level nodes are candidates for island status. A node reached by
-    descending into a parent's property (``_contained``) is already connected
-    by nesting; requiring it to *also* carry a redundant ``@id`` link would
-    call ordinary anonymous markup, such as an inline Offer inside a Product,
-    a disconnected island.
+    def __init__(self) -> None:
+        self._parent: dict[str, str] = {}
+
+    def add(self, x: str) -> None:
+        self._parent.setdefault(x, x)
+
+    def find(self, x: str) -> str:
+        self.add(x)
+        root = x
+        while self._parent[root] != root:
+            root = self._parent[root]
+        while self._parent[x] != root:
+            self._parent[x], x = root, self._parent[x]
+        return root
+
+    def union(self, a: str, b: str) -> None:
+        ra, rb = self.find(a), self.find(b)
+        if ra != rb:
+            self._parent[ra] = rb
+
+
+def _graph_shape(nodes: list[dict[str, Any]]) -> dict[str, Any]:
+    """Measure graph connectivity and identify entities disconnected from the rest.
+
+    An identity edge is drawn from a node to *any* property value that is a
+    node-object carrying an ``@id`` — a typed inline entity that reuses a
+    top-level identifier is linked exactly like a pure ``{"@id": ...}``
+    reference, since JSON-LD merges both forms by identity. A containment edge
+    also unions every node with its enclosing parent, so a node reached only
+    by descending through anonymous nesting (``_contained``) still carries the
+    identity edges found deeper inside it up to its top-level ancestor.
+
+    Islands are then top-level entities whose connected component contains no
+    other top-level entity — connectivity, not a redundant ``@id`` pointing
+    back at each of them individually. A lone entity, or a Product with a
+    nested Offer, has nothing to be disconnected from in the first place.
     """
     with_id = [n for n in nodes if n.get("@id")]
+    uf = _UnionFind()
     referenced: set[str] = set()
     for n in nodes:
-        for key, value in n.items():
-            if key.startswith("@") or key.startswith("_"):
+        key = n["_key"]
+        uf.add(key)
+        parent_key = n.get("_parent_key")
+        if parent_key:
+            uf.union(key, parent_key)
+        for prop, value in n.items():
+            if prop.startswith("@") or prop.startswith("_"):
                 continue
             for v in value if isinstance(value, list) else [value]:
-                if isinstance(v, dict) and "@id" in v and set(v) <= {"@id"}:
+                if isinstance(v, dict) and v.get("@id"):
                     referenced.add(v["@id"])
+                    uf.union(key, v["@id"])
+
     candidates = [n for n in nodes if not n.get("_contained")]
     # Island status only means something when two or more top-level entities
-    # exist to be connected in the first place; a lone entity, or a Product
-    # with a nested Offer, has nothing to be disconnected from.
-    islands = (
-        [
-            n.get("@id") or "/".join(_types_of(n)) or "?"
-            for n in candidates
-            if not n.get("@id") or n["@id"] not in referenced
-        ]
-        if len(candidates) > 1
-        else []
-    )
+    # exist to be connected in the first place.
+    islands: list[str] = []
+    if len(candidates) > 1:
+        components: dict[str, list[dict[str, Any]]] = {}
+        for n in candidates:
+            components.setdefault(uf.find(n["_key"]), []).append(n)
+        for members in components.values():
+            if len(members) == 1:
+                n = members[0]
+                islands.append(n.get("@id") or "/".join(_types_of(n)) or "?")
+
     return {
         "nodes": len(nodes),
         "with_id": len(with_id),

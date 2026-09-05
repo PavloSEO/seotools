@@ -242,7 +242,13 @@ def _sitemap_comparable_pages(result: Any, start_url: str) -> list[str]:
     * 2xx — a 404 or a redirect is not a page a sitemap should declare;
     * HTML by its own Content-Type — not an image, a PDF or a feed;
     * on the start URL's host — a sitemap may not declare someone else's domain;
-    * indexable — a noindex page (meta robots or X-Robots-Tag) is deliberately excluded.
+    * indexable — a noindex page (meta robots or X-Robots-Tag) is deliberately excluded,
+      and so is one this same crawl's own evidence marks ``robots_blocked`` (#316):
+      ``build_evidence()``'s ``_indexability()`` already projects a robots-blocked URL as
+      non-indexable, and a report-only robots policy still fetches and links the page, so
+      leaving it comparable here let one page be simultaneously non-indexable (BLOCKED_BY_ROBOTS)
+      and reported as an indexable page the sitemap forgot (URL_NOT_IN_SITEMAP) -- two
+      first-class projections of the same crawl contradicting each other.
 
     The 2xx+HTML re-check below looks like the gap ``AuditContext.html_pages`` had before
     issue #133 (it isn't calling that method), but ``result.pages`` here are
@@ -262,6 +268,8 @@ def _sitemap_comparable_pages(result: Any, start_url: str) -> list[str]:
     except Exception:
         host = ""
 
+    robots_blocked = set(getattr(result, "robots_blocked", None) or [])
+
     comparable: list[str] = []
     for page in getattr(result, "pages", []) or []:
         status = getattr(page, "status_code", None)
@@ -272,6 +280,8 @@ def _sitemap_comparable_pages(result: Any, start_url: str) -> list[str]:
         if host and urlsplit(page.url).netloc.lower() != host:
             continue
         if "noindex" in robots_directives(page.meta_robots, page.x_robots):
+            continue
+        if page.url in robots_blocked:
             continue
         comparable.append(page.url)
     return comparable
@@ -480,6 +490,9 @@ def crawl_site(
                 os.remove(pages_resume_path)
         discovery = {
             "mode": "spider",
+            # #332: named here too, matching list mode -- a robots-blocked count
+            # without the policy that produced it is not self-explanatory.
+            "directive_policy": settings["robots"]["policy"],
             "max_depth_reached": result.max_depth_reached,
             "links_seen": len(result.links),
             "excluded": result.excluded,
@@ -620,7 +633,9 @@ def crawl_site(
     measured = run_sitemap(
         ctx,
         sitemap_url=sitemap_seed["sitemap_url"],
+        sitemap_urls=sitemap_seed["sitemap_urls"],
         compare_with_crawl=not sitemap_seed["declared"],
+        crawl_partial=bool(getattr(result, "partial", False)),
     )
     # Only surfaced when something was actually measured. run_sitemap always
     # returns its keys, and a run with no sitemap at all would otherwise report
@@ -663,7 +678,19 @@ def crawl_site(
             1,
         )
         threshold = ctx.thresholds["sitemap_desync_pct_warn"]
-        if crawl_only_pct >= threshold or sitemap_only_pct >= threshold:
+        if getattr(result, "partial", False):
+            # A URL-limited or otherwise incomplete native crawl can still count sitemap
+            # URLs it never reached as "unlinked" -- but the unfetched frontier may hold
+            # exactly the link that would prove them linked, so a thresholded site-wide
+            # verdict from this graph is unsound (#362). The per-URL findings above
+            # (SITEMAP_ORPHAN, URL_NOT_IN_SITEMAP) still fire on what was actually
+            # observed; only the whole-graph percentage verdict is withheld.
+            ctx.skip(
+                "SITEMAP_DESYNC",
+                "crawl is partial: a sitemap-versus-link-graph verdict cannot be proven "
+                "when the crawl did not reach every URL",
+            )
+        elif crawl_only_pct >= threshold or sitemap_only_pct >= threshold:
             ctx.add(
                 "SITEMAP_DESYNC",
                 target_url=url,
@@ -765,12 +792,34 @@ def crawl_site(
         sitemap_summary,
     ).to_json()
 
+    tasks_written: dict[str, str] = {}
     if out_dir:
         with open(os.path.join(out_dir, "audit.json"), "w", encoding="utf-8") as fh:
             json.dump(audit, fh, ensure_ascii=False, indent=2)
+        if settings["output"]["write_tasks"]:
+            # build_tasks has always taken an audit document, and a native crawl
+            # has always produced one -- the two were simply never joined, so a
+            # crawl done without Screaming Frog produced findings and no list of
+            # what to do about them. Same pipeline `sf run --tasks` drives, over
+            # this crawl's own audit: no network, no second pass.
+            from seohead.sf.tasks import build_tasks, write_tasks
+
+            # None, not this crawl's own config: tasks_pipeline lives in the
+            # sf config (seohead/sf/config.py), a different document from the
+            # crawler settings, and passing the crawler's path here would fail
+            # on the first .get(). Defaults it is, until someone asks for the
+            # two to be joined.
+            backlog = build_tasks(audit, None)
+            json_path, md_path = write_tasks(
+                backlog,
+                os.path.join(out_dir, "tasks.json"),
+                os.path.join(out_dir, "tasks.md"),
+            )
+            tasks_written = {"tasks_json": json_path, "tasks_md": md_path}
 
     return {
         "urls_collected": len(result.pages),
+        "tasks": tasks_written,
         "partial": result.partial,
         "stopped_reason": result.stopped_reason,
         "finish_reason": result.finish_reason,
@@ -1348,10 +1397,14 @@ def serp_fetch(
         return {"ok": False, "error": str(exc)}
     except RuntimeError as exc:
         return {"ok": False, "error": str(exc)}
-    results = {
-        q: {"docs": v.get("docs", []), "error": v.get("error"), "status": v.get("status")}
-        for q, v in raw.items()
-    }
+    results = {}
+    for q, v in raw.items():
+        entry = {"docs": v.get("docs", []), "error": v.get("error"), "status": v.get("status")}
+        if v.get("operation_id") is not None:
+            entry["operation_id"] = v["operation_id"]
+        if v.get("http_status") is not None:
+            entry["http_status"] = v["http_status"]
+        results[q] = entry
     # A query is only ever absent here because its operation was billed and never finished
     # before the timeout: search_batch already gives every rejected or lost submission an
     # explicit entry above, so this is never a stand-in for "the provider said no".
@@ -1721,6 +1774,9 @@ def sources_doctor() -> dict[str, Any]:
         }
         for name, (path, env) in checks.items()
     }
+    dataforseo_ready, dataforseo_components = creds.dataforseo_ready()
+    sources["dataforseo"]["ready"] = dataforseo_ready
+    sources["dataforseo"]["components"] = dataforseo_components
     from seohead.data_sources import spend as spend_core
 
     return {"ok": True, "sources": sources, "spend_log": str(spend_core.log_path())}

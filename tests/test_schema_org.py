@@ -212,6 +212,54 @@ def test_nested_anonymous_offer_is_not_a_graph_island():
     assert not any("isolated blocks" in f or "island" in f.lower() for f in r["findings"])
 
 
+# Issue #326: a typed inline node-object that reuses a top-level @id is
+# connected by identity exactly like a pure {"@id": ...} reference, since
+# JSON-LD merges both forms by identifier. The prior direction-only check
+# (only a bare {"@id"} counted as an edge, and only inbound references were
+# tested) reported both this valid relationship and the ordinary pure-@id
+# case as islands.
+
+
+def test_typed_inline_node_reusing_a_top_level_id_is_not_an_island():
+    html = _ld(
+        '[{"@type":"WebPage","@id":"#page",'
+        '"publisher":{"@id":"#org","@type":"Organization","name":"Acme"}},'
+        '{"@type":"Organization","@id":"#org","name":"Acme"}]'
+    )
+    r = schema.check_schema(html=html)
+    g = r["graph"]
+    assert g["is_graph"] is True
+    assert g["islands"] == []
+    assert not any("isolated blocks" in f or "island" in f.lower() for f in r["findings"])
+
+
+def test_pure_id_reference_root_is_not_an_island():
+    # The referencing root (#page) must not be penalized for lacking an
+    # *inbound* reference: it is connected because it references #org.
+    html = _ld(
+        '[{"@type":"WebPage","@id":"#page","publisher":{"@id":"#org"}},'
+        '{"@type":"Organization","@id":"#org","name":"Acme"}]'
+    )
+    r = schema.check_schema(html=html)
+    g = r["graph"]
+    assert g["is_graph"] is True
+    assert g["islands"] == []
+
+
+def test_disconnected_typed_nodes_are_still_reported_as_islands():
+    # Control: two typed top-level entities with no @id relationship at all
+    # must still be flagged, so the fix must not blanket-suppress islands.
+    html = _ld(
+        '[{"@type":"WebPage","@id":"#page","name":"P"},'
+        '{"@type":"Organization","@id":"#org","name":"Acme"}]'
+    )
+    r = schema.check_schema(html=html)
+    g = r["graph"]
+    assert g["is_graph"] is False
+    assert set(g["islands"]) == {"#page", "#org"}
+    assert any("isolated blocks" in f for f in r["findings"])
+
+
 # ── Findings summary ────────────────────────────────────────────────────────
 
 

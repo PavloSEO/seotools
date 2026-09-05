@@ -12,7 +12,13 @@ import pickle
 from concurrent.futures import ThreadPoolExecutor
 
 from seohead.crawl import cache as http_cache
-from seohead.crawl.cache import CacheEntry, ResponseCache, freshness_lifetime
+from seohead.crawl.cache import (
+    SCHEMA_VERSION,
+    CacheEntry,
+    ResponseCache,
+    corrected_initial_age,
+    freshness_lifetime,
+)
 
 # ── freshness_lifetime: the stated policy, directly ─────────────────────────
 
@@ -58,6 +64,170 @@ def test_max_age_wins_over_expires_when_both_are_present():
     }
     max_age, _ = freshness_lifetime(headers)
     assert max_age == 10.0
+
+
+# ── #352: upstream Age must not restart freshness at local receipt ─────────
+
+
+def test_max_age_60_with_age_59_misses_after_two_seconds_with_no_validator(monkeypatch, tmp_path):
+    """The issue's own reproduction: a response already 59s old on arrival is stale after two
+    more local seconds (61 > 60), and with no validator that is a plain miss."""
+    now = 1_000_000.0
+    monkeypatch.setattr(http_cache.time, "time", lambda: now)
+    cache = ResponseCache(tmp_path, mode="live")
+    cache.store(
+        "https://example.test/",
+        {"User-Agent": "seohead"},
+        200,
+        {"cache-control": "max-age=60", "age": "59"},
+        "old body",
+    )
+    now += 2
+    outcome = cache.decide("https://example.test/", {"User-Agent": "seohead"})
+    assert outcome.status == "miss"
+
+
+def test_max_age_60_with_age_59_revalidates_after_two_seconds_with_an_etag(monkeypatch, tmp_path):
+    now = 1_000_000.0
+    monkeypatch.setattr(http_cache.time, "time", lambda: now)
+    cache = ResponseCache(tmp_path, mode="live")
+    cache.store(
+        "https://example.test/",
+        {"User-Agent": "seohead"},
+        200,
+        {"cache-control": "max-age=60", "age": "59", "etag": '"v1"'},
+        "old body",
+    )
+    now += 2
+    outcome = cache.decide("https://example.test/", {"User-Agent": "seohead"})
+    assert outcome.status == "revalidate"
+    assert outcome.conditional_headers["If-None-Match"] == '"v1"'
+
+
+def test_age_zero_preserves_normal_fresh_hit_behaviour(monkeypatch, tmp_path):
+    """The control case named in the issue: an explicit ``Age: 0`` must behave exactly like no
+    ``Age`` header at all — a fresh hit for the rest of the freshness window."""
+    now = 1_000_000.0
+    monkeypatch.setattr(http_cache.time, "time", lambda: now)
+    cache = ResponseCache(tmp_path, mode="live")
+    cache.store(
+        "https://example.test/",
+        {"User-Agent": "seohead"},
+        200,
+        {"cache-control": "max-age=60", "age": "0"},
+        "fresh body",
+    )
+    now += 2
+    outcome = cache.decide("https://example.test/", {"User-Agent": "seohead"})
+    assert outcome.status == "hit"
+    assert outcome.entry.body == "fresh body"
+
+
+def test_date_skew_makes_a_response_stale_even_though_its_stated_age_is_small():
+    """The RFC correction, not just ``max_age - age``: a response whose own ``Date`` is far in
+    the past (an origin/cache clock far behind, or a long transit through an intermediary that
+    did not update ``Age``) must be judged by the larger of "apparent age from Date" and the
+    stated ``Age`` — never by ``Age`` alone. A naive ``max_age - age`` reading of this exact
+    response would call it fresh (age=5 against max-age=800); the corrected initial age (~1000s,
+    from Date) says otherwise.
+    """
+    from email.utils import formatdate
+
+    receipt_time = 1_000_000.0
+    date_hdr = formatdate(receipt_time - 1000, usegmt=True)  # Date says: created 1000s ago
+    headers = {"date": date_hdr, "age": "5"}  # Age understates it
+    age = corrected_initial_age(headers, receipt_time)
+    assert age == 1000.0
+
+    max_age, _no_store = freshness_lifetime({"cache-control": "max-age=800"})
+    assert age >= max_age  # already stale on arrival, despite the small Age
+
+
+def test_date_skew_does_not_undercut_a_larger_stated_age():
+    """The same correction the other direction: a small apparent age from ``Date`` (clocks
+    roughly agree, or ``Date`` is absent) must not undercut a larger, validly-parsed ``Age`` —
+    the corrected initial age is the max of the two, not the min and not ``Date`` alone."""
+    receipt_time = 1_000_000.0
+    headers = {"age": "59"}  # no Date at all
+    assert corrected_initial_age(headers, receipt_time) == 59.0
+
+
+def test_invalid_age_values_are_ignored_and_never_lengthen_freshness(tmp_path):
+    """Section 5.1: a syntactically invalid ``Age`` must be ignored, not parsed into something
+    that shrinks the corrected initial age below what ``Date`` would otherwise say — and a
+    negative value must never be treated as "younger than fresh"."""
+    receipt_time = 1_000_000.0
+    for bad in ("-5", "not-a-number", "", "5.5", "  ", "+5", "²", "٩"):
+        assert corrected_initial_age({"age": bad}, receipt_time) == 0.0, bad
+
+    # And end to end: a bogus Age on an otherwise-fresh response must not make it look older
+    # than it is (that would be the unsafe direction) nor look artificially young forever — it
+    # simply falls back to ordinary max-age freshness, as if Age had never been sent.
+    cache = ResponseCache(tmp_path, mode="live")
+    cache.store(
+        "https://example.test/",
+        {"User-Agent": "seohead"},
+        200,
+        {"cache-control": "max-age=60", "age": "-30"},
+        "body",
+    )
+    outcome = cache.decide("https://example.test/", {"User-Agent": "seohead"})
+    assert outcome.status == "hit"
+
+
+def test_oversized_and_zero_padded_age_values_are_bounded_without_overflow():
+    """A large valid header must cap before ``int`` sees it, while leading
+    zeros still describe the same delta-seconds value."""
+    receipt_time = 1_000_000.0
+    assert corrected_initial_age({"age": "0" * 5_000 + "59"}, receipt_time) == 59.0
+    assert corrected_initial_age({"age": "9" * 5_000}, receipt_time) == float(2**31 - 1)
+
+
+def test_non_ascii_age_does_not_crash_cache_store(tmp_path):
+    """Malformed Latin-1 response bytes must be ignored at the public store boundary."""
+    cache = ResponseCache(tmp_path, mode="live")
+    cache.store(
+        "https://example.test/",
+        {"User-Agent": "seohead"},
+        200,
+        {"cache-control": "max-age=60", "age": "²"},
+        "body",
+    )
+    assert cache.decide("https://example.test/", {"User-Agent": "seohead"}).status == "hit"
+
+
+def test_a_legacy_v2_disk_entry_is_never_read_as_fresh(tmp_path):
+    """A v2 entry has no ``initial_age`` field. Defaulting a missing field to 0.0 during
+    deserialization would silently re-introduce exactly the bug #352 fixes — a pre-existing
+    disk entry treated as freshly originated here. Instead the schema-version bump this fix
+    makes means such an entry is not read as valid at all: it is a miss, same as a v1 entry
+    missing ``size_bytes`` before it."""
+    import hashlib
+    import json
+
+    cache = ResponseCache(tmp_path, mode="live")
+    url = "https://example.test/legacy"
+    digest = hashlib.sha256(url.encode("utf-8")).hexdigest()
+    family_dir = tmp_path / digest[:2] / digest
+    family_dir.mkdir(parents=True)
+    legacy_payload = {
+        "schema_version": "http_cache.v2",
+        "url": url,
+        "vary_headers": [],
+        "request_header_values": {"user-agent": "seohead"},
+        "status_code": 200,
+        "headers": {"cache-control": "max-age=3600"},
+        "body": "legacy body",
+        "size_bytes": 11,
+        "stored_at": 0.0,
+        "max_age": 3600.0,
+        # no initial_age at all
+    }
+    (family_dir / "variant.json").write_text(json.dumps(legacy_payload))
+
+    assert SCHEMA_VERSION != "http_cache.v2"
+    outcome = cache.decide(url, {"User-Agent": "seohead"})
+    assert outcome.status == "miss"
 
 
 # ── decide(): hit, revalidate, miss ─────────────────────────────────────────

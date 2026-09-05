@@ -55,6 +55,23 @@ def _rec(page: Page) -> dict[str, Any]:
     return page.metrics.get("_record", {})
 
 
+def _has_column(ctx: AuditContext, field: str) -> bool:
+    """Whether ``Internal:All`` carries the source column for ``field`` at all.
+
+    Same distinction as #205 (see check_titles): an absent column and a column
+    full of blanks both read back as ``None``/falsy per page, but they are
+    different facts — one means the run never measured this, the other that
+    every page genuinely fails. Only the column's presence, never a passing
+    value showing up somewhere in the corpus, may decide whether a check ran.
+    """
+    from .normalize import INTERNAL_FIELD_MAP, find_column
+
+    return (
+        ctx.internal_df is not None
+        and find_column(ctx.internal_df, INTERNAL_FIELD_MAP[field]) is not None
+    )
+
+
 def _path_of(url: str) -> str:
     # the path only — query/fragment must not leak into path-based checks
     return urllib.parse.urlsplit(url).path
@@ -286,22 +303,30 @@ def check_canonical_directives(ctx: AuditContext) -> None:
     for page in ctx.html_pages():
         rec = _rec(page)
         canonical = rec.get("canonical")
-        if page.is_indexable:
-            if require_canonical and not canonical:
-                ctx.add("CANONICAL_MISSING", target_url=page.url)
-            elif canonical and norm_url(canonical) != norm_url(page.url):
-                ctx.add("CANONICALISED", target_url=page.url, details={"canonical": canonical})
-                # Match the canonical target tolerant of trailing slash / case — and read
-                # every page under that key, since a site serving both slash forms has two
-                # (issue #95). "The canonical points at something non-indexable" is only true
-                # when no page under the key is indexable.
-                targets = ctx.pages_by_norm.get(norm_url(canonical)) or []
-                if targets and not any(t.is_indexable for t in targets):
-                    ctx.add(
-                        "CANONICAL_NON_INDEXABLE",
-                        target_url=page.url,
-                        details={"canonical": canonical},
-                    )
+        # CANONICAL_MISSING stays tied to source indexability: a non-indexable page (e.g.
+        # noindex'd, or itself already canonicalised elsewhere) is not expected to declare
+        # its own canonical.
+        if page.is_indexable and require_canonical and not canonical:
+            ctx.add("CANONICAL_MISSING", target_url=page.url)
+        # CANONICALISED / CANONICAL_NON_INDEXABLE evaluate independently of source
+        # indexability (#333). A fetched page's own Indexability/Indexability Status often
+        # already reads Non-Indexable/Canonicalised precisely *because* it carries this
+        # cross-URL canonical — gating on is_indexable made the check swallow the very
+        # relationship it exists to report, on both a native crawl's projection and an
+        # equivalently-shaped SF export.
+        if canonical and norm_url(canonical) != norm_url(page.url):
+            ctx.add("CANONICALISED", target_url=page.url, details={"canonical": canonical})
+            # Match the canonical target tolerant of trailing slash / case — and read
+            # every page under that key, since a site serving both slash forms has two
+            # (issue #95). "The canonical points at something non-indexable" is only true
+            # when no page under the key is indexable.
+            targets = ctx.pages_by_norm.get(norm_url(canonical)) or []
+            if targets and not any(t.is_indexable for t in targets):
+                ctx.add(
+                    "CANONICAL_NON_INDEXABLE",
+                    target_url=page.url,
+                    details={"canonical": canonical},
+                )
         robots = robots_directives(rec.get("meta_robots"), rec.get("x_robots"))
         if "noindex" in robots:
             ctx.add("NOINDEX", target_url=page.url, details={"meta_robots": rec.get("meta_robots")})
@@ -323,16 +348,55 @@ def check_canonical_directives(ctx: AuditContext) -> None:
 # 7.F — content: thin & near-duplicates (exact dupes handled in groups)
 # --------------------------------------------------------------------------
 def check_content(ctx: AuditContext) -> None:
+    from .normalize import INTERNAL_FIELD_MAP, find_column
+
     t = ctx.thresholds
+    # An absent frame inventory and a page that frames nothing both read as
+    # falsy off the record, and they are different facts. Only a native crawl
+    # produces these columns; a Screaming Frog export has no iframe data at all,
+    # and a silent CONTENT_IN_IFRAME there would let "nobody looked" render as
+    # "nothing framed" -- with a THIN_CONTENT finding standing beside it that
+    # nothing checked against the framing explanation (#360).
+    frames_known = ctx.internal_df is not None and (
+        find_column(ctx.internal_df, INTERNAL_FIELD_MAP["content_frames_same_origin"]) is not None
+    )
+    if not frames_known:
+        ctx.skip("CONTENT_IN_IFRAME", "no iframe inventory in this evidence")
     for page in ctx.indexable_html_pages():
         rec = _rec(page)
         wc = rec.get("word_count")
         if wc is not None and wc < t["thin_content_words"]:
-            ctx.add(
-                "THIN_CONTENT",
-                target_url=page.url,
-                details={"word_count": wc, "threshold": t["thin_content_words"]},
-            )
+            # A page can be below the threshold for two different reasons, and
+            # they need opposite advice. If its content area frames a document
+            # the site itself serves, the copy exists -- it is simply somewhere
+            # a search engine credits to the framed URL rather than this one.
+            # Reporting that page as thin names the wrong cause and asks the
+            # operator to write copy they have already written (#360). Only a
+            # same-origin frame counts: an embedded video or map is normal, and
+            # a check that fired on every YouTube embed would be ignored.
+            #
+            # Nothing special is needed for rendering.browser.flatten_iframes.
+            # It replaces the iframe element with the framed body before
+            # capture, so the evidence this reads has no frame left to count
+            # and a full word count besides -- neither finding fires.
+            framed = rec.get("content_frames_same_origin") if frames_known else None
+            if framed:
+                ctx.add(
+                    "CONTENT_IN_IFRAME",
+                    target_url=page.url,
+                    details={
+                        "word_count": wc,
+                        "threshold": t["thin_content_words"],
+                        "same_origin_frames_in_content_area": framed,
+                        "frames_in_content_area": rec.get("content_frames"),
+                    },
+                )
+            else:
+                ctx.add(
+                    "THIN_CONTENT",
+                    target_url=page.url,
+                    details={"word_count": wc, "threshold": t["thin_content_words"]},
+                )
         ratio = rec.get("text_ratio")
         if ratio is not None and ratio < t["low_text_ratio_pct"]:
             ctx.add(
@@ -758,14 +822,107 @@ def check_unlinked_canonical(ctx: AuditContext) -> None:
 
 
 def check_pagination(ctx: AuditContext) -> None:
+    """PAGINATION_NONINDEXABLE — a pagination page, or its declared neighbor, cannot be indexed.
+
+    Two independent sources feed the same finding: a page that itself declares
+    rel="next"/rel="prev" while being non-indexable (the original check), and a
+    rel="next"/rel="prev" *target* that the crawl reached and found non-2xx —
+    a 404/3xx/5xx page 2 is exactly as unreachable as a noindex one, even when
+    page 1 itself is perfectly indexable (issue #203). Only a target the crawl
+    actually captured is judged; an uncrawled URL named in the relation is
+    left alone, since nothing here knows its status.
+    """
+    reported: set[str] = set()
     for page in ctx.html_pages():
         rec = _rec(page)
         if (rec.get("rel_next") or rec.get("rel_prev")) and not page.is_indexable:
+            reported.add(page.url)
             ctx.add(
                 "PAGINATION_NONINDEXABLE",
                 target_url=page.url,
                 details={"indexability_status": page.indexability_status},
             )
+    for page in ctx.html_pages():
+        rec = _rec(page)
+        for relation in ("rel_next", "rel_prev"):
+            value = rec.get(relation)
+            if not value:
+                continue
+            target = ctx.page_by_norm.get(norm_url(value))
+            if target is None or target.url in reported:
+                continue  # not in the crawl — nothing here knows its status
+            if target.status_code is None:
+                # The row exists but its Status Code cell was blank or
+                # unparseable. "Nobody measured it" is not "it is broken": the
+                # same rule that forbids missing evidence reading as clean
+                # forbids it reading as a defect.
+                continue
+            if target.is_2xx and target.is_indexable:
+                continue
+            reported.add(target.url)
+            ctx.add(
+                "PAGINATION_NONINDEXABLE",
+                target_url=target.url,
+                details={
+                    "indexability_status": target.indexability_status,
+                    "status_code": target.status_code,
+                    "relation": relation.replace("rel_", 'rel="') + '"',
+                    "source_url": page.url,
+                },
+            )
+
+
+def pagination_loops(
+    next_map: dict[str, str],
+) -> tuple[list[tuple[str, list[str], str]], set[str]]:
+    """Every rel="next" cycle in a functional graph, visiting each node once.
+
+    Returns ``(loops, nodes_in_a_loop)``, where each loop is
+    ``(start, path, loops_back_to)``.
+
+    Module-level and pure so the property that matters can be tested directly:
+    the total number of nodes appended across all walks equals the number of
+    nodes in the graph. Bounding each walk by the graph's own size instead is
+    correct and quadratic -- for one terminating series of n pages, each of the
+    n nodes re-walks the rest of the tail. Measured before this shape:
+    4 000 / 8 000 / 16 000 pages in a single series took 0.58 s / 2.13 s / 8.29 s,
+    against 0.16 / 0.30 / 0.65 after. A news or catalogue site with thousands of
+    pages in one series is the ordinary case, not the pathological one.
+    """
+    walked: set[str] = set()
+    in_loop: set[str] = set()
+    loops: list[tuple[str, list[str], str]] = []
+    for start in next_map:
+        if start in walked:
+            continue
+        path, loops_to = series_from(next_map, start)
+        walked.update(path)
+        if loops_to is None:
+            continue
+        in_loop.update(path)
+        loops.append((start, path, loops_to))
+    return loops, in_loop
+
+
+def series_from(next_map: dict[str, str], start: str) -> tuple[list[str], str | None]:
+    """The forward rel="next" chain from ``start``, and the node it loops back to.
+
+    Terminates without a hop cap: the graph is functional -- one outgoing edge
+    per node -- so a walk either runs out of edges or revisits a node already in
+    its own path, and it cannot be longer than the number of distinct nodes.
+    """
+    path = [start]
+    seen = {start}
+    cur = start
+    while True:
+        nxt = next_map.get(cur)
+        if nxt is None:
+            return path, None
+        if nxt in seen:
+            return path, nxt
+        path.append(nxt)
+        seen.add(nxt)
+        cur = nxt
 
 
 def check_pagination_series(ctx: AuditContext) -> None:
@@ -792,9 +949,11 @@ def check_pagination_series(ctx: AuditContext) -> None:
         ctx.skip("UNLINKED_PAGINATION_SERIES", 'no rel="next" column in Internal:All')
         return
 
-    hop_cap = ctx.thresholds.get("redirect_hop_cap", 20)
+    # No hop cap here: the configured redirect_hop_cap exists to bound *redirect*
+    # chains, which fan out across the whole site, and reusing it verbatim let a
+    # 21-page rel="next" cycle outrun a 20-hop default and read as clean (#204).
+    # series_from terminates on the graph's own structure instead.
     has_predecessor = set(next_map.values())
-    reported: set[str] = set()
 
     # #176 audit: display only, like the equivalent helper in check_canonical_chain — the
     # walk over next_map already decided the series and the loop before any URL is printed.
@@ -802,33 +961,21 @@ def check_pagination_series(ctx: AuditContext) -> None:
         page = ctx.page_by_norm.get(n)
         return page.url if page is not None else n
 
+    loops, in_loop = pagination_loops(next_map)
+    for start, path, loops_to in loops:
+        ctx.add(
+            "PAGINATION_LOOP",
+            target_url=_url_of(start),
+            details={"series": [_url_of(n) for n in path], "loops_back_to": _url_of(loops_to)},
+        )
+
+    # The cheap per-page filters run before the walk, not after it, so a full
+    # chain is only ever traversed for a head that can actually produce a
+    # finding — a handful per crawl, against one traversal per page if the order
+    # were reversed.
     for start in next_map:
-        if start in reported:
-            continue
-        path = [start]
-        seen = {start}
-        cur = start
-        is_loop = False
-        for _ in range(hop_cap):
-            nxt = next_map.get(cur)
-            if nxt is None:
-                break
-            if nxt in seen:
-                is_loop = True
-                break
-            path.append(nxt)
-            seen.add(nxt)
-            cur = nxt
-        if is_loop:
-            reported.update(path)
-            ctx.add(
-                "PAGINATION_LOOP",
-                target_url=_url_of(start),
-                details={"series": [_url_of(n) for n in path], "loops_back_to": _url_of(nxt)},
-            )
-            continue
-        if start in has_predecessor:
-            continue  # not the head of its series
+        if start in has_predecessor or start in in_loop:
+            continue  # not a head of its series, or already reported as a loop
         # #176 audit: correct by construction, same reasoning as check_unlinked_canonical —
         # is_indexable and inlinks are properties of the live page, and a redirecting twin
         # under this key would report neither, so the 2xx-preferring representative is the
@@ -837,7 +984,10 @@ def check_pagination_series(ctx: AuditContext) -> None:
         if page is None or not page.is_indexable or _rec(page).get("crawl_depth") == 0:
             continue
         inlinks = _rec(page).get("inlinks")
-        if inlinks is None or inlinks > 0 or len(path) < 2:
+        if inlinks is None or inlinks > 0:
+            continue
+        path, _ = series_from(next_map, start)
+        if len(path) < 2:
             continue
         ctx.add(
             "UNLINKED_PAGINATION_SERIES",
@@ -913,16 +1063,30 @@ _CHARSET_IN_HEADER_RE = re.compile(r"charset\s*=", re.IGNORECASE)
 def check_charset(ctx: AuditContext) -> None:
     """Lighthouse `charset`: an encoding declared via Content-Type or an early <meta> tag."""
     pages = ctx.html_pages()
-    has_evidence = any(
-        (page.content_type and _CHARSET_IN_HEADER_RE.search(page.content_type))
-        or _rec(page).get("meta_charset")
-        for page in pages
-    )
-    if not has_evidence:
+    # Content-Type is a base column every crawl already carries and is read for its own
+    # sake below; Meta Charset is the one column gated here, present only via a native
+    # crawl or Custom Extraction in SF. Gating on its presence rather than on any page
+    # happening to carry a truthy value means an all-negative corpus (no header charset,
+    # no meta charset anywhere) is a real finding, not missing evidence (#268) — while an
+    # export that never carries the column at all still honestly skips.
+    if not _has_column(ctx, "meta_charset"):
+        # Without this column, absence is unmeasurable rather than absent. A page
+        # whose Content-Type carries no charset may still declare <meta charset>
+        # in its HTML, which an export without the column does not show, so
+        # firing on the header alone reports a defect nobody measured. Gating on
+        # any page *happening* to carry a header charset -- which is what this
+        # check did before #396 -- decided that question with evidence that
+        # cannot answer it.
+        #
+        # The reason says which column is missing, not that Content-Type carries
+        # no charset: on a run where some pages do carry one, that sentence was
+        # simply untrue, and a skip reason a reader cannot trust is worth less
+        # than no reason at all.
         ctx.skip(
             "MISSING_CHARSET",
-            "no charset visibility (Content-Type carries no charset and no Meta Charset "
-            "column; needs a native seohead crawl or Custom Extraction in SF)",
+            "no Meta Charset column, so a page without a header charset cannot be "
+            "distinguished from one declaring <meta charset> (needs a native seohead "
+            "crawl or Custom Extraction in SF)",
         )
         return
     for page in pages:
@@ -940,8 +1104,7 @@ _DOCTYPE_NAME_RE = re.compile(r"<!DOCTYPE\s+([a-zA-Z0-9]+)", re.IGNORECASE)
 def check_doctype(ctx: AuditContext) -> None:
     """Lighthouse `doctype`: exactly ``<!DOCTYPE html>``, no PUBLIC/SYSTEM identifier."""
     pages = ctx.html_pages()
-    has_evidence = any(_rec(p).get("doctype") for p in pages)
-    if not has_evidence:
+    if not _has_column(ctx, "doctype"):
         ctx.skip(
             "MISSING_DOCTYPE",
             "no Doctype column (needs a native seohead crawl or Custom Extraction in SF)",
@@ -966,8 +1129,7 @@ _VIEWPORT_WIDTH_RE = re.compile(r"\bwidth\s*=", re.IGNORECASE)
 def check_viewport(ctx: AuditContext) -> None:
     """Lighthouse `viewport` (now `viewport-insight`): see lighthouse.LIGHTHOUSE_MAP."""
     pages = ctx.html_pages()
-    has_evidence = any(_rec(p).get("viewport") for p in pages)
-    if not has_evidence:
+    if not _has_column(ctx, "viewport"):
         ctx.skip(
             "VIEWPORT_MISSING",
             "no Viewport column (needs a native seohead crawl or Custom Extraction in SF)",
@@ -1004,8 +1166,7 @@ _COMPRESSED_ENCODINGS = frozenset({"gzip", "br", "deflate", "zstd"})
 def check_compression(ctx: AuditContext) -> None:
     """Lighthouse `uses-text-compression` (now `document-latency-insight`): see lighthouse.py."""
     pages = ctx.html_pages()
-    has_evidence = any(_rec(p).get("content_encoding") for p in pages)
-    if not has_evidence:
+    if not _has_column(ctx, "content_encoding"):
         ctx.skip(
             "NO_COMPRESSION",
             "no Content-Encoding column (needs a native seohead crawl or Custom Extraction in SF)",
@@ -1013,9 +1174,14 @@ def check_compression(ctx: AuditContext) -> None:
         return
     for page in pages:
         rec = _rec(page)
-        encoding = str(rec.get("content_encoding") or "").strip().lower()
+        # Content-Encoding is comma-separated when codings are stacked (e.g. "gzip, br"
+        # from a CDN re-compressing an already-gzipped origin response) — comparing the
+        # whole header string against a single-token set flagged every stacked value as
+        # uncompressed even though each listed token is a real compression coding (#269).
+        tokens = [t.strip().lower() for t in str(rec.get("content_encoding") or "").split(",")]
+        tokens = [t for t in tokens if t]
         size = rec.get("size_bytes") or 0
-        if encoding in _COMPRESSED_ENCODINGS or size < _COMPRESSION_IGNORE_BYTES:
+        if any(t in _COMPRESSED_ENCODINGS for t in tokens) or size < _COMPRESSION_IGNORE_BYTES:
             continue
         ctx.add(
             "NO_COMPRESSION",
@@ -1206,7 +1372,14 @@ def check_redirect_chains(ctx: AuditContext) -> None:
     final = find_column(df, ["Final Address", "Final URL", "Final URI"])
     loop = find_column(df, ["Loop", "Redirect Loop", "Chain Loop"])
     if not addr:
-        ctx.skip("REDIRECT_CHAIN", "Redirect Chains report has no address column")
+        # A present-but-unusable native report shares nothing REDIRECT_LOOP could stand
+        # on either — its verdict comes from the same per-row address the chain check
+        # just found missing, not from a separate source. Skipping only REDIRECT_CHAIN
+        # here left REDIRECT_LOOP unrecorded, which aggregate.py then classified as a
+        # silent clean pass over a loop nobody evaluated (issue #350).
+        reason = "Redirect Chains report has no address column"
+        ctx.skip("REDIRECT_CHAIN", reason)
+        ctx.skip("REDIRECT_LOOP", reason)
         return
     for _, row in df.iterrows():
         url = normalize_value(row.get(addr))

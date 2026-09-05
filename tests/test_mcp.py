@@ -193,3 +193,48 @@ def test_mcp_all_tools(tmp_path):
     assert len(res["issues"][0]["locations"]) == 2
     assert res["tasks"]["summary"]["tasks_total"] >= 1
     assert os.path.isfile(res["tasks"]["tasks_md"])
+
+
+def test_crawl_site_omitted_overrides_forward_none(monkeypatch):
+    """Issue #327: a config-only MCP call must not shadow config values with the wrapper's
+    own concrete defaults -- omitted overrides have to reach the handler as ``None``, the
+    same shape the CLI forwards for an unset flag, so ``crawl.settings.load`` can fall
+    through to config/environment/defaults instead of being overridden silently."""
+    received = []
+
+    def fake_crawl_site(**kwargs):
+        received.append(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr("seohead.servers.handlers.crawl_site", fake_crawl_site)
+    tool = next(
+        tool for tool in build_server()._tool_manager.list_tools() if tool.name == "seo_crawl_site"
+    )
+
+    asyncio.run(tool.run({"url": "https://example.test/", "config": "crawl.json"}))
+
+    forwarded = received[0]
+    for key in ("max_urls", "max_depth", "min_delay", "robots", "concurrency"):
+        assert forwarded[key] is None, f"{key} must default to None, not a concrete override"
+
+
+def test_crawl_site_explicit_override_changes_only_that_setting(monkeypatch):
+    """Positive control for #327: an explicit override still reaches the handler, and
+    only that one setting -- the neighbouring overrides stay None."""
+    received = []
+
+    def fake_crawl_site(**kwargs):
+        received.append(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr("seohead.servers.handlers.crawl_site", fake_crawl_site)
+    tool = next(
+        tool for tool in build_server()._tool_manager.list_tools() if tool.name == "seo_crawl_site"
+    )
+
+    asyncio.run(tool.run({"url": "https://example.test/", "max_urls": 2}))
+
+    forwarded = received[0]
+    assert forwarded["max_urls"] == 2
+    for key in ("max_depth", "min_delay", "robots", "concurrency"):
+        assert forwarded[key] is None

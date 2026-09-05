@@ -186,6 +186,67 @@ def test_unresolvable_www_is_its_own_diagnosis():
     assert any(d["variant"] == "https://www.example.com/" for d in out["unreachable"])
 
 
+def test_www_primary_convergence_has_no_duplicate():
+    # A valid www-primary site: every origin variant redirects to
+    # https://www.example.com/, which itself answers 200 directly.
+    canonical = "https://www.example.com/"
+
+    def redirect_row(variant, url):
+        return _r(
+            variant,
+            "origin",
+            url,
+            hops=[hop(url, canonical)],
+            final=canonical,
+        )
+
+    rs = [
+        redirect_row("https://example.com/", "https://example.com/"),
+        redirect_row("http://example.com/", "http://example.com/"),
+        _r(canonical, "origin", canonical),
+        redirect_row("http://www.example.com/", "http://www.example.com/"),
+    ]
+    out = M.analyze(canonical, rs, WWW_OK)
+    assert out["consolidated"] is True
+    assert out["canonical_origin"] == canonical
+    assert out["duplicates_200"] == []
+
+
+def test_bare_primary_convergence_has_no_duplicate():
+    # Bare-host canonical must stay clean too: the fix must not merely flip
+    # the hard-coded host, it must follow whatever the evidence converges on.
+    out = M.analyze("https://example.com/", _healthy_results(), WWW_OK)
+    assert out["consolidated"] is True
+    assert out["canonical_origin"] == "https://example.com/"
+    assert out["duplicates_200"] == []
+
+
+def test_two_independent_direct_200_origins_stay_duplicates():
+    # Origins do not converge at all: two independently live hosts, neither
+    # matching the bare-https fallback used when there is no single winner.
+    rs = [
+        _r(
+            "https://example.com/",
+            "origin",
+            "https://example.com/",
+            hops=[hop("https://example.com/", "http://example.com/")],
+            final="http://example.com/",
+        ),
+        _r("http://example.com/", "origin", "http://example.com/"),
+        _r("https://www.example.com/", "origin", "https://www.example.com/"),
+        _r(
+            "http://www.example.com/",
+            "origin",
+            "http://www.example.com/",
+            hops=[hop("http://www.example.com/", "http://example.com/")],
+            final="http://example.com/",
+        ),
+    ]
+    out = M.analyze("https://example.com/", rs, WWW_OK)
+    assert out["consolidated"] is False
+    assert {"http://example.com/", "https://www.example.com/"} <= set(out["duplicates_200"])
+
+
 def test_loop_suspect_reported():
     rs = _healthy_results()
     rs[0] = {

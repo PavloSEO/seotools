@@ -46,6 +46,10 @@ INTERNAL_FIELD_MAP: dict[str, list[str]] = {
     "size_bytes": ["Size (bytes)", "Size (Bytes)", "Size"],
     "transferred_bytes": ["Transferred (bytes)", "Transferred (Bytes)"],
     "word_count": ["Word Count"],
+    # Native-crawl only (#360): SF exports no iframe inventory, so these stay
+    # absent there and the check that reads them skips instead of reporting clean.
+    "content_frames": ["Content Frames"],
+    "content_frames_same_origin": ["Content Frames Same-Origin"],
     "sentence_count": ["Sentence Count"],
     "avg_words_per_sentence": ["Average Words Per Sentence"],
     "flesch": ["Flesch Reading Ease Score"],
@@ -192,6 +196,8 @@ INT_FIELDS = frozenset(
         "size_bytes",
         "transferred_bytes",
         "word_count",
+        "content_frames",
+        "content_frames_same_origin",
         "sentence_count",
         "crawl_depth",
         "folder_depth",

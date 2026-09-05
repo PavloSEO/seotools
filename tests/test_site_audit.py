@@ -117,6 +117,90 @@ def test_every_declared_sitemap_is_sampled_not_just_the_first(monkeypatch):
     assert "https://example.test/product-b" in selected
 
 
+def _multi_root_audit(sitemap_crawl):
+    """Run audit_site with two declared roots and a caller-supplied sitemap_crawl stub."""
+
+    def fake_robots_check(url: str) -> dict:
+        return {"ok": True, "sitemaps": [FIRST_SITEMAP, SECOND_SITEMAP]}
+
+    tools = {
+        **handlers.HANDLERS,
+        "robots_check": fake_robots_check,
+        "sitemap_crawl": sitemap_crawl,
+    }
+    skip = [t for t in SITE_TOOLS if t not in {"robots_check", "sitemap_crawl"}] + list(PAGE_TOOLS)
+    return audit_site("https://example.test/", skip=skip, tools=tools)
+
+
+def test_two_partial_roots_are_not_reported_clean():
+    """Two roots that both fail must not collapse into ``{"ok": True, "urls": []}`` —
+    that is the exact aggregate the projection loss (#310) produced."""
+
+    def fake_sitemap_crawl(url: str | None = None, **_kw: object) -> dict:
+        return {
+            "ok": True,
+            "urls": [],
+            "errors": [{"url": url, "error": "synthetic child unavailable"}],
+            "truncated": True,
+        }
+
+    result = _multi_root_audit(fake_sitemap_crawl)
+    sitemap = result["site"]["sitemap_crawl"]
+
+    assert sitemap["ok"] is False
+    assert len(sitemap["errors"]) == 2
+    assert sitemap["truncated"] is True
+    assert result["summary"]["tools_failed"], "a totally failed multi-root sitemap must be reported"
+
+
+def test_one_good_root_keeps_urls_and_names_the_failed_root():
+    def fake_sitemap_crawl(url: str | None = None, **_kw: object) -> dict:
+        if url == FIRST_SITEMAP:
+            return {"ok": True, "urls": [{"loc": "https://example.test/page-a"}]}
+        return {"ok": True, "urls": [], "errors": [{"url": url, "error": "404"}]}
+
+    result = _multi_root_audit(fake_sitemap_crawl)
+    sitemap = result["site"]["sitemap_crawl"]
+
+    assert sitemap["ok"] is True
+    assert {e["loc"] for e in sitemap["urls"]} == {"https://example.test/page-a"}
+    assert sitemap["errors"] == [{"url": SECOND_SITEMAP, "error": "404"}]
+    # A non-fatal partial result still has to surface in the document, not only in
+    # the raw site payload -- findings feed the Markdown/DOCX/XLSX report writers.
+    named = [f for f in result["findings"] if SECOND_SITEMAP in f["text"]]
+    assert named
+    # And it has to surface at the severity that keeps it visible. classify()
+    # matches SEVERITY_RULES by plain substring, so a finding whose wording drifts
+    # by one word silently becomes a notice and sorts to the bottom of every
+    # report -- under exactly the partial evidence it was written to raise.
+    assert [f["severity"] for f in named] == ["critical"]
+
+
+def test_all_successful_multi_root_shape_is_unchanged():
+    """The #200 all-successful aggregate keeps its original shape: no ``errors`` or
+    ``truncated`` keys appear when nothing went wrong."""
+
+    def fake_sitemap_crawl(url: str | None = None, **_kw: object) -> dict:
+        loc = (
+            "https://example.test/page-a"
+            if url == FIRST_SITEMAP
+            else "https://example.test/product-b"
+        )
+        return {"ok": True, "urls": [{"loc": loc}]}
+
+    result = _multi_root_audit(fake_sitemap_crawl)
+    sitemap = result["site"]["sitemap_crawl"]
+
+    assert sitemap == {
+        "ok": True,
+        "urls": [
+            {"loc": "https://example.test/page-a"},
+            {"loc": "https://example.test/product-b"},
+        ],
+        "sources": [FIRST_SITEMAP, SECOND_SITEMAP],
+    }
+
+
 # ── page row ─────────────────────────────────────────────────────────────────
 
 PARSE_RESULT = {
@@ -264,6 +348,22 @@ def test_markdown_keeps_the_failed_tools_visible(tmp_path):
     assert "Critical" in text
 
 
+def test_markdown_shows_partial_sitemap_root_evidence(tmp_path):
+    """One good root and one broken root (#310) must not vanish from the report the
+    same way a fully clean, all-successful multi-root aggregate would."""
+
+    def fake_sitemap_crawl(url: str | None = None, **_kw: object) -> dict:
+        if url == FIRST_SITEMAP:
+            return {"ok": True, "urls": [{"loc": "https://example.test/page-a"}]}
+        return {"ok": True, "urls": [], "errors": [{"url": url, "error": "404"}]}
+
+    result = _multi_root_audit(fake_sitemap_crawl)
+    target = tmp_path / "r.md"
+    build_report(result, fmt="md", path=str(target))
+    text = target.read_text(encoding="utf-8")
+    assert SECOND_SITEMAP in text
+
+
 def test_excel_has_the_four_sheets(tmp_path):
     from openpyxl import load_workbook
 
@@ -293,7 +393,7 @@ def test_missing_audit_file_is_reported_clearly():
 def test_empty_audit_still_produces_a_report(tmp_path):
     """An audit with no findings is a valid short report, not an error."""
     result = build_report(
-        {"domain": "example.com", "findings": [], "pages": [], "summary": {}},
+        {"schema": SCHEMA, "domain": "example.com", "findings": [], "pages": [], "summary": {}},
         fmt="md",
         path=str(tmp_path / "e.md"),
     )

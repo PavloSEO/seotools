@@ -23,14 +23,25 @@ from __future__ import annotations
 
 import hashlib
 from collections import defaultdict
+from copy import copy
 from typing import Any
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
+
+from seohead.tools.parser import is_inert_template_content
 
 # What counts as "boilerplate" for this report — broader than content_area's
 # default exclusions (nav, footer) because the issue this answers is
 # specifically about header/nav/footer consistency, not word count.
 BOILERPLATE_TAGS = ("header", "nav", "footer")
+
+
+def _live_region_markup(region: Tag) -> str:
+    """Serialize a boilerplate region without inert template descendants."""
+    region = copy(region)
+    for template in region.find_all("template"):
+        template.decompose()
+    return str(region)
 
 
 def boilerplate_hash(html: str) -> str:
@@ -41,7 +52,11 @@ def boilerplate_hash(html: str) -> str:
     hash even when the remaining text reads the same.
     """
     soup = BeautifulSoup(html, features="lxml")
-    pieces = [str(el) for el in soup.find_all(BOILERPLATE_TAGS)]
+    pieces = [
+        _live_region_markup(el)
+        for el in soup.find_all(BOILERPLATE_TAGS)
+        if not is_inert_template_content(el)
+    ]
     basis = "".join(" ".join(piece.split()) for piece in pieces)
     return hashlib.sha1(basis.encode("utf-8"), usedforsecurity=False).hexdigest()
 

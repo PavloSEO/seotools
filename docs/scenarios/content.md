@@ -35,10 +35,21 @@ Configuration wins over detection. A selector that matches nothing reports
 `fallback_default_body` rather than quietly detecting something else — a wrong selector should
 be visible, not smoothed over.
 
-**3. Find where the template drifts across pages.**
+**3. Find where the template drifts across pages.** `boilerplate-report` hashes header/nav/footer
+*markup* — it needs the original HTML, or a hash already computed from that HTML. `full_markdown`
+from step 1 has already stripped the tag structure the hash depends on, so it is not a valid
+input here; two differently-templated pages fed as Markdown collapse into the hash of an empty
+string and look identical.
 
 ```bash
-seohead boilerplate-report --input '{"pages": [{"url": "https://example.com/a", "boilerplate_hash": "aaa"}, {"url": "https://example.com/b", "boilerplate_hash": "bbb"}]}'
+seohead boilerplate-report --input '{"pages": [{"url": "https://example.com/a", "html": "<html>...</html>"}, {"url": "https://example.com/b", "html": "<html>...</html>"}]}'
+```
+
+Pass a precomputed digest instead with the `hash` key (not `boilerplate_hash`, which the handler
+does not recognize) when the HTML itself should not be sent again:
+
+```bash
+seohead boilerplate-report --input '{"pages": [{"url": "https://example.com/a", "hash": "aaa..."}, {"url": "https://example.com/b", "hash": "bbb..."}]}'
 ```
 
 Hashing header and footer per page finds the pages whose template differs from every other —

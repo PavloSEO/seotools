@@ -39,12 +39,11 @@ from seohead.crawl.collect import (
     _write,
     fetch_one,
 )
-from seohead.crawl.settings import resolve_credential_headers
+from seohead.crawl.settings import checked_url_budget, resolve_credential_headers
 from seohead.crawl.throttle import MAX_CONCURRENCY_CEILING, MAX_DELAY_S, Throttle
 from seohead.recon.net import UA, http_client, normalize_url, registrable_domain
 from seohead.tools.robots import crawl_delay, is_allowed, match_path, parse_robots
 
-MAX_URLS_CEILING = 10_000
 MAX_DEPTH_CEILING = 20
 ROBOTS_TOKEN = "SEOHEAD-Tools"
 EMPTY_ROBOTS = {"allow": [], "disallow": [], "groups": [], "crawl_delay": None}
@@ -590,7 +589,7 @@ def crawl_site(
     if not start or not host or " " in host or "." not in host:
         raise ValueError(f"not a crawlable URL: {start_url!r}")
     rules = scope if isinstance(scope, Scope) else Scope.from_config(scope)
-    limit = max(1, min(int(max_urls), MAX_URLS_CEILING))
+    limit = checked_url_budget(max_urls)
     depth_limit = max(0, min(int(max_depth), MAX_DEPTH_CEILING))
     max_concurrency = max(1, min(int(concurrency), MAX_CONCURRENCY_CEILING))
     if state_path:
@@ -742,6 +741,10 @@ def crawl_site(
             # gate an empty start page (issue #188).
             result.forms.extend(FormEdge(**entry) for entry in loaded_state.forms)
             result.start_page_evidence = dict(loaded_state.start_page_evidence)
+            # Crawl-wide evidence, not per-invocation data (issue #349): a
+            # completed report-only audit needs every blocked URL ever seen,
+            # not only ones fetched after this checkpoint.
+            result.robots_blocked.extend(loaded_state.robots_blocked)
         else:
             queue = deque([(start, 0)])
             seen = {_canonical_key(start)}
@@ -750,14 +753,19 @@ def crawl_site(
             seed = (seed or "").strip()
             if not seed:
                 continue
-            reason = rules.rejection(seed, host) or extra_rejection(seed)
-            if reason:
-                exclude(reason, seed)
-                continue
+            # Checked against ``seen`` before the rejection rules run, and
+            # added to ``seen`` either way (issue #348): a rejected seed is a
+            # decision this run made about that URL, exactly like an accepted
+            # one, so a resumed retry that re-supplies the same declaration
+            # must not re-evaluate and re-count it.
             key = _canonical_key(seed)
             if key in seen:
                 continue
             seen.add(key)
+            reason = rules.rejection(seed, host) or extra_rejection(seed)
+            if reason:
+                exclude(reason, seed)
+                continue
             queue.append((seed, 0))
             result.seed_urls.append(seed)
 
@@ -1046,15 +1054,21 @@ def crawl_site(
                     if not to_fetch:
                         continue
 
-                    # ``pool.map`` yields results in the order of ``to_fetch``
-                    # regardless of which request actually finished first, so
-                    # every downstream step — recording, the circuit breaker,
-                    # link and redirect enqueueing — sees the same order the
-                    # sequential crawler would have used.
+                    # Futures are submitted up front and then consumed in the
+                    # order of ``to_fetch`` regardless of which request
+                    # actually finished first, so every downstream step —
+                    # recording, the circuit breaker, link and redirect
+                    # enqueueing — sees the same order the sequential crawler
+                    # would have used. Keeping the futures themselves (rather
+                    # than ``pool.map``'s generator) lets a breaker firing
+                    # partway through the batch still recover whichever later
+                    # requests already finished, instead of discarding them.
+                    futures = [pool.submit(dispatch, item) for item in to_fetch]
                     processed = 0
                     interrupted = False
                     try:
-                        for url, depth, record, parsed in pool.map(dispatch, to_fetch):
+                        for future in futures:
+                            url, depth, record, parsed = future.result()
                             processed += 1
                             if after_fetch(url, depth, record, parsed):
                                 stopped = True
@@ -1064,10 +1078,33 @@ def crawl_site(
                         # ones whose result was never consumed here are not
                         # known to be processed, so they (and anything not yet
                         # dispatched) go back to the front of the queue rather
-                        # than being dropped from the frontier.
+                        # than being dropped from the frontier. A future's
+                        # completion is not established here, so it is always
+                        # requeued rather than risked on a `.done()` check
+                        # that could race the interrupt itself.
                         interrupted = True
 
-                    if interrupted or stopped:
+                    if stopped and not interrupted:
+                        # The breaker fired on an earlier, ordered result, but
+                        # later requests in this same batch ran concurrently
+                        # and may have already completed. Merge each one that
+                        # has — its PageRecord and sidecar write, its forms,
+                        # its discovered links — before requeueing anything,
+                        # so the checkpoint holds only work that never
+                        # resolved rather than repeating requests that already
+                        # reached the origin.
+                        requeue: list[tuple[str, int]] = []
+                        for item, future in zip(
+                            to_fetch[processed:], futures[processed:], strict=True
+                        ):
+                            if future.done():
+                                url, depth, record, parsed = future.result()
+                                after_fetch(url, depth, record, parsed)
+                            else:
+                                requeue.append(item)
+                        for item in reversed(requeue):
+                            queue.appendleft(item)
+                    elif interrupted:
                         for item in reversed(to_fetch[processed:]):
                             queue.appendleft(item)
                     if interrupted:
@@ -1100,6 +1137,7 @@ def crawl_site(
                         },
                         forms=[dataclasses.asdict(form) for form in result.forms],
                         start_page_evidence=dict(result.start_page_evidence),
+                        robots_blocked=list(result.robots_blocked),
                     ),
                 )
 

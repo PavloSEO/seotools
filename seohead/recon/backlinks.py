@@ -2,10 +2,11 @@
 
 Finding an ``<a href>`` is not sufficient. A link may not pass ranking signals
 when it has ``rel=nofollow`` (or ``ugc``/``sponsored``), when the entire donor
-page is excluded by ``meta robots noindex``, when page-level ``nofollow``
-applies to every link, or when the page is canonicalized elsewhere. This module
-checks those conditions separately so a report explains why a link is not
-effective instead of merely saying it is missing.
+page is excluded by a ``noindex`` directive (meta robots or the
+``X-Robots-Tag`` response header), when page-level ``nofollow`` applies to
+every link, or when the page is canonicalized elsewhere. This module checks
+those conditions separately so a report explains why a link is not effective
+instead of merely saying it is missing.
 
 This is deliberately not an external backlink index such as Ahrefs or Majestic.
 It verifies a known donor list rather than discovering another site's profile.
@@ -19,20 +20,10 @@ from typing import Any
 from urllib.parse import urljoin, urlsplit
 
 from seohead.recon.net import UA, http_client, normalize_domain, normalize_url
-from seohead.tools.parser import document_base_url
+from seohead.tools.parser import document_base_url, robots_directives, robots_meta_scoped
 
 MAX_DONORS = 500
 _NO_WEIGHT_RELS = ("nofollow", "ugc", "sponsored")
-
-
-def _robots_directives(soup) -> list[str]:
-    """Return page-level robots directives, which override per-link ``rel`` values."""
-    out: list[str] = []
-    for tag in soup.find_all("meta"):
-        name = str(tag.get("name", "")).lower()
-        if name in ("robots", "googlebot"):
-            out += [d.strip().lower() for d in str(tag.get("content", "")).split(",") if d.strip()]
-    return out
 
 
 def _same_site(href: str, target_domain: str) -> bool:
@@ -60,9 +51,10 @@ def _inspect_donor(
         return record
 
     soup = BeautifulSoup(resp.text, "html.parser")
-    directives = _robots_directives(soup)
-    record["donor_indexable"] = "noindex" not in directives and "none" not in directives
-    page_nofollow = "nofollow" in directives or "none" in directives
+    x_robots_tag = str(resp.headers.get("X-Robots-Tag", ""))
+    directives = robots_directives(*robots_meta_scoped(soup), x_robots_tag)
+    record["donor_indexable"] = "noindex" not in directives
+    page_nofollow = "nofollow" in directives
 
     canonical = soup.find(
         "link",
@@ -89,7 +81,7 @@ def _inspect_donor(
                 "anchor": re.sub(r"\s+", " ", tag.get_text(" ", strip=True))[:200],
                 "rel": rels,
                 "follow": not blocking and not page_nofollow,
-                "blocked_by": blocking or (["meta robots nofollow"] if page_nofollow else []),
+                "blocked_by": blocking or (["page robots nofollow"] if page_nofollow else []),
             }
         )
 

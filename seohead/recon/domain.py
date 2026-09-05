@@ -14,6 +14,7 @@ as data.
 from __future__ import annotations
 
 import datetime as _dt
+import ipaddress
 import re
 import socket
 import ssl
@@ -154,15 +155,46 @@ def _from_whois_text(text: str) -> dict[str, Any]:
     }
 
 
+def _is_ipv6(value: str) -> bool:
+    try:
+        return ipaddress.ip_address(value).version == 6
+    except ValueError:
+        return False
+
+
+def _cymru_query_name(ip: str) -> str | None:
+    """DNS name that asks Team Cymru's keyless service for this address's origin ASN."""
+    try:
+        address = ipaddress.ip_address(ip)
+    except ValueError:
+        return None
+    if isinstance(address, ipaddress.IPv4Address):
+        return f"{'.'.join(reversed(ip.split('.')))}.origin.asn.cymru.com"
+    nibbles = address.exploded.replace(":", "")
+    return f"{'.'.join(reversed(nibbles))}.origin6.asn.cymru.com"
+
+
+def _reverse_dns_name(ip: str) -> str | None:
+    """The PTR query name for an IPv4 or IPv6 address."""
+    try:
+        address = ipaddress.ip_address(ip)
+    except ValueError:
+        return None
+    if isinstance(address, ipaddress.IPv4Address):
+        return ".".join(reversed(ip.split("."))) + ".in-addr.arpa"
+    nibbles = address.exploded.replace(":", "")
+    return ".".join(reversed(nibbles)) + ".ip6.arpa"
+
+
 def _asn_via_cymru(ip: str) -> dict[str, Any]:
-    """Resolve an IPv4 address to an ASN through Team Cymru's keyless DNS service.
+    """Resolve an IPv4 or IPv6 address to an ASN through Team Cymru's keyless DNS service.
 
     The response has the form ``15169 | 8.8.8.0/24 | US | arin | 1992-12-01``.
     """
-    octets = ip.split(".")
-    if len(octets) != 4 or not all(o.isdigit() for o in octets):
+    query = _cymru_query_name(ip)
+    if not query:
         return {}
-    answer = doh(f"{'.'.join(reversed(octets))}.origin.asn.cymru.com", "TXT")
+    answer = doh(query, "TXT")
     if not answer:
         return {}
     parts = [p.strip() for p in answer[0].split("|")]
@@ -350,10 +382,28 @@ def profile_domain(domain: str, *, with_tls: bool = True) -> dict[str, Any]:
 
     hosting: dict[str, Any] = {}
     ip = next((r for r in a_records if re.match(r"^\d+\.\d+\.\d+\.\d+$", r)), None)
+    ip_source = "a" if ip else None
+    if not ip:
+        # No A record: fall back to an observed AAAA address rather than treating
+        # IPv4 as a hidden prerequisite for hosting/ASN/owner enrichment.
+        ip = next((r for r in dns["aaaa"] if _is_ipv6(r)), None)
+        ip_source = "aaaa" if ip else None
     if ip:
-        hosting = {"ip": ip, **_asn_via_cymru(ip), **{k: v for k, v in _ip_owner(ip).items() if v}}
-        ptr = doh(".".join(reversed(ip.split("."))) + ".in-addr.arpa", "PTR")
+        hosting = {
+            "ip": ip,
+            "ip_source": ip_source,
+            **_asn_via_cymru(ip),
+            **{k: v for k, v in _ip_owner(ip).items() if v},
+        }
+        ptr_name = _reverse_dns_name(ip)
+        ptr = doh(ptr_name, "PTR") if ptr_name else []
         hosting["reverse_dns"] = ptr[0] if ptr else None
+    elif dns["a"] or dns["aaaa"]:
+        # An address was observed but did not parse as a usable IPv4/IPv6 literal;
+        # say so instead of returning an empty hosting object with no evidence.
+        hosting = {
+            "unavailable_reason": "observed A/AAAA records did not parse as a usable IP address",
+        }
 
     profile: dict[str, Any] = {
         "ok": True,

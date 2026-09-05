@@ -410,6 +410,7 @@ def analyze_log(
         section_by_family: dict[str, Counter] = defaultdict(Counter)
         paths_by_family: dict[str, Counter] = defaultdict(Counter)
         paths_truncated: set[str] = set()
+        ips_truncated: set[str] = set()
         daily: Counter = Counter()
         first_time = last_time = None
 
@@ -453,8 +454,15 @@ def analyze_log(
             if bot:
                 bot_hits[name] += 1
                 bot_bytes[name] += row.get("bytes") or 0
-                if len(bot_ips[name]) < MAX_TRACKED_IPS:
-                    bot_ips[name].add(row["ip"])
+                # Once the tracked-IP set fills, a brand-new address must be recorded as
+                # refused rather than silently dropped -- otherwise unique_ips reports the
+                # same value for 2,000 and 200,000 distinct sources with no way to tell
+                # an exact count from a saturated sample (#330).
+                ip_value = row["ip"]
+                if ip_value in bot_ips[name] or len(bot_ips[name]) < MAX_TRACKED_IPS:
+                    bot_ips[name].add(ip_value)
+                else:
+                    ips_truncated.add(name)
             when = row.get("time")
             if when:
                 daily[when.date().isoformat()] += 1
@@ -474,13 +482,20 @@ def analyze_log(
         },
         "by_family": {f: dict(c.most_common(20)) for f, c in by_family.items()},
         "bots": [
-            {"name": n, "hits": h, "bytes": bot_bytes[n], "unique_ips": len(bot_ips[n])}
+            {
+                "name": n,
+                "hits": h,
+                "bytes": bot_bytes[n],
+                "unique_ips": len(bot_ips[n]),
+                "unique_ips_truncated": n in ips_truncated,
+            }
             for n, h in bot_hits.most_common(40)
         ],
         "status_by_family": {f: dict(sorted(c.items())) for f, c in status_by_family.items()},
         "sections_by_family": {f: dict(c.most_common(20)) for f, c in section_by_family.items()},
         "top_paths_by_family": {f: dict(c.most_common(15)) for f, c in paths_by_family.items()},
         "paths_truncated": sorted(paths_truncated),
+        "ips_truncated": sorted(ips_truncated),
         "daily": dict(sorted(daily.items())),
         "verification": verification,
     }

@@ -603,6 +603,14 @@ def check_inlink_composition(ctx: AuditContext) -> None:
         return
 
     site_host = _site_host(ctx)
+    # #313: group by the fragment-free page identity, not the raw destination.
+    # A crawled page is one row in ctx.page_by_norm keyed by norm_url(page.url),
+    # which never carries a fragment; norm_url(dest) alone still does (#202), so
+    # "/target" and "/target#details" grouped by raw dest formed two composition
+    # buckets and the fragment-bearing one could never resolve to the crawled
+    # page, silently dropping its nofollow/nonindexable-source evidence. Each
+    # record keeps its own raw destination_url below — only the grouping key is
+    # defragmented, and neither norm_url() nor CANONICAL_FRAGMENT are touched.
     by_dest: OrderedDict[str, list[dict[str, Any]]] = OrderedDict()
     for rec in records:
         source, dest = rec.get("source_url"), rec.get("destination_url")
@@ -614,15 +622,19 @@ def check_inlink_composition(ctx: AuditContext) -> None:
         dest_host = urllib.parse.urlparse(dest).netloc.lower()
         if dest_host and dest_host != site_host:
             continue  # external destination — not this page's own composition
-        by_dest.setdefault(dest, []).append(rec)
+        dest_key = urllib.parse.urldefrag(norm_url(dest))[0]
+        by_dest.setdefault(dest_key, []).append(rec)
 
-    for dest, links in by_dest.items():
+    for dest_key, links in by_dest.items():
         # #176 audit: correct by construction, same reasoning as check_unlinked_canonical —
         # is_indexable is a property of the live page, so the 2xx-preferring representative
         # is the variant "is this destination's inlink composition worth flagging" means.
         # The per-source lookup at the bottom of this loop resolves each source individually,
         # not a shared-key group, so the same single-representative read is simply correct.
-        target = ctx.page_by_norm.get(norm_url(dest))
+        # dest_key is already norm_url() with the fragment stripped (#313), and
+        # ctx.page_by_norm's keys are norm_url(page.url) for URLs that never carry
+        # a fragment, so it is the correct lookup key as-is.
+        target = ctx.page_by_norm.get(dest_key)
         if target is None or not target.is_indexable:
             continue
         if _rec(target).get("crawl_depth") == 0:

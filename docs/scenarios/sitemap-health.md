@@ -59,8 +59,22 @@ seohead crawl-site --url https://example.com --sitemap https://example.com/sitem
 seohead log-scan --run ./run
 ```
 
-**6. Read `SITEMAP_URL_NON_INDEXABLE`.** One finding per declared URL that cannot be indexed as
-declared, which in practice is four different mistakes wearing the same label:
+**6. The native chain above stops at judged pages, not at the dedicated finding.**
+`SITEMAP_URL_NON_INDEXABLE` reads Screaming Frog's own `Sitemaps: Non-Indexable URLs In
+Sitemap` comparison export directly; a native `crawl-site` run supplies no equivalent frame, so
+this run skips it by name (`missing export: sitemap_non_indexable`) rather than reporting a
+clean sitemap. To get the dedicated finding, run the export-mode route instead, over the same
+crawl and the exports Screaming Frog wrote:
+
+```bash
+seohead sf run --exports-dir ./exports --out report --tasks
+```
+
+Without that export, judge the same four mistakes yourself by joining what you already have:
+`sitemap-crawl`'s declared URLs against the per-page `Indexability` and `Indexability Status`
+from the `crawl-site` run above. It is a manual join, not the registry check, and it does not
+name which sitemap a duplicate came from or assert the protocol limits — see "What it cannot
+answer" below.
 
 | What the URL does | Where the fix belongs |
 |---|---|
@@ -94,10 +108,16 @@ addresses the site itself has stopped using.
 ## What it costs
 
 One request for the sitemap plus its children, and one per declared URL during the crawl.
-Nothing paid.
+Nothing paid. `sf run --exports-dir` is a local read of exports you already have from Screaming
+Frog; it adds no request of its own.
 
 ## What it cannot answer
 
+- **`SITEMAP_URL_NON_INDEXABLE` from a native crawl alone.** The check reads Screaming Frog's
+  `Sitemaps: Non-Indexable URLs In Sitemap` comparison export; without it, `sf run` skips the
+  check by name and a native `crawl-site` run never raises it either. Step 6's manual join
+  covers the same four mistakes, but it is not the registry check and does not distinguish them
+  from each other in one output.
 - **The protocol limits.** Neither the 50,000-URL ceiling nor the 50 MB file-size ceiling is
   asserted, so a sitemap that exceeds either is not reported as invalid here.
 - **Which sitemap a URL came from.** URLs appearing in more than one child sitemap are counted,

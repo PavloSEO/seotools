@@ -149,6 +149,64 @@ def test_invalid_head_elements_reads_the_literal_source_span():
     assert invalid_head_elements("<body>no head tag here</body>") == []
 
 
+# Issue #267: a raw opening-tag regex over the head span cannot tell markup
+# from text that merely looks like markup. Each case below plants the literal
+# text "<div>" somewhere a real element could never sit -- script/style CDATA,
+# title RCDATA, a comment, a quoted attribute value, and template content --
+# next to a positive control (a real, unquoted <div> directly in head) so the
+# fix cannot pass by simply going silent on every case.
+_RAW_TEXT_HEAD = """
+<head>
+  <script>const t = "<div class='card'>fake</div>";</script>
+  <style>.card::before { content: "<div>"; }</style>
+  <title>Has a literal &lt;div&gt; look-alike: <div></title>
+  <!-- a comment mentioning <div> -->
+  <meta name="x" content="looks like <div> but is an attribute value">
+</head>
+"""
+
+
+def test_script_content_is_not_an_invalid_head_element():
+    assert invalid_head_elements(_RAW_TEXT_HEAD) == []
+
+
+def test_style_content_is_not_an_invalid_head_element():
+    only_style = '<head><style>.x::before{content:"<div>"}</style></head>'
+    assert invalid_head_elements(only_style) == []
+
+
+def test_title_text_is_not_an_invalid_head_element():
+    only_title = "<head><title>Guide to &lt;div&gt; and <div> tags</title></head>"
+    assert invalid_head_elements(only_title) == []
+
+
+def test_comment_text_is_not_an_invalid_head_element():
+    only_comment = "<head><!-- stray <div> mentioned here --></head>"
+    assert invalid_head_elements(only_comment) == []
+
+
+def test_quoted_attribute_value_is_not_an_invalid_head_element():
+    only_attr = '<head><meta name="d" content="a <div> in an attribute"></head>'
+    assert invalid_head_elements(only_attr) == []
+
+
+def test_template_content_is_not_an_invalid_head_element():
+    only_template = "<head><template><div>inert fragment content</div></template></head>"
+    assert invalid_head_elements(only_template) == []
+
+
+def test_a_real_div_directly_in_head_still_fires():
+    # Positive control paired with every negative case above: an actual
+    # element in the head content model must still be caught.
+    real_div = "<head><title>T</title><div>real stray element</div></head>"
+    assert invalid_head_elements(real_div) == ["div"]
+
+
+def test_real_div_after_all_the_look_alikes_still_fires():
+    combined = _RAW_TEXT_HEAD.replace("</head>", "<div>real</div></head>")
+    assert invalid_head_elements(combined) == ["div"]
+
+
 # -- registry checks, through a native crawl (no Screaming Frog export carries this) --
 
 
@@ -207,6 +265,28 @@ def _fired(ctx) -> dict[str, set[str]]:
     for issue in ctx.issues:
         out.setdefault(issue.check, set()).add(issue.target_url)
     return out
+
+
+_RAW_TEXT_PAGE = f"""<html><head>
+<title>Raw text page</title>
+<script>const template = "<div class='card'>not an HTML element</div>";</script>
+<style>.card::before {{ content: "<div>"; }}</style>
+</head><body>{_page("")}</body></html>"""
+
+
+def test_native_pipeline_does_not_flag_raw_text_look_alikes_but_still_flags_a_real_one():
+    """Issue #267 acceptance: the native collect -> evidence -> rules path must
+    not fire INVALID_HEAD_ELEMENT for script/style/title/comment/template text
+    that only looks like markup, while a genuine stray element (the existing
+    _BROKEN_PAGE fixture) still fires."""
+    mapping = {
+        "https://example.com/raw-text": _FakeResponse(
+            _RAW_TEXT_PAGE, {"content-type": "text/html"}
+        ),
+        "https://example.com/broken": _FakeResponse(_BROKEN_PAGE, {"content-type": "text/html"}),
+    }
+    fired = _fired(_run_crawl(mapping))
+    assert fired.get("INVALID_HEAD_ELEMENT", set()) == {"https://example.com/broken"}
 
 
 def test_canonical_outside_head_fires_only_for_the_broken_fixture():

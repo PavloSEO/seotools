@@ -16,6 +16,22 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
         "",
         f"{document.get('url', '')} · Generated {document.get('generated_at', '')}",
         "",
+    ]
+
+    # Failed/partial crawl scope must be read before the metrics table below,
+    # not discovered afterward: a recipient must not mistake a failed or
+    # sampled crawl for a clean, site-wide audit (#361).
+    if summary.get("crawl_valid") is False:
+        reason = summary.get("crawl_invalid_reason") or "the crawl produced no usable data"
+        out += [f"> **Crawl failed — no health score.** {reason}", ""]
+    if summary.get("crawl_partial"):
+        finish = summary.get("crawl_finish_reason")
+        scope = summary.get("crawl_scope_note")
+        bits = [b for b in (f"stopped: {finish}" if finish else None, scope) if b]
+        detail = f" {'; '.join(bits)}" if bits else ""
+        out += [f"> **Partial crawl — scope is limited.**{detail}", ""]
+
+    out += [
         "| Metric | Value |",
         "|---|---|",
         f"| Pages checked | {summary.get('pages_checked', 0)} |",
@@ -24,6 +40,17 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
         f"| Notices | {by_sev.get('notice', 0)} |",
         "",
     ]
+
+    disabled = summary.get("checks_disabled") or []
+    if disabled:
+        out += [
+            "## Disabled checks",
+            "",
+            "These checks were deliberately turned off and did not run --"
+            " do not read their silence as a clean result:",
+            "",
+        ]
+        out += [f"- **{d.get('id')}** — {d.get('reason')}" for d in disabled] + [""]
 
     failed = summary.get("tools_failed") or []
     if failed:

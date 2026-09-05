@@ -53,6 +53,83 @@ def test_available_is_false_without_secret(monkeypatch, tmp_path):
     assert credentials.available("nope/token", "NOPE") is False
 
 
+# --- DataForSEO readiness (login AND password, issue #341) -----------------
+
+
+def _clear_dataforseo_env(monkeypatch):
+    monkeypatch.delenv("DATAFORSEO_LOGIN", raising=False)
+    monkeypatch.delenv("DATAFORSEO_PASSWORD", raising=False)
+
+
+def test_dataforseo_ready_requires_both_login_and_password(monkeypatch, tmp_path):
+    monkeypatch.setattr(credentials, "CONFIG_ROOT", tmp_path)
+    _clear_dataforseo_env(monkeypatch)
+    assert credentials.dataforseo_ready() == (False, {"login": False, "password": False})
+
+
+def test_dataforseo_ready_is_false_with_login_only(monkeypatch, tmp_path):
+    monkeypatch.setattr(credentials, "CONFIG_ROOT", tmp_path)
+    _clear_dataforseo_env(monkeypatch)
+    monkeypatch.setenv("DATAFORSEO_LOGIN", "synthetic-login")
+    assert credentials.dataforseo_ready() == (False, {"login": True, "password": False})
+
+
+def test_dataforseo_ready_is_false_with_password_only(monkeypatch, tmp_path):
+    monkeypatch.setattr(credentials, "CONFIG_ROOT", tmp_path)
+    _clear_dataforseo_env(monkeypatch)
+    monkeypatch.setenv("DATAFORSEO_PASSWORD", "synthetic-password")
+    assert credentials.dataforseo_ready() == (False, {"login": False, "password": True})
+
+
+def test_dataforseo_ready_is_true_with_both_components(monkeypatch, tmp_path):
+    monkeypatch.setattr(credentials, "CONFIG_ROOT", tmp_path)
+    _clear_dataforseo_env(monkeypatch)
+    monkeypatch.setenv("DATAFORSEO_LOGIN", "synthetic-login")
+    monkeypatch.setenv("DATAFORSEO_PASSWORD", "synthetic-password")
+    assert credentials.dataforseo_ready() == (True, {"login": True, "password": True})
+
+
+def test_dataforseo_ready_treats_blank_values_as_missing(monkeypatch, tmp_path):
+    monkeypatch.setattr(credentials, "CONFIG_ROOT", tmp_path)
+    _clear_dataforseo_env(monkeypatch)
+    monkeypatch.setenv("DATAFORSEO_LOGIN", "   ")
+    monkeypatch.setenv("DATAFORSEO_PASSWORD", "synthetic-password")
+    assert credentials.dataforseo_ready() == (False, {"login": False, "password": True})
+
+
+def test_dataforseo_ready_never_exposes_the_secret_values(monkeypatch, tmp_path):
+    monkeypatch.setattr(credentials, "CONFIG_ROOT", tmp_path)
+    _clear_dataforseo_env(monkeypatch)
+    monkeypatch.setenv("DATAFORSEO_LOGIN", "super-secret-login")
+    monkeypatch.setenv("DATAFORSEO_PASSWORD", "super-secret-password")
+    ready, components = credentials.dataforseo_ready()
+    serialized = json.dumps({"ready": ready, "components": components})
+    assert "super-secret-login" not in serialized
+    assert "super-secret-password" not in serialized
+
+
+@pytest.mark.parametrize(
+    ("ready", "components"),
+    [
+        (False, {"login": True, "password": False}),
+        (False, {"login": False, "password": True}),
+        (True, {"login": True, "password": True}),
+    ],
+    ids=["login_only", "password_only", "both"],
+)
+def test_sources_doctor_uses_shared_dataforseo_readiness(monkeypatch, tmp_path, ready, components):
+    """The public doctor must use the two-component readiness decision, not login alone."""
+    from seohead.servers import handlers
+
+    monkeypatch.setattr(credentials, "CONFIG_ROOT", tmp_path)
+    monkeypatch.setattr(credentials, "available", lambda *_args: False)
+    monkeypatch.setattr(credentials, "dataforseo_ready", lambda: (ready, components))
+
+    dataforseo = handlers.sources_doctor()["sources"]["dataforseo"]
+    assert dataforseo["ready"] is ready
+    assert dataforseo["components"] == components
+
+
 # --- Spend journal ---------------------------------------------------------
 
 
@@ -588,6 +665,57 @@ def test_dataforseo_network_error_does_not_retry_and_logs_the_lost_attempt(monke
     assert rows[0]["extra"]["attempt_failed"] == "network_error"
 
 
+def test_dataforseo_malformed_response_still_creates_a_receipt(monkeypatch, journal):
+    """Extends #306's receipt-after-deserialization fix to DataForSEO: a received malformed
+    body must not leave the spend journal empty, and it must not claim a confirmed charge or a
+    confirmed zero cost."""
+    monkeypatch.setenv("DATAFORSEO_LOGIN", "test-login")
+    monkeypatch.setenv("DATAFORSEO_PASSWORD", "test-password")
+    from seohead.data_sources import dataforseo
+
+    class MalformedResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b"{malformed"
+
+    calls = []
+
+    def fake_urlopen(request, timeout=None):
+        calls.append(request)
+        return MalformedResponse()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    with pytest.raises(json.JSONDecodeError):
+        dataforseo.search_volume(["buy apartment"], location_code=2840, country=None, env="prod")
+
+    assert len(calls) == 1  # The request reached the provider exactly once.
+    rows = spend.read_all()
+    assert len(rows) == 1  # A receipt exists even though the body could not be parsed.
+    entry = rows[0]
+    assert entry["source"] == "dataforseo"
+    assert entry["extra"]["response_received"] is True
+    assert entry["extra"]["response_malformed"] is True
+    assert entry["extra"]["charge_status"] == "unknown"
+    assert entry["extra"]["cost_unknown"] is True
+
+    # A confirmed zero-cost call for the same source is the neighbouring legitimate case: it
+    # must stay in by_source, not get pulled into "uncertain" alongside the malformed receipt.
+    spend.record("dataforseo", "search_volume.prod", cost=0.0, unit="usd", items=1)
+
+    report = spend.report()
+    assert report["uncertain"] == [entry]
+    assert report["by_source"]["dataforseo"]["usd"] == 0.0
+    assert report["calls"] == 2
+
+
 def test_arsenkin_set_task_network_error_does_not_retry_and_logs_the_lost_attempt(
     monkeypatch, journal
 ):
@@ -952,6 +1080,55 @@ def test_wayback_history_non_json_response_is_reported_not_raised():
     assert "not JSON" in result["error"]
 
 
+def test_wayback_history_empty_array_is_not_an_error():
+    """The documented empty-result shape: a JSON array with nothing in it."""
+    result = wayback.history("https://example.com/never-archived", fetcher=lambda url: "[]")
+    assert result == {
+        "ok": True,
+        "url": "https://example.com/never-archived",
+        "count": 0,
+        "snapshots": [],
+    }
+
+
+def test_wayback_history_recognized_header_without_rows_is_not_an_error():
+    """A valid CDX header can legitimately be the whole non-empty response."""
+    result = wayback.history(
+        "https://example.com/never-archived", fetcher=lambda url: json.dumps([_CDX_HEADER])
+    )
+    assert result == {
+        "ok": True,
+        "url": "https://example.com/never-archived",
+        "count": 0,
+        "snapshots": [],
+    }
+
+
+def test_wayback_history_json_object_error_payload_is_reported_not_silent():
+    """A synthetically injected object error payload must not read as zero snapshots."""
+    body = json.dumps({"error": "synthetic provider failure"})
+    result = wayback.history("https://example.com/", fetcher=lambda url: body)
+    assert result["ok"] is False
+    assert "url" in result and result["url"] == "https://example.com/"
+    assert "count" not in result
+
+
+def test_wayback_history_malformed_non_empty_array_is_reported_not_silent():
+    """A one-element array whose entry is not a header row must not read as zero snapshots."""
+    body = json.dumps([{"error": "synthetic provider failure"}])
+    result = wayback.history("https://example.com/", fetcher=lambda url: body)
+    assert result["ok"] is False
+    assert "count" not in result
+
+
+def test_wayback_history_error_shaped_string_array_is_reported_not_silent():
+    """A list of strings is only a header when it names the required CDX fields."""
+    body = json.dumps([["error", "synthetic provider failure"]])
+    result = wayback.history("https://example.com/", fetcher=lambda url: body)
+    assert result["ok"] is False
+    assert "count" not in result
+
+
 def test_wayback_history_network_error_is_reported_not_raised():
     def fetcher(url):
         raise urllib.error.URLError("simulated network failure")
@@ -994,6 +1171,28 @@ def test_crtsh_subdomains_non_json_response_is_reported_not_raised():
     result = crtsh.subdomains("example.com", fetcher=lambda url: "<html>overloaded</html>")
     assert result["ok"] is False
     assert "overloaded" in result["error"] or "not JSON" in result["error"]
+
+
+def test_crtsh_subdomains_empty_array_is_not_an_error():
+    """The documented empty-result shape: a JSON array with nothing in it."""
+    result = crtsh.subdomains("example.com", fetcher=lambda url: "[]")
+    assert result == {"ok": True, "domain": "example.com", "count": 0, "subdomains": []}
+
+
+def test_crtsh_subdomains_json_object_error_payload_is_reported_not_silent():
+    """A synthetically injected object error payload must not read as zero subdomains."""
+    body = json.dumps({"error": "synthetic provider failure"})
+    result = crtsh.subdomains("example.com", fetcher=lambda url: body)
+    assert result["ok"] is False
+    assert "count" not in result
+
+
+def test_crtsh_subdomains_malformed_non_empty_array_is_reported_not_silent():
+    """An array entry with neither expected field must not read as zero subdomains."""
+    body = json.dumps([{"error": "synthetic provider failure"}])
+    result = crtsh.subdomains("example.com", fetcher=lambda url: body)
+    assert result["ok"] is False
+    assert "count" not in result
 
 
 def test_crtsh_subdomains_network_error_is_reported_not_raised():
@@ -1113,6 +1312,100 @@ def test_gsc_http_error_extracts_the_api_message_without_leaking_the_token():
     assert result["status"] == 403
     assert "permission" in result["error"]
     assert "secret-bearer-token" not in result["error"]
+
+
+def test_gsc_default_date_range_is_a_completed_inclusive_28_day_pacific_window():
+    from datetime import date, datetime, timedelta
+
+    start, end = gsc_core.default_date_range()
+    expected_end = datetime.now(gsc_core.PACIFIC).date() - timedelta(days=1)
+    expected_start = expected_end - timedelta(days=27)
+    assert (date.fromisoformat(start), date.fromisoformat(end)) == (expected_start, expected_end)
+
+
+def test_gsc_search_analytics_resolves_the_legacy_relative_labels_to_iso_dates():
+    """The public CLI/MCP default (``28daysAgo``/``today``) must resolve to the documented
+    Pacific-Time window instead of reaching the outbound payload unresolved."""
+    captured = {}
+
+    def fetcher(payload, token):
+        captured.update(payload)
+        return json.dumps({"rows": []})
+
+    result = gsc_core.search_analytics(
+        "sc-domain:example.com",
+        start_date="28daysAgo",
+        end_date="today",
+        token="fake-token",
+        fetcher=fetcher,
+    )
+    assert result["ok"] is True
+    expected_start, expected_end = gsc_core.default_date_range()
+    assert captured["startDate"] == expected_start
+    assert captured["endDate"] == expected_end
+    assert result["period"] == f"{expected_start}..{expected_end}"
+
+
+def test_gsc_search_analytics_omitted_dates_also_resolve_to_iso_dates():
+    captured = {}
+
+    def fetcher(payload, token):
+        captured.update(payload)
+        return json.dumps({"rows": []})
+
+    result = gsc_core.search_analytics("sc-domain:example.com", token="fake-token", fetcher=fetcher)
+    assert result["ok"] is True
+    assert captured["startDate"] == result["period"].split("..")[0]
+    assert captured["endDate"] == result["period"].split("..")[1]
+
+
+def test_gsc_search_analytics_passes_explicit_valid_iso_dates_through_unchanged():
+    captured = {}
+
+    def fetcher(payload, token):
+        captured.update(payload)
+        return json.dumps({"rows": []})
+
+    result = gsc_core.search_analytics(
+        "sc-domain:example.com",
+        start_date="2026-01-01",
+        end_date="2026-01-31",
+        token="fake-token",
+        fetcher=fetcher,
+    )
+    assert result["ok"] is True
+    assert captured == {
+        "startDate": "2026-01-01",
+        "endDate": "2026-01-31",
+        "dimensions": ["query"],
+        "rowLimit": 1000,
+    }
+    assert result["period"] == "2026-01-01..2026-01-31"
+
+
+@pytest.mark.parametrize(
+    ("start_date", "end_date"),
+    [
+        ("2026-13-01", "2026-01-31"),  # Not a real calendar date.
+        ("2026-01-31", "2026-01-01"),  # Reversed range.
+        ("01/01/2026", "2026-01-31"),  # Wrong format.
+    ],
+)
+def test_gsc_search_analytics_rejects_invalid_or_reversed_dates_without_calling_the_fetcher(
+    start_date, end_date
+):
+    def fail_fetcher(payload, token):
+        raise AssertionError("must not reach the network with an invalid date range")
+
+    result = gsc_core.search_analytics(
+        "sc-domain:example.com",
+        start_date=start_date,
+        end_date=end_date,
+        token="fake-token",
+        fetcher=fail_fetcher,
+    )
+    assert result["ok"] is False
+    assert "error" in result
 
 
 def test_gsc_query_handler_rejects_an_unknown_mode():

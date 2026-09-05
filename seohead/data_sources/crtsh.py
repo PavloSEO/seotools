@@ -62,13 +62,24 @@ def subdomains(domain: str, *, fetcher: Fetcher | None = None) -> dict[str, Any]
             "error": "crt.sh returned a response that is not JSON (the service may be overloaded)",
         }
     if not isinstance(rows, list):
+        return {
+            "ok": False,
+            "domain": domain,
+            "error": "crt.sh returned a JSON body that is not an array",
+        }
+    if not rows:
+        # The documented empty-result shape: a JSON array with nothing in it.
         return {"ok": True, "domain": domain, "count": 0, "subdomains": []}
 
     names: set[str] = set()
     suffix = "." + domain
     for row in rows:
-        if not isinstance(row, dict):
-            continue
+        if not isinstance(row, dict) or not ("common_name" in row or "name_value" in row):
+            return {
+                "ok": False,
+                "domain": domain,
+                "error": "crt.sh response contains a malformed row",
+            }
         for field in ("common_name", "name_value"):
             for candidate in str(row.get(field) or "").splitlines():
                 name = candidate.strip().lower().removeprefix("*.")

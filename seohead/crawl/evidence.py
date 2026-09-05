@@ -144,6 +144,11 @@ def _row(
         "OG:Image": record.og_image,
         "Size (bytes)": record.size_bytes,
         "Word Count": record.word_count,
+        # Not SF columns: an SF export carries no iframe inventory, so these stay
+        # blank there and CONTENT_IN_IFRAME skips honestly rather than reporting
+        # a false clean (#360).
+        "Content Frames": record.content_frames,
+        "Content Frames Same-Origin": record.content_frames_same_origin,
         "Text Ratio": record.text_ratio if record.text_ratio is not None else "",
         # The collector counts every link it found; this column counts internal
         # links only, and External Outlinks is the disjoint remainder.
@@ -210,6 +215,33 @@ def _inlink_counts(links: list[Any]) -> dict[str, tuple[int, int]]:
     return {dest: (total, len(sources[dest])) for dest, total in totals.items()}
 
 
+def _hreflang_frame(pages: list[Any]) -> Any:
+    """Project each page's own hreflang declarations onto the *All Hreflang* shape.
+
+    The analyzer's three hreflang checks read ``ctx.exports["all_hreflang"]``
+    and nothing else, so a native crawl that kept the alternates but did not
+    project them here would still have left those checks skipping for want of a
+    Screaming Frog export (#357). One row per declaration, source page to target
+    URL plus the code as the document wrote it -- an alternate declaring a
+    language and pointing nowhere keeps its empty destination rather than being
+    dropped, because a malformed declaration is the finding, not noise.
+    """
+    import pandas as pd
+
+    rows = [
+        (record.url, alternate.get("url", ""), alternate.get("lang", ""))
+        for record in pages
+        for alternate in (record.hreflang or ())
+    ]
+    return pd.DataFrame(
+        {
+            "Source": [row[0] for row in rows],
+            "Destination": [row[1] for row in rows],
+            "Hreflang": [row[2] for row in rows],
+        }
+    )
+
+
 def build_evidence(result: CrawlResult) -> dict[str, Any]:
     """Project a crawl into analyzer-shaped frames with its gaps declared.
 
@@ -242,6 +274,15 @@ def build_evidence(result: CrawlResult) -> dict[str, Any]:
         frames["all_inlinks"] = _inlinks_frame(links)
         found.append("all_inlinks")
         missing.remove("all_inlinks")
+
+    # Only when at least one page declared an alternate. An empty frame would
+    # read as "this site has no hreflang errors" on a site that never claimed to
+    # be localised at all, which is a clean bill of health nobody asked for and
+    # nothing measured; absent, the checks skip and say why.
+    if any(record.hreflang for record in result.pages):
+        frames["all_hreflang"] = _hreflang_frame(result.pages)
+        found.append("all_hreflang")
+        missing.remove("all_hreflang")
 
     return {
         "frames": frames,

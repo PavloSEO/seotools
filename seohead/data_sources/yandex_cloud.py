@@ -156,6 +156,13 @@ def _maybe_json(raw: str) -> Any:
         return {"raw": raw}
 
 
+def _safe_operation_message(body: Any) -> str:
+    """Extract a short, safe provider message from a failed operation-read response body."""
+    if isinstance(body, dict):
+        return str(body.get("message") or body.get("error") or body)[:500]
+    return str(body)[:500]
+
+
 class Wordstat(_Base):
     """Wordstat demand client for phrase expansion, related queries, and seasonality."""
 
@@ -363,9 +370,23 @@ class WebSearch(_Base):
         while pending and time.monotonic() < deadline:
             time.sleep(poll)
             for operation_id, query in list(pending.items()):
-                _, done = self._request(f"{OPERATIONS}/{operation_id}", method="GET")
+                status, done = self._request(f"{OPERATIONS}/{operation_id}", method="GET")
+                if status != 200:
+                    # The existing retry policy in `_request` already absorbed retryable
+                    # transport/status failures (429/500/503). What crosses this boundary is a
+                    # terminal read failure for an operation that was already accepted and
+                    # billed — it must not be left in `pending` to fall into "not returned".
+                    del pending[operation_id]
+                    results[query] = {
+                        "error": _safe_operation_message(done),
+                        "status": "operation_read_error",
+                        "operation_id": operation_id,
+                        "http_status": status,
+                        "docs": [],
+                    }
+                    continue
                 if not isinstance(done, dict) or not done.get("done"):
-                    continue  # Still running, or a transient polling failure.
+                    continue  # Still running.
                 del pending[operation_id]
                 if done.get("error"):
                     results[query] = {

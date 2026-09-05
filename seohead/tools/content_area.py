@@ -108,16 +108,31 @@ def find_content_root(soup: BeautifulSoup, config: dict[str, Any] | None = None)
     include_selector = config.get("include_selector")
     root_selector = config.get("root_selector")
 
+    # ``parser`` imports this module, so keep the shared inert-template helper
+    # local. Selection happens after both modules have initialized and must use
+    # the same definition as every other document-evidence reader.
+    from seohead.tools.parser import is_inert_template_content
+
+    def first_visible(selector: str) -> Tag | None:
+        return next(
+            (
+                candidate
+                for candidate in soup.select(selector)
+                if not is_inert_template_content(candidate)
+            ),
+            None,
+        )
+
     requested_but_missing = False
 
     if include_selector:
-        match = soup.select_one(include_selector)
+        match = first_visible(include_selector)
         if match is not None:
             return match, "include_selector"
         requested_but_missing = True
 
     if root_selector:
-        match = soup.select_one(root_selector)
+        match = first_visible(root_selector)
         if match is not None:
             return match, "root_selector"
         requested_but_missing = True
@@ -128,7 +143,7 @@ def find_content_root(soup: BeautifulSoup, config: dict[str, Any] | None = None)
         # because silently substituting a different region for the one that was named would
         # hide the mistake this strategy field exists to show.
         for selector, strategy in AUTO_STRATEGIES:
-            match = soup.select_one(selector)
+            match = first_visible(selector)
             if match is not None:
                 return match, strategy
 

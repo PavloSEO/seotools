@@ -31,6 +31,25 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
     sub.alignment = WD_ALIGN_PARAGRAPH.LEFT
     doc.add_paragraph(f"Generated: {document.get('generated_at', '')}").runs[0].font.size = Pt(9)
 
+    # Failed/partial crawl scope must appear before the executive summary
+    # table, not buried in a trailing note: a recipient must not mistake a
+    # failed or sampled crawl for a clean, site-wide audit (#361).
+    if summary.get("crawl_valid") is False:
+        reason = summary.get("crawl_invalid_reason") or "the crawl produced no usable data"
+        warn = doc.add_paragraph()
+        run = warn.add_run(f"Crawl failed — no health score. {reason}")
+        run.bold = True
+        run.font.color.rgb = RGBColor(0xC0, 0, 0)
+    if summary.get("crawl_partial"):
+        finish = summary.get("crawl_finish_reason")
+        scope = summary.get("crawl_scope_note")
+        bits = [b for b in (f"stopped: {finish}" if finish else None, scope) if b]
+        detail = f" {'; '.join(bits)}" if bits else ""
+        warn = doc.add_paragraph()
+        run = warn.add_run(f"Partial crawl — scope is limited.{detail}")
+        run.bold = True
+        run.font.color.rgb = RGBColor(0xC0, 0, 0)
+
     doc.add_heading("Executive Summary", level=1)
     table = doc.add_table(rows=0, cols=2)
     table.style = "Light Grid Accent 1"
@@ -42,6 +61,16 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
     ):
         row = table.add_row().cells
         row[0].text, row[1].text = name, str(value)
+
+    disabled = summary.get("checks_disabled") or []
+    if disabled:
+        doc.add_heading("Disabled Checks", level=1)
+        doc.add_paragraph(
+            "These checks were deliberately turned off and did not run. "
+            "Their silence is a configuration choice, not a clean result:"
+        )
+        for item in disabled:
+            doc.add_paragraph(f"{item.get('id')} — {item.get('reason')}", style="List Bullet")
 
     failed = summary.get("tools_failed") or []
     if failed:
@@ -61,7 +90,12 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
         doc.add_heading(f"{SEVERITY_TITLES.get(level, level)} — {len(chunk)}", level=1)
         if level == "critical":
             warn = doc.add_paragraph()
-            run = warn.add_run("These issues are preventing the site from ranking correctly now.")
+            run = warn.add_run(
+                "These are the highest-severity issues this audit found, by the "
+                "aggregator's severity rules. This report does not measure current "
+                "search rankings, so it does not say whether these issues have "
+                "already cost the site any."
+            )
             run.bold = True
             run.font.color.rgb = RGBColor(0xC0, 0, 0)
         for finding in chunk[:_MAX_FINDINGS_PER_LEVEL]:

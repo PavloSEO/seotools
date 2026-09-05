@@ -46,6 +46,25 @@ class DocCommand:
     stdin: str | None  # payload to pipe in, for the `echo '...' | seohead ...` form
 
 
+def _strip_comment_for_balance(line: str) -> str:
+    """The comment-free text of one line, used only to decide whether the
+    accumulated buffer's quotes still balance.
+
+    A ``#`` cannot open a shell string, so a whole-line comment contributes
+    nothing to the count, and a trailing ``# ...`` annotation is stripped the
+    same way ``_strip_comment`` strips it from the final command text. A line
+    whose quote is still open — folded in from an earlier continuation, so
+    shlex can't parse it on its own — is passed through unchanged: its quote
+    characters are exactly what is supposed to keep the buffer open.
+    """
+    if line.strip().startswith("#"):
+        return ""
+    try:
+        return shlex.join(shlex.split(line, comments=True))
+    except ValueError:
+        return line
+
+
 def _join_continuations(block: str) -> list[str]:
     """Merge a fenced block's lines into logical commands.
 
@@ -53,19 +72,25 @@ def _join_continuations(block: str) -> list[str]:
     trailing ``\\`` (shell continuation), and a quoted JSON literal that simply
     wraps without one (readable in the doc, still one shell token once quoted).
     Both are done accumulating once the buffer has no trailing backslash and its
-    quotes balance.
+    quotes balance — where "its quotes" means the buffer with comments already
+    stripped out, so an apostrophe in a ``# ...`` annotation can never hold a
+    block open (issue #388).
     """
     logical: list[str] = []
     buf = ""
+    quote_check = ""
     for line in block.splitlines():
         buf = f"{buf}\n{line}" if buf else line
+        piece = _strip_comment_for_balance(line)
+        quote_check = f"{quote_check}\n{piece}" if quote_check else piece
         if buf.rstrip().endswith("\\"):
             buf = buf.rstrip()[:-1]
             continue
-        if buf.count("'") % 2 or buf.count('"') % 2:
+        if quote_check.count("'") % 2 or quote_check.count('"') % 2:
             continue  # quotes still open; fold in the next line
         logical.append(buf)
         buf = ""
+        quote_check = ""
     if buf:
         logical.append(buf)
     return logical

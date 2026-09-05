@@ -103,3 +103,157 @@ def test_min_occurrences_same_meaning_both_grouping_modes():
         assert dropped["summary"]["tasks_total"] == 0, group_by
         kept = build_tasks(_audit_with_occurrences(5), cfg)
         assert kept["summary"]["tasks_total"] == 1, group_by
+
+
+def _partial_audit() -> dict:
+    return {
+        "run": {
+            "project": "example.test",
+            "generated_at": "2026-09-05T00:00:00Z",
+            "crawl_valid": True,
+            "crawl_partial": True,
+            "crawl_finish_reason": "url_limit",
+        },
+        "summary": {
+            "health_score": 90,
+            "health_score_scope": (
+                "1 of 1,000 sitemap URLs crawled — the score describes the "
+                "crawled subset, not the whole site"
+            ),
+        },
+        "issues": [
+            {
+                "id": "ISSUE-000001",
+                "check": "BROKEN_INTERNAL_LINK",
+                "severity": "critical",
+                "target_url": "https://example.test/dead",
+                "occurrences_count": 1,
+                "locations": [],
+            }
+        ],
+    }
+
+
+def test_partial_crawl_scope_and_reason_carried_into_source():
+    """#308: scope, stop reason and basis survive into tasks.json, not just audit.json."""
+    backlog = build_tasks(_partial_audit())
+    src = backlog["source"]
+    assert src["crawl_partial"] is True
+    assert src["crawl_finish_reason"] == "url_limit"
+    assert "1 of 1,000" in src["health_score_scope"]
+
+
+def test_partial_crawl_warning_rendered_before_task_list():
+    """#308: a distinct partial-run warning must appear before the P1 section."""
+    md = render_tasks_md(build_tasks(_partial_audit()))
+    assert "Partial crawl" in md
+    assert "url_limit" in md
+    assert "1 of 1,000" in md
+    assert md.index("Partial crawl") < md.index("## P1")
+
+
+def test_invalid_crawl_warning_stays_separate_from_partial_warning():
+    """#308: the failed-crawl warning must still lead, and stay distinct."""
+    audit = _partial_audit()
+    audit["run"]["crawl_valid"] = False
+    audit["run"]["crawl_invalid_reason"] = "fetch failed for every URL"
+    md = render_tasks_md(build_tasks(audit))
+    assert "Crawl failed" in md
+    assert "Partial crawl" in md
+    assert md.index("Crawl failed") < md.index("Partial crawl")
+
+
+def test_complete_crawl_has_no_partial_warning():
+    """#308: a normal, complete run must not carry a stray partial-crawl warning."""
+    backlog = build_tasks(_partial_audit_source())
+    assert backlog["source"]["crawl_partial"] is False
+    md = render_tasks_md(backlog)
+    assert "Partial crawl" not in md
+
+
+def _partial_audit_source() -> dict:
+    # Reuse the ``result`` fixture's shape indirectly via a plain dict: a
+    # normal audit with no partial-crawl signal at all.
+    return {
+        "run": {"project": "example.test", "generated_at": "2026-09-05T00:00:00Z"},
+        "summary": {"health_score": 95},
+        "issues": [],
+    }
+
+
+def _broken_link_audit(locations: list[dict]) -> dict:
+    return {
+        "run": {"project": "example.test", "generated_at": "2026-09-05T00:00:00Z"},
+        "summary": {"health_score": 80},
+        "issues": [
+            {
+                "id": "ISSUE-000001",
+                "check": "BROKEN_INTERNAL_LINK",
+                "severity": "critical",
+                "target_url": "https://example.test/dead",
+                "status_code": 404,
+                "occurrences_count": len(locations),
+                "locations": locations,
+            }
+        ],
+    }
+
+
+_THREE_LOCATIONS = [
+    {
+        "source_url": "https://example.test/a",
+        "anchor": "A",
+        "link_position": "Content",
+        "link_path": "/a",
+    },
+    {
+        "source_url": "https://example.test/b",
+        "anchor": "B",
+        "link_position": "Footer",
+        "link_path": "/b",
+    },
+    {
+        "source_url": "https://example.test/c",
+        "anchor": "C",
+        "link_position": "Footer",
+        "link_path": "/c",
+    },
+]
+
+
+def test_target_cap_alone_does_not_truncate_broken_link_locations():
+    """#309: max_urls_per_task caps target URLs, not source locations."""
+    backlog = build_tasks(
+        _broken_link_audit(_THREE_LOCATIONS),
+        {"tasks_pipeline": {"max_urls_per_task": 1}},
+    )
+    task = backlog["tasks"][0]
+    assert task["urls"] == ["https://example.test/dead"]
+    assert task["urls_truncated"] == 0
+    assert [row["source_url"] for row in task["broken_links"]] == [
+        "https://example.test/a",
+        "https://example.test/b",
+        "https://example.test/c",
+    ]
+    assert task["broken_links_total"] == 3
+    assert task["broken_links_truncated"] == 0
+    md = render_tasks_md(backlog)
+    assert "https://example.test/b" in md
+    assert "https://example.test/c" in md
+    assert "omitted" not in md
+
+
+def test_location_cap_reports_totals_and_omissions():
+    """#309: a dedicated location cap must report what it hides, in JSON and Markdown."""
+    backlog = build_tasks(
+        _broken_link_audit(_THREE_LOCATIONS),
+        {"tasks_pipeline": {"max_locations_per_task": 1}},
+    )
+    task = backlog["tasks"][0]
+    assert [row["source_url"] for row in task["broken_links"]] == ["https://example.test/a"]
+    assert task["broken_links_total"] == 3
+    assert task["broken_links_truncated"] == 2
+    md = render_tasks_md(backlog)
+    assert "https://example.test/b" not in md
+    assert "https://example.test/c" not in md
+    assert "2 more source location(s) omitted" in md

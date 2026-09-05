@@ -21,10 +21,10 @@ from typing import Any
 HOST = "https://web.archive.org/cdx/search/cdx"
 TIMEOUT = 20
 USER_AGENT = "Mozilla/5.0 (compatible; SEOHEAD-Tools/3.0; +https://seohead.tech/seotools)"
-
-# Field order the CDX server returns in its default JSON header row, kept as a fallback for the
-# rare response that omits the header (some CDX mirrors do). See CDX API docs "fl" parameter.
-DEFAULT_FIELDS = ("urlkey", "timestamp", "original", "mimetype", "statuscode", "digest", "length")
+# The JSON response's first row names fields. These are the two fields this
+# adapter needs to build a snapshot and its archive URL; accepting a string
+# list that lacks them would turn an error-shaped array into clean zero evidence.
+_REQUIRED_HEADER_FIELDS = frozenset({"timestamp", "original"})
 
 Fetcher = Callable[[str], str]
 
@@ -78,14 +78,36 @@ def history(
             "url": url,
             "error": "Wayback CDX returned a response that is not JSON",
         }
-    if not isinstance(rows, list) or not rows:
+    if not isinstance(rows, list):
+        return {
+            "ok": False,
+            "url": url,
+            "error": "Wayback CDX returned a JSON body that is not an array",
+        }
+    if not rows:
+        # The documented empty-result shape: a JSON array with nothing in it.
         return {"ok": True, "url": url, "count": 0, "snapshots": []}
 
     header, *data_rows = rows
-    fields = header if isinstance(header, list) else list(DEFAULT_FIELDS)
+    if (
+        not isinstance(header, list)
+        or not all(isinstance(field, str) for field in header)
+        or not _REQUIRED_HEADER_FIELDS.issubset(header)
+    ):
+        return {
+            "ok": False,
+            "url": url,
+            "error": "Wayback CDX response header row has an unexpected shape",
+        }
     snapshots = []
     for row in data_rows:
-        record = dict(zip(fields, row, strict=False))
+        if not isinstance(row, list):
+            return {
+                "ok": False,
+                "url": url,
+                "error": "Wayback CDX response contains a malformed row",
+            }
+        record = dict(zip(header, row, strict=False))
         original = record.get("original", url)
         timestamp = record.get("timestamp", "")
         record["archived_url"] = f"https://web.archive.org/web/{timestamp}/{original}"

@@ -85,6 +85,65 @@ def test_edge_with_no_captured_attributes_is_not_a_false_positive():
     assert unsafe_cross_origin_links(links) == []
 
 
+# ── unsafe_cross_origin_links: origin comparison (issue #336) ─────────────────
+
+
+def test_same_origin_blank_target_without_rel_is_not_flagged():
+    """A same-origin new-tab link has no window.opener handle to a *different* origin."""
+    links = [edge("https://example.test/", "https://example.test/account", target="_blank")]
+    assert unsafe_cross_origin_links(links) == []
+
+
+def test_different_host_blank_target_without_rel_remains_flagged():
+    links = [edge("https://example.test/", "https://other.example/account", target="_blank")]
+    assert len(unsafe_cross_origin_links(links)) == 1
+
+
+def test_different_scheme_same_host_is_cross_origin():
+    links = [edge("https://example.test/", "http://example.test/account", target="_blank")]
+    assert len(unsafe_cross_origin_links(links)) == 1
+
+
+def test_different_explicit_port_same_host_is_cross_origin():
+    links = [edge("https://example.test/", "https://example.test:8443/account", target="_blank")]
+    assert len(unsafe_cross_origin_links(links)) == 1
+
+
+def test_explicit_default_port_is_same_origin_as_implicit():
+    """https://host:443/ names the same origin as https://host/ -- 443 is implicit."""
+    links = [edge("https://example.test/", "https://example.test:443/account", target="_blank")]
+    assert unsafe_cross_origin_links(links) == []
+
+
+def test_explicit_default_http_port_is_same_origin_as_implicit():
+    links = [edge("http://example.test/", "http://example.test:80/account", target="_blank")]
+    assert unsafe_cross_origin_links(links) == []
+
+
+def test_noopener_suppresses_cross_origin_finding():
+    links = [
+        edge(
+            "https://example.test/",
+            "https://other.example/account",
+            target="_blank",
+            rel=("noopener",),
+        )
+    ]
+    assert unsafe_cross_origin_links(links) == []
+
+
+def test_noreferrer_suppresses_cross_origin_finding():
+    links = [
+        edge(
+            "https://example.test/",
+            "https://other.example/account",
+            target="_blank",
+            rel=("noreferrer",),
+        )
+    ]
+    assert unsafe_cross_origin_links(links) == []
+
+
 # ── protocol_relative_links ───────────────────────────────────────────────────
 
 

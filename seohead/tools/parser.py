@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
+from html.parser import HTMLParser
 from typing import Any, cast
 from urllib.parse import urljoin, urlparse
 
@@ -570,50 +571,88 @@ def _head_not_first(html_tag: Any, head_count: int) -> bool:
 _ALLOWED_HEAD_TAGS = frozenset(
     {"title", "base", "link", "meta", "style", "script", "noscript", "template"}
 )
-_HEAD_OPEN_RE = re.compile(r"<head\b[^>]*>", re.IGNORECASE)
-_HEAD_CLOSE_RE = re.compile(r"</head\s*>", re.IGNORECASE)
-_BODY_OPEN_RE = re.compile(r"<body\b", re.IGNORECASE)
-# GTM's <noscript><iframe ...></noscript> fallback is the common real case: with
-# scripting enabled (the only case that matters here — the parser is producing
-# what a search engine's crawler sees) a browser treats <noscript>'s content as
-# opaque text, not markup, so nothing inside it ever forces <head> to close.
-# Stripped before scanning so it isn't flagged as an invalid element.
-_NOSCRIPT_RE = re.compile(r"<noscript\b.*?</noscript\s*>", re.IGNORECASE | re.DOTALL)
-# An opening tag only: "<" immediately followed by a letter excludes both a
-# closing tag ("</title>") and a comment/doctype ("<!--", "<!DOCTYPE").
-_OPEN_TAG_NAME_RE = re.compile(r"<([a-zA-Z][a-zA-Z0-9:-]*)")
+
+
+class _HeadElementScanner(HTMLParser):
+    """Collects tokenizer-visible start tags written inside a document's <head>.
+
+    Built on the stdlib tokenizer instead of a raw opening-tag regex so that
+    text which merely *looks* like a tag never counts as one (issue #267):
+    ``script``/``style`` are CDATA content, ``title`` is RCDATA content (both
+    handled by :class:`HTMLParser` itself), ``noscript`` is opaque with
+    ``scripting=True`` — matching a browser with JS enabled, the only case
+    that matters for what a crawler sees — and comments and quoted attribute
+    values are simply outside the tokenizer's tag-name grammar. ``<template>``
+    content is a separate, inert document fragment per the HTML content
+    model, so tags found while inside one are counted only for nesting depth,
+    never as findings.
+
+    Scans only the first ``<head>...</head>`` (or up to the first literal
+    ``<body>``, matching how a browser also promotes an invalid head element
+    and everything after it into <body>) — later ``<head>`` tags, if any, are
+    ignored, matching the previous implementation's single-span behaviour.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True, scripting=True)
+        self.found: list[str] = []
+        self._seen: set[str] = set()
+        self._in_head = False
+        self._done = False
+        self._template_depth = 0
+
+    def _start(self, tag: str) -> None:
+        tag = tag.lower()
+        if self._done:
+            return
+        if not self._in_head:
+            if tag == "head":
+                self._in_head = True
+            return
+        if self._template_depth == 0 and tag == "body":
+            self._in_head = False
+            self._done = True
+            return
+        if tag == "template":
+            self._template_depth += 1
+        if self._template_depth == 0 and tag not in _ALLOWED_HEAD_TAGS and tag not in self._seen:
+            self._seen.add(tag)
+            self.found.append(tag)
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self._start(tag)
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self._start(tag)
+
+    def handle_endtag(self, tag: str) -> None:
+        tag = tag.lower()
+        if self._done or not self._in_head:
+            return
+        if tag == "template" and self._template_depth > 0:
+            self._template_depth -= 1
+        elif self._template_depth == 0 and tag == "head":
+            self._in_head = False
+            self._done = True
 
 
 def invalid_head_elements(html: str) -> list[str]:
     """Tag names written inside ``<head>...</head>`` that do not belong there.
 
-    Read from the source text, not the resolved tree: an invalid element is
-    exactly what makes the parser close <head> early, so by the time parsing
-    finishes recovering, the resolved <head> can no longer contain it (see the
-    block comment above). The literal span is the only place left to look.
+    Read with the stdlib tokenizer rather than the resolved tree: an invalid
+    element is exactly what makes the parser close <head> early, so by the
+    time parsing finishes recovering, the resolved <head> can no longer
+    contain it (see the block comment above). Malformed markup that trips up
+    the tokenizer degrades to whatever was found before the failure, rather
+    than raising, since this is a best-effort textual scan.
     """
-    open_match = _HEAD_OPEN_RE.search(html)
-    if not open_match:
-        return []
-    start = open_match.end()
-    close_match = _HEAD_CLOSE_RE.search(html, start)
-    body_match = _BODY_OPEN_RE.search(html, start)
-    if close_match and (body_match is None or close_match.start() < body_match.start()):
-        end = close_match.start()
-    elif body_match:
-        end = body_match.start()
-    else:
-        end = len(html)
-    span = _NOSCRIPT_RE.sub("", html[start:end])
-    found: list[str] = []
-    seen: set[str] = set()
-    for match in _OPEN_TAG_NAME_RE.finditer(span):
-        name = match.group(1).lower()
-        if name in _ALLOWED_HEAD_TAGS or name in seen:
-            continue
-        seen.add(name)
-        found.append(name)
-    return found
+    scanner = _HeadElementScanner()
+    try:
+        scanner.feed(html)
+        scanner.close()
+    except Exception:  # best-effort scan over untrusted markup
+        pass
+    return scanner.found
 
 
 def document_position(soup: BeautifulSoup, html: str) -> DocumentPosition:
@@ -645,6 +684,39 @@ def document_position(soup: BeautifulSoup, html: str) -> DocumentPosition:
             any(not _in_head(tag) for tag in hreflang_tags) if hreflang_tags else None
         ),
     }
+
+
+def extract_hreflang(soup: BeautifulSoup, base_url: str) -> list[dict[str, str]]:
+    """Every hreflang alternate the document declares, in document order (#357).
+
+    ``_hreflang_tags`` has always found these; ``parse_html`` used them for one
+    boolean about *where the tags sat* and discarded *what they said*, so a
+    crawl could not answer whether a page was localised -- the only
+    authoritative statement about that being the one the site makes here.
+
+    ``lang`` and ``raw_href`` are kept exactly as written. A code with the wrong
+    case or a malformed region is itself a finding, and normalising on capture
+    would hide it. ``url`` is the same href resolved against the document base,
+    which is what a browser does, not a normalisation of the declaration -- both
+    forms are kept so a check can compare targets without losing the original.
+    """
+    alternates: list[dict[str, str]] = []
+    for tag in _hreflang_tags(soup):
+        if _has_ancestor(tag, _INERT_LINK_CONTAINERS):
+            continue  # a <template>'s alternate is never in the rendered document
+        lang = cast("str | None", tag.get("hreflang")) or ""
+        raw_href = (cast("str | None", tag.get("href")) or "").strip()
+        alternates.append(
+            {
+                "lang": lang.strip(),
+                "raw_href": raw_href,
+                # An alternate with no href declares a language and points
+                # nowhere. Recorded as such rather than dropped: it is the
+                # malformed declaration a reciprocity check needs to see.
+                "url": urljoin(base_url, raw_href) if raw_href else "",
+            }
+        )
+    return alternates
 
 
 def _extract_links(
@@ -904,6 +976,54 @@ def image_url_sources(url_sources: list[dict[str, str]]) -> list[dict[str, str]]
     ]
 
 
+# Written onto each <iframe> just long enough to survive the copy that
+# resolve_content_area makes, then removed. The alternative -- re-running the
+# resolver and comparing by identity -- cannot work: the resolved root is a
+# detached copy with its excluded elements decomposed, so an iframe that the
+# content area drops would still look present in the live tree.
+_FRAME_MARKER = "data-seohead-frame"
+
+
+def extract_frames(
+    soup: Any, base_url: str, final_url: str, in_content_area: set[str]
+) -> list[dict[str, Any]]:
+    """Every ``<iframe>`` the document declares, and where it sits (issue #360).
+
+    A framed document is not part of the parent DOM. The parser sees
+    ``<iframe src="...">`` and no text, so ``word_count`` measures the shell
+    around the content and the page is reported as thin -- naming the wrong
+    cause and prescribing the wrong fix. This records what is needed to say the
+    true thing instead: what is framed, whether the site owns it, and whether it
+    sits where the content is supposed to be.
+
+    ``in_content_area`` holds the markers of the frames that survived into the
+    resolved content root, so the answer is the one the ``word_count`` beside it
+    was computed from rather than a second, possibly disagreeing, resolution.
+    """
+    frames: list[dict[str, Any]] = []
+    for tag in soup.find_all("iframe"):
+        if _has_ancestor(tag, _INERT_LINK_CONTAINERS):
+            continue  # a <template>'s iframe is never instantiated, see _INERT_LINK_CONTAINERS
+        raw_src = (cast("str | None", tag.get("src")) or "").strip()
+        # An empty src is not the absence of a frame: a JavaScript-populated
+        # iframe hides text from a parser exactly as a src'd one does.
+        src = urljoin(base_url, raw_src) if raw_src else ""
+        frames.append(
+            {
+                "src": src,
+                "raw_src": raw_src,
+                # No src resolves to the page itself, which is same-origin by
+                # definition -- not a third party to be excused as an embed.
+                "same_origin": not src or not is_external(src, final_url),
+                "in_content_area": str(tag.get(_FRAME_MARKER)) in in_content_area,
+                "title": collapse_whitespace(cast("str | None", tag.get("title")) or ""),
+                "loading": (cast("str | None", tag.get("loading")) or "").strip().lower(),
+                "sandbox": collapse_whitespace(cast("str | None", tag.get("sandbox")) or ""),
+            }
+        )
+    return frames
+
+
 def parse_html(html: str, final_url: str, options: dict[str, Any] | None = None) -> ParsedPage:
     """Extract SEO data from an HTML string (pure — no network).
 
@@ -1018,22 +1138,37 @@ def parse_html(html: str, final_url: str, options: dict[str, Any] | None = None)
         # heading breaks for the scorer to find. Link discovery never sees the
         # resolved root, so restricting text never restricts the crawl.
         content_config = options.get("content_area") if isinstance(options, dict) else None
+        for index, frame_tag in enumerate(soup.find_all("iframe")):
+            frame_tag[_FRAME_MARKER] = str(index)
         content_root, strategy = resolve_content_area(soup, content_config)
         content_text = extract_area_text(content_root)
         result["content_text"] = content_text
         result["content_area_strategy"] = strategy
         result["word_count"] = len(content_text.split())
+        result["frames"] = extract_frames(
+            soup,
+            base_url,
+            final_url,
+            {str(el.get(_FRAME_MARKER)) for el in content_root.find_all("iframe")},
+        )
+        for frame_tag in soup.find_all("iframe"):
+            del frame_tag[_FRAME_MARKER]
     else:
         result["text"] = ""
         result["content_text"] = ""
         result["content_area_strategy"] = None
         result["word_count"] = 0
+        result["frames"] = []
 
     # Always computed, regardless of the option flags above: it is a handful of
     # already-parsed-tree lookups, not a separate extraction pass, and every
     # option that turns off title/canonical/etc. text still leaves the tree to
     # read positions from. See document_position (issue #123).
     result["position"] = document_position(soup, html)
+    # Same reasoning as position above: a handful of link lookups on a tree
+    # that is already built, and the one authoritative statement a site makes
+    # about which pages are the same page in another language (#357).
+    result["hreflang"] = extract_hreflang(soup, base_url)
 
     # Built imperatively above (one assignment per option branch) rather than as
     # one literal, so a plain dict is the natural builder; cast once at the

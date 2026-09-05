@@ -669,10 +669,11 @@ def analyze_tech(
     # ``SEOHEAD_TECH_DB``. Built-in signatures take precedence; the external database
     # adds only unknown technologies. GPL-licensed database material is not distributed.
     external_report: dict[str, Any] = {"loaded": False}
-    try:
-        from seohead.recon import tech_db
+    from seohead.recon import tech_db
 
-        ext = tech_db.detect_external(html, headers, cookies, scripts, page_url)
+    configured_path = tech_db.get_external_db_path()
+    try:
+        ext = tech_db.detect_external(html, headers, cookies, scripts, page_url, configured_path)
         if ext.get("db_loaded"):
             external_report = {
                 "loaded": True,
@@ -682,9 +683,22 @@ def analyze_tech(
             for tech in ext["technologies"]:
                 if tech["name"] not in found:
                     found[tech["name"]] = tech
-    # A malformed optional database must not break built-in fingerprint detection.
-    except Exception:
-        pass
+    except Exception as exc:
+        # A malformed optional database must not break built-in fingerprint
+        # detection, but silently reporting it the same as "not configured"
+        # (loaded: false with no path) hides a real failure of the operator's
+        # own supplied data as the documented normal state. Distinguish the
+        # two: no configured path stays the ordinary "not configured" result;
+        # a configured path that failed to load or match reports its own
+        # failure state, the offending path, and a sanitized error summary
+        # (type and message only, never a traceback).
+        if configured_path:
+            external_report = {
+                "loaded": False,
+                "state": "external_db_failed",
+                "path": configured_path,
+                "error": f"{type(exc).__name__}: {exc}",
+            }
 
     # Capture the id, not just the tag name: a name-only match cannot tell two
     # deployments of the same tag apart, which is what a site-wide conflict check

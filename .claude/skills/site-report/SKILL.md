@@ -106,8 +106,8 @@ disagrees with a priority, the rule can be shown and discussed.
 | Format | Audience | Why |
 |---|---|---|
 | `xlsx` | you and the developers | filters, sorting, a live Excel chart, and findings distributed one per row |
-| `docx` | the client | text with headings: conclusion first, then evidence |
-| `csv` | the tracker | two files (findings and `*.pages.csv`), `;` and BOM — otherwise Excel displays garbled characters |
+| `docx` | the client | text with headings: an executive summary (counts, unavailable checks) first, then evidence — never a generated conclusion |
+| `csv` | findings, for the tracker to map | two files (findings and `*.pages.csv`), `;` and BOM — otherwise Excel displays garbled characters; one row per finding, not a grouped task |
 | `md` | Git and correspondence | readable anywhere |
 
 ## Boundaries

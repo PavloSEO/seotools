@@ -105,6 +105,25 @@ def test_all_four_checks_skip_without_any_evidence(result):
         assert check_id not in fired
 
 
+def test_all_four_checks_fire_when_every_page_is_negative(tmp_path):
+    """#268: the columns are present (a native crawl always projects them) but every
+    page genuinely lacks all four declarations. That must read as four sitewide
+    findings, not as "no evidence in the run" — gating on a passing value elsewhere
+    in the corpus made one good page the only thing standing between this and an
+    incorrect all-skip."""
+    rows = [_row("https://example.com/bad")]
+    res = _run(tmp_path, rows)
+    fired = _fired(res)
+    for check_id in ("MISSING_CHARSET", "MISSING_DOCTYPE", "VIEWPORT_MISSING", "NO_COMPRESSION"):
+        assert "https://example.com/bad" in fired[check_id]
+    assert not _skipped(res) & {
+        "MISSING_CHARSET",
+        "MISSING_DOCTYPE",
+        "VIEWPORT_MISSING",
+        "NO_COMPRESSION",
+    }
+
+
 # -- MISSING_CHARSET ---------------------------------------------------------
 
 
@@ -174,6 +193,23 @@ def test_compression_fires_above_the_ignore_threshold_only(tmp_path):
     assert "https://example.com/gzip" not in fired.get("NO_COMPRESSION", set())
     assert "https://example.com/plain-large" in fired["NO_COMPRESSION"]
     assert "https://example.com/plain-tiny" not in fired.get("NO_COMPRESSION", set())
+
+
+def test_compression_accepts_a_stacked_content_encoding(tmp_path):
+    """#269: 'gzip, br' names two real compression codings. Comparing the whole
+    header string against a single-token set flagged it as uncompressed even
+    though the earlier single-token 'gzip' control was correctly accepted."""
+    rows = [
+        _row("https://example.com/stacked", encoding="gzip, br", size_bytes=5000),
+        _row("https://example.com/stacked-spaced", encoding=" GZIP , BR ", size_bytes=5000),
+        _row("https://example.com/reference", encoding="gzip", size_bytes=5000),
+        _row("https://example.com/still-plain", encoding="", size_bytes=5000),
+    ]
+    fired = _fired(_run(tmp_path, rows))
+    assert "https://example.com/stacked" not in fired.get("NO_COMPRESSION", set())
+    assert "https://example.com/stacked-spaced" not in fired.get("NO_COMPRESSION", set())
+    assert "https://example.com/reference" not in fired.get("NO_COMPRESSION", set())
+    assert "https://example.com/still-plain" in fired["NO_COMPRESSION"]
 
 
 # -- end-to-end through a native seohead crawl, not a hand-typed CSV ---------
@@ -314,3 +350,33 @@ def test_lighthouse_checks_never_fire_on_a_redirect_or_error_stub():
         # ...never on the stubs standing in for a redirect or an error.
         assert "https://example.com/old-page" not in fired.get(check_id, set())
         assert "https://example.com/gone" not in fired.get(check_id, set())
+
+
+def test_a_header_charset_cannot_prove_another_page_is_missing_one(tmp_path):
+    """The case no fixture covered: no Meta Charset column at all, and some pages
+    carrying charset in Content-Type while others do not.
+
+    Firing on the second page would report a defect nobody measured -- its HTML
+    may well declare <meta charset>, which an export without that column does not
+    show. Before #396 the check ran here on exactly that reasoning and produced a
+    finding; it must skip instead, and the reason must name the missing column
+    rather than claim Content-Type carries no charset, which is untrue on this
+    very input.
+    """
+    import csv
+
+    from seohead.sf.core.audit import run_audit
+
+    exports = tmp_path / "exports"
+    exports.mkdir()
+    with open(exports / "internal_all.csv", "w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["Address", "Content Type", "Status Code", "Indexability"])
+        writer.writerow(["https://example.com/a", "text/html; charset=UTF-8", "200", "Indexable"])
+        writer.writerow(["https://example.com/b", "text/html", "200", "Indexable"])
+    result = run_audit(input_mode="parse-exports", exports_dir=str(exports), log=lambda m: None)
+
+    assert not [i for i in result.issues if i.check == "MISSING_CHARSET"]
+    reason = next(s.reason for s in result.skipped if s.id == "MISSING_CHARSET")
+    assert "Meta Charset column" in reason
+    assert "Content-Type carries no charset" not in reason

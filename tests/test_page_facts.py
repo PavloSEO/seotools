@@ -117,3 +117,71 @@ def test_missing_signals_return_none_not_fake_values():
     assert f["rating"] is None
     assert f["published_time"] is None
     assert f["organization"]["name"] is None
+
+
+# Issue #325: a related-product card elsewhere on the page must never lend its
+# price or rating to the page's own primary Product, and reordering the
+# unrelated markup must not change what gets attributed to the target.
+
+
+def _related_and_target(related_first: bool) -> str:
+    target = """<main><div itemscope itemtype="https://schema.org/Product">
+      <h1 itemprop="name">Target</h1><meta itemprop="price" content="20">
+      <meta itemprop="priceCurrency" content="USD">
+      <div itemprop="aggregateRating" itemscope itemtype="https://schema.org/AggregateRating">
+        <meta itemprop="ratingValue" content="4.0"><meta itemprop="reviewCount" content="2">
+      </div></div></main>"""
+    related = """<aside><div itemscope itemtype="https://schema.org/Product">
+      <span itemprop="name">Other</span><meta itemprop="price" content="99">
+      <meta itemprop="priceCurrency" content="USD">
+      <div itemprop="aggregateRating" itemscope itemtype="https://schema.org/AggregateRating">
+        <meta itemprop="ratingValue" content="4.9"><meta itemprop="reviewCount" content="100">
+      </div></div></aside>"""
+    body = related + target if related_first else target + related
+    return '<meta property="og:type" content="product">' + body
+
+
+def test_target_first_price_and_rating_are_the_targets_own():
+    f = page_facts.extract(
+        _related_and_target(related_first=False), "https://shop.example.test/products/target"
+    )
+    assert f["price"]["value"] == 20.0
+    assert f["rating"]["value"] == "4.0"
+    assert f["rating"]["count"] == "2"
+
+
+def test_related_first_still_reads_the_targets_own_price_and_rating():
+    # Reordering the unrelated scope must not change what is attributed to
+    # the target: the related card's 99/4.9 must never surface here.
+    f = page_facts.extract(
+        _related_and_target(related_first=True), "https://shop.example.test/products/target"
+    )
+    assert f["price"]["value"] == 20.0
+    assert f["rating"]["value"] == "4.0"
+    assert f["rating"]["count"] == "2"
+
+
+def test_ambiguous_product_scopes_are_omitted_not_guessed():
+    # Two competing Product scopes with no h1 to single one out: no fact can
+    # be attributed with confidence. The visible-text values make this the
+    # regression control: neither a page-wide Microdata nor text fallback may
+    # lend the first card's values to the target.
+    html = """<div itemscope itemtype="https://schema.org/Product">
+      <span itemprop="name">A</span><meta itemprop="price" content="20">
+      <meta itemprop="ratingValue" content="4.0"><span>20 USD, 4.0/5</span></div>
+    <div itemscope itemtype="https://schema.org/Product">
+      <span itemprop="name">B</span><meta itemprop="price" content="99">
+      <meta itemprop="ratingValue" content="4.9"><span>99 USD, 4.9/5</span></div>"""
+    f = page_facts.extract(html, "https://example.com/p")
+    assert f["price"] is None
+    assert f["rating"] is None
+
+
+def test_single_product_visible_text_keeps_heuristics():
+    """The ambiguity guard must not suppress ordinary one-Product text evidence."""
+    html = """<div itemscope itemtype="https://schema.org/Product">
+      <span>20 USD, 4.0/5</span></div>"""
+    f = page_facts.extract(html, "https://example.com/p")
+    assert f["price"]["value"] == 20.0
+    assert f["price"]["source"] == "text"
+    assert f["rating"] == {"value": "4.0", "count": None, "heuristic": True, "source": "text"}

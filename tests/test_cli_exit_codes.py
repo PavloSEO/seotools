@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 
 from seohead import cli
+from seohead.audit.site import SCHEMA
 from seohead.servers import handlers
 
 
@@ -57,6 +58,71 @@ def test_log_scan_missing_run_dir_exits_one_not_two(tmp_path, capsys):
     out = json.loads(capsys.readouterr().out)
     assert out["ok"] is False
     assert out["anomaly_count"] == 0
+
+
+def test_site_audit_report_write_failure_exits_nonzero(monkeypatch, capsys, tmp_path):
+    """Issue #347: ``site-audit --report`` builds a report from the in-memory audit and stores
+    it under ``result["report"]``. The audit itself succeeding must not paper over that nested
+    report write failing -- a pipeline gating on ``$?`` needs the requested deliverable's own
+    status, not just the outer audit's."""
+    monkeypatch.setitem(
+        handlers.HANDLERS,
+        "site_audit",
+        lambda **kw: {
+            "ok": True,
+            "schema": SCHEMA,
+            "domain": "example.test",
+            "findings": [],
+            "pages": [],
+            "summary": {},
+        },
+    )
+    # A directory where a file is expected forces the renderer's own ok:false path (no
+    # monkeypatching of the report writer itself, matching the reported reproduction).
+    rc = cli.main(
+        ["site-audit", "--url", "https://example.test/", "--report", "xlsx", "--out", str(tmp_path)]
+    )
+    out = json.loads(capsys.readouterr().out)
+    assert out["ok"] is True
+    assert out["report"]["ok"] is False
+    assert str(tmp_path) in out["report"]["error"]
+    assert rc == 1
+
+
+def test_site_audit_report_success_still_exits_zero(monkeypatch, capsys, tmp_path):
+    """The positive control for #347: a report that is actually written must not regress to a
+    nonzero exit just because the nested-failure check now exists."""
+    monkeypatch.setitem(
+        handlers.HANDLERS,
+        "site_audit",
+        lambda **kw: {
+            "ok": True,
+            "schema": SCHEMA,
+            "domain": "example.test",
+            "findings": [],
+            "pages": [],
+            "summary": {},
+        },
+    )
+    out_file = tmp_path / "audit.md"
+    rc = cli.main(
+        ["site-audit", "--url", "https://example.test/", "--report", "md", "--out", str(out_file)]
+    )
+    out = json.loads(capsys.readouterr().out)
+    assert out["ok"] is True
+    assert out["report"]["ok"] is True
+    assert rc == 0
+    assert out_file.exists()
+
+
+def test_report_build_directly_is_unaffected_by_the_nested_check(monkeypatch, capsys, tmp_path):
+    """The direct ``report-build`` command has no nested ``result["report"]`` -- its own
+    top-level ``ok`` must keep gating the exit status exactly as before."""
+    rc = cli.main(["report-build", "--audit", "does-not-exist.json", "--format", "xlsx"])
+    out = json.loads(capsys.readouterr().out)
+    assert out["ok"] is False
+    assert "report" not in out
+    assert rc == 1
 
 
 def test_an_uncaught_exception_still_exits_one_with_stderr_message(monkeypatch, capsys):

@@ -297,7 +297,11 @@ def _cluster(
     """Dispatch to the requested sklearn estimator; return label array or None."""
     if algorithm == "kmeans":
         if auto_k:
-            k = elbow_k(normalize(X), max_k=min(100, n_keywords // 5))
+            # elbow_k() falls back to 2 whenever it collects fewer than three
+            # inertia points (always true below ~6 keywords), so its result is
+            # not itself bounded by the corpus size and must be capped here,
+            # the same way the explicit n_clusters path already is below.
+            k = min(elbow_k(normalize(X), max_k=min(100, n_keywords // 5)), n_keywords)
         else:
             k = min(n_clusters, n_keywords)
         k = max(k, 1)

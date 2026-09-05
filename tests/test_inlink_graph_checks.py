@@ -105,6 +105,43 @@ def test_one_follow_inlink_clears_only_nofollow(tmp_path):
     assert _fired(res, "ONLY_NOFOLLOW_INLINKS") == {}
 
 
+def test_nofollow_fragment_destination_still_flags_the_page(tmp_path):
+    # #313: the only inlink to /target is a nofollow link to its
+    # "#details" fragment. Grouping by the raw destination formed a
+    # separate bucket for the fragment-bearing edge that could never
+    # resolve to the crawled /target page, so the finding never fired.
+    internal_rows = [
+        ["https://example.test/", "text/html", "200", "OK", "Indexable", "0"],
+        ["https://example.test/target", "text/html", "200", "OK", "Indexable", "1"],
+    ]
+    inlink_rows = [
+        ["https://example.test/", "https://example.test/target#details", "Hyperlink", "false"],
+    ]
+    exports_dir = _write(tmp_path, internal_rows, inlink_rows)
+    res = run_audit(input_mode="parse-exports", exports_dir=exports_dir, log=lambda m: None)
+    fired = _fired(res, "ONLY_NOFOLLOW_INLINKS")
+    assert set(fired) == {"https://example.test/target"}
+
+
+def test_a_followed_different_fragment_clears_the_finding(tmp_path):
+    # Negative control for #313: a nofollow edge to one fragment plus a
+    # followed edge to a different fragment of the same page must still
+    # group as one page-level composition and clear the finding — the fix
+    # must not overcorrect into always firing once any fragment is seen.
+    internal_rows = [
+        ["https://example.test/", "text/html", "200", "OK", "Indexable", "0"],
+        ["https://example.test/other", "text/html", "200", "OK", "Indexable", "1"],
+        ["https://example.test/target", "text/html", "200", "OK", "Indexable", "1"],
+    ]
+    inlink_rows = [
+        ["https://example.test/", "https://example.test/target#details", "Hyperlink", "false"],
+        ["https://example.test/other", "https://example.test/target#top", "Hyperlink", "true"],
+    ]
+    exports_dir = _write(tmp_path, internal_rows, inlink_rows)
+    res = run_audit(input_mode="parse-exports", exports_dir=exports_dir, log=lambda m: None)
+    assert _fired(res, "ONLY_NOFOLLOW_INLINKS") == {}
+
+
 def test_a_page_linked_only_from_noindex_sources_is_flagged(tmp_path):
     internal_rows = [
         ["https://example.com/a", "text/html", "200", "OK", "Non-Indexable", "1"],

@@ -857,6 +857,13 @@ def main(argv: list[str] | None = None) -> int:
         # gating on `$?` needs that reflected in the exit code too, or `ok: false` is
         # indistinguishable from success to anything reading only the exit status.
         return 1
+    if isinstance(result, dict) and handlers.handler_failed(result.get("report")):
+        # An explicitly requested `--report` is a deliverable in its own right: the
+        # outer audit can be `ok: true` while the report it was asked to also produce
+        # never got written. Keep the nested error on stdout (it already is) and only
+        # change the exit status, so `report-build` run directly still gates on its
+        # own top-level `ok` untouched by this branch.
+        return 1
     return 0
 
 

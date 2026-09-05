@@ -186,6 +186,62 @@ def test_top_paths_keep_incrementing_after_the_path_cap_fills(tmp_path, monkeypa
     assert r["paths_truncated"] == ["googlebot"]  # /third was refused once the cap was full
 
 
+def _row(ip: str, n: int) -> str:
+    return (
+        f'{ip} - - [18/Mar/2024:00:00:{n % 60:02d} +0000] "GET / HTTP/1.1" 200 1 "-" '
+        '"Googlebot/2.1"\n'
+    )
+
+
+def test_unique_ips_stays_exact_at_the_cap(tmp_path, monkeypatch):
+    """#330 boundary control: exactly MAX_TRACKED_IPS distinct addresses is still a fully
+    tracked, exact count -- it must not be flagged as truncated."""
+    from seohead.tools import logs
+
+    monkeypatch.setattr(logs, "MAX_TRACKED_IPS", 3)
+    lines = "".join(_row(f"192.0.2.{i}", i) for i in range(3))
+    r = analyze_log(_write(tmp_path, lines))
+    bot = next(b for b in r["bots"] if b["name"] == "Googlebot")
+    assert bot["unique_ips"] == 3
+    assert bot["unique_ips_truncated"] is False
+    assert r["ips_truncated"] == []
+
+
+def test_unique_ips_is_flagged_as_a_lower_bound_past_the_cap(tmp_path, monkeypatch):
+    """#330: a bot with one more distinct address than the memory cap allows must report
+    a visible truncation signal, not the same bare number as an exact count would use."""
+    from seohead.tools import logs
+
+    monkeypatch.setattr(logs, "MAX_TRACKED_IPS", 3)
+    lines = "".join(_row(f"192.0.2.{i}", i) for i in range(4))
+    r = analyze_log(_write(tmp_path, lines))
+    bot = next(b for b in r["bots"] if b["name"] == "Googlebot")
+    assert bot["unique_ips"] == 3  # bounded sample, unchanged
+    assert bot["unique_ips_truncated"] is True
+    assert r["ips_truncated"] == ["Googlebot"]
+
+
+def test_unique_ips_keeps_counting_repeats_after_the_ip_cap_fills(tmp_path, monkeypatch):
+    """A repeat of an already-tracked address must not be mistaken for a new one once the
+    cap is full -- only a brand-new address should ever be refused."""
+    from seohead.tools import logs
+
+    monkeypatch.setattr(logs, "MAX_TRACKED_IPS", 2)
+    lines = "".join(
+        [
+            _row("192.0.2.1", 0),
+            _row("192.0.2.2", 1),
+            _row("192.0.2.3", 2),  # refused: cap already full of .1 and .2
+            _row("192.0.2.1", 3),  # repeat of an already-tracked address
+        ]
+    )
+    r = analyze_log(_write(tmp_path, lines))
+    bot = next(b for b in r["bots"] if b["name"] == "Googlebot")
+    assert bot["hits"] == 4
+    assert bot["unique_ips"] == 2
+    assert bot["unique_ips_truncated"] is True
+
+
 def test_max_lines_does_not_consume_the_rest_of_the_file():
     """#252: ``[*sample, *handle]`` materialized every remaining line before parsing the
     first one, so max_lines only marked excess rows skipped after the whole file (and its

@@ -19,7 +19,7 @@ registry cannot cover without an architecture change.
 **This document does not itself carry the external catalogue.** The catalogue
 lives outside this repository; issue #30 already did the category-by-category
 counting against it. What follows re-verifies that counting against the real
-registry (138 checks today, up from 104 at the time of that audit) and corrects it where the counting
+registry (139 checks today, up from 104 at the time of that audit) and corrects it where the counting
 was wrong, rather than re-deriving the count from scratch. Where a claim could
 not be checked without the catalogue's exact item text, that is stated rather
 than guessed.

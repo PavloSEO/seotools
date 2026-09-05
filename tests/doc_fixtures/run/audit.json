@@ -1,9 +1,13 @@
 {
-  "schema_version": "1",
-  "tool": "seohead",
+  "schema_version": "2.0",
+  "tool": {
+    "name": "SF Analyzer",
+    "version": "2.0.0"
+  },
   "run": {
     "input_mode": "crawl",
-    "source": "https://example.com/"
+    "source": "https://example.com/",
+    "generated_at": "2026-09-05T00:00:00Z"
   },
   "summary": {
     "by_check": {
@@ -11,16 +15,26 @@
     },
     "totals": {
       "issues": 1
-    }
+    },
+    "by_severity": {
+      "critical": 0,
+      "warning": 1,
+      "notice": 0
+    },
+    "health_score": null,
+    "health_score_reason": "Synthetic fixture does not assign a health score"
   },
   "issues": [
     {
       "id": "ISSUE-000001",
       "check": "THIN_CONTENT",
       "severity": "warning",
+      "source": "static fixture",
+      "occurrences_count": 1,
       "target_url": "https://example.com/p3",
       "message": "Page has little body text"
     }
   ],
-  "pages": []
+  "pages": [],
+  "groups": []
 }

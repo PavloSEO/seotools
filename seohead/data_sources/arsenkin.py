@@ -147,9 +147,37 @@ class ArsenkinClient:
     # --- task lifecycle ---
 
     def set_task(self, tools_name: str, data: dict) -> dict:
-        """Create a task and immediately log its charge together with ``task_id``."""
+        """Create a task and immediately log its charge together with ``task_id``.
+
+        A ``SET_TASK_OK`` response is only useful for recovery if its ``task_id`` is a positive
+        integer: that identifier is the sole mechanism ``get``/``refetch`` have for retrieving an
+        already-paid result. A missing, null, non-numeric, boolean, or non-positive ID cannot be
+        used that way, so it must never be advertised as a recoverable task. The reported charge
+        is still real and is journaled as a temporary entry with no invented ID, and the caller
+        gets a structured failure instead of a task it cannot recover.
+        """
         result = self._post("set", {"tools_name": tools_name, "data": data}, billed=True)
-        task_id, cost = result.get("task_id"), result.get("cost")
+        raw_task_id, cost = result.get("task_id"), result.get("cost")
+        task_id = _valid_task_id(raw_task_id)
+        if task_id is None:
+            spend.record(
+                SOURCE,
+                tools_name,
+                cost=float(cost or 0),
+                unit="limits",
+                items=_count_items(data),
+                extra={
+                    "temporary": True,
+                    "reason": "set_task_ok_missing_task_id",
+                    "received_task_id": _sanitize_for_journal(raw_task_id),
+                },
+            )
+            raise ArsenkinError(
+                "INVALID_TASK_ID",
+                f"{tools_name}: SET_TASK_OK response had no usable task_id "
+                f"(received {raw_task_id!r}); cost {cost!r} was billed and journaled",
+                result,
+            )
         spend.record(
             SOURCE,
             tools_name,
@@ -201,6 +229,36 @@ class ArsenkinClient:
         """Run set → wait → get and return ``(result, charged_credits)``."""
         task = self.set_task(tools_name, data)
         return self.wait(task["task_id"], **kwargs), task["cost"]
+
+
+def _valid_task_id(value: Any) -> int | None:
+    """Return ``value`` as a positive ``int`` task ID, or ``None`` if it cannot recover a task.
+
+    Booleans are excluded even though ``bool`` is a subclass of ``int`` in Python: ``True``/
+    ``False`` are never task identifiers. A numeric string such as ``"123"`` is accepted because
+    ``check()``/``get()`` coerce it with ``int()`` regardless of the received JSON type.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value > 0 else None
+    if isinstance(value, str):
+        text = value.strip()
+        if not text or not text.isascii() or not text.isdigit():
+            return None
+        try:
+            parsed = int(text.lstrip("0") or "0")
+        except ValueError:
+            return None
+        return parsed if parsed > 0 else None
+    return None
+
+
+def _sanitize_for_journal(value: Any) -> Any:
+    """Keep a received ``task_id`` shape journal-safe: primitives only, no arbitrary objects."""
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    return repr(value)[:200]
 
 
 def _count_items(data: dict) -> int:

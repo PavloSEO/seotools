@@ -156,7 +156,28 @@ class DataForSEOClient:
             try:
                 # The request URL is built from the fixed HTTPS provider base.
                 with urllib.request.urlopen(request, timeout=TIMEOUT) as response:  # nosec B310
-                    return json.loads(response.read().decode("utf-8"))
+                    raw = response.read().decode("utf-8")
+                    try:
+                        return json.loads(raw)
+                    except ValueError:
+                        # The response was received — a receipt must exist even though it
+                        # cannot be parsed, so a real charge is never silently untracked. This
+                        # is neither a confirmed charge nor a confirmed zero cost, so cost stays
+                        # unmeasured and both flags say so explicitly.
+                        spend.record(
+                            SOURCE,
+                            label,
+                            cost=0.0,
+                            unit="usd",
+                            extra={
+                                "response_received": True,
+                                "response_malformed": True,
+                                "charge_status": "unknown",
+                                "cost_unknown": True,
+                                "status": response.status,
+                            },
+                        )
+                        raise
             except urllib.error.HTTPError as exc:
                 text = exc.read().decode("utf-8", "replace")
                 if exc.code in (429, 500, 502, 503) and attempt <= RETRIES:

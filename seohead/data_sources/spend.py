@@ -82,18 +82,37 @@ def read_all() -> list[dict]:
     return rows
 
 
+def _is_uncertain(row: dict) -> bool:
+    """A receipt whose cost or charge status is not actually known.
+
+    A response can be received and still be unusable: a malformed body, for instance, proves a
+    request reached the provider without proving what it cost. Such a row must never be folded
+    into ``by_source``/``by_operation``/``by_day`` alongside confirmed zero-cost calls — that
+    would silently relabel "unmeasured" as "measured and free". Callers set either flag on
+    ``extra`` for this: ``cost_unknown`` (used here for DataForSEO) or ``charge_uncertain`` (used
+    by Yandex Cloud) both mean the same thing.
+    """
+    extra = row.get("extra") or {}
+    return bool(extra.get("cost_unknown") or extra.get("charge_uncertain"))
+
+
 def report(since: str | None = None) -> dict:
     """Summarize usage by provider, operation, and day.
 
-    ``since`` is an inclusive ``YYYY-MM-DD`` date.
+    ``since`` is an inclusive ``YYYY-MM-DD`` date. Rows with an uncertain cost or charge status
+    (see :func:`_is_uncertain`) are kept out of the cost totals and listed separately under
+    ``uncertain``, so a receipt that only proves a request reached the provider never counts as a
+    measured zero-cost call.
     """
     rows = [r for r in read_all() if not since or r.get("at", "")[:10] >= since]
+    uncertain = [r for r in rows if _is_uncertain(r)]
+    measured = [r for r in rows if not _is_uncertain(r)]
 
     by_source: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     by_operation: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     by_day: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
 
-    for row in rows:
+    for row in measured:
         unit = row.get("unit", "limits")
         cost = float(row.get("cost") or 0)
         by_source[row.get("source", "?")][unit] += cost
@@ -107,6 +126,7 @@ def report(since: str | None = None) -> dict:
         "by_source": {k: dict(v) for k, v in by_source.items()},
         "by_operation": {k: dict(v) for k, v in by_operation.items()},
         "by_day": {k: dict(v) for k, v in sorted(by_day.items())},
+        "uncertain": uncertain,
         "log": str(log_path()),
     }
 

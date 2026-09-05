@@ -19,10 +19,11 @@ import stat
 from dataclasses import dataclass, field
 from typing import Any
 
-# v2 adds forms and start_page_evidence (issue #188). A v1 file is rejected
-# rather than read with those two empty: a resumed crawl that silently drops a
-# finding it had already produced is exactly the failure this bump prevents.
-SCHEMA_VERSION = "crawl_state.v2"
+# v2 adds forms and start_page_evidence (issue #188). v3 adds robots_blocked
+# (issue #349). A file from an older schema is rejected rather than read with
+# the new field empty: a resumed crawl that silently drops a finding it had
+# already produced is exactly the failure this bump prevents.
+SCHEMA_VERSION = "crawl_state.v3"
 
 
 @dataclass
@@ -54,6 +55,12 @@ class CrawlState:
     # than becoming another sidecar the way links.jsonl had to.
     forms: list[dict[str, Any]] = field(default_factory=list)
     start_page_evidence: dict[str, Any] = field(default_factory=dict)
+    # The report-only robots-block inventory (issue #349). It is crawl-wide
+    # evidence, not per-invocation data: a completed report-only audit needs
+    # every blocked URL ever seen, including ones fetched before this
+    # checkpoint, or the resumed audit silently loses BLOCKED_BY_ROBOTS
+    # findings the uninterrupted crawl would have kept.
+    robots_blocked: list[str] = field(default_factory=list)
 
 
 def ensure_safe_dir(directory: str) -> None:
@@ -107,6 +114,7 @@ def load(path: str, start_url: str, config_fingerprint: str = "") -> tuple[Crawl
         }
         forms = [dict(entry) for entry in raw.get("forms") or []]
         start_page_evidence = dict(raw.get("start_page_evidence") or {})
+        robots_blocked = [str(u) for u in raw.get("robots_blocked") or []]
     except (TypeError, ValueError, AttributeError):
         # AttributeError: excluded/query_budget present but not JSON objects
         # (e.g. a list), so ``.items()`` itself fails.
@@ -121,6 +129,7 @@ def load(path: str, start_url: str, config_fingerprint: str = "") -> tuple[Crawl
         query_budget=query_budget,
         forms=forms,
         start_page_evidence=start_page_evidence,
+        robots_blocked=robots_blocked,
     )
     return state, f"resuming from checkpoint: {len(queue)} URL(s) queued, {len(seen)} seen"
 
@@ -138,6 +147,7 @@ def save(path: str, state: CrawlState) -> None:
         "query_budget": state.query_budget,
         "forms": state.forms,
         "start_page_evidence": state.start_page_evidence,
+        "robots_blocked": state.robots_blocked,
     }
     tmp_path = f"{path}.tmp"
     with open(tmp_path, "w", encoding="utf-8") as handle:

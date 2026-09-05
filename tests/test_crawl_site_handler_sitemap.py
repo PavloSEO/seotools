@@ -210,3 +210,242 @@ def test_auto_discovery_seeds_from_every_declared_sitemap(monkeypatch, tmp_path)
     assert calls == [first, second]
     assert seeds == ["https://example.com/page-a", "https://example.com/product-b"]
     assert out["discovery"]["sitemap_urls"] == [first, second]
+
+
+# ── the direct protocol audit reaches every discovered root (#311) ──────────
+
+
+def test_direct_audit_fetches_every_auto_discovered_root_not_just_the_first(monkeypatch, tmp_path):
+    """#311: auto-discovery keeps every ``Sitemap:`` directive for crawl seeding, and the
+    live protocol audit (SITEMAP_URL_DUPLICATED, SITEMAP_FETCH_INCOMPLETE, ...) must reach
+    every one of them too, not only the first root handed to it."""
+    import seohead.sf.core.sitemap_coverage as sitemap_coverage
+    import seohead.tools.robots as robots_tool
+
+    base = "https://example.com"
+    first = f"{base}/pages.xml"
+    second = f"{base}/products.xml"
+    shared = f"{base}/shared"
+
+    monkeypatch.setattr(
+        robots_tool, "check_robots", lambda url: {"ok": True, "sitemaps": [first, second]}
+    )
+
+    def fake_sitemap_crawl(url: str, concurrency: int = 3) -> dict:
+        return {"urls": [{"loc": shared}]}
+
+    monkeypatch.setattr(sitemap_tool, "crawl", fake_sitemap_crawl)
+
+    def fake_spider(*_a: object, **kw: object) -> SpiderResult:
+        result = SpiderResult()
+        result.pages = [
+            PageRecord(url="https://example.com/", status_code=200, content_type="text/html")
+        ]
+        result.seed_urls = list(kw.get("seed_urls") or [])
+        return result
+
+    monkeypatch.setattr("seohead.crawl.spider.crawl_site", fake_spider)
+
+    fetch_calls: list[str] = []
+
+    def urlset(loc: str) -> bytes:
+        return (
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+            f"<url><loc>{loc}</loc></url></urlset>"
+        ).encode()
+
+    def fake_fetch(url, ua, timeout, retries=2):
+        fetch_calls.append(url)
+        return {
+            f"{base}/robots.txt": f"Sitemap: {first}\nSitemap: {second}\n".encode(),
+            first: urlset(shared),
+            second: urlset(shared),
+        }.get(url)
+
+    monkeypatch.setattr(sitemap_coverage, "_fetch", fake_fetch)
+
+    import json
+
+    config_path = tmp_path / "auto-discover.json"
+    config_path.write_text(json.dumps({"sitemaps": {"auto_discover": True}}))
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    out = handlers.crawl_site(url=f"{base}/", config=str(config_path), out_dir=str(out_dir))
+
+    assert out["discovery"]["sitemap_urls"] == [first, second]
+    # Both roots were actually fetched by the direct audit, not just the first.
+    assert first in fetch_calls
+    assert second in fetch_calls
+    # Both declare the same URL, so it is duplicated across two sitemap documents.
+    assert out["summary"]["by_check"].get("SITEMAP_URL_DUPLICATED") == 1
+    audit = json.loads((out_dir / "audit.json").read_text(encoding="utf-8"))
+    dup_issues = [i for i in audit["issues"] if i["check"] == "SITEMAP_URL_DUPLICATED"]
+    assert len(dup_issues) == 1
+    assert sorted(dup_issues[0]["details"]["sitemaps"]) == sorted([first, second])
+
+
+def test_direct_audit_with_a_single_explicit_sitemap_is_unaffected(monkeypatch):
+    """Negative control for #311: an explicit ``--sitemap`` (single source, no
+    auto-discovery) keeps auditing only that one document -- no duplicate finding
+    materializes out of thin air."""
+    import seohead.sf.core.sitemap_coverage as sitemap_coverage
+
+    base = "https://example.com"
+    only = f"{base}/sitemap.xml"
+
+    monkeypatch.setattr(
+        sitemap_tool, "crawl", lambda url, concurrency=3: {"urls": [{"loc": f"{base}/page"}]}
+    )
+
+    def fake_spider(*_a: object, **kw: object) -> SpiderResult:
+        result = SpiderResult()
+        result.pages = [
+            PageRecord(url="https://example.com/", status_code=200, content_type="text/html")
+        ]
+        result.seed_urls = list(kw.get("seed_urls") or [])
+        return result
+
+    monkeypatch.setattr("seohead.crawl.spider.crawl_site", fake_spider)
+
+    fetch_calls: list[str] = []
+
+    def fake_fetch(url, ua, timeout, retries=2):
+        fetch_calls.append(url)
+        if url == f"{base}/robots.txt":
+            return b"User-agent: *\n"
+        if url == only:
+            return (
+                '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+                f"<url><loc>{base}/page</loc></url></urlset>"
+            ).encode()
+        return None
+
+    monkeypatch.setattr(sitemap_coverage, "_fetch", fake_fetch)
+
+    out = handlers.crawl_site(url=f"{base}/", sitemap=only)
+
+    assert fetch_calls.count(only) == 1
+    assert "SITEMAP_URL_DUPLICATED" not in out["summary"]["by_check"]
+
+
+# ── a report-only robots-blocked page is not both non-indexable and an
+#    indexable missing-sitemap page (#316) ──────────────────────────────────
+
+
+def test_report_only_robots_blocked_page_is_not_reported_as_a_missing_sitemap_page(monkeypatch):
+    base = "https://example.com"
+    monkeypatch.setattr(
+        sitemap_tool, "crawl", lambda url, concurrency=3: {"urls": [{"loc": f"{base}/"}]}
+    )
+
+    def fake_spider(*_a: object, **kw: object) -> SpiderResult:
+        result = SpiderResult()
+        result.pages = [
+            PageRecord(url=f"{base}/", status_code=200, content_type="text/html", outlinks=1),
+            PageRecord(url=f"{base}/private", status_code=200, content_type="text/html"),
+        ]
+        result.links = [
+            LinkEdge(source=f"{base}/", destination=f"{base}/private", anchor="", nofollow=False)
+        ]
+        result.robots_blocked = [f"{base}/private"]
+        result.seed_urls = []
+        return result
+
+    monkeypatch.setattr("seohead.crawl.spider.crawl_site", fake_spider)
+
+    out = handlers.crawl_site(url=f"{base}/", sitemap=f"{base}/sitemap.xml")
+    summary = out["summary"]["sitemap"]
+
+    assert out["summary"]["by_check"].get("URL_NOT_IN_SITEMAP", 0) == 0
+    assert f"{base}/private" in summary.get("linked_not_comparable", [])
+
+
+def test_an_indexable_page_missing_from_the_sitemap_still_fires(monkeypatch):
+    """Positive control for #316: an ordinary indexable page the sitemap forgot must
+    still be reported -- the robots-blocked exclusion must not swallow real findings."""
+    base = "https://example.com"
+    monkeypatch.setattr(
+        sitemap_tool, "crawl", lambda url, concurrency=3: {"urls": [{"loc": f"{base}/"}]}
+    )
+
+    def fake_spider(*_a: object, **kw: object) -> SpiderResult:
+        result = SpiderResult()
+        result.pages = [
+            PageRecord(url=f"{base}/", status_code=200, content_type="text/html", outlinks=1),
+            PageRecord(url=f"{base}/undeclared", status_code=200, content_type="text/html"),
+        ]
+        result.links = [
+            LinkEdge(source=f"{base}/", destination=f"{base}/undeclared", anchor="", nofollow=False)
+        ]
+        result.seed_urls = []
+        return result
+
+    monkeypatch.setattr("seohead.crawl.spider.crawl_site", fake_spider)
+
+    out = handlers.crawl_site(url=f"{base}/", sitemap=f"{base}/sitemap.xml")
+
+    assert out["summary"]["by_check"].get("URL_NOT_IN_SITEMAP") == 1
+
+
+# ── a partial native crawl withholds the whole-graph SITEMAP_DESYNC verdict
+#    (#362) ───────────────────────────────────────────────────────────────
+
+
+def _partial_graph(*, partial: bool) -> SpiderResult:
+    base = "https://example.com"
+    result = SpiderResult()
+    result.pages = [
+        PageRecord(url=f"{base}/", status_code=200, content_type="text/html", outlinks=1),
+        PageRecord(url=f"{base}/a", status_code=200, content_type="text/html"),
+    ]
+    result.links = [LinkEdge(source=f"{base}/", destination=f"{base}/a", anchor="", nofollow=False)]
+    result.partial = partial
+    result.stopped_reason = "url limit reached before the frontier was exhausted" if partial else ""
+    result.finish_reason = "url_limit" if partial else "finished"
+    result.seed_urls = []
+    return result
+
+
+def test_partial_crawl_withholds_sitemap_desync_as_a_named_skip(monkeypatch, tmp_path):
+    base = "https://example.com"
+    declared = [f"{base}/", f"{base}/a", f"{base}/unseen", f"{base}/unseen-2", f"{base}/unseen-3"]
+    monkeypatch.setattr(
+        sitemap_tool, "crawl", lambda url, concurrency=3: {"urls": [{"loc": u} for u in declared]}
+    )
+    monkeypatch.setattr(
+        "seohead.crawl.spider.crawl_site", lambda *a, **kw: _partial_graph(partial=True)
+    )
+
+    out_dir = str(tmp_path)
+    out = handlers.crawl_site(url=f"{base}/", sitemap=f"{base}/sitemap.xml", out_dir=out_dir)
+
+    assert out["partial"] is True
+    assert "SITEMAP_DESYNC" not in out["summary"]["by_check"]
+
+    import json
+    import os
+
+    with open(os.path.join(out_dir, "audit.json"), encoding="utf-8") as handle:
+        audit = json.load(handle)
+    skipped_ids = {s["id"] for s in audit["run"]["checks_skipped"]}
+    assert "SITEMAP_DESYNC" in skipped_ids
+
+
+def test_complete_crawl_still_fires_sitemap_desync(monkeypatch, tmp_path):
+    """Negative control for #362: the identical fixture, minus the partial flag, still
+    emits the finding -- withholding is tied to the run being partial, not to sitemap
+    seeding in general."""
+    base = "https://example.com"
+    declared = [f"{base}/", f"{base}/a", f"{base}/unseen", f"{base}/unseen-2", f"{base}/unseen-3"]
+    monkeypatch.setattr(
+        sitemap_tool, "crawl", lambda url, concurrency=3: {"urls": [{"loc": u} for u in declared]}
+    )
+    monkeypatch.setattr(
+        "seohead.crawl.spider.crawl_site", lambda *a, **kw: _partial_graph(partial=False)
+    )
+
+    out = handlers.crawl_site(url=f"{base}/", sitemap=f"{base}/sitemap.xml")
+
+    assert out["partial"] is False
+    assert out["summary"]["by_check"].get("SITEMAP_DESYNC") == 1

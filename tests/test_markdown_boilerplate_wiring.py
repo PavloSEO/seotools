@@ -110,6 +110,25 @@ def test_markdown_extract_from_url_fetches_then_renders(monkeypatch):
     assert "Sign up now" not in out["content_markdown"]
 
 
+def test_template_content_is_absent_from_markdown_and_url_citability(monkeypatch):
+    html = (
+        "<html><body><template><main><h1>Unreleased draft</h1>"
+        "<p>Draft evidence that must not reach a reader.</p></main></template>"
+        "<main><h1>Published guide</h1><p>Visible evidence for readers.</p></main>"
+        "</body></html>"
+    )
+    _mock_fetch(monkeypatch, html)
+
+    markdown = handlers.markdown_extract(url="https://example.com/")
+    citability = handlers.citability_check(url="https://example.com/")
+
+    assert "Published guide" in markdown["content_markdown"]
+    assert "Unreleased draft" not in markdown["content_markdown"]
+    from seohead.tools import citability as cit_core
+
+    assert citability["score"] == cit_core.score_citability(markdown["content_markdown"])["score"]
+
+
 def test_markdown_extract_url_transport_failure_is_not_ok(monkeypatch):
     def _raise(*_a, **_kw):
         raise OSError("timeout")

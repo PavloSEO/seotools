@@ -21,6 +21,24 @@ from seohead.crawl.spider import FormEdge, LinkEdge
 # is prevented by either token; a link naming just one is not a finding.
 _SAFE_BLANK_REL = {"noopener", "noreferrer"}
 
+# Scheme -> port a URL carries implicitly when none is written, so that
+# "https://x/" and "https://x:443/" normalize to the same origin.
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def _origin(url: str) -> tuple[str, str, int | None]:
+    """Normalized (scheme, hostname, effective port) triple for an origin comparison.
+
+    This is deliberately not the crawler's scope predicate (``crawl/settings.py``'s
+    host-based in-scope check): scope decides what to crawl, this decides what a
+    browser would treat as the same origin, and the two must not be conflated.
+    """
+    parts = urlsplit(url)
+    scheme = (parts.scheme or "").lower()
+    hostname = (parts.hostname or "").lower()
+    port = parts.port if parts.port is not None else _DEFAULT_PORTS.get(scheme)
+    return (scheme, hostname, port)
+
 
 def _is_localhost(host: str) -> bool:
     host = host.lower().rstrip(".")
@@ -50,10 +68,17 @@ def unsafe_cross_origin_links(links: list[LinkEdge]) -> list[dict[str, Any]]:
     Requires ``capture_attributes``: an edge whose attributes were never captured has
     ``target == ""`` and never matches, which is the correct "not measured" behaviour
     rather than a false positive or a false clean result.
+
+    Only a cross-origin new-tab link is a finding: reverse tabnabbing needs a
+    ``window.opener`` handle back into a *different* origin's page. A same-origin
+    ``target="_blank"`` link is compared by normalized (scheme, hostname, effective
+    port) origin, not by the crawler's host-based scope predicate -- see ``_origin``.
     """
     out = []
     for edge in links:
         if edge.target.lower() != "_blank":
+            continue
+        if _origin(edge.source) == _origin(edge.destination):
             continue
         if _SAFE_BLANK_REL & {t.lower() for t in edge.rel}:
             continue

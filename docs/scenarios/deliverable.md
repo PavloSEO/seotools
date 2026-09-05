@@ -41,22 +41,31 @@ Three audiences, one source document:
 
 | Format | For |
 |---|---|
-| `docx` | the client — prose, severity, what it means |
+| `docx` | the client — an executive summary (counts, unavailable checks) followed by evidence, not a generated conclusion or recommendation |
 | `xlsx` | the SEO — four sheets, filters, a chart |
-| `csv` | the tracker — one row per task, ready to import |
+| `csv` | one row per finding plus an adjacent page table — a flat export, not a grouped backlog |
 | `md` | the repository, or another agent |
 
-**4. Hand over the artifacts beside it.** A report that says "optimize your images" is a
+`report-build` only renders an audit document (`findings`+`pages`, or the SF `issues`+`pages`
+schema); it does not group, prioritize, or import anywhere by itself.
+
+**4. Build the backlog separately, if that is what is needed.** `seohead sf run --tasks` writes
+`tasks.json`/`tasks.md` alongside `audit.json` — a grouped, prioritized set of work items with
+its own schema. `report-build` rejects `tasks.json` (`audit document schema not recognized`):
+the two are separate contracts, and CSV rows are findings, not tasks.
+
+**5. Hand over the artifacts beside it.** A report that says "optimize your images" is a
 request. A report with the optimized images attached is a delivery — see
 the [images scenario](images.md).
 
 ## What comes out
 
 ```
-audit.docx        the narrative, for a person who will not open JSON
+audit.docx        the narrative, for a person who will not open JSON — summary and evidence, no conclusion
 audit.xlsx        the working file, filterable by severity and section
-audit.csv         importable into Jira, Asana, Linear, anything
-run/audit.json    the machine-readable original, which the three above cannot contradict
+audit.csv         findings plus pages — needs recipient-side field mapping to become tracker rows
+tasks.json/.md     the grouped, prioritized backlog, from `sf run --tasks`, not from `report-build`
+run/audit.json    the machine-readable original, which the formats above cannot contradict
 ```
 
 Everything is derived from one document, so the client's PDF and the developer's ticket cannot

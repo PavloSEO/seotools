@@ -6,7 +6,7 @@ Generated from `seohead/sf/core/registry.py` — do not edit by hand. Regenerate
 python scripts/generate_checks_reference.py
 ```
 
-**138 checks.** Severity, evidence and fix all come from the same `CHECKS` dict the rule engine reads, so this table cannot say something the engine disagrees with.
+**139 checks.** Severity, evidence and fix all come from the same `CHECKS` dict the rule engine reads, so this table cannot say something the engine disagrees with.
 
 - **Fires on** — what the check id means, in the registry's own words.
 - **Evidence** — the `source` tag: which export or module has to be present for the check to run at all; its absence is why a check comes back `skipped` instead of a silent pass.
@@ -78,6 +78,7 @@ python scripts/generate_checks_reference.py
 | Check id | Severity | Evidence | Fires on | Fix |
 |---|---|---|---|---|
 | `THIN_CONTENT` | warning | SF-derived | Thin content (low word count) | Add substantial, useful content or exclude the page from indexing when it has no standalone search value. |
+| `CONTENT_IN_IFRAME` | warning | crawl:content_frames | The page's content sits inside an iframe and is not attributed to this URL | Serve the framed copy in the page's own HTML. A search engine attributes an iframe's text to the framed document, not to the page that frames it, so the copy exists and earns this URL nothing. |
 | `LOW_TEXT_RATIO` | notice | SF-derived | Low text-to-HTML ratio | Increase the proportion of meaningful visible content or reduce unnecessary markup. |
 | `DUPLICATE_BY_HASH` | warning | SF-derived | Exact duplicate content (identical hash) | Consolidate duplicates with canonicalization or rewrite them to serve distinct search intent. |
 | `NEAR_DUPLICATE` | warning | SF-derived | Near-duplicate content | Differentiate the pages with substantive content or consolidate them into one canonical page. |

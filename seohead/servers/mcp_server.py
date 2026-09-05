@@ -102,11 +102,11 @@ def build_server():  # -> FastMCP
         urls: list[str] | None = None,
         sitemap: str | None = None,
         config: str | None = None,
-        max_urls: int = 200,
-        max_depth: int = 5,
-        min_delay: float = 0.5,
-        robots: str = "respect",
-        concurrency: int = 1,
+        max_urls: int | None = None,
+        max_depth: int | None = None,
+        min_delay: float | None = None,
+        robots: str | None = None,
+        concurrency: int | None = None,
         out_dir: str | None = None,
     ) -> dict[str, Any]:
         """Crawl a site from a start URL by following links, or fetch an explicit
@@ -130,7 +130,12 @@ def build_server():  # -> FastMCP
         sitemap's declared URLs in addition to following links from ``url``, and
         reconciles the two sources (declared vs. observed). ``config`` is a path
         to a crawler config file (JSON) on this machine, the same file
-        ``crawl-site --config`` reads."""
+        ``crawl-site --config`` reads. ``max_urls``, ``max_depth``, ``min_delay``,
+        ``robots`` and ``concurrency`` are left unset by default: an omitted
+        override preserves whatever ``config`` (or its own defaults) already
+        says, exactly like the CLI's flags -- pass one explicitly only to
+        change that one setting. ``seo_crawl_describe_settings`` lists the
+        defaults each of them falls back to."""
         return _checked(
             handlers.crawl_site(
                 url=url or None,

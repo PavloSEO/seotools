@@ -271,6 +271,8 @@ def audit_site(
         # only ever seeing whichever source happened to be declared first.
         seen: set[str] = set()
         merged_urls: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+        truncated = False
         for one in sitemap_urls:
             fetched = _run(tools["sitemap_crawl"], url=one)
             for entry in fetched.get("urls") or []:
@@ -278,7 +280,39 @@ def audit_site(
                 if loc and loc not in seen:
                     seen.add(loc)
                     merged_urls.append(entry)
-        site["sitemap_crawl"] = {"ok": True, "urls": merged_urls, "sources": sitemap_urls}
+            for err in fetched.get("errors") or []:
+                errors.append(err if isinstance(err, dict) else {"url": one, "error": str(err)})
+            if fetched.get("truncated"):
+                truncated = True
+            if fetched.get("ok") is False:
+                errors.append({"url": one, "error": str(fetched.get("error") or "fetch failed")})
+        # A root with no URLs and no errors is a legitimately empty sitemap (the
+        # #200 all-successful case); a root with errors and nothing collected is a
+        # real failure and must not read as clean evidence.
+        merged: dict[str, Any] = {
+            "ok": bool(merged_urls) or not errors,
+            "urls": merged_urls,
+            "sources": sitemap_urls,
+        }
+        if errors:
+            merged["errors"] = errors
+            if merged["ok"]:
+                # Some roots still produced URLs, so this is not a hard failure —
+                # but the unavailable roots must still surface to report writers
+                # instead of disappearing behind the successful ones.
+                # The wording is not free: classify() matches SEVERITY_RULES by
+                # plain substring, and its marker is "unavailable or return
+                # errors". Writing "returned" here instead left this finding
+                # classified as a notice -- sorted to the bottom of every report,
+                # under exactly the partial evidence it exists to raise.
+                merged["findings"] = [
+                    "Sitemap source unavailable or return errors: "
+                    f"{err.get('url') or '(unknown root)'} — {err.get('error')}"
+                    for err in errors
+                ]
+        if truncated:
+            merged["truncated"] = True
+        site["sitemap_crawl"] = merged
         site_tools = [t for t in site_tools if t != "sitemap_crawl"]
 
     with ThreadPoolExecutor(max_workers=concurrency) as pool:

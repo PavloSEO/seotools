@@ -244,6 +244,12 @@ CHECKS: dict[str, dict[str, Any]] = {
         "message": "Thin content (low word count)",
         "fix": "Add substantial, useful content or exclude the page from indexing when it has no standalone search value.",
     },
+    "CONTENT_IN_IFRAME": {
+        "severity": "warning",
+        "source": "crawl:content_frames",
+        "message": "The page's content sits inside an iframe and is not attributed to this URL",
+        "fix": "Serve the framed copy in the page's own HTML. A search engine attributes an iframe's text to the framed document, not to the page that frames it, so the copy exists and earns this URL nothing.",
+    },
     "LOW_TEXT_RATIO": {
         "severity": "notice",
         "source": "SF-derived",

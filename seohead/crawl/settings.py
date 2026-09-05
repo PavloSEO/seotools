@@ -26,6 +26,50 @@ import os
 import re
 from typing import Any
 
+# The largest crawl this tool will attempt, and the reason for a number rather than
+# "no limit". Both result.pages and result.links are held for the whole run --
+# links.jsonl is a resume aid, not a memory bound, since spider.py appends every edge
+# to the in-memory list as well.
+#
+# The 383-byte LinkEdge and 2 400-byte PageRecord figures came from tracemalloc
+# fixtures over 40 000 edges and 8 000 records with distinct URL/text strings;
+# summing sys.getsizeof over a shared object graph roughly doubles them. The paired
+# iframe-head/combined-record fixture measures a 56-byte empty-hreflang-list
+# increment; the same 46-to-47-field fixture measures no further allocation for
+# body_unavailable's default empty string. Field lengths affect absolute memory,
+# so 2 456 bytes is an approximate combined PageRecord estimate; the rounded totals are
+#
+#   10 000 URLs x 150 links/page -> 0.56 GiB
+#   50 000 URLs x  60 links/page -> 1.18 GiB
+#   50 000 URLs x 150 links/page -> 2.79 GiB
+#
+# so the honest ceiling depends on how densely the site links, which no constant can
+# know. 50 000 is where a full crawl stops being the right instrument anyway; past it
+# the answer is to narrow the scope (scope.include_patterns, scope.exclude_patterns)
+# rather than to raise this. A request above the ceiling is refused, not quietly
+# reduced: a run that fetched 50 000 of the 200 000 URLs asked for is a partial crawl,
+# and the caller has to know that before the audit is believed (#356).
+MAX_URLS_CEILING = 50_000
+
+
+def checked_url_budget(max_urls: int) -> int:
+    """How many URLs a crawl may fetch -- or a refusal, never a quiet reduction.
+
+    ``min(max_urls, MAX_URLS_CEILING)`` was the old answer and it was wrong in the
+    one case that matters: a caller who asked for 200 000 URLs was given 50 000 and
+    a result that did not say so, so a quarter of a site was reported as the whole
+    of it. Both crawl entry points call this, which is also what stops the ceiling
+    from being defined twice and drifting apart again (#356).
+    """
+    budget = max(1, int(max_urls))
+    if budget > MAX_URLS_CEILING:
+        raise ValueError(
+            f"max_urls is {budget:,}, above this crawler's ceiling of {MAX_URLS_CEILING:,}; "
+            "narrow the scope rather than raising the budget"
+        )
+    return budget
+
+
 DEFAULTS: dict[str, Any] = {
     "scope": {
         # Which discovered URLs count as internal. "host" is the conservative
@@ -113,6 +157,14 @@ DEFAULTS: dict[str, Any] = {
         # measured at one small JSON line per exclusion on the chain fixture,
         # so on by default rather than a diagnostic nobody remembers to enable.
         "write_decisions_jsonl": True,
+        # The prioritized backlog beside audit.json. build_tasks has always
+        # taken an audit document and a native crawl has always produced one,
+        # but nothing joined them: the backlog was reachable only through
+        # `sf run --tasks`, so a crawl done without Screaming Frog produced
+        # findings and no list of what to do about them. It is pure computation
+        # over the audit already in memory -- no network, no second pass --
+        # which is why it is on rather than something to remember.
+        "write_tasks": True,
     },
     "link_position": {
         # Off by default: classifying every link's DOM ancestry (nav, header,
@@ -330,7 +382,10 @@ DESCRIPTIONS: dict[str, str] = {
         "lands, recording every hop. Depth stays 0; this is a per-URL chain walk, not link "
         "discovery."
     ),
-    "limits.max_urls": "Maximum number of URLs the crawl will fetch.",
+    "limits.max_urls": (
+        "Maximum number of URLs the crawl will fetch. Values above "
+        f"{MAX_URLS_CEILING:,} are refused rather than clamped; narrow the scope instead."
+    ),
     "limits.max_depth": "Maximum link depth from the start URL.",
     "limits.max_query_variants_per_path": "Maximum distinct query strings kept per URL path.",
     "limits.max_response_bytes": "Response bodies larger than this are truncated before parsing.",
@@ -364,6 +419,10 @@ DESCRIPTIONS: dict[str, str] = {
     "output.write_decisions_jsonl": (
         "Write one JSON line per exclusion decision to decisions.jsonl, naming the URL and the "
         "rule that rejected it — see seohead.tools.logscan for what reads it."
+    ),
+    "output.write_tasks": (
+        "Write the prioritized backlog beside audit.json as tasks.json and tasks.md — the same "
+        "pipeline `sf run --tasks` uses, run over this crawl's own audit."
     ),
     "link_position.classify": (
         "Classify each link's DOM ancestry (nav/header/sidebar/footer/content) as it is "
@@ -561,6 +620,13 @@ def validate(config: dict[str, Any]) -> None:
     limits = config["limits"]
     if limits["max_urls"] < 1:
         raise ConfigError("limits.max_urls must be at least 1")
+    if limits["max_urls"] > MAX_URLS_CEILING:
+        raise ConfigError(
+            f"limits.max_urls is {limits['max_urls']:,}, above this crawler's ceiling of "
+            f"{MAX_URLS_CEILING:,}. A larger number would have been silently reduced to the "
+            f"ceiling and the crawl reported as complete; crawl a narrower scope "
+            f"(scope.include_patterns / scope.exclude_patterns) instead."
+        )
     if limits["max_depth"] < 0:
         raise ConfigError("limits.max_depth cannot be negative")
     if limits["max_query_variants_per_path"] < 0:

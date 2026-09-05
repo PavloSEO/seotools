@@ -125,7 +125,16 @@ def _withhold_graph_wide_findings(ctx: AuditContext, issues: list[Issue]) -> lis
     if not withheld:
         return issues
     for check_id in sorted(withheld):
-        ctx.skip(
+        # retract, not skip: these checks already fired (they judged the
+        # observed edges and found an outlier), and ctx.skip() no-ops on a
+        # check_id already in _fired_ids by design -- the same reason
+        # _withhold_unlinked_findings above uses retract instead of skip.
+        # Calling skip() here let the finding vanish from ctx.issues (via the
+        # list comprehension below) while never landing in ctx.skipped either,
+        # so the check read as "silent" (never invoked) instead of "withheld
+        # with a reason" -- indistinguishable from a check nobody ran, which
+        # is exactly the confusion this module exists to prevent (issue #246).
+        ctx.retract(
             check_id,
             "crawl is partial: a whole-graph finding cannot be proven when the "
             "crawl did not reach every URL",

@@ -19,7 +19,15 @@ import dataclasses
 from seohead.crawl.spider import SpiderResult
 
 # Carried inside crawl_state.json.
-CHECKPOINTED = {"excluded", "max_depth_reached", "forms", "start_page_evidence"}
+CHECKPOINTED = {
+    "excluded",
+    "max_depth_reached",
+    "forms",
+    "start_page_evidence",
+    # Crawl-wide report-only robots evidence, not per-invocation data (#349):
+    # a resumed run must retain every block an uninterrupted run would have.
+    "robots_blocked",
+}
 
 # Written to their own sidecar file as they are produced and read back on
 # resume, because they are the two structures large enough that reserialising
@@ -40,7 +48,6 @@ PER_INVOCATION = {
     "effective_concurrency",
     "crawl_delay_applied",
     "robots_note",
-    "robots_blocked",
     "seed_urls",
     "limitations",
     "cache_stats",

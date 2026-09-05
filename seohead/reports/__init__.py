@@ -6,11 +6,16 @@ This package is the formatting boundary. The four human-facing writers
 Screaming Frog audit (``sf run``'s ``audit.json`` — findings under ``issues``,
 page facts nested under ``pages[].metrics``) is a second, equally real input;
 :func:`_normalize_sf_audit` reshapes it into the same flat contract once, here,
-so no writer has to know two schemas. ``json`` is the exception: it passes the
-original document through untouched, on either contract, because it is not
-reinterpreting the data, only relaying it.
+so no writer has to know two schemas. ``json`` is a *reshaping* exception: a
+recognized document's ``json`` output passes through untouched, on either
+contract, because it is not reinterpreting the data, only relaying it. It is
+not a *recognition* exception: an unrecognized or wrong-version document is
+refused for ``json`` exactly as for the other four formats (#338) -- relaying
+a document this package has not reviewed would still hand the caller a
+plausible-looking file for a contract these writers do not understand.
 
-A document that matches neither contract is refused rather than rendered: see
+A document that matches neither contract, or declares a schema/schema_version
+marker this package does not support, is refused rather than rendered: see
 :func:`_detect_kind`. Report generators do not calculate metrics and do not
 make network requests: if a value was not captured in the audit JSON, it must
 remain absent rather than being invented during rendering.
@@ -30,7 +35,15 @@ import json
 import pathlib
 from typing import Any
 
+from seohead.audit.site import SCHEMA as _SITE_AUDIT_SCHEMA
+
 FORMATS = ("xlsx", "docx", "csv", "md", "json")
+
+# The SF Analyzer audit.json contract's own version marker (seohead/sf/core/models.py
+# AuditResult.to_json). Only this exact value is accepted: a document declaring any
+# other schema_version has not been reviewed against these writers and must be
+# refused rather than rendered as if it matched (#338).
+_SF_AUDIT_SCHEMA_VERSION = "2.0"
 
 SEVERITY_TITLES = {
     "critical": "Critical",
@@ -89,6 +102,20 @@ def format_locations(locations: Any) -> str:
     return "; ".join(rows)
 
 
+def checks_completed_display(summary: dict[str, Any]) -> int | str:
+    """Return the "checks completed" value for a normalized report summary.
+
+    ``tools_run`` is the one place either accepted contract names the checks
+    that actually executed. A source that cannot supply that inventory
+    (``None``) must say so rather than showing a count of zero, which would
+    read as "no checks ran" instead of the true "not measured" (#337).
+    """
+    tools_run = summary.get("tools_run")
+    if tools_run is None:
+        return "not reported"
+    return len(tools_run)
+
+
 def _load(data: Any) -> dict[str, Any]:
     """Load an audit document from a mapping or a JSON file path."""
     if isinstance(data, dict):
@@ -99,22 +126,69 @@ def _load(data: Any) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _detect_kind(document: dict[str, Any]) -> str | None:
+def _detect_kind(document: dict[str, Any]) -> tuple[str | None, str | None]:
     """Identify which of the two audit contracts ``document`` matches.
 
-    ``findings`` (even empty) is the signature of ``seohead.site-audit/1``,
-    written by :mod:`seohead.audit.site` and by every fixture in this
-    package's own tests. ``issues`` + ``pages`` with no ``findings`` is the
-    signature of an SF Analyzer ``audit.json`` (:mod:`seohead.sf.core.models`).
-    Neither present means this is not a document either side of this package
-    ever produces, and it must be refused rather than rendered as an empty,
-    confident report (#151).
+    ``findings`` (even empty) is the shape of ``seohead.site-audit/1``, written
+    by :mod:`seohead.audit.site` and by every fixture in this package's own
+    tests. ``issues`` + ``pages`` with no ``findings`` is the shape of an SF
+    Analyzer ``audit.json`` (:mod:`seohead.sf.core.models`). Matching the shape
+    is not enough on its own (#338): each contract also declares an explicit
+    version marker (``schema`` / ``schema_version``), and only the exact value
+    this package's writers were reviewed against is accepted -- a document
+    from a future, incompatible revision of either producer must be refused,
+    not rendered as a plausible-looking but incomplete report. This gate
+    applies uniformly to every output format, ``json`` included: a document
+    this package cannot recognize is refused rather than relayed, even though
+    a recognized document's ``json`` output is otherwise an untouched copy.
+
+    Returns ``(kind, error)``. ``kind`` is ``None`` when the document must be
+    refused; ``error`` then names the offending or missing marker so the
+    caller's message is specific rather than "not recognized". Neither shape
+    matching means this is not a document either side of this package ever
+    produces, and ``error`` is ``None`` in that case -- the generic message in
+    :func:`build_report` already names the unrecognized top-level keys (#151).
     """
-    if document.get("findings") is not None:
-        return "site-audit"
-    if isinstance(document.get("issues"), list) and isinstance(document.get("pages"), list):
-        return "sf-audit"
-    return None
+    if "findings" in document or "schema" in document:
+        marker = document.get("schema")
+        if marker != _SITE_AUDIT_SCHEMA:
+            return None, (
+                f"unsupported or missing 'schema' marker {marker!r}; "
+                f"site-audit reports require exactly {_SITE_AUDIT_SCHEMA!r}"
+            )
+        invalid = [
+            name
+            for name, expected in (("findings", list), ("pages", list), ("summary", dict))
+            if not isinstance(document.get(name), expected)
+        ]
+        if invalid:
+            return None, f"site-audit has invalid or missing container(s): {', '.join(invalid)}"
+        return "site-audit", None
+    if "issues" in document or "schema_version" in document:
+        marker = document.get("schema_version")
+        if marker != _SF_AUDIT_SCHEMA_VERSION:
+            return None, (
+                f"unsupported or missing 'schema_version' marker {marker!r}; "
+                f"SF Analyzer audits require exactly {_SF_AUDIT_SCHEMA_VERSION!r}"
+            )
+        invalid = [
+            name
+            for name, expected in (
+                ("run", dict),
+                ("summary", dict),
+                ("issues", list),
+                ("pages", list),
+                ("groups", list),
+            )
+            if not isinstance(document.get(name), expected)
+        ]
+        if invalid:
+            return (
+                None,
+                f"SF Analyzer audit has invalid or missing container(s): {', '.join(invalid)}",
+            )
+        return "sf-audit", None
+    return None, None
 
 
 def _normalize_sf_audit(document: dict[str, Any]) -> dict[str, Any]:
@@ -178,14 +252,44 @@ def _normalize_sf_audit(document: dict[str, Any]) -> dict[str, Any]:
         {"tool": item.get("id"), "error": item.get("reason")}
         for item in run.get("checks_skipped") or []
     ]
-    severity_note = next(
-        (
-            summary.get(key)
-            for key in ("health_score_reason", "health_score_basis", "health_score_scope")
-            if summary.get(key)
-        ),
-        None,
+    # A deliberately disabled check is an operator choice, not missing evidence,
+    # but it must stay visible and distinct from `tools_failed` (checks the
+    # source tried and could not run) -- collapsing the two would let a
+    # disabled BROKEN_PAGE_4XX read as a check that ran clean (#361).
+    checks_disabled = [
+        {"id": item.get("id"), "reason": item.get("reason")}
+        for item in run.get("checks_disabled") or []
+    ]
+
+    # `by_check` names only the checks that found something; a check that ran
+    # and found nothing is invisible there, so its key count is "checks with
+    # findings", never "checks completed" (#337). `check_coverage`, when the
+    # source supplies it, also names the checks that ran silently
+    # (`checks_silent_ids`); fired-with-findings plus silent-but-run is the
+    # actual completed-check inventory. `tools_run` already means exactly that
+    # in the site-audit contract (the handler names that ran) -- giving it the
+    # same one meaning here, instead of overloading it with a findings count,
+    # is what "one documented meaning per accepted contract" requires. Without
+    # `check_coverage` there is no source evidence for what completed, so
+    # `tools_run` stays `None` (unavailable) rather than understating to zero.
+    check_coverage = summary.get("check_coverage") or None
+    tools_run = (
+        sorted(
+            set((summary.get("by_check") or {}).keys())
+            | set(check_coverage.get("checks_silent_ids") or [])
+        )
+        if check_coverage
+        else None
     )
+
+    # A basis note about reduced check coverage is still useful context, but
+    # the crawl-invalid and sitemap-scope reasons now have their own explicit
+    # fields below and must not also flow through this generic trailing note,
+    # which would show the same fact twice.
+    severity_note = summary.get("health_score_basis")
+
+    crawl_valid = run.get("crawl_valid")
+    crawl_valid = True if crawl_valid is None else bool(crawl_valid)
 
     return {
         "domain": run.get("project") or "",
@@ -201,11 +305,24 @@ def _normalize_sf_audit(document: dict[str, Any]) -> dict[str, Any]:
                 "warning": by_severity.get("warning", 0),
                 "notice": by_severity.get("notice", 0),
             },
-            # The real names of the checks that actually fired -- not a count
-            # invented to fill the column, and not the tool names of the
-            # unrelated site-audit contract this summary shape started life as.
-            "tools_run": list((summary.get("by_check") or {}).keys()),
+            "tools_run": tools_run,
             "tools_failed": tools_failed,
+            "checks_disabled": checks_disabled,
+            # Whether the crawl produced usable data at all, and why not --
+            # a recipient must not mistake a failed run for a site-wide audit
+            # that simply found nothing (#361).
+            "crawl_valid": crawl_valid,
+            "crawl_invalid_reason": (
+                None
+                if crawl_valid
+                else (run.get("crawl_invalid_reason") or summary.get("health_score_reason"))
+            ),
+            # Whether the crawl covered only a subset, and of what -- a
+            # recipient must not mistake a sampled crawl for the whole site.
+            "crawl_partial": bool(run.get("crawl_partial")),
+            "crawl_finish_reason": run.get("crawl_finish_reason")
+            or run.get("crawl_stopped_reason"),
+            "crawl_scope_note": summary.get("health_score_scope"),
             "severity_note": severity_note,
         },
     }
@@ -235,11 +352,12 @@ def build_report(data: Any, fmt: str = "xlsx", path: str | None = None) -> dict[
             "error": f"audit document must be a JSON object, got {type(document).__name__}",
         }
 
-    kind = _detect_kind(document)
+    kind, marker_error = _detect_kind(document)
     if kind is None:
         return {
             "ok": False,
-            "error": (
+            "error": marker_error
+            or (
                 "audit document schema not recognized: expected 'findings' "
                 "(seohead.site-audit/1) or 'issues'+'pages' (SF Analyzer audit.json); "
                 f"got top-level keys {sorted(document.keys())!r}"

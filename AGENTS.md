@@ -9,7 +9,7 @@ MCP server. Do not add a GUI, desktop shell, hosted API, or remote MCP endpoint 
 Do not present SEOHEAD as a replacement for Screaming Frog or as a collection of unrelated
 scripts. The crawler and this toolkit have different jobs:
 
-- Screaming Frog produces the CSV/XLSX exports consumed by SEOHEAD's 138-check analyzer. Do not
+- Screaming Frog produces the CSV/XLSX exports consumed by SEOHEAD's 139-check analyzer. Do not
   imply that another crawler's exports are drop-in compatible.
 - SEOHEAD analyzes those SF exports, adds bounded live and infrastructure evidence, preserves
   skipped/failed measurements, and produces structured audit, task, and report artifacts.
@@ -40,7 +40,7 @@ seohead/
   tools/          live page, content, image, log, and structured-data tools
   recon/          domain and infrastructure reconnaissance
   crawl/          native site collector (crawl-site) — no Screaming Frog required
-  sf/             Screaming Frog export runner and 138-check analyzer, shared with crawl/'s output
+  sf/             Screaming Frog export runner and 139-check analyzer, shared with crawl/'s output
   audit/          bounded sitemap-based evidence orchestration
   reports/        XLSX, DOCX, CSV, Markdown, and JSON formatting
   data_sources/   optional demand, SERP, and traffic providers
