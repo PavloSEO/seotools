@@ -79,6 +79,7 @@ Crawl a site from a start URL by following links, or fetch an explicit ``urls`` 
 | `out_dir` | `str | None` | `None` |
 | `scan_out` | `str | None` | `None` |
 | `producer_build` | `str | None` | `None` |
+| `overrides` | `dict[str, Any] | None` | `None` |
 
 **Cost** — network: yes · writes files: yes · idempotent: no · spends money: no
 

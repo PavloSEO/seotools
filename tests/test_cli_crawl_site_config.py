@@ -24,7 +24,23 @@ from seohead.servers import handlers
 # Settings still go through --config; if this number moves again for anything
 # that is not a new input source, the flag is the thing to reconsider, not the
 # ceiling.
-HELP_LINE_CEILING = 26
+#
+# Raised again for --set and --max-urls-per-second, and neither is an input
+# source, so each owes an argument.
+#
+# --set is not an exception to #27, it is what makes #27 hold. The fear there was
+# "every subsequent crawler build-out issue adding a new direct flag, on track for
+# 25+". One flag reaches all thirty-nine settings, so a setting added tomorrow
+# needs no CLI change at all -- a one-time cost that removes the pressure
+# permanently rather than paying it per setting.
+#
+# --max-urls-per-second is a safety flag, not a convenience one. A site owner
+# states a rate; expressing it as speed.min_delay_seconds makes the operator
+# invert it, and a decimal point in the wrong place is somebody's site under
+# load. 'sf run' has carried the same flag for the same reason.
+#
+# The rule above still stands for anything else.
+HELP_LINE_CEILING = 36
 
 
 def _help_lines(capsys):

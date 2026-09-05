@@ -360,6 +360,7 @@ def crawl_site(
     sitemap: str | None = None,
     scan_out: str | None = None,
     producer_build: str | None = None,
+    overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Crawl a site from a start URL, or fetch an explicit list, then audit it.
 
@@ -392,17 +393,23 @@ def crawl_site(
         raise ValueError("url or urls required")
 
     # Defaults, then file, then environment, then these explicit arguments.
-    settings = crawl_config.load(
-        config,
-        overrides={
-            "limits.max_urls": max_urls,
-            "limits.max_depth": max_depth,
-            "speed.min_delay_seconds": min_delay,
-            "speed.concurrency": concurrency,
-            "robots.policy": robots,
-            "output.dir": out_dir,
-        },
-    )
+    # ``overrides`` carries whatever the caller reached for by dotted path -- the
+    # CLI's --set and --max-urls-per-second. Only a named argument that was
+    # actually given wins over it: updating with None would erase a caller's
+    # override and silently fall back to the default, which is how a rate cap
+    # becomes a no-op.
+    resolved_overrides: dict[str, Any] = dict(overrides or {})
+    for path, value in (
+        ("limits.max_urls", max_urls),
+        ("limits.max_depth", max_depth),
+        ("speed.min_delay_seconds", min_delay),
+        ("speed.concurrency", concurrency),
+        ("robots.policy", robots),
+        ("output.dir", out_dir),
+    ):
+        if value is not None:
+            resolved_overrides[path] = value
+    settings = crawl_config.load(config, overrides=resolved_overrides)
     if scan_out:
         if not url or urls:
             raise ValueError(

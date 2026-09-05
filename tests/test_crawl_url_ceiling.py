@@ -45,7 +45,9 @@ def test_a_budget_above_the_ceiling_is_refused_rather_than_reduced() -> None:
 def test_configuration_refuses_the_same_number_with_the_same_reason() -> None:
     with pytest.raises(ConfigError) as exc:
         # load() validates, so an over-budget config never reaches a crawler at all.
-        settings.load(overrides={"limits": {"max_urls": MAX_URLS_CEILING + 1}})
+        # A dotted path, which is the override contract: a nested mapping is
+        # refused on its own grounds and would prove nothing about the ceiling.
+        settings.load(overrides={"limits.max_urls": MAX_URLS_CEILING + 1})
     message = str(exc.value)
     assert f"{MAX_URLS_CEILING:,}" in message
     assert "scope" in message  # says what to do instead, not only what is wrong
