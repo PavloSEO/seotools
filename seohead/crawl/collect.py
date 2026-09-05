@@ -134,6 +134,15 @@ class PageRecord:
     # This is the per-URL half of "a report built partly from cache must say so"; cache_stats on
     # the run as a whole is the aggregate half.
     cache_status: str = ""
+    # "" when the body was parsed normally (or the page is non-HTML, or non-2xx, which are
+    # already governed by content_type/status_code). "oversized" means a 2xx HTML response
+    # arrived -- status_code, size_bytes and cache_status all reflect what was actually
+    # observed on the wire -- but max_response_bytes stopped it short of parsing, so every
+    # parser-derived field on this record (title, meta_description, h1, canonical, ...) is
+    # still its dataclass default, not an observed absence. See #243: a downstream consumer
+    # that reads those defaults without checking this field first will report a compliant,
+    # merely-too-large page as missing its title, description, H1 and canonical.
+    body_unavailable: str = ""
     # Which representation produced this page's evidence: "static" (raw HTML,
     # the default), "rendered" (JavaScript executed), or "legacy_fragment"
     # (the deprecated ``_escaped_fragment_`` scheme). Recorded per page, not
@@ -272,10 +281,17 @@ def _apply_body(
     if record.size_bytes > max_response_bytes:
         # Too large to parse, but a 200 is still a 200: not "unreachable".
         record.error = "response too large to parse"
+        if record.is_html:
+            record.body_unavailable = "oversized"
         return None
     if not (record.is_html and body):
         return None
     parsed = parse_html(body, url, parse_options)
+    # A successful parse replaces any earlier body-level limitation. This
+    # matters when rendering supplies usable HTML after the static fetch was
+    # too large to parse: the static transport error remains, but the fields
+    # below are now measured rather than unavailable.
+    record.body_unavailable = ""
     # Transient, never persisted to pages.jsonl or PageRecord: the rendering pre-flight gate
     # (#18) needs the start page's raw HTML to check for an empty SPA shell, and this is the
     # one place that HTML is already in memory.

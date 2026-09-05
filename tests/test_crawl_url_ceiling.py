@@ -23,7 +23,8 @@ from seohead.crawl.spider import LinkEdge
 # measured against these dataclasses at these widths. Adding a field does not
 # invalidate the ceiling by itself, but it does invalidate the arithmetic that
 # justifies it, and nothing else in the suite would notice.
-FIELD_COUNTS_THE_CEILING_WAS_COMPUTED_AGAINST = {LinkEdge: 8, PageRecord: 46}
+# ``body_unavailable`` joins the already-integrated iframe and hreflang fields.
+FIELD_COUNTS_THE_CEILING_WAS_COMPUTED_AGAINST = {LinkEdge: 8, PageRecord: 47}
 
 
 def test_both_crawlers_read_the_same_ceiling() -> None:

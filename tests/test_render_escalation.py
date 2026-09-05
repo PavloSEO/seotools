@@ -663,6 +663,37 @@ def test_render_escalation_recomputes_size_bytes_text_ratio_and_jsonld():
     assert record.jsonld_blocks_parsed == 1
 
 
+def test_rendered_html_clears_the_static_body_unavailable_marker():
+    """A rendered DOM supplies the body fields an oversized static fetch lacked.
+
+    The static ``error`` remains transport evidence, but ``body_unavailable``
+    describes the fields now on the record and must therefore clear after a
+    successful rendered parse.
+    """
+    from seohead.crawl.collect import PageRecord
+
+    record = PageRecord(
+        url="https://example.com/article/1",
+        content_type="text/html",
+        error="response too large to parse",
+        body_unavailable="oversized",
+    )
+    result = EscalationResult()
+    result.representations[record.url] = "rendered"
+    result.rendered[record.url] = {
+        "ok": True,
+        "html": "<html><head><title>Rendered article</title></head><body><h1>Article</h1></body></html>",
+        "final_url": record.url,
+    }
+
+    apply_rendered_evidence([record], [], result)
+
+    assert record.representation == "rendered"
+    assert record.title == "Rendered article"
+    assert record.body_unavailable == ""
+    assert record.error == "response too large to parse"
+
+
 def test_the_crawl_passes_its_own_user_agent_to_the_rendered_fetch(monkeypatch, tmp_path):
     """The fix in render_document is only worth anything if the crawl reaches it.
 

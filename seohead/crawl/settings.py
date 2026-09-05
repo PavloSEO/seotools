@@ -35,8 +35,9 @@ from typing import Any
 # fixtures over 40 000 edges and 8 000 records with distinct URL/text strings;
 # summing sys.getsizeof over a shared object graph roughly doubles them. The paired
 # iframe-head/combined-record fixture measures a 56-byte empty-hreflang-list
-# increment. Field lengths affect absolute memory, so 2 456 bytes is an approximate
-# combined PageRecord estimate; the rounded totals are
+# increment; the same 46-to-47-field fixture measures no further allocation for
+# body_unavailable's default empty string. Field lengths affect absolute memory,
+# so 2 456 bytes is an approximate combined PageRecord estimate; the rounded totals are
 #
 #   10 000 URLs x 150 links/page -> 0.56 GiB
 #   50 000 URLs x  60 links/page -> 1.18 GiB
