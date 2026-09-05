@@ -85,6 +85,7 @@ Issues = "https://github.com/PavloSEO/seotools/issues"
 include = ["seohead*"]
 
 [tool.setuptools.package-data]
+"seohead.storage" = ["*.sql"]
 "seohead.sf.schema" = ["*.json"]
 "seohead.data" = ["*.json"]
 "seohead.skills" = ["**/*.md", "**/*"]
