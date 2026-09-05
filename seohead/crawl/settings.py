@@ -82,6 +82,18 @@ DEFAULTS: dict[str, Any] = {
         "exclude_patterns": [],
         # Never fetched regardless of what links to them.
         "exclude_hosts": [],
+        # Ordered, first-match-wins named segments -- a multilingual or multi-regional
+        # site is several sites sharing one crawl, and until a URL is assigned to one
+        # of them nothing downstream can group by it (#358). Each entry is
+        # {"name": ..., plus at least one of "prefix" (path prefix), "host" (exact
+        # hostname -- a subdomain or a wholly separate domain) or "pattern" (regex
+        # over the whole URL)}. A URL matching none of them is the built-in
+        # "default" segment, so every URL belongs to exactly one segment, always.
+        "segments": [],
+        # Fetch only these segment names (plus "default" when named) -- the thing
+        # that makes crawling one region of a large site cheap without an ad-hoc
+        # scope.include_patterns regex. Empty means every segment is in scope.
+        "segments_only": [],
     },
     "sitemaps": {
         # Seed the crawl from the sitemap declared in robots.txt (the
@@ -282,6 +294,12 @@ RESULTS_AFFECTING: frozenset[str] = frozenset(
         "scope.include_patterns",
         "scope.exclude_patterns",
         "scope.exclude_hosts",
+        # A host-matching segment widens which hosts count as internal, and
+        # segments_only narrows the frontier to named segments -- both change what
+        # is fetched, and segments alone also changes the audit's per-segment
+        # breakdown even when nothing is excluded.
+        "scope.segments",
+        "scope.segments_only",
         # Seeding from the sitemap changes which URLs are fetched at all.
         "sitemaps.auto_discover",
         "discovery.hyperlinks.store",
@@ -368,6 +386,18 @@ DESCRIPTIONS: dict[str, str] = {
     "scope.include_patterns": "Regexes; a discovered link must match at least one to be followed.",
     "scope.exclude_patterns": "Regexes; a discovered link matching any of these is not followed.",
     "scope.exclude_hosts": "Hosts never fetched regardless of what links to them.",
+    "scope.segments": (
+        "Ordered, first-match-wins named segments for a multilingual or multi-regional "
+        "site: [{'name': ..., 'prefix': '/en/', 'host': 'en.example.com', "
+        "'pattern': '...'}, ...] -- at least one of prefix/host/pattern per entry. A "
+        "URL matching none of them is the built-in 'default' segment, so every URL "
+        "belongs to exactly one segment, always."
+    ),
+    "scope.segments_only": (
+        "Fetch only these segment names (plus 'default' when named); empty means "
+        "every segment is in scope. Subsumes a subfolder-only or single-subdomain "
+        "crawl without an ad-hoc scope.include_patterns regex."
+    ),
     "sitemaps.auto_discover": (
         "Seed the crawl from the sitemap declared in robots.txt when no explicit "
         "sitemap URL is given."
@@ -513,6 +543,11 @@ ENV_OVERRIDES: dict[str, str] = {
 
 ROBOTS_POLICIES = ("respect", "report_only", "ignore")
 INTERNAL_SCOPES = ("host", "registrable_domain")
+# The segment every URL falls into when it matches none of scope.segments. Reserved:
+# an operator cannot declare a segment under this name, since it would collide with
+# the one every unmatched URL already gets (#358).
+DEFAULT_SEGMENT = "default"
+_SEGMENT_KEYS = frozenset({"name", "prefix", "host", "pattern"})
 CACHE_MODES = ("live", "off", "replay")
 RENDER_MODES = ("raw", "legacy_fragment", "js")
 RENDER_VIEWPORTS = ("desktop", "mobile")
@@ -652,8 +687,64 @@ def validate(config: dict[str, Any]) -> None:
                 f"link_position.rules entries need both 'position' and 'selector'; got {rule!r}"
             )
 
+    _validate_segments(config["scope"])
     _validate_credential_headers(config["http"])
     _validate_rendering(config["rendering"])
+
+
+def _validate_segments(scope: dict[str, Any]) -> None:
+    """Every segment is named, ordered, and matches by at least one declared rule.
+
+    ``segments_only`` is checked against the names declared here so a typo'd
+    segment name is refused before the crawl runs rather than silently scoping
+    to nothing (#358).
+    """
+    segments = scope["segments"]
+    if not isinstance(segments, list):
+        raise ConfigError("scope.segments must be a list")
+    names: set[str] = set()
+    for entry in segments:
+        if not isinstance(entry, dict):
+            raise ConfigError(f"scope.segments entries must be objects, got {entry!r}")
+        extra = set(entry) - _SEGMENT_KEYS
+        if extra:
+            raise ConfigError(f"scope.segments entry has unknown keys {sorted(extra)}: {entry!r}")
+        name = entry.get("name")
+        if not isinstance(name, str) or not name:
+            raise ConfigError(f"scope.segments entry needs a non-empty 'name': {entry!r}")
+        if name == DEFAULT_SEGMENT:
+            raise ConfigError(
+                f"scope.segments entry cannot be named {DEFAULT_SEGMENT!r}: that name is "
+                "reserved for a URL matching none of the declared segments"
+            )
+        if name in names:
+            raise ConfigError(f"scope.segments has duplicate name {name!r}")
+        names.add(name)
+        if not entry.get("prefix") and not entry.get("host") and not entry.get("pattern"):
+            raise ConfigError(
+                f"scope.segments entry {name!r} needs at least one of 'prefix', 'host' "
+                "or 'pattern' to match by"
+            )
+        pattern = entry.get("pattern")
+        if pattern:
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                raise ConfigError(
+                    f"scope.segments entry {name!r}: pattern {pattern!r} is not a valid "
+                    f"regex: {exc}"
+                ) from exc
+
+    segments_only = scope["segments_only"]
+    if not isinstance(segments_only, list):
+        raise ConfigError("scope.segments_only must be a list")
+    allowed = names | {DEFAULT_SEGMENT}
+    unknown = [name for name in segments_only if name not in allowed]
+    if unknown:
+        raise ConfigError(
+            f"scope.segments_only names {unknown} that scope.segments never declares "
+            f"(known: {sorted(allowed)})"
+        )
 
 
 def _validate_rendering(rendering: dict[str, Any]) -> None:
