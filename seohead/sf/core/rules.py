@@ -55,6 +55,35 @@ def _rec(page: Page) -> dict[str, Any]:
     return page.metrics.get("_record", {})
 
 
+def _body_unavailable(rec: dict[str, Any]) -> bool:
+    """Whether this row's HTML body was too large to parse (#243).
+
+    A blank title/description/h1/canonical on such a row means "never measured",
+    not "observed absent" -- the same distinction ``_has_column`` draws for a
+    column missing from the whole export, but here it is one row at a time.
+    """
+    return bool(rec.get("body_unavailable"))
+
+
+def _skip_for_body_unavailable(ctx: AuditContext, check_id: str, pages: list[Page]) -> None:
+    """Name, once, why some pages contribute no finding to ``check_id``.
+
+    ``ctx.add`` already retracts a check-id's skip the moment that check fires for
+    real evidence elsewhere (see ``AuditContext.add``), so on a crawl where the
+    check also finds a genuinely missing value on another page this reason is
+    superseded by that finding rather than sitting beside it -- the check plainly
+    did run. Only when every candidate page for this check turns out to be
+    unavailable does the reason stand as the audit's account of why it is silent.
+    """
+    count = sum(1 for p in pages if _body_unavailable(_rec(p)))
+    if count:
+        ctx.skip(
+            check_id,
+            f"{count} page(s) with an oversized, unparsed HTML body "
+            "-- this metadata was never measured",
+        )
+
+
 def _has_column(ctx: AuditContext, field: str) -> bool:
     """Whether ``Internal:All`` carries the source column for ``field`` at all.
 
@@ -181,11 +210,17 @@ def check_titles(ctx: AuditContext) -> None:
         ctx.skip("TITLE_MISSING", "no Title column in Internal:All")
         return
     t = ctx.thresholds
-    for page in ctx.indexable_html_pages():
+    pages = ctx.indexable_html_pages()
+    _skip_for_body_unavailable(ctx, "TITLE_MISSING", pages)
+    for page in pages:
         rec = _rec(page)
         title = rec.get("title")
         if not title:
-            ctx.add("TITLE_MISSING", target_url=page.url)
+            # #243: an oversized, unparsed body left this blank too, but nobody looked --
+            # reporting TITLE_MISSING here would fabricate a finding about metadata the
+            # run never measured.
+            if not _body_unavailable(rec):
+                ctx.add("TITLE_MISSING", target_url=page.url)
             continue
         length = rec.get("title_length")
         if length is None:  # 0 is a valid length; only fall back when truly absent
@@ -225,11 +260,14 @@ def check_descriptions(ctx: AuditContext) -> None:
         ctx.skip("DESC_MISSING", "no Meta Description column in Internal:All")
         return
     t = ctx.thresholds
-    for page in ctx.indexable_html_pages():
+    pages = ctx.indexable_html_pages()
+    _skip_for_body_unavailable(ctx, "DESC_MISSING", pages)
+    for page in pages:
         rec = _rec(page)
         desc = rec.get("meta_description")
         if not desc:
-            ctx.add("DESC_MISSING", target_url=page.url)
+            if not _body_unavailable(rec):  # #243: unparsed, not genuinely absent
+                ctx.add("DESC_MISSING", target_url=page.url)
             continue
         length = rec.get("desc_length")
         if length is None:
@@ -265,13 +303,16 @@ def check_headings(ctx: AuditContext) -> None:
         ctx.internal_df is not None
         and find_column(ctx.internal_df, INTERNAL_FIELD_MAP["h1"]) is not None
     )
+    pages = ctx.indexable_html_pages()
     if not has_h1_column:
         ctx.skip("H1_MISSING", "no H1-1 column in Internal:All")
-    for page in ctx.indexable_html_pages():
+    else:
+        _skip_for_body_unavailable(ctx, "H1_MISSING", pages)
+    for page in pages:
         rec = _rec(page)
         h1 = rec.get("h1")
         h1_2 = rec.get("h1_2")
-        if has_h1_column and not h1:
+        if has_h1_column and not h1 and not _body_unavailable(rec):  # #243
             ctx.add("H1_MISSING", target_url=page.url)
         if h1_2:
             # Preserve each H1 value so reports identify which headings caused
@@ -300,13 +341,22 @@ def check_headings(ctx: AuditContext) -> None:
 # --------------------------------------------------------------------------
 def check_canonical_directives(ctx: AuditContext) -> None:
     require_canonical = ctx.requirements.get("require_canonical", True)
+    if require_canonical:
+        _skip_for_body_unavailable(
+            ctx, "CANONICAL_MISSING", [p for p in ctx.html_pages() if p.is_indexable]
+        )
     for page in ctx.html_pages():
         rec = _rec(page)
         canonical = rec.get("canonical")
         # CANONICAL_MISSING stays tied to source indexability: a non-indexable page (e.g.
         # noindex'd, or itself already canonicalised elsewhere) is not expected to declare
         # its own canonical.
-        if page.is_indexable and require_canonical and not canonical:
+        if (
+            page.is_indexable
+            and require_canonical
+            and not canonical
+            and not _body_unavailable(rec)  # #243: unparsed, not genuinely absent
+        ):
             ctx.add("CANONICAL_MISSING", target_url=page.url)
         # CANONICALISED / CANONICAL_NON_INDEXABLE evaluate independently of source
         # indexability (#333). A fetched page's own Indexability/Indexability Status often
