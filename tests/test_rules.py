@@ -133,6 +133,45 @@ def test_h1_multiple_still_fires_when_h1_1_column_is_absent(tmp_path):
 
 
 # --------------------------------------------------------------------------
+# #243 — an oversized, unparsed body must not read as compliant-but-missing.
+# --------------------------------------------------------------------------
+_BODY_UNAVAILABLE_COLS = [
+    "Address",
+    "Content Type",
+    "Status Code",
+    "Indexability",
+    "Title 1",
+    "Meta Description 1",
+    "H1-1",
+    "Canonical Link Element 1",
+    "Body Unavailable",
+]
+_FOUR_MISSING_CHECKS = {"TITLE_MISSING", "DESC_MISSING", "H1_MISSING", "CANONICAL_MISSING"}
+
+
+def test_body_unavailable_row_withholds_the_four_findings_with_a_named_skip(tmp_path):
+    row = [_URL, "text/html", "200", "Indexable", "", "", "", "", "oversized"]
+    res = _audit_with(tmp_path, _BODY_UNAVAILABLE_COLS, row)
+    fired = {i.check for i in res.issues if i.check in _FOUR_MISSING_CHECKS}
+    assert fired == set(), "an unparsed oversized body must not read as missing metadata"
+    skipped = {s.id: s.reason for s in res.skipped if s.id in _FOUR_MISSING_CHECKS}
+    assert set(skipped) == _FOUR_MISSING_CHECKS
+    for reason in skipped.values():
+        assert reason and "1 page" in reason  # a real, named reason
+
+
+def test_body_unavailable_column_present_but_blank_still_fires(tmp_path):
+    """A blank ``Body Unavailable`` cell means the body WAS parsed -- unaffected."""
+    row = [_URL, "text/html", "200", "Indexable", "", "", "", "", ""]
+    res = _audit_with(tmp_path, _BODY_UNAVAILABLE_COLS, row)
+    fired = {
+        i.check for i in res.issues if i.target_url == _URL and i.check in _FOUR_MISSING_CHECKS
+    }
+    assert fired == _FOUR_MISSING_CHECKS, "genuinely blank metadata must still fire"
+    assert not [s for s in res.skipped if s.id in _FOUR_MISSING_CHECKS]
+
+
+# --------------------------------------------------------------------------
 # #207 — URL_UNDERSCORES must catch a percent-encoded underscore too.
 # --------------------------------------------------------------------------
 def test_url_underscores_catches_percent_encoded_underscore(tmp_path):

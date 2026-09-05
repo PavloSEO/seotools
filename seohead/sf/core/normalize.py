@@ -93,6 +93,12 @@ INTERNAL_FIELD_MAP: dict[str, list[str]] = {
     # (#18). An SF export simply never has this column, so it resolves to
     # None there, same as any other frame a list-mode run cannot fill.
     "representation": ["Representation"],
+    # Not an SF column either -- projects PageRecord.body_unavailable (#243).
+    # Non-empty ("oversized") means the HTML body was too large to parse, so
+    # every other on-page field on this row is "never measured", not
+    # "observed absent". See seohead/sf/core/rules.py's *_MISSING checks,
+    # which read this to withhold a finding instead of fabricating one.
+    "body_unavailable": ["Body Unavailable"],
     # Element-position evidence (issue #123): also not a default SF column —
     # "was this element inside <head> once the parser resolved the tree"
     # needs the parse tree itself, which only a native seohead crawl has.
