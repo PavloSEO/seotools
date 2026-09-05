@@ -16,7 +16,7 @@ import json
 import os
 from typing import Any
 
-from seohead.sf.core.audit import run_audit
+from seohead.sf.core.audit import INPUT_MODES, run_audit
 from seohead.sf.core.loader import EXPORT_MATCHERS, discover_exports
 from seohead.sf.reporters import write_json, write_markdown
 
@@ -26,7 +26,9 @@ except ImportError:  # pragma: no cover - SDK optional at import time
     FastMCP = None  # type: ignore
 
 
-VALID_MODES = {"parse-exports", "load-crawl", "crawl", "crawl-list"}
+# Imported from the audit core so this boundary cannot drift from it: adding
+# a live mode there makes it valid here without a second, easily-forgotten edit.
+VALID_MODES = INPUT_MODES
 VALID_PROFILES = {"lite", "full", "custom"}
 
 
