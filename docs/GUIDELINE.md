@@ -11,6 +11,7 @@ If you know what you want, the other three layers are faster:
 | one command's arguments | [TOOL_REFERENCE.md](TOOL_REFERENCE.md) |
 | what a check means | [CHECKS.md](CHECKS.md) |
 | what an agent should run | [.claude/skills/control/SKILL.md](../.claude/skills/control/SKILL.md) |
+| a crawl that stopped early | [RECOVERY.md](RECOVERY.md) |
 
 ---
 
@@ -76,6 +77,12 @@ Two files land in `./run`:
 - **`audit.json`** — the run manifest, the summary, and the findings.
 
 Everything else in this toolkit reads one of those two.
+
+A third file, `crawl_state.json`, lands in the same directory as a checkpoint — invisible in a
+run that finishes, and the whole story when one does not. If the process is interrupted partway
+through, rerunning the identical command resumes from it instead of starting over. See
+[RECOVERY.md](RECOVERY.md) for the exact requirement and how to tell a resume from an
+intentional fresh start.
 
 ---
 
