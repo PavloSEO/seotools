@@ -37,6 +37,9 @@ def test_every_setting_is_classified_as_results_affecting_or_not():
         # sorts batched results back into queue order before anything is
         # written, so pages.jsonl is the same at any concurrency.
         "speed.concurrency",
+        # The backlog is a second rendering of findings already made, so it can
+        # add a file but never a finding.
+        "output.write_tasks",
         # Optional artefacts (off by default): they add files on disk, never
         # change a finding.
         "rendering.artifacts.screenshots",

@@ -765,12 +765,34 @@ def crawl_site(
         sitemap_summary,
     ).to_json()
 
+    tasks_written: dict[str, str] = {}
     if out_dir:
         with open(os.path.join(out_dir, "audit.json"), "w", encoding="utf-8") as fh:
             json.dump(audit, fh, ensure_ascii=False, indent=2)
+        if settings["output"]["write_tasks"]:
+            # build_tasks has always taken an audit document, and a native crawl
+            # has always produced one -- the two were simply never joined, so a
+            # crawl done without Screaming Frog produced findings and no list of
+            # what to do about them. Same pipeline `sf run --tasks` drives, over
+            # this crawl's own audit: no network, no second pass.
+            from seohead.sf.tasks import build_tasks, write_tasks
+
+            # None, not this crawl's own config: tasks_pipeline lives in the
+            # sf config (seohead/sf/config.py), a different document from the
+            # crawler settings, and passing the crawler's path here would fail
+            # on the first .get(). Defaults it is, until someone asks for the
+            # two to be joined.
+            backlog = build_tasks(audit, None)
+            json_path, md_path = write_tasks(
+                backlog,
+                os.path.join(out_dir, "tasks.json"),
+                os.path.join(out_dir, "tasks.md"),
+            )
+            tasks_written = {"tasks_json": json_path, "tasks_md": md_path}
 
     return {
         "urls_collected": len(result.pages),
+        "tasks": tasks_written,
         "partial": result.partial,
         "stopped_reason": result.stopped_reason,
         "finish_reason": result.finish_reason,

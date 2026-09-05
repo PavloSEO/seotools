@@ -64,7 +64,7 @@ No client data is included.
 
 | Starting point | Start with | What it does |
 |---|---|---|
-| **A site, and no crawl yet** | `seohead crawl-site --url https://example.com --out-dir ./run` | Crawls the site with this toolkit's own crawler — no Screaming Frog, no licence — and audits the result through the same 138-check registry |
+| **A site, and no crawl yet** | `seohead crawl-site --url https://example.com --out-dir ./run` | Crawls the site with this toolkit's own crawler — no Screaming Frog, no licence — audits the result through the same 138-check registry, and writes `audit.json` beside a prioritized `tasks.md` backlog |
 | **Existing Screaming Frog exports** | `seohead sf run --exports-dir ./exports --out ./report --tasks` | Evaluates crawl evidence you already have against the 138-check registry and builds an audit plus a prioritized backlog |
 | **Screaming Frog installed and licensed** | `seohead sf run --crawl https://example.com --out ./report` | Drives your local Screaming Frog CLI, then audits its exports — one command instead of crawl, export, import |
 | A bounded current-state pass | `seohead site-audit --url https://example.com --limit 25` | Sitemap-based live, page and infrastructure checks. Not a link-graph crawl, and it says so |
@@ -289,6 +289,17 @@ seohead site-audit \
   --limit 25 \
   --report xlsx \
   --out report.xlsx
+
+# Crawl a site with the crawler built into this toolkit — no Screaming Frog licence needed.
+# Writes audit.json, pages.jsonl and a prioritized tasks.md backlog into ./run
+seohead crawl-site \
+  --url https://example.com \
+  --max-urls 500 \
+  --out-dir ./run
+
+# Turn that same audit into a client deliverable, or a working file for a developer
+seohead report-build --audit ./run/audit.json --format docx --out audit.docx
+seohead report-build --audit ./run/audit.json --format xlsx --out audit.xlsx
 
 # Audit existing Screaming Frog exports without crawling again
 seohead sf run \

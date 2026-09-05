@@ -113,6 +113,14 @@ DEFAULTS: dict[str, Any] = {
         # measured at one small JSON line per exclusion on the chain fixture,
         # so on by default rather than a diagnostic nobody remembers to enable.
         "write_decisions_jsonl": True,
+        # The prioritized backlog beside audit.json. build_tasks has always
+        # taken an audit document and a native crawl has always produced one,
+        # but nothing joined them: the backlog was reachable only through
+        # `sf run --tasks`, so a crawl done without Screaming Frog produced
+        # findings and no list of what to do about them. It is pure computation
+        # over the audit already in memory -- no network, no second pass --
+        # which is why it is on rather than something to remember.
+        "write_tasks": True,
     },
     "link_position": {
         # Off by default: classifying every link's DOM ancestry (nav, header,
@@ -364,6 +372,10 @@ DESCRIPTIONS: dict[str, str] = {
     "output.write_decisions_jsonl": (
         "Write one JSON line per exclusion decision to decisions.jsonl, naming the URL and the "
         "rule that rejected it — see seohead.tools.logscan for what reads it."
+    ),
+    "output.write_tasks": (
+        "Write the prioritized backlog beside audit.json as tasks.json and tasks.md — the same "
+        "pipeline `sf run --tasks` uses, run over this crawl's own audit."
     ),
     "link_position.classify": (
         "Classify each link's DOM ancestry (nav/header/sidebar/footer/content) as it is "

@@ -621,3 +621,53 @@ def test_inlink_boilerplate_only_is_withheld_on_a_partial_native_crawl(tmp_path,
     )
     complete_out = handlers.crawl_site(url=f"{base}/", config=str(config))
     assert complete_out["summary"]["by_check"].get("INLINK_BOILERPLATE_ONLY") == 1
+
+
+def test_a_native_crawl_writes_the_backlog_beside_its_audit(monkeypatch, tmp_path):
+    """A crawl done without Screaming Frog produced findings and no list of what to do
+    about them. build_tasks has always accepted an audit document and crawl_site has
+    always produced one; the two were simply never joined — the fourth instance in this
+    repository of a module written and left unreachable (#128, #154, #165, #226)."""
+    import json
+
+    import seohead.crawl.spider as spider_mod
+    from seohead.crawl.spider import SpiderResult
+
+    result = SpiderResult()
+    result.pages = [
+        PageRecord(url="https://example.com/", status_code=200, content_type="text/html")
+    ]
+    monkeypatch.setattr(spider_mod, "crawl_site", lambda *a, **kw: result)
+
+    out = tmp_path / "run"
+    handlers.crawl_site(url="https://example.com/", out_dir=str(out))
+
+    assert (out / "audit.json").is_file()
+    assert (out / "tasks.json").is_file(), "the backlog must land beside the audit"
+    assert (out / "tasks.md").is_file()
+
+    backlog = json.loads((out / "tasks.json").read_text(encoding="utf-8"))
+    assert backlog["source"], "the backlog names the run it came from"
+    assert "# Audit Tasks" in (out / "tasks.md").read_text(encoding="utf-8")
+
+
+def test_the_backlog_can_be_turned_off(monkeypatch, tmp_path):
+    """It is a written artefact, not a finding, so an operator who does not want the two
+    extra files can say so — and the audit is unaffected either way."""
+    import seohead.crawl.spider as spider_mod
+    from seohead.crawl.spider import SpiderResult
+
+    result = SpiderResult()
+    result.pages = [
+        PageRecord(url="https://example.com/", status_code=200, content_type="text/html")
+    ]
+    monkeypatch.setattr(spider_mod, "crawl_site", lambda *a, **kw: result)
+
+    config = tmp_path / "crawl.json"
+    config.write_text('{"output": {"write_tasks": false}}', encoding="utf-8")
+    out = tmp_path / "run"
+    handlers.crawl_site(url="https://example.com/", out_dir=str(out), config=str(config))
+
+    assert (out / "audit.json").is_file()
+    assert not (out / "tasks.json").exists()
+    assert not (out / "tasks.md").exists()
