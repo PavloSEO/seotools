@@ -484,15 +484,57 @@ def _extract_jsonld(soup: BeautifulSoup) -> tuple[list[Any], list[dict[str, Any]
     return out, invalid
 
 
-_BASE_HREF_RE = re.compile(r"<base\b[^>]*?\bhref\s*=\s*[\"']([^\"']*)[\"']", re.IGNORECASE)
+class _LiveBaseHrefScanner(HTMLParser):
+    """Finds the ``href`` of the first live ``<base>`` in raw HTML (issue #359).
+
+    ``<template>`` content is an inert ``DocumentFragment`` (see
+    ``_INERT_LINK_CONTAINERS``): a ``<base>`` written only inside one is never
+    consulted by a browser, so it must never win here either. Depth-tracking
+    with the stdlib tokenizer, mirroring ``_HeadElementScanner``, is what lets
+    this stay a plain string scan (the raw-HTML branch's entire point) while
+    still giving templated and non-templated bases the same tree-level
+    selection semantics a resolved ``BeautifulSoup`` tree gets below.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True, scripting=True)
+        self.href: str | None = None
+        self._template_depth = 0
+
+    def _start(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        tag = tag.lower()
+        if tag == "template":
+            self._template_depth += 1
+            return
+        if self.href is not None or self._template_depth > 0 or tag != "base":
+            return
+        for name, value in attrs:
+            if name.lower() == "href" and value and value.strip():
+                self.href = value.strip()
+                return
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self._start(tag, attrs)
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self._start(tag, attrs)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() == "template" and self._template_depth > 0:
+            self._template_depth -= 1
 
 
 def document_base_url(document: BeautifulSoup | str, final_url: str) -> str:
     """Return the document base URL for resolving relative links.
 
     Per the HTML standard relative URLs resolve against the ``href`` of the
-    **first** ``<base>`` element that carries one — itself resolved against the
-    document URL — and against the document URL when there is no such element.
+    **first live** ``<base>`` element that carries one — itself resolved
+    against the document URL — and against the document URL when there is no
+    such element. "Live" excludes a ``<base>`` sitting inside a ``<template>``
+    (see ``_INERT_LINK_CONTAINERS``): that content is an inert
+    ``DocumentFragment`` a browser never consults, so a template-only base
+    must never be chosen over a real one, or over the ``final_url`` fallback
+    when no real one exists (issue #359).
 
     Ignoring this reports links that do not exist: on a page whose base is
     ``https://example.com/`` a relative ``catalog/`` resolves to
@@ -502,15 +544,22 @@ def document_base_url(document: BeautifulSoup | str, final_url: str) -> str:
     search engine crawler both fetch with a 200.
 
     ``document`` accepts parsed markup or raw HTML; the raw form exists for
-    callers that deliberately avoid the cost of building a tree.
+    callers that deliberately avoid the cost of building a tree, and both
+    forms apply the same live-base selection.
     """
     href = ""
     if isinstance(document, str):
-        match = _BASE_HREF_RE.search(document)
-        if match:
-            href = match.group(1).strip()
+        scanner = _LiveBaseHrefScanner()
+        try:
+            scanner.feed(document)
+            scanner.close()
+        except Exception:  # best-effort scan over untrusted markup
+            pass
+        href = scanner.href or ""
     else:
         for tag in document.find_all("base"):
+            if is_inert_template_content(tag):
+                continue
             # "href" is single-valued, so this is always a plain string.
             candidate = (cast("str | None", tag.get("href")) or "").strip()
             if candidate:
