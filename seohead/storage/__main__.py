@@ -8,7 +8,8 @@ import os
 import sys
 from pathlib import Path
 
-from . import ScanError, _loads, _text, import_run, open_scan, read_audit
+from . import ScanError, _loads, _text, import_run, open_scan
+from .exports import export_run
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -27,6 +28,11 @@ def main(argv: list[str] | None = None) -> int:
     importer.add_argument(
         "--config", type=Path, help="original effective JSON manifest, never today's defaults"
     )
+    exporter = commands.add_parser(
+        "export-run", help="export deterministic pages, links and the exact saved audit"
+    )
+    exporter.add_argument("source", type=Path)
+    exporter.add_argument("--out-dir", type=Path, required=True)
     inspector = commands.add_parser("inspect", help="validate and print metadata, without bodies")
     inspector.add_argument("source", type=Path)
     reporter = commands.add_parser(
@@ -50,6 +56,8 @@ def main(argv: list[str] | None = None) -> int:
                 "format": "scan.v1",
                 "body_retention": "unavailable",
             }
+        elif args.command == "export-run":
+            result = export_run(args.source, args.out_dir)
         elif args.command == "inspect":
             con = open_scan(args.source)
             try:
@@ -78,9 +86,7 @@ def main(argv: list[str] | None = None) -> int:
                 for target in outputs
             ):
                 raise ScanError("report output must not overwrite a source artifact or crawl input")
-            document = (
-                str(args.source / "audit.json") if args.source.is_dir() else read_audit(args.source)
-            )
+            document = str(args.source / "audit.json") if args.source.is_dir() else str(args.source)
             result = build_report(document, fmt=args.format, path=args.out)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result.get("ok") else 1

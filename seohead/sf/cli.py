@@ -352,14 +352,15 @@ def _resolve_input(args: argparse.Namespace) -> tuple[str, str | None, str | Non
 
 
 def _run_tasks(args) -> int:
-    import json
+    from seohead.storage.inputs import resolve_audit_input
 
     try:
-        with open(args.audit_json, encoding="utf-8") as fh:
-            audit = json.load(fh)
+        audit, diagnostics = resolve_audit_input(args.audit_json)
     except (OSError, ValueError) as err:
         print(f"error: cannot read audit json: {err}", file=sys.stderr)
         return 1
+    for notice in diagnostics:
+        print(f"[{notice['code']}] {notice['message']}", file=sys.stderr)
     cfg = load_config(args.config)
     backlog = build_tasks(audit, cfg)
     os.makedirs(args.out, exist_ok=True)
