@@ -844,6 +844,15 @@ installed, licensed SF CLI. ``input`` is respectively an exports
 directory, .seospider path, start URL, or URL-list file. Returns a compact
 summary and absolute file paths instead of embedding the large reports.
 
+A live crawl can run for a long time; this call runs off the server's
+event loop, so other sf_* calls stay answerable while it is in
+progress, and cancelling the request (an MCP CancelledNotification)
+stops the underlying Screaming Frog process instead of leaving it
+running. A cancelled or failed run never leaves a completed-looking
+``audit.json``/``audit.md`` behind; on either outcome, or a lost
+response, recover by pointing sf_list_exports/sf_audit_summary at the
+same ``out`` path.
+
 ### `sf_audit_summary`
 
 Read a compact health summary from an existing audit.json.

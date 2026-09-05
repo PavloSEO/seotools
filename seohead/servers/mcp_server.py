@@ -11,6 +11,7 @@ Requires the optional ``mcp`` dependency: ``pip install "seohead-seotools[mcp]"`
 from __future__ import annotations
 
 import json
+import sys
 from typing import Any
 
 from seohead import runlog
@@ -800,9 +801,33 @@ def build_server():  # -> FastMCP
     return mcp
 
 
-def main() -> None:
-    build_server().run()
+def main() -> int:
+    """Run the stdio server; return an exit code instead of letting the caller import
+    ``mcp`` itself to find out whether the server started.
+
+    ``build_server()`` imports the optional MCP SDK lazily so the rest of the CLI stays
+    usable without it (docs/SETUP.md). Before that import runs, no MCP session exists
+    and nothing has reached stdout, so a missing SDK is reported as one stderr
+    diagnostic naming the install command, with exit code 1 -- instead of an uncaught
+    ModuleNotFoundError traceback (#366). This is the single place that diagnostic is
+    produced, so both ``seohead mcp`` (seohead/cli.py) and the direct
+    ``python -m seohead.servers.mcp_server`` invocation advertised above give the same
+    outcome.
+    """
+    try:
+        build_server().run()
+    except ModuleNotFoundError:
+        # build_server()'s only lazy import is the optional "mcp" SDK (see its own
+        # docstring) -- nothing else in this path is optional, so any
+        # ModuleNotFoundError reaching here is that one.
+        print(
+            'seohead mcp requires the optional "mcp" dependency. '
+            'Install it with: pip install "seohead-seotools[mcp]"',
+            file=sys.stderr,
+        )
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
