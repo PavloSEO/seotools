@@ -12,7 +12,6 @@ live-rechecks, remain opt-in.
 
 from __future__ import annotations
 
-import json
 import os
 import threading
 from typing import Any
@@ -146,11 +145,20 @@ async def _do_run_cancellable(
         raise
 
 
-def _load(json_path: str) -> dict[str, Any]:
+def _load(json_path: str, diagnostics: list[dict[str, str]] | None = None) -> dict[str, Any]:
+    from seohead.storage.inputs import resolve_audit_input
+
     if not os.path.isfile(json_path):
         raise FileNotFoundError(f"audit json not found: {json_path}")
-    with open(json_path, encoding="utf-8") as fh:
-        return json.load(fh)
+    document, notices = resolve_audit_input(json_path)
+    if diagnostics is not None:
+        diagnostics.extend(notices)
+    elif notices:
+        import warnings
+
+        for notice in notices:
+            warnings.warn(f"{notice['code']}: {notice['message']}", RuntimeWarning, stacklevel=2)
+    return document
 
 
 def register(mcp):  # pragma: no cover - needs the SDK
@@ -207,27 +215,31 @@ def register(mcp):  # pragma: no cover - needs the SDK
 
     @mcp.tool(annotations=read_files, structured_output=True)
     def sf_audit_summary(json_path: str) -> dict[str, Any]:
-        """Read a compact health summary from an existing audit.json.
+        """Read a compact health summary from audit.json or a scan.v1 SQLite artifact.
 
         Returns the project, health score, severity counts, the first 15 ranked
         checks, and sitemap statistics without loading the complete issue list
         into the agent context.
         """
-        data = _load(json_path)
+        diagnostics: list[dict[str, str]] = []
+        data = _load(json_path, diagnostics)
         s = data["summary"]
-        return {
+        result = {
             "project": data["run"].get("project"),
             "health_score": s.get("health_score"),
             "by_severity": s.get("by_severity"),
             "top_checks": dict(list(s.get("by_check", {}).items())[:15]),
             "sitemap": s.get("sitemap"),
         }
+        if diagnostics:
+            result["input_diagnostics"] = diagnostics
+        return result
 
     @mcp.tool(annotations=read_files, structured_output=True)
     def sf_audit_issues(
         json_path: str, check: str | None = None, severity: str | None = None, limit: int = 50
     ) -> list[dict[str, Any]]:
-        """Return issues filtered by check ID and/or severity from audit.json.
+        """Return filtered issues from audit.json or a validated scan.v1 SQLite artifact.
 
         The requested limit is clamped to 1..1000 to keep MCP payloads bounded.
         Omit both filters to inspect the first issues in report order.
@@ -261,7 +273,7 @@ def register(mcp):  # pragma: no cover - needs the SDK
     def sf_audit_tasks(
         json_path: str, out: str = "report", config: str | None = None
     ) -> dict[str, Any]:
-        """Build tasks.json and tasks.md from an existing audit.json.
+        """Build tasks.json and tasks.md from audit.json or a scan.v1 SQLite artifact.
 
         Priority, severity inclusion, grouping, effort estimates, and URL caps
         come from the configured ``tasks_pipeline``. Returns a compact summary
@@ -270,16 +282,20 @@ def register(mcp):  # pragma: no cover - needs the SDK
         from seohead.sf.config import load_config
         from seohead.sf.tasks import build_tasks, write_tasks
 
-        backlog = build_tasks(_load(json_path), load_config(config or "config.json"))
+        diagnostics: list[dict[str, str]] = []
+        backlog = build_tasks(_load(json_path, diagnostics), load_config(config or "config.json"))
         os.makedirs(out, exist_ok=True)
         jp, mp = write_tasks(
             backlog, os.path.join(out, "tasks.json"), os.path.join(out, "tasks.md")
         )
-        return {
+        result = {
             "summary": backlog["summary"],
             "tasks_json": os.path.abspath(jp),
             "tasks_md": os.path.abspath(mp),
         }
+        if diagnostics:
+            result["input_diagnostics"] = diagnostics
+        return result
 
     return mcp
 

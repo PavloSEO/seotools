@@ -6,10 +6,11 @@ and its identity is also recorded as `application_id=1397051208` (`SEOH`) and
 `user_version=1`. A reader must require all three identifiers to agree before it
 treats a file as a scan artifact.
 
-The first delivery imports an existing crawl directory into a portable file and
-opens its stored audit without fetching again. It does not change the existing
-crawler or directory workflow. Use one file per imported run; do not merge runs or
-write an imported artifact concurrently.
+The delivered foundation imports an existing crawl directory into a portable file,
+reopens its stored audit without fetching again, and exports compatible legacy
+observations again. It does not change the existing crawler or directory workflow.
+Use one file per imported run; do not merge runs or write an imported artifact
+concurrently.
 
 ## Start here
 
@@ -18,15 +19,38 @@ Use the storage module after it is installed with SEOHEAD Tools:
 ```bash
 python -m seohead.storage import-run RUN_DIR --out scan.sqlite --producer-build SHA
 python -m seohead.storage inspect scan.sqlite
-python -m seohead.storage report scan.sqlite --format md --out report.md
+python -m seohead.storage export-run scan.sqlite --out-dir NEW_DIR
+seohead report-build --audit scan.sqlite --format md --out report.md
+seohead compare-crawls --before before.sqlite --after after.sqlite
+seohead sf tasks --json scan.sqlite --out tasks
 ```
 
 `--producer-build` names the build that produced `RUN_DIR`. It is required because current legacy
 output does not record that source build. It is provenance for the original
 crawler, never the revision of the checkout that imports the directory. `inspect`
 reports recorded format, provenance, lifecycle, capability states, and
-partialness. `report` renders the authoritative stored audit document and makes no
-network request.
+partialness. `report-build`, `compare-crawls`, and `sf tasks` resolve a scan's
+internal audit as their input and make no network request.
+
+`export-run` requires a new, absent output directory. It writes only
+`pages.jsonl`, `links.jsonl`, and `audit.json`; `audit.json` is published last as
+the completion marker. The JSONL files are deterministic UTF-8 with sorted keys,
+compact JSON, and one newline per row. Pages follow committed page order and links
+follow global `link_id` order, including repeated occurrences. SQL `NULL` in a
+late page field is omitted so an older source's absent field remains absent rather
+than becoming a measured default. The saved audit is copied as its exact UTF-8
+bytes. The export contains no response bodies, raw HTML, forms, robots state,
+start-page evidence, sitemap-response corpus, or resume checkpoint.
+
+A scan made partial only by recovery of a truncated JSONL tail cannot be represented
+faithfully by these three files when its unchanged audit says the crawl was complete.
+That export is refused; use the original SQLite artifact, which keeps the recovery
+provenance. Export is allowed when the retained audit already records partialness.
+
+The new directory is private while it is staged. Existing directories, files, and
+symlinks are refused; a failed export removes only the files it created. Reimport
+the three-file directory with the same source producer build if a legacy-shaped
+input is needed again.
 
 The import keeps the source directory unchanged. A malformed middle JSONL row,
 incompatible artifact version, duplicate conflict, or inconsistent cross-file
@@ -56,6 +80,14 @@ and `context_items` reserve the recovery and collection lanes. `responses`,
 resource provenance. `audit.document_json` is the only authoritative stored audit
 snapshot; report formats render that document and do not compute new findings.
 
+Existing report and comparison routes can take a scan path directly. The MCP
+`seo_report_build`, `seo_compare_crawls`, and SF audit summary, issues, and tasks
+tools accept the same path. If an `audit.json` next to a scan is different or
+unreadable, the shared resolver keeps using the scan's internal audit and emits an
+`input_diagnostics` notice where the response shape permits it. The issue-list
+tool remains a list, so it records that notice as a `RuntimeWarning` rather than
+inserting a fabricated issue.
+
 The complete DDL is [the SQL reference](../seohead/storage/scan_v1.sql). The
 existing audit document remains governed by
 [the audit JSON Schema](../seohead/sf/schema/audit.schema.json). The precise JSON
@@ -65,7 +97,7 @@ unknown/newer versions and missing required fields rather than guessing.
 Raw HTTP entities, decoded documents, and rendered DOM are distinct evidence. A
 future complete body may use `bodies` plus a document/response hash and one of the
 declared fidelity values; a rendered DOM never substitutes for raw HTTP bytes.
-**Point A retains no bodies:** `bodies`, `responses`, `documents`, and
+Point A+B retains no bodies: `bodies`, `responses`, `documents`, and
 `resource_refs` are future schema lanes and are not populated by the legacy
 importer. Its only populated `context_items` lane is
 `legacy_import_provenance`; it exports no restore checkpoint or equivalent resume
@@ -224,8 +256,10 @@ compare complete bytes for JSON, Markdown, both CSV files, XLSX and DOCX; Office
 creation/ZIP timestamps are held equal in both test branches. Normal independent
 Office builds can differ in timestamps even for the same original audit.
 
-These are opt-in Python module CLI/API entry points for the additive storage
-foundation. Existing `seohead crawl-site`, `report-build`, `compare-crawls`, and
-MCP handlers do not gain SQLite arguments in Point A. No live SQLite collection,
-resume, migration, body retention, resource fetch, replay, pruning, or memory
-ceiling improvement is delivered here.
+These are opt-in storage entry points and artifact inputs for the additive
+foundation. Existing `seohead crawl-site` keeps its directory workflow. No live
+SQLite collection, resume, migration, body retention, resource fetch, replay,
+reanalysis, pruning, SQL-backed graph work, or memory-ceiling improvement is
+delivered here. Audit-level findings and context already saved in the exact audit
+remain available; the missing raw crawl corpus cannot be reconstructed from the
+three exported files.

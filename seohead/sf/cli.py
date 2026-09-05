@@ -128,7 +128,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     # `tasks` builds a backlog from an existing audit.json without rerunning the audit.
     tasks = sub.add_parser("tasks", help="Build a prioritized task backlog from audit.json")
-    tasks.add_argument("--json", dest="audit_json", required=True, help="Path to audit.json")
+    tasks.add_argument(
+        "--json",
+        dest="audit_json",
+        required=True,
+        help="Path to audit.json or a validated scan.v1 SQLite artifact",
+    )
     tasks.add_argument(
         "--out", default="report", help="Output directory for tasks.json and tasks.md"
     )

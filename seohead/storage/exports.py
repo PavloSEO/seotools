@@ -129,6 +129,16 @@ def export_run(scan: str | Path, out_dir: str | Path) -> dict[str, Any]:
         raise ScanError(f"export destination already exists: {destination}")
 
     con = open_scan(source)
+    try:
+        partial = con.execute("SELECT crawl_partial FROM scan").fetchone()[0]
+        audit = json.loads(con.execute("SELECT document_json FROM audit").fetchone()[0])
+        if partial and not audit["run"].get("crawl_partial"):
+            raise ScanError(
+                "three-file export would hide recovered crawl partialness; keep and use the original SQLite scan"
+            )
+    except Exception:
+        con.close()
+        raise
     owned: dict[Path, tuple[int, int]] = {}
     created_directory = False
     published = False

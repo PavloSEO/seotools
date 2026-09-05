@@ -122,3 +122,31 @@ def test_export_failure_removes_only_its_own_files(artifact, tmp_path, monkeypat
     with pytest.raises(ScanError, match="injected write failure"):
         export_run(artifact, destination)
     assert not destination.exists()
+
+
+def test_recovery_only_partialness_cannot_be_exported_as_complete(legacy_run, tmp_path):
+    with (legacy_run / "links.jsonl").open("ab") as stream:
+        stream.write(b'{"source":')
+    artifact = import_run(legacy_run, tmp_path / "recovered.sqlite", producer_build=BUILD)
+    before = artifact.read_bytes()
+    destination = tmp_path / "cannot-represent-recovery"
+    with pytest.raises(ScanError, match="would hide recovered crawl partialness"):
+        export_run(artifact, destination)
+    assert not destination.exists()
+    assert artifact.read_bytes() == before
+
+
+def test_partialness_recorded_in_audit_survives_export_and_reimport(legacy_run, tmp_path):
+    path = legacy_run / "audit.json"
+    audit = json.loads(path.read_text())
+    audit["run"]["crawl_partial"] = True
+    path.write_text(json.dumps(audit))
+    artifact = import_run(legacy_run, tmp_path / "partial.sqlite", producer_build=BUILD)
+    destination = tmp_path / "partial-export"
+    export_run(artifact, destination)
+    reimported = import_run(destination, tmp_path / "partial-again.sqlite", producer_build=BUILD)
+    con = open_scan(reimported)
+    try:
+        assert con.execute("SELECT crawl_partial FROM scan").fetchone()[0] == 1
+    finally:
+        con.close()
