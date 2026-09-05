@@ -109,6 +109,10 @@ def _row(
         "Status": record.error or ("OK" if record.status_code == 200 else ""),
         "Indexability": indexability,
         "Indexability Status": reason,
+        # Non-SF column (#243): projects PageRecord.body_unavailable so the rule engine
+        # can tell "this HTML was too large to parse" from "this page genuinely has no
+        # title/description/h1/canonical" -- both look like a blank cell below otherwise.
+        "Body Unavailable": record.body_unavailable,
         "Title 1": record.title,
         "Title 1 Length": len(record.title),
         "Meta Description 1": record.meta_description,

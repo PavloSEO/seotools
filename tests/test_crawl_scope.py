@@ -132,3 +132,127 @@ def test_a_valid_pattern_passes_validation():
 
 def test_scope_reads_an_absent_config_as_the_default():
     assert Scope.from_config(None) == Scope()
+
+
+# --- scope.segments (#358) --------------------------------------------------
+
+
+def test_a_url_with_no_segments_declared_is_the_default_segment():
+    assert Scope.from_config(None).segment_for("https://example.com/anything") == "default"
+
+
+def test_segment_for_matches_by_prefix_host_and_pattern():
+    rules = Scope.from_config(
+        {
+            "segments": [
+                {"name": "en", "prefix": "/en/"},
+                {"name": "shop", "host": "shop.example.com"},
+                {"name": "legacy", "pattern": r"/old-\d+$"},
+            ]
+        }
+    )
+    assert rules.segment_for("https://example.com/en/about") == "en"
+    assert rules.segment_for("https://shop.example.com/cart") == "shop"
+    assert rules.segment_for("https://example.com/old-42") == "legacy"
+    # Matches none of the three rules -- the built-in fallback, not a crash or a guess.
+    assert rules.segment_for("https://example.com/fr/about") == "default"
+
+
+def test_segment_for_is_first_match_wins_on_overlapping_rules():
+    """#21's own specification: overlap must be predictable, decided by order, not by
+    which rule happens to be "more specific"."""
+    rules = Scope.from_config(
+        {
+            "segments": [
+                {"name": "narrow", "prefix": "/en/help/"},
+                {"name": "wide", "prefix": "/en/"},
+            ]
+        }
+    )
+    assert rules.segment_for("https://example.com/en/help/faq") == "narrow"
+    assert rules.segment_for("https://example.com/en/about") == "wide"
+
+
+def test_segments_only_fetches_just_that_segment():
+    result = _crawl(
+        SITE,
+        scope={
+            "segments": [
+                {"name": "blog", "prefix": "/blog/"},
+                {"name": "shop", "prefix": "/shop/"},
+            ],
+            "segments_only": ["blog"],
+        },
+    )
+    assert _fetched(result, "https://example.com/blog/post")
+    assert not _fetched(result, "https://example.com/shop/item")
+    # The asset also falls outside "blog" (its own segment is the unnamed default),
+    # so both it and the shop page are rejected as outside_segment.
+    assert result.excluded.get("outside_segment") == 2
+
+
+def test_the_seed_is_fetched_even_when_segments_only_excludes_its_own_segment():
+    # Same invariant as include_patterns: the crawl's own start URL is never
+    # filtered out, or a scoped run would report an empty site.
+    result = _crawl(
+        SITE,
+        scope={
+            "segments": [{"name": "blog", "prefix": "/blog/"}],
+            "segments_only": ["blog"],
+        },
+    )
+    assert _fetched(result, "https://example.com/")
+
+
+def test_without_segments_only_every_declared_segment_is_fetched():
+    result = _crawl(SITE, scope={"segments": [{"name": "blog", "prefix": "/blog/"}]})
+    assert _fetched(result, "https://example.com/shop/item")
+
+
+def test_a_host_segment_widens_internal_scope_for_a_subdomain():
+    """A subdomain declared as a segment's host is crawled even under the
+    conservative scope.internal='host' default -- the whole point of naming it
+    once instead of writing scope.internal='registrable_domain' and hoping
+    nothing else on the shared suffix leaks in (#358)."""
+    result = _crawl(
+        SUBDOMAIN_SITE,
+        scope={"segments": [{"name": "shop", "host": "shop.example.com"}]},
+    )
+    assert _fetched(result, "https://shop.example.com/x")
+    assert not _fetched(result, "https://other.com/y")
+
+
+SEPARATE_DOMAIN_SITE = {
+    "https://example.com/robots.txt": FakeResponse(
+        "User-agent: *\nDisallow:\n", headers={"content-type": "text/plain"}
+    ),
+    "https://example.fr/robots.txt": FakeResponse(
+        "User-agent: *\nDisallow:\n", headers={"content-type": "text/plain"}
+    ),
+    "https://example.com/": page("https://example.fr/a-propos"),
+    "https://example.fr/a-propos": page(),
+}
+
+
+def test_a_host_segment_allows_crawling_a_wholly_separate_domain():
+    """The third shape #358 asks for: a segment is not limited to subfolders or
+    subdomains of the seed's own registrable domain."""
+    result = crawl_site(
+        "https://example.com/",
+        fetcher=_fetcher(SEPARATE_DOMAIN_SITE),
+        sleeper=lambda _s: None,
+        min_delay=0,
+        scope={"segments": [{"name": "fr", "host": "example.fr"}]},
+    )
+    assert _fetched(result, "https://example.fr/a-propos")
+
+
+def test_without_the_host_segment_the_separate_domain_stays_out_of_scope():
+    result = crawl_site(
+        "https://example.com/",
+        fetcher=_fetcher(SEPARATE_DOMAIN_SITE),
+        sleeper=lambda _s: None,
+        min_delay=0,
+    )
+    assert not _fetched(result, "https://example.fr/a-propos")
+    assert result.excluded.get("outside_host") == 1

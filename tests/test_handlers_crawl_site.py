@@ -760,3 +760,83 @@ def test_list_mode_directive_policy_still_matches_spider_mode(monkeypatch):
     assert out["discovery"]["mode"] == "list"
     assert out["discovery"]["directive_policy"] == "report_only"
     assert out["discovery"]["robots_blocked"] == 1
+
+
+# --- scope.segments (#358) --------------------------------------------------
+
+
+def test_a_scoped_crawl_names_its_segments_only_in_the_run_output(tmp_path, monkeypatch):
+    """Acceptance criterion: a crawl scoped to one segment says so in its own run
+    output, not leave it to be inferred from which URLs happen to be missing."""
+    config = tmp_path / "crawl.json"
+    config.write_text(
+        json.dumps(
+            {
+                "scope": {
+                    "segments": [{"name": "blog", "prefix": "/blog/"}],
+                    "segments_only": ["blog"],
+                }
+            }
+        )
+    )
+    monkeypatch.setattr(spider_mod, "crawl_site", lambda *a, **kw: SpiderResult())
+
+    out = handlers.crawl_site(url="https://example.com/", config=str(config))
+
+    assert out["discovery"]["segments_only"] == ["blog"]
+
+
+def test_an_unscoped_crawl_does_not_mention_segments_only(monkeypatch):
+    monkeypatch.setattr(spider_mod, "crawl_site", lambda *a, **kw: SpiderResult())
+
+    out = handlers.crawl_site(url="https://example.com/")
+
+    assert "segments_only" not in out["discovery"]
+
+
+def test_segments_summary_reports_page_and_issue_counts_per_segment(tmp_path, monkeypatch):
+    """Acceptance criterion: the audit reports page and issue counts per segment,
+    and every URL lands in exactly one bucket."""
+    config = tmp_path / "crawl.json"
+    config.write_text(json.dumps({"scope": {"segments": [{"name": "blog", "prefix": "/blog/"}]}}))
+
+    def fake(*args, **kwargs):
+        result = SpiderResult()
+        result.pages = [
+            PageRecord(
+                url="https://example.com/blog/post", status_code=200, content_type="text/html"
+            ),
+            PageRecord(
+                url="https://example.com/shop/item", status_code=200, content_type="text/html"
+            ),
+        ]
+        return result
+
+    monkeypatch.setattr(spider_mod, "crawl_site", fake)
+
+    out = handlers.crawl_site(url="https://example.com/", config=str(config))
+
+    assert out["segments"]["blog"]["pages"] == 1
+    assert out["segments"]["default"]["pages"] == 1
+    # Neither page carries a title -- TITLE_MISSING fires on both, each landing on
+    # its own page's segment rather than being pooled into one undifferentiated count.
+    assert out["segments"]["blog"]["issues"] >= 1
+    assert out["segments"]["default"]["issues"] >= 1
+
+
+def test_without_declared_segments_no_segments_summary_is_reported(monkeypatch):
+    """A plain crawl that never opted into #358 gets an unchanged, empty summary --
+    not a single 'default' bucket holding everything, which would just be noise."""
+
+    def fake(*args, **kwargs):
+        result = SpiderResult()
+        result.pages = [
+            PageRecord(url="https://example.com/", status_code=200, content_type="text/html")
+        ]
+        return result
+
+    monkeypatch.setattr(spider_mod, "crawl_site", fake)
+
+    out = handlers.crawl_site(url="https://example.com/")
+
+    assert out["segments"] == {}

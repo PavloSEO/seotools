@@ -416,7 +416,7 @@ Score how citable a piece of content is for AI answers (GEO/AEO): 0-100 across f
 
 MCP name: `seo_markdown_extract`
 
-Render a page as Markdown in two scopes. content_markdown strips navigation and footer (boilerplate) while keeping headings, lists, and links -- the representation worth diffing between crawls, feeding to content scoring (seo_citability_check, seo_duplicate_check), or handing to a model. full_markdown keeps header/nav/footer too; it is the input seo_boilerplate_report hashes to check whether boilerplate is actually the same across a crawl. content_area_strategy records how the region was resolved for this page. Pass html to render offline, or url to fetch it first. content_area configures the region (root/include CSS selectors, tag/selector exclusions); defaults exclude <nav> and <footer>.
+Render a page as Markdown in two scopes. content_markdown strips navigation and footer (boilerplate) while keeping headings, lists, and links -- the representation worth diffing between crawls, feeding to content scoring (seo_citability_check, seo_duplicate_check), or handing to a model. full_markdown keeps header/nav/footer too, for reading -- Markdown has already lost the tag structure seo_boilerplate_report hashes, so it is not a valid input there; pass that tool the original html (or a hash precomputed from it) instead. content_area_strategy records how the region was resolved for this page. Pass html to render offline, or url to fetch it first. content_area configures the region (root/include CSS selectors, tag/selector exclusions); defaults exclude <nav> and <footer>.
 
 | Argument | Type | Default |
 |---|---|---|
@@ -843,6 +843,15 @@ this mode does not require Screaming Frog to be installed. The
 installed, licensed SF CLI. ``input`` is respectively an exports
 directory, .seospider path, start URL, or URL-list file. Returns a compact
 summary and absolute file paths instead of embedding the large reports.
+
+A live crawl can run for a long time; this call runs off the server's
+event loop, so other sf_* calls stay answerable while it is in
+progress, and cancelling the request (an MCP CancelledNotification)
+stops the underlying Screaming Frog process instead of leaving it
+running. A cancelled or failed run never leaves a completed-looking
+``audit.json``/``audit.md`` behind; on either outcome, or a lost
+response, recover by pointing sf_list_exports/sf_audit_summary at the
+same ``out`` path.
 
 ### `sf_audit_summary`
 

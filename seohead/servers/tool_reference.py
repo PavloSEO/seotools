@@ -101,7 +101,9 @@ def _tool_specs(source: Path, register_func_name: str, command_prefix: str) -> l
     profiles = _profiles(target)
     specs = []
     for node in target.body:
-        if not isinstance(node, ast.FunctionDef):
+        # A registered tool may be `async def` (sf_audit_run, #369) as well as a plain
+        # `def`; only whether it is decorated with @mcp.tool matters here.
+        if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             continue
         tool_decorator = next(
             (

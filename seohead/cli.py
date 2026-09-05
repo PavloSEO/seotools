@@ -825,8 +825,10 @@ def main(argv: list[str] | None = None) -> int:
     if cmd == "mcp":
         from seohead.servers.mcp_server import main as mcp_main
 
-        mcp_main()
-        return 0
+        # mcp_main() itself catches a missing optional SDK and returns 1 after a stderr
+        # diagnostic (#366), so the direct `python -m seohead.servers.mcp_server` entry
+        # point advertised in that module's docstring gives the same outcome as this one.
+        return mcp_main()
     if cmd == "crawl-site" and getattr(args, "config_help", False):
         _print_config_help()
         return 0

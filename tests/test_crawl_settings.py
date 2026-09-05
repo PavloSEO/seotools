@@ -152,11 +152,57 @@ def test_free_form_headers_are_a_leaf_not_a_branch(tmp_path):
         ({"rendering.escalation.sample_per_pattern": 0}, "sample_per_pattern"),
         ({"rendering.escalation.max_render_urls": -1}, "max_render_urls"),
         ({"rendering.escalation.max_render_seconds": -1}, "max_render_seconds"),
+        ({"scope.segments": "not-a-list"}, "scope.segments must be a list"),
+        ({"scope.segments": [{"prefix": "/en/"}]}, "non-empty 'name'"),
+        ({"scope.segments": [{"name": "default", "prefix": "/en/"}]}, "reserved"),
+        (
+            {
+                "scope.segments": [
+                    {"name": "en", "prefix": "/en/"},
+                    {"name": "en", "host": "en.example.com"},
+                ]
+            },
+            "duplicate name",
+        ),
+        ({"scope.segments": [{"name": "en"}]}, "at least one of"),
+        ({"scope.segments": [{"name": "en", "pattern": "["}]}, "not a valid regex"),
+        (
+            {"scope.segments": [{"name": "en", "prefix": "/en/", "bogus": 1}]},
+            "unknown keys",
+        ),
+        ({"scope.segments_only": ["fr"]}, "scope.segments_only"),
     ],
 )
 def test_invalid_values_are_refused(override, message):
     with pytest.raises(cfg.ConfigError, match=message):
         cfg.load(overrides=override)
+
+
+def test_a_segment_config_loads_and_validates():
+    config = cfg.load(
+        overrides={
+            "scope.segments": [
+                {"name": "en", "prefix": "/en/"},
+                {"name": "shop", "host": "shop.example.com"},
+                {"name": "legacy", "pattern": r"^https://example\.com/old-"},
+            ],
+            "scope.segments_only": ["en", "default"],
+        }
+    )
+    assert [s["name"] for s in config["scope"]["segments"]] == ["en", "shop", "legacy"]
+    assert config["scope"]["segments_only"] == ["en", "default"]
+    cfg.validate(config)
+
+
+def test_segments_only_may_reference_only_the_default_segment():
+    # No declared segments at all -- "default" is still a legal name to scope to.
+    config = cfg.load(overrides={"scope.segments_only": ["default"]})
+    cfg.validate(config)
+
+
+def test_scope_segments_and_segments_only_are_results_affecting():
+    assert "scope.segments" in cfg.RESULTS_AFFECTING
+    assert "scope.segments_only" in cfg.RESULTS_AFFECTING
 
 
 def test_cache_defaults_to_off():

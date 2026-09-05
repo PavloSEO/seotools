@@ -13,6 +13,7 @@ import os
 import shutil
 import signal
 import subprocess
+import threading
 import time
 from collections.abc import Iterator
 from urllib.parse import urlsplit
@@ -231,6 +232,27 @@ def derive_timeout_minutes(
 
 
 # --- process control ---------------------------------------------------------
+# The crawler processes this module currently has running, published so a caller
+# that can be cancelled -- the MCP request layer -- can stop them through
+# ``_terminate_tree`` below.
+#
+# There is exactly one ``subprocess.Popen`` in this repository and it is in this
+# module, which is why registering it here is enough. Reaching the same end by
+# replacing ``subprocess.Popen`` process-wide for the duration of a crawl is not:
+# ``subprocess.run`` resolves the module global at call time, so every unrelated
+# child started anywhere in the process during that window would be collected
+# too, and cancelling the crawl would send SIGTERM to its process group.
+_live_processes: set[subprocess.Popen] = set()
+_live_lock = threading.Lock()
+
+
+def terminate_live_crawls() -> list[str]:
+    """Stop every crawler process this module has running; say what was done to each."""
+    with _live_lock:
+        procs = list(_live_processes)
+    return [_terminate_tree(proc) for proc in procs]
+
+
 def _terminate_tree(proc: subprocess.Popen) -> str:
     """Stop the crawler and everything it started. Returns what was done.
 
@@ -287,6 +309,22 @@ def _run_watched(
         start_new_session=os.name != "nt",
         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
     )
+    with _live_lock:
+        _live_processes.add(proc)
+    try:
+        return _watch(proc, cmd, timeout, output_folder, log)
+    finally:
+        with _live_lock:
+            _live_processes.discard(proc)
+
+
+def _watch(
+    proc: subprocess.Popen,
+    cmd: list[str],
+    timeout: float,
+    output_folder: str,
+    log,
+) -> subprocess.CompletedProcess:
     started = time.monotonic()
     next_report = started + PROGRESS_INTERVAL_SECONDS
     while True:

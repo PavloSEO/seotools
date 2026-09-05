@@ -23,6 +23,13 @@ from .rules import run_rules
 from .sitemap_coverage import run_sitemap
 
 CRAWL_MODES = {"crawl", "crawl-list", "load-crawl"}
+
+# The complete input-mode vocabulary any caller (CLI, MCP) may pass to
+# ``run_audit``: the live crawl modes above, plus ``parse-exports`` -- reading
+# an already-produced export set, which never touches the live-mode branch.
+# Declared once here so an interface layer (e.g. sf_mcp) that imports it
+# cannot drift from the core by forgetting to mirror a change by hand.
+INPUT_MODES = CRAWL_MODES | {"parse-exports"}
 _VERSION_RE = re.compile(rb"(\d+\.\d+)")
 
 
