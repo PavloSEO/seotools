@@ -28,13 +28,17 @@ def legacy_run(tmp_path, monkeypatch):
     responses = {
         "https://example.com/robots.txt": FakeResponse("User-agent: *\nAllow: /\n"),
         "https://example.com/": FakeResponse(
-            "<!doctype html><html><head><title>Evidence home</title></head><body>"
+            "<!doctype html><html><head><title>Evidence home</title>"
+            '<link rel="alternate" hreflang="FR" href="/fr/">'
+            '<link rel="alternate" hreflang="x-default" href="/">'
+            '</head><body><main><iframe src="/frame"></iframe>'
+            '<iframe src="https://outside.example/embed"></iframe>'
             '<h1>Home</h1><a href="/second">Second</a><a href="/second">Second again</a>'
-            '<a href="https://outside.example/path">External</a></body></html>'
+            '<a href="https://outside.example/path">External</a></main></body></html>'
         ),
         "https://example.com/second": FakeResponse(
             "<!doctype html><html><head><title>Second page</title></head>"
-            "<body><h1>Second</h1><p>Different text and a real finding.</p></body></html>"
+            "<body><h1>Second</h1><p>" + "Large response body. " * 200 + "</p></body></html>"
         ),
     }
     original = spider.crawl_site
@@ -45,7 +49,9 @@ def legacy_run(tmp_path, monkeypatch):
     monkeypatch.setattr(spider, "crawl_site", offline_crawl)
     monkeypatch.setattr(sitemap_coverage, "run_sitemap", lambda *a, **k: {})
     config = tmp_path / "config.json"
-    config.write_text(json.dumps({"speed": {"min_delay_seconds": 0.01}}))
+    config.write_text(
+        json.dumps({"speed": {"min_delay_seconds": 0.01}, "limits": {"max_response_bytes": 1024}})
+    )
     directory = tmp_path / "run"
     result = handlers.crawl_site(
         url="https://example.com/", out_dir=str(directory), config=str(config)

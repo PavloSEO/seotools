@@ -69,6 +69,36 @@ _LINK_FIELDS = {
     "raw_href",
 }
 
+_LATE_PAGE_FIELDS = {
+    "content_frames": "content_frames",
+    "content_frames_same_origin": "content_frames_same_origin",
+    "hreflang": "hreflang_json",
+    "body_unavailable": "body_unavailable",
+}
+
+
+def _recovered(limitations: list[str]) -> bool:
+    return any("recovered a truncated final line" in note for note in limitations)
+
+
+def _legacy_fields_missing(con) -> list[str]:
+    row = con.execute(
+        "SELECT "
+        + ",".join(f"MAX({column} IS NULL)" for column in _LATE_PAGE_FIELDS.values())
+        + " FROM pages"
+    ).fetchone()
+    return [name for name, missing in zip(_LATE_PAGE_FIELDS, row, strict=True) if missing]
+
+
+def _hreflang(value: Any) -> None:
+    if not isinstance(value, list) or any(
+        not isinstance(item, dict)
+        or set(item) != {"lang", "raw_href", "url"}
+        or any(type(text) is not str for text in item.values())
+        for item in value
+    ):
+        raise ScanError("hreflang must be an ordered list of lang/raw_href/url string objects")
+
 
 class ScanError(ValueError):
     """The input cannot be used as a supported, consistent scan artifact."""
@@ -263,7 +293,7 @@ def _jsonl(path: Path, limitations: list[str], inputs: list[dict]) -> Iterator[d
                     isinstance(exc, UnicodeDecodeError) and exc.reason == "unexpected end of data"
                 )
                 if truncated and not raw.endswith(b"\n") and not stream.read(1):
-                    if len(limitations) > 1:
+                    if _recovered(limitations):
                         raise ScanError(
                             "only one truncated final JSONL record may be recovered"
                         ) from exc
@@ -288,13 +318,25 @@ def _url(con, url: str) -> int:
 
 def _import_pages(con, source: Path, limitations: list[str], inputs: list[dict]) -> None:
     names = {c[1] for c in _expected()[1]["pages"]} - {"url_id", "page_ordinal", "document_id"}
-    names = (names - {"redirect_chain_json"}) | {"url", "redirect_chain"}
+    names = (names - {"redirect_chain_json", "hreflang_json"}) | {
+        "url",
+        "redirect_chain",
+        "hreflang",
+    }
     for ordinal, record in enumerate(_jsonl(source / "pages.jsonl", limitations, inputs)):
-        if set(record) != names:
+        if (names - set(_LATE_PAGE_FIELDS)) - set(record) or set(record) - names:
             raise ScanError(
                 f"pages.jsonl: fields differ from scan.v1: {sorted(set(record) ^ names)}"
             )
         row = dict(record)
+        for name in _LATE_PAGE_FIELDS:
+            if name in row and row[name] is None:
+                raise ScanError(f"pages.{name}: present fields must have their recorded type")
+            row.setdefault(name, None)
+        alternates = row.pop("hreflang")
+        if alternates is not None:
+            _hreflang(alternates)
+        row["hreflang_json"] = None if alternates is None else _dump(alternates)
         row["url_id"] = _url(con, row.pop("url"))
         row["page_ordinal"] = ordinal
         chain = row.pop("redirect_chain")
@@ -403,6 +445,10 @@ def _validate_import_metadata(con, scan: dict, audit: dict) -> None:
         "SELECT 1 FROM pages WHERE size_bytes < 0 OR word_count < 0 OR crawl_depth < 0 LIMIT 1"
     ).fetchone():
         raise ScanError("invalid negative page size, word count or depth")
+    if con.execute(
+        "SELECT 1 FROM pages WHERE content_frames < 0 OR content_frames_same_origin < 0 OR content_frames_same_origin > content_frames OR body_unavailable NOT IN ('','oversized') LIMIT 1"
+    ).fetchone():
+        raise ScanError("invalid frame counts or body_unavailable state")
     count, low, high = con.execute(
         "SELECT COUNT(*), MIN(page_ordinal), MAX(page_ordinal) FROM pages"
     ).fetchone()
@@ -462,8 +508,16 @@ def _validate_import_metadata(con, scan: dict, audit: dict) -> None:
     ):
         raise ScanError("partialness and import provenance disagree")
     capabilities = _loads(scan["capabilities_json"], "capabilities_json")
+    missing = _legacy_fields_missing(con)
+    missing_notes = [
+        note for note in limitations if note.startswith("legacy page fields unavailable:")
+    ]
+    expected_notes = ["legacy page fields unavailable: " + ", ".join(missing)] if missing else []
+    if missing_notes != expected_notes:
+        raise ScanError("legacy field availability disagrees with recorded limitations")
     for name in ("pages", "links"):
-        if capabilities[name]["state"] != ("partial" if partial else "complete"):
+        unavailable = partial or (name == "pages" and bool(missing))
+        if capabilities[name]["state"] != ("partial" if unavailable else "complete"):
             raise ScanError("imported page/link capability completeness disagrees")
 
 
@@ -537,6 +591,8 @@ def _validate(con) -> None:
         for key in _PAGE_BOOLS:
             if page[key] is not None and page[key] not in (0, 1):
                 raise ScanError(f"invalid page boolean: {key}")
+        if page["hreflang_json"] is not None:
+            _hreflang(_loads(page["hreflang_json"], "hreflang_json"))
         if not isinstance(_loads(page["redirect_chain_json"], "redirect_chain"), list):
             raise ScanError("invalid redirect_chain")
     for link in con.execute(
@@ -608,8 +664,11 @@ def import_run(
             "producer_build must identify the original crawl with a full lowercase Git commit SHA"
         )
     source, out = Path(source), Path(out).absolute()
+    exists_message = (
+        f"output already exists: {out}; choose a new --out path; imports never overwrite scans"
+    )
     if os.path.lexists(out):
-        raise ScanError(f"output already exists: {out}")
+        raise ScanError(exists_message)
     temporary = None
     con = None
     try:
@@ -646,7 +705,10 @@ def import_run(
                 "bytes": len(audit_text.encode("utf-8")),
             }
         )
-        partial = bool(audit["run"].get("crawl_partial")) or len(limitations) > 1
+        partial = bool(audit["run"].get("crawl_partial")) or _recovered(limitations)
+        missing_fields = _legacy_fields_missing(con)
+        if missing_fields:
+            limitations.append("legacy page fields unavailable: " + ", ".join(missing_fields))
         capabilities = {
             key: {
                 "state": "unavailable",
@@ -660,6 +722,11 @@ def import_run(
                 "reason": "legacy source is partial"
                 if partial
                 else "imported observations; original crawl scope applies",
+            }
+        if missing_fields:
+            capabilities["pages"] = {
+                "state": "partial",
+                "reason": "legacy page fields unavailable: " + ", ".join(missing_fields),
             }
         now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         _insert(
@@ -726,7 +793,7 @@ def import_run(
                     {
                         "source_format": "legacy_directory.v1",
                         "inputs": inputs,
-                        "recovered_truncated_final_line": len(limitations) > 1,
+                        "recovered_truncated_final_line": _recovered(limitations),
                         "resume_eligible": False,
                     }
                 ),
@@ -748,6 +815,8 @@ def import_run(
         finally:
             os.close(directory_fd)
         return out
+    except FileExistsError as exc:
+        raise ScanError(exists_message) from exc
     except (OSError, sqlite3.Error, ValueError, KeyError, UnicodeError) as exc:
         raise ScanError(f"cannot import run: {exc}") from exc
     finally:

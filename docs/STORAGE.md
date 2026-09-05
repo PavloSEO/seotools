@@ -73,6 +73,28 @@ state. Body access, retained-resource access, native SQLite collection, resume,
 and offline reanalysis are all reported as unavailable until their later slices
 land.
 
+The `pages` projection follows the prerelease `crawl.v1` `PageRecord`, including
+`content_frames`, `content_frames_same_origin`, ordered `hreflang_json`, and
+`body_unavailable`. The first two are parser observations about frames in the
+resolved content area. `hreflang_json` preserves the document's alternate
+declarations. `body_unavailable` records why collection could not parse a page
+body (for example, an oversized response); it does **not** describe whether this
+artifact retained that body. Retention remains unavailable in Point A.
+
+Only these four new columns are nullable for legacy compatibility. `NULL` means
+the field was absent from an older 43-field crawl record; it never means measured
+zero frames, an empty hreflang list, or an empty `body_unavailable` reason. A
+current 47-field import validates and stores each field's actual type. Imported
+older records therefore leave the `pages` capability partial independently of the
+run's `crawl_partial` state.
+
+This is a prerelease `scan.v1` schema synchronized with that current record
+contract. There is no automatic migration. A prototype SQLite file with the old
+DDL is refused and must be explicitly reimported from its legacy source. The
+legacy importer can preserve a pre-merge 43-field JSONL record losslessly by
+recording these four unknown fields as `NULL`; it does not invent defaults that
+claim a measurement.
+
 ## Read safely with the Python standard library
 
 Open the artifact read-only. Do not load extensions, execute SQL supplied by an
