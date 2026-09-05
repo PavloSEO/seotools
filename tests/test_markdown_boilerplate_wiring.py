@@ -186,6 +186,91 @@ def test_boilerplate_report_requires_pages():
         raise AssertionError("expected a ValueError")
 
 
+# ── documented handoff: raw HTML/hash into boilerplate_report (issue #340) ────
+
+_TEMPLATE_A = "<html><body><nav><a href='/a'>A</a><a href='/b'>B</a></nav></body></html>"
+_TEMPLATE_B = "<html><body><nav><a href='/x'>X</a></nav></body></html>"
+
+
+def test_boilerplate_handoff_accepts_raw_html_from_two_templates():
+    """The documented handoff is raw html (or a hash of it), never Markdown --
+    two differently-templated pages must land in two different groups."""
+    pages = [
+        {"url": "https://example.com/1", "html": _TEMPLATE_A},
+        {"url": "https://example.com/2", "html": _TEMPLATE_B},
+    ]
+    out = handlers.boilerplate_report(pages=pages)
+    assert out["ok"] is True
+    # Two distinct templates must never collapse into one group.
+    hashes = set()
+    from seohead.tools import boilerplate_report as bp_core
+
+    for page in pages:
+        hashes.add(bp_core.boilerplate_hash(page["html"]))
+    assert len(hashes) == 2
+    assert out["count"] == 2
+    assert len(out["minority_groups"]) == 1  # one of the two is the minority
+
+
+def test_boilerplate_handoff_accepts_precomputed_hash_key():
+    """A hash computed upstream with the documented ``hash`` key must group
+    identically to handing over the raw html it was computed from."""
+    from seohead.tools import boilerplate_report as bp_core
+
+    hash_a = bp_core.boilerplate_hash(_TEMPLATE_A)
+    hash_b = bp_core.boilerplate_hash(_TEMPLATE_B)
+    assert hash_a != hash_b
+
+    via_html = handlers.boilerplate_report(
+        pages=[
+            {"url": "https://example.com/1", "html": _TEMPLATE_A},
+            {"url": "https://example.com/2", "html": _TEMPLATE_B},
+        ]
+    )
+    via_hash = handlers.boilerplate_report(
+        pages=[
+            {"url": "https://example.com/1", "hash": hash_a},
+            {"url": "https://example.com/2", "hash": hash_b},
+        ]
+    )
+    assert via_hash["dominant_hash"] in {hash_a, hash_b}
+    assert via_html["count"] == via_hash["count"]
+    assert len(via_html["minority_groups"]) == len(via_hash["minority_groups"]) == 1
+
+
+def test_boilerplate_handoff_rejects_the_misleading_boilerplate_hash_key():
+    """``boilerplate_hash`` is not the accepted key -- only ``hash`` is. Two
+    genuinely different templates supplied under the wrong key must NOT be
+    told apart; they silently collapse into the same (empty-basis) group,
+    which is exactly the failure issue #340 warns callers away from."""
+    pages = [
+        {"url": "https://example.com/1", "boilerplate_hash": "aaa"},
+        {"url": "https://example.com/2", "boilerplate_hash": "bbb"},
+    ]
+    out = handlers.boilerplate_report(pages=pages)
+    assert out["ok"] is True
+    assert out["count"] == 2
+    assert len(out["minority_groups"]) == 0  # both pages fell into one group
+
+
+def test_full_markdown_is_not_the_boilerplate_report_handoff():
+    """full_markdown has already lost the tag structure the hasher needs --
+    feeding it in place of html must not reproduce the raw-html grouping."""
+    from seohead.tools import boilerplate_report as bp_core
+    from seohead.tools import markdown_extract as md_core
+
+    full_markdown_a = md_core.extract_markdown(_TEMPLATE_A)["full_markdown"]
+    full_markdown_b = md_core.extract_markdown(_TEMPLATE_B)["full_markdown"]
+
+    raw_hash_a = bp_core.boilerplate_hash(_TEMPLATE_A)
+    markdown_hash_a = bp_core.boilerplate_hash(full_markdown_a)
+    # Hashing the Markdown instead of the html the hasher expects gives a
+    # different (structure-free) digest, not the one the documented handoff
+    # (raw html or a hash computed from it) would produce.
+    assert markdown_hash_a != raw_hash_a
+    assert full_markdown_a != full_markdown_b  # sanity: templates still differ as text
+
+
 # ── handlers.citability_check: content-area rescoping (issue #19, part 2) ────
 
 

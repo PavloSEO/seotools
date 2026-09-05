@@ -396,11 +396,13 @@ def build_server():  # -> FastMCP
         and footer (boilerplate) while keeping headings, lists, and links -- the
         representation worth diffing between crawls, feeding to content scoring
         (seo_citability_check, seo_duplicate_check), or handing to a model. full_markdown
-        keeps header/nav/footer too; it is the input seo_boilerplate_report hashes to check
-        whether boilerplate is actually the same across a crawl. content_area_strategy
-        records how the region was resolved for this page. Pass html to render offline,
-        or url to fetch it first. content_area configures the region (root/include CSS
-        selectors, tag/selector exclusions); defaults exclude <nav> and <footer>."""
+        keeps header/nav/footer too, for reading -- Markdown has already lost the tag
+        structure seo_boilerplate_report hashes, so it is not a valid input there; pass
+        that tool the original html (or a hash precomputed from it) instead.
+        content_area_strategy records how the region was resolved for this page. Pass
+        html to render offline, or url to fetch it first. content_area configures the
+        region (root/include CSS selectors, tag/selector exclusions); defaults exclude
+        <nav> and <footer>."""
         return _checked(
             handlers.markdown_extract(url=url or None, html=html or None, content_area=content_area)
         )
