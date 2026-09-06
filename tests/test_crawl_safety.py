@@ -6,7 +6,14 @@ import pytest
 from seohead.crawl.collect import collect_urls, fetch_one
 from seohead.crawl.spider import crawl_site
 from seohead.recon.net import _is_public_address
-from seohead.tools.robots import _rules_for, crawl_delay, is_allowed, parse_robots
+from seohead.tools.robots import (
+    _rules_for,
+    crawl_delay,
+    is_allowed,
+    parse_robots,
+    politeness_delay,
+    request_rate_delay,
+)
 
 
 def test_aggregate_dispatch_gate_paces_robots_redirects_before_the_first_page(monkeypatch):
@@ -133,6 +140,19 @@ def test_a_malformed_crawl_delay_is_ignored_rather_than_fatal():
 
 def test_a_comma_decimal_crawl_delay_is_understood():
     assert crawl_delay(parse_robots("User-agent: *\nCrawl-delay: 1,5\n")) == 1.5
+
+
+def test_request_rate_supplies_a_conservative_minimum_interval():
+    parsed = parse_robots("User-agent: *\nRequest-rate: 3/10\nCrawl-delay: 2\n")
+    assert request_rate_delay(parsed) == pytest.approx(10 / 3)
+    assert politeness_delay(parsed) == pytest.approx(10 / 3)
+
+
+@pytest.mark.parametrize("value", ["0/1", "1/0", "1.5/2", "1 / 2", "soon", "1/-2"])
+def test_malformed_request_rate_is_ignored_without_affecting_crawl_delay(value):
+    parsed = parse_robots(f"User-agent: *\nRequest-rate: {value}\nCrawl-delay: 2\n")
+    assert request_rate_delay(parsed) is None
+    assert politeness_delay(parsed) == 2
 
 
 def test_the_most_specific_group_wins_not_the_last_one():

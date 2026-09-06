@@ -94,7 +94,9 @@ def test_sitemap_request_gate_paces_httpx_redirect_hops_and_nested_documents(mon
         lambda: now[0],
     )
 
-    result = sitemap.crawl("https://example.test/root.xml", concurrency=1, request_gate=gate.wait_turn)
+    result = sitemap.crawl(
+        "https://example.test/root.xml", concurrency=1, request_gate=gate.wait_turn
+    )
 
     assert result["count"] == 1
     assert calls == [(0.0, "/root.xml"), (1.0, "/index.xml"), (2.0, "/child.xml")]

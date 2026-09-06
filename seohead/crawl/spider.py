@@ -45,7 +45,7 @@ from seohead.crawl.settings import (
 )
 from seohead.crawl.throttle import MAX_CONCURRENCY_CEILING, MAX_DELAY_S, DispatchGate, Throttle
 from seohead.recon.net import UA, http_client, normalize_url, registrable_domain
-from seohead.tools.robots import crawl_delay, is_allowed, match_path, parse_robots
+from seohead.tools.robots import is_allowed, match_path, parse_robots, politeness_delay
 
 MAX_DEPTH_CEILING = 20
 ROBOTS_TOKEN = "SEOHEAD-Tools"
@@ -122,6 +122,8 @@ class SpiderResult(CrawlResult):
     # listed here, which is what an audit needs: full coverage plus an inventory
     # of what a compliant crawler would not have seen.
     robots_blocked: list[str] = field(default_factory=list)
+    # Effective robots-derived interval: the stricter applicable Crawl-delay
+    # or Request-rate floor, after the configured floor is considered.
     crawl_delay_applied: float | None = None
     effective_delay: float = 0.0
     # The adaptive concurrency level reached by the end of the crawl. 1 means
@@ -824,11 +826,13 @@ def crawl_site(
         # the site asks for more than the crawl's own ceiling, so every later clamp
         # into [min_delay, max_delay] keeps honouring this value instead of silently
         # sinking back to a smaller max_delay.
-        asked = crawl_delay(robots, robots_token) if robots else None
-        if asked and asked > throttle.min_delay:
-            throttle.min_delay = asked
-            throttle.delay = max(throttle.delay, asked)
-            result.crawl_delay_applied = asked
+        asked = politeness_delay(robots, robots_token) if robots else None
+        if asked is not None:
+            effective = max(throttle.min_delay, asked)
+            if asked > throttle.min_delay:
+                throttle.min_delay = asked
+                throttle.delay = max(throttle.delay, asked)
+            result.crawl_delay_applied = effective
 
         loaded_state, resume_note = (
             crawl_state.load(state_path, start, config_fingerprint) if state_path else (None, "")

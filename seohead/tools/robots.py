@@ -17,6 +17,7 @@ from seohead.models import ParsedRobots, RobotsCheckResult, RobotsGroup
 from seohead.recon.net import http_client
 
 _UA = "Mozilla/5.0 (compatible; SEOHEAD-Tools/3.0; +https://seohead.tech/seotools)"
+_REQUEST_RATE = re.compile(r"^([1-9][0-9]*)/([1-9][0-9]*)$")
 
 
 def _robots_url(url: str) -> str:
@@ -45,6 +46,7 @@ def parse_robots(text: str) -> ParsedRobots:
                     "allow": [],
                     "disallow": [],
                     "crawl_delay": None,
+                    "request_rate_delay": None,
                     "_has_rules": False,
                 }
                 groups.append(current)
@@ -59,6 +61,16 @@ def parse_robots(text: str) -> ParsedRobots:
                 delay = float(value.replace(",", "."))
                 if math.isfinite(delay) and delay >= 0:
                     current["crawl_delay"] = delay
+        elif field == "request-rate" and current is not None:
+            current["_has_rules"] = True
+            # The non-standard directive has one broadly used, unambiguous
+            # shape: positive whole requests over positive whole seconds.  Do
+            # not turn a malformed value into a rate by guessing at decimal,
+            # locale, zero, or whitespace semantics.
+            match = _REQUEST_RATE.fullmatch(value.strip())
+            if match is not None:
+                requests, seconds = (int(part) for part in match.groups())
+                current["request_rate_delay"] = seconds / requests
         elif field == "sitemap":
             sitemaps.append(value)
     for g in groups:
@@ -68,7 +80,13 @@ def parse_robots(text: str) -> ParsedRobots:
     return cast(ParsedRobots, {"groups": groups, "sitemaps": sitemaps})
 
 
-EMPTY_GROUP: RobotsGroup = {"user_agents": [], "allow": [], "disallow": [], "crawl_delay": None}
+EMPTY_GROUP: RobotsGroup = {
+    "user_agents": [],
+    "allow": [],
+    "disallow": [],
+    "crawl_delay": None,
+    "request_rate_delay": None,
+}
 
 
 def _rules_for(parsed: ParsedRobots, user_agent: str) -> RobotsGroup:
@@ -115,12 +133,36 @@ def _rules_for(parsed: ParsedRobots, user_agent: str) -> RobotsGroup:
         "crawl_delay": next(
             (g["crawl_delay"] for g in selected if g["crawl_delay"] is not None), None
         ),
+        "request_rate_delay": max(
+            (float(g.get("request_rate_delay") or 0) for g in selected), default=0
+        )
+        or None,
     }
 
 
 def crawl_delay(parsed: ParsedRobots, user_agent: str = "*") -> float | None:
     """The delay the site asks this agent to keep, if it states one."""
     return _rules_for(parsed, user_agent).get("crawl_delay")
+
+
+def request_rate_delay(parsed: ParsedRobots, user_agent: str = "*") -> float | None:
+    """Return the minimum interval implied by a valid ``Request-rate`` directive."""
+    return _rules_for(parsed, user_agent).get("request_rate_delay")
+
+
+def politeness_delay(parsed: ParsedRobots, user_agent: str = "*") -> float | None:
+    """Return the strictest applicable robots-derived interval.
+
+    ``crawl_delay_applied`` in crawl results and scan runtime stores this
+    effective interval, while the parsed robots context retains each source
+    directive separately.
+    """
+    values = [
+        value
+        for value in (crawl_delay(parsed, user_agent), request_rate_delay(parsed, user_agent))
+        if value is not None
+    ]
+    return max(values) if values else None
 
 
 def _pattern_to_regex(pattern: str) -> re.Pattern[str]:

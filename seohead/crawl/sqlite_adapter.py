@@ -40,8 +40,7 @@ from seohead.models import ParsedRobots
 from seohead.recon.net import UA, http_client, normalize_url
 from seohead.storage import MAX_RECORD_BYTES, ScanError
 from seohead.storage.native_scan import NativeScan
-from seohead.tools.robots import crawl_delay as robots_crawl_delay
-from seohead.tools.robots import is_allowed, match_path
+from seohead.tools.robots import is_allowed, match_path, politeness_delay
 
 MAX_LINK_OBSERVATIONS = 20_000
 MAX_FORM_OBSERVATIONS = 2_000
@@ -499,11 +498,12 @@ def crawl_to_scan(
                 capabilities=json.loads(outcome["scan"]["capabilities_json"]),
                 dispatch_gate=dispatch_gate,
             )
-        asked_delay = robots_crawl_delay(cast(ParsedRobots, robots), robots_token)
-        if asked_delay and asked_delay > throttle.min_delay:
-            throttle.min_delay = asked_delay
-            throttle.delay = max(throttle.delay, asked_delay)
-            robots_delay = asked_delay
+        asked_delay = politeness_delay(cast(ParsedRobots, robots), robots_token)
+        if asked_delay is not None:
+            robots_delay = max(throttle.min_delay, asked_delay)
+            if asked_delay > throttle.min_delay:
+                throttle.min_delay = asked_delay
+                throttle.delay = max(throttle.delay, asked_delay)
         if existing:
             snapshot = scan.resume_snapshot()
             max_depth, elapsed_before, timeouts, server_errors, robots_delay = _restore_runtime(

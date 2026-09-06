@@ -101,6 +101,8 @@ def _seed_urls_from_sitemap(
     auto_discover: bool,
     *,
     request_gate: Callable[[], None] | None = None,
+    robots_token: str = "*",
+    throttle=None,
 ) -> dict[str, Any]:
     """Resolve and expand the sitemap(s) that should seed a crawl, if any.
 
@@ -120,7 +122,17 @@ def _seed_urls_from_sitemap(
         from seohead.tools.robots import check_robots
 
         options = {"request_gate": request_gate} if request_gate is not None else {}
-        targets = list(check_robots(url, **options).get("sitemaps") or [])
+        checked = check_robots(url, **options)
+        targets = list(checked.get("sitemaps") or [])
+        if throttle is not None and checked.get("ok") and isinstance(checked.get("groups"), list):
+            from seohead.tools.robots import politeness_delay
+
+            asked = politeness_delay(
+                {"groups": checked["groups"], "sitemaps": targets}, robots_token
+            )
+            if asked is not None and asked > throttle.min_delay:
+                throttle.min_delay = asked
+                throttle.delay = max(throttle.delay, asked)
     else:
         targets = []
     if not targets:
@@ -560,6 +572,8 @@ def crawl_site(
             sitemap,
             settings["sitemaps"]["auto_discover"],
             request_gate=dispatch_gate.wait_turn,
+            robots_token=settings["robots"]["user_agent_token"],
+            throttle=throttle,
         )
 
     if url:
@@ -908,12 +922,16 @@ def _audit_crawl_result(
             ctx.skip(check, reason)
         measured: dict[str, Any] = {}
     else:
+        sitemap_kwargs = {}
+        if dispatch_gate is not None:
+            sitemap_kwargs["request_gate"] = dispatch_gate.wait_turn
         measured = run_sitemap(
             ctx,
             sitemap_url=sitemap_seed["sitemap_url"],
             sitemap_urls=sitemap_seed["sitemap_urls"],
             compare_with_crawl=stored_scan is None and not sitemap_seed["declared"],
             crawl_partial=bool(getattr(result, "partial", False)),
+            **sitemap_kwargs,
         )
     # Only surfaced when something was actually measured. run_sitemap always
     # returns its keys, and a run with no sitemap at all would otherwise report

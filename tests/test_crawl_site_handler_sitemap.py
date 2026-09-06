@@ -312,7 +312,7 @@ def test_direct_audit_fetches_every_auto_discovered_root_not_just_the_first(monk
             f"<url><loc>{loc}</loc></url></urlset>"
         ).encode()
 
-    def fake_fetch(url, ua, timeout, retries=2):
+    def fake_fetch(url, ua, timeout, retries=2, **_kwargs):
         fetch_calls.append(url)
         return {
             f"{base}/robots.txt": f"Sitemap: {first}\nSitemap: {second}\n".encode(),
@@ -370,7 +370,7 @@ def test_direct_audit_with_a_single_explicit_sitemap_is_unaffected(monkeypatch):
 
     fetch_calls: list[str] = []
 
-    def fake_fetch(url, ua, timeout, retries=2):
+    def fake_fetch(url, ua, timeout, retries=2, **_kwargs):
         fetch_calls.append(url)
         if url == f"{base}/robots.txt":
             return b"User-agent: *\n"

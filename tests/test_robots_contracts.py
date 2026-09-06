@@ -78,12 +78,19 @@ def test_crawl_delay_closes_an_agent_run_before_the_next_agent():
     )
 
     assert parsed["groups"] == [
-        {"user_agents": ["FirstBot"], "allow": [], "disallow": [], "crawl_delay": 10.5},
+        {
+            "user_agents": ["FirstBot"],
+            "allow": [],
+            "disallow": [],
+            "crawl_delay": 10.5,
+            "request_rate_delay": None,
+        },
         {
             "user_agents": ["SecondBot"],
             "allow": [],
             "disallow": ["/second-only/"],
             "crawl_delay": 2.0,
+            "request_rate_delay": None,
         },
     ]
     assert robots.crawl_delay(parsed, "FirstBot") == 10.5
@@ -126,6 +133,7 @@ def test_sitemap_does_not_close_an_agent_run():
             "allow": [],
             "disallow": ["/private/"],
             "crawl_delay": None,
+            "request_rate_delay": None,
         }
     ]
 
