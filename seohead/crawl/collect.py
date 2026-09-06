@@ -71,6 +71,27 @@ class PageRecord:
     # these two say so instead of leaving the page to be reported as thin.
     content_frames: int = 0
     content_frames_same_origin: int = 0
+    # How many live <meta name="description"> tags the document carries (#385).
+    # meta_description above is unchanged -- still exactly the first -- so
+    # existing consumers keep reading the same string; this is additive.
+    meta_description_count: int = 0
+    # The alt text of an H1 whose own text is empty when an image supplies it
+    # (#385) -- "" when no H1 qualifies, distinguishing an ordinary missing H1
+    # from one that reads empty only because its text lives in an <img alt>.
+    h1_alt_text: str = ""
+    # Occurrences of the Lorem Ipsum placeholder passage within the resolved
+    # content area (#385); 0 on a page with none.
+    lorem_ipsum_count: int = 0
+    # Per-page <img> alt-attribute inventory (#386): how many images the page
+    # has, how many are missing the alt attribute outright (alt="" does not
+    # count -- that is a correctly marked decorative image), and the longest
+    # alt string among the images that do carry one.
+    images_total: int = 0
+    images_missing_alt_attr: int = 0
+    images_max_alt_length: int = 0
+    # Legacy plugin-dependent elements (<object>/<embed>/<applet>) that are not
+    # a benign image fallback (#385).
+    plugin_elements: int = 0
     crawl_depth: int = 0
     # Response-header/markup evidence for the static Lighthouse checks in
     # seohead.sf.core.rules (charset/doctype/viewport/uses-text-compression) —
@@ -80,6 +101,10 @@ class PageRecord:
     # Projected as SF's "Meta Refresh 1" so META_REFRESH_REDIRECT reaches the
     # same verdict from a native crawl as from an export.
     meta_refresh: str = ""
+    # The raw HTTP "Refresh" response header, if the server sent one (#385) --
+    # distinct from meta_refresh (a <meta http-equiv="refresh"> element) above;
+    # see check_directives_extra for how the two are read once populated.
+    http_refresh: str = ""
     charset: str = ""
     doctype: str = ""
     viewport: str = ""
@@ -212,13 +237,22 @@ def _record_from_parsed(parsed: dict) -> dict[str, Any]:
     # Only the frames inside the content area: an iframe in a footer is a widget,
     # an iframe where the copy should be is the page's content (#360).
     framed = [f for f in (parsed.get("frames") or []) if f.get("in_content_area")]
+    images = parsed.get("images") or []
+    images_with_alt = [i for i in images if i.get("has_alt")]
     return {
         "title": _text_of(parsed.get("title")),
         "meta_description": _text_of(parsed.get("meta_description")),
+        "meta_description_count": int(parsed.get("meta_description_count") or 0),
         "h1": _first_heading(parsed, "h1", 0),
         "h1_2": _first_heading(parsed, "h1", 1),
+        "h1_alt_text": _text_of(parsed.get("h1_alt_only_text")),
         "h2": _first_heading(parsed, "h2", 0),
         "canonical": _text_of(parsed.get("canonical")),
+        "lorem_ipsum_count": int(parsed.get("lorem_ipsum_count") or 0),
+        "images_total": len(images),
+        "images_missing_alt_attr": len(images) - len(images_with_alt),
+        "images_max_alt_length": max((i.get("alt_length", 0) for i in images_with_alt), default=0),
+        "plugin_elements": int(parsed.get("plugin_elements_count") or 0),
         # Every crawler-addressed robots tag, agent scope preserved (see
         # parser.robots_meta_scoped): a page can be noindex for Googlebot alone,
         # and a directive named for Bingbot or Yandex must not read as global.
@@ -338,6 +372,7 @@ def _from_cache_entry(
     # wire when it was fetched — otherwise the compression audit would silently read "" for
     # every cached URL and call an already-compressed site uncompressed.
     record.content_encoding = entry.headers.get("content-encoding", "")
+    record.http_refresh = entry.headers.get("refresh", "")
     location = entry.headers.get("location", "")
     record.redirect_url = urljoin(record.url, location) if location else ""
     record.response_time = 0.0
@@ -528,6 +563,9 @@ def fetch_one(
     # httpx transparently decodes gzip/br/deflate, but the header itself still
     # names the encoding that was actually on the wire (see check_compression).
     record.content_encoding = headers.get("content-encoding", "")
+    # The raw HTTP Refresh response header (#385) -- rare, but a real redirect
+    # mechanism some servers still send (e.g. "5; url=https://example.com/new").
+    record.http_refresh = headers.get("refresh", "")
     # Location may be relative ("/new"); resolve it so the destination is a
     # real URL rather than a fragment the scope check then rejects as off-host.
     location = headers.get("location", "")

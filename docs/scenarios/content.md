@@ -6,7 +6,7 @@
 
 ## Covers
 
-- **Content** — Low Content Pages · Near Duplicates
+- **Content** — Low Content Pages · Near Duplicates · Lorem Ipsum Placeholder
 
 ## The chain
 
@@ -54,6 +54,13 @@ seohead boilerplate-report --input '{"pages": [{"url": "https://example.com/a", 
 
 Hashing header and footer per page finds the pages whose template differs from every other —
 usually a legacy section nobody remembers, sometimes a broken include.
+
+**4. Catch placeholder copy left in the content region.** `LOREM_IPSUM_PLACEHOLDER` matches the
+full "lorem ipsum dolor sit amet" passage, counted only against `content_text` — the same
+content-region text step 1 returns as `content_markdown`, not the whole raw document. A page
+that mentions the passage once outside that region (a typography demo in a sidebar widget, a
+one-off comment in a footer) never fires; a page that shipped the passage as its own body copy
+does, on a single occurrence, because it is already scoped to where the real content lives.
 
 ## What comes out
 

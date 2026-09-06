@@ -10,7 +10,7 @@ defects, and only one of them is urgent.
 
 ## Covers
 
-- **Response Codes** — Internal Redirect Loop · Internal Redirect Chain · Internal Redirection (3XX) · Internal Redirection (Meta Refresh)
+- **Response Codes** — Internal Redirect Loop · Internal Redirect Chain · Internal Redirection (3XX) · Internal Redirection (Meta Refresh) · Internal Redirection (HTTP Refresh)
 
 ## The chain
 
@@ -37,6 +37,7 @@ seohead log-scan --run ./run
 | `INTERNAL_LINK_TO_REDIRECT` | a page here links to a URL that redirects | warning |
 | `BAD_REDIRECT_TYPE` | 302, 303 or 307 where a permanent move is meant | notice |
 | `META_REFRESH_REDIRECT` | the move is implemented in markup, not in the response | warning |
+| `HTTP_REFRESH_REDIRECT` | the move is implemented in a `Refresh` response header, not a real redirect status | warning |
 
 Chains and loops are resolved as a second pass over the finished crawl's own records, so no URL
 is fetched twice to establish them.
@@ -95,8 +96,9 @@ No extra requests beyond the crawl: the chains are resolved from records already
   The check reports the type; the intent is yours.
 - **Redirects performed by JavaScript.** A `location.assign` after load is a navigation, and
   the render mode reports the resulting DOM rather than the navigation that produced it.
-- **A `Refresh` response header.** Only the meta element is read; the header form of the same
-  trick is a named gap.
+- **A `Refresh` response header on an SF-export-only run.** `HTTP_REFRESH_REDIRECT` reads a
+  native crawl's own captured response headers; an SF export carries no such column, so the
+  check skips by name there rather than reading a page that used one as clean.
 - **Where an off-host redirect ends.** A redirect that leaves the host is recorded and never
   followed: a crawl of your site must not quietly become a crawl of somebody else's.
 - **Whether a loop happens for everyone.** Redirects driven by cookies, language or geography

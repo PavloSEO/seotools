@@ -21,7 +21,7 @@
       "properties": {
         "project": {"type": "string"},
         "input_mode": {"type": "string",
-          "enum": ["crawl", "crawl-list", "load-crawl", "parse-exports"]},
+          "enum": ["crawl", "crawl-list", "load-crawl", "parse-exports", "reanalysis"]},
         "source": {"type": ["string", "null"]},
         "exports_dir": {"type": ["string", "null"]},
         "sf_version_detected": {"type": ["string", "null"]},

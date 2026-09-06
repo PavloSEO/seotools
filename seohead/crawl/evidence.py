@@ -117,9 +117,16 @@ def _row(
         "Title 1 Length": len(record.title),
         "Meta Description 1": record.meta_description,
         "Meta Description 1 Length": len(record.meta_description),
+        # Native-crawl only (#385): how many live <meta name="description"> tags the
+        # document carries. "Meta Description 1" above stays the first occurrence,
+        # unchanged, for every existing consumer.
+        "Meta Description Count": record.meta_description_count,
         "H1-1": record.h1,
         "H1-1 Length": len(record.h1),
         "H1-2": record.h1_2,
+        # Native-crawl only (#385): the alt text of an H1 whose own text is empty
+        # when an image supplies it instead. "" when no H1 on the page qualifies.
+        "H1 Alt Text Only": record.h1_alt_text,
         "H2-1": record.h2,
         "Canonical Link Element 1": record.canonical,
         "Meta Robots 1": record.meta_robots,
@@ -128,6 +135,9 @@ def _row(
         # a native Screaming Frog export carries none of these four by default,
         # so they stay blank there and the checks skip honestly (see rules.py).
         "Content-Encoding": record.content_encoding,
+        # Native-crawl only (#385): the raw HTTP "Refresh" response header, distinct
+        # from a <meta http-equiv="refresh"> element (META_REFRESH_REDIRECT).
+        "Refresh": record.http_refresh,
         "Doctype": record.doctype,
         "Viewport": record.viewport,
         # Named for SF's own column so normalize.INTERNAL_FIELD_MAP picks it up
@@ -165,6 +175,23 @@ def _row(
         "Redirect URL": record.redirect_url,
         "Crawl Depth": record.crawl_depth,
         "Structured Data": record.jsonld_blocks_found,
+        # Native-crawl only (#386): blocks that parsed, alongside blocks found above --
+        # a malformed block is visible as found > parsed, without which "found" alone
+        # cannot distinguish a page with no structured data from one whose only block
+        # is broken JSON-LD.
+        "Structured Data Parsed": record.jsonld_blocks_parsed,
+        # Native-crawl only (#385, #386): <img> alt-attribute inventory. "Images
+        # Missing Alt Attribute" counts only images where the attribute itself is
+        # absent -- alt="" is a correctly marked decorative image and is excluded.
+        "Images Total": record.images_total,
+        "Images Missing Alt Attribute": record.images_missing_alt_attr,
+        "Images Max Alt Length": record.images_max_alt_length,
+        # Native-crawl only (#385): occurrences of the Lorem Ipsum placeholder
+        # passage within the resolved content area.
+        "Lorem Ipsum Occurrences": record.lorem_ipsum_count,
+        # Native-crawl only (#385): legacy plugin-dependent elements
+        # (<object>/<embed>/<applet>) that are not a benign image fallback.
+        "Unsupported Plugin Elements": record.plugin_elements,
         # Not an SF column; seohead.sf.core.normalize resolves it only for
         # this collector's own frames (#18). "static" unless selective
         # rendering escalation re-fetched this page under a fuller

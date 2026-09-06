@@ -15,17 +15,17 @@ here is written about *our own* behaviour.
 
 | Status | Count | Meaning |
 |---|---:|---|
-| check | 110 | a registry check finds it |
+| check | 120 | a registry check finds it |
 | tool | 33 | a command outside the crawl registry finds it |
-| partial | 21 | we find part of it; the missing part is stated |
-| gap | 20 | we should find it and do not |
+| partial | 19 | we find part of it; the missing part is stated |
+| gap | 12 | we should find it and do not |
 | out of scope | 136 | a decision, with its reason |
 | **total** | **320** | |
 
 108 of the out-of-scope entries are two whole categories declined as single
 decisions — accessibility and AMP, each explained in its own section below. Of the
-remaining 212 issues, **143 are found today**, 21 are
-found in part, 20 are gaps worth closing, and
+remaining 212 issues, **153 are found today**, 19 are
+found in part, 12 are gaps worth closing, and
 28 need something we have decided not to build.
 
 A gap is not a defect. It is a named, deliberate absence — which is the only kind worth
@@ -45,7 +45,7 @@ having, because the alternative is an absence nobody has noticed.
 | External Blocked Resource | partial | — | we do not fetch another host's robots.txt: a crawler that goes and asks somebody else's server about its own rules is a crawler that wanders |
 | Internal Redirection (3XX) | check | `INTERNAL_LINK_TO_REDIRECT` `BAD_REDIRECT_TYPE` |  |
 | Internal Redirection (Meta Refresh) | check | `META_REFRESH_REDIRECT` |  |
-| Internal Redirection (HTTP Refresh) | gap | — | the Refresh response header is not read; only the meta element is |
+| Internal Redirection (HTTP Refresh) | check | `HTTP_REFRESH_REDIRECT` |  |
 | Internal Redirection (JavaScript) | gap | — | needs rendering plus navigation tracking; render mode reports the DOM, not location changes |
 | External No Response | tool | `links-check` |  |
 | External Client Error (4XX) | check | `BROKEN_EXTERNAL_LINK` |  |
@@ -102,7 +102,7 @@ having, because the alternative is an absence nobody has noticed.
 
 | Issue | Status | Found by | Note |
 |---|---|---|---|
-| Multiple | gap | — | only the first meta description is kept during parsing |
+| Multiple | check | `DESC_MULTIPLE` | the first occurrence stays the authoritative value every existing length and duplication check reads; this check only counts how many live occurrences there are |
 | Outside <head> | check | `DESC_OUTSIDE_HEAD` |  |
 | Missing | check | `DESC_MISSING` |  |
 | Duplicate | check | `DESC_DUPLICATE` |  |
@@ -117,7 +117,7 @@ having, because the alternative is an absence nobody has noticed.
 |---|---|---|---|
 | Missing | check | `H1_MISSING` |  |
 | Multiple | check | `H1_MULTIPLE` |  |
-| Alt Text in h1 | gap | — | an H1 whose only text comes from an image alt is not detected |
+| Alt Text in h1 | check | `H1_ALT_TEXT_ONLY` | fires only when the H1 has no text of its own; a logo image beside real heading text is normal and is never flagged |
 | Non-sequential | tool | `heading-outline` | the full H1-H6 order is built by the heading-outline skill, not by the crawl registry |
 | Duplicate | check | `H1_DUPLICATE` |  |
 | Over 70 Characters | check | `H1_TOO_LONG` |  |
@@ -127,10 +127,10 @@ having, because the alternative is an absence nobody has noticed.
 | Issue | Status | Found by | Note |
 |---|---|---|---|
 | Missing | check | `H2_MISSING` |  |
-| Multiple | partial | — | multiple H2s are normal; we record them without judging the count |
+| Multiple | partial | — | multiple H2s are normal, and the issue that asked for this row supplied no defensible count past which they stop being normal; we record them without judging the count |
 | Non-sequential | tool | `heading-outline` |  |
-| Duplicate | gap | — | H2 duplication across the site is not aggregated |
-| Over 70 Characters | gap | — | no length threshold is applied to H2 |
+| Duplicate | check | `H2_DUPLICATE` |  |
+| Over 70 Characters | check | `H2_TOO_LONG` |  |
 
 ## Content
 
@@ -140,7 +140,7 @@ having, because the alternative is an absence nobody has noticed.
 | Spelling Errors | check | `SPELLING_ERRORS` | from an SF export column; not computed |
 | Grammar Errors | check | `GRAMMAR_ERRORS` | from an SF export column; not computed |
 | Soft 404 Pages | tool | `soft404-check` |  |
-| Lorem Ipsum Placeholder | gap | — | no placeholder-text detection |
+| Lorem Ipsum Placeholder | check | `LOREM_IPSUM_PLACEHOLDER` | matched as the full multi-word passage within the resolved content area, never a substring of the whole document, so a page merely mentioning it once outside the content area is not flagged |
 | Near Duplicates | partial | `NEAR_DUPLICATE` | an SF export's native "No. Near Duplicates" column is read directly and answers this fully; the SimHash-based fallback that answers it without one needs HTML stored to disk (input.html_store_dir), which a native `crawl-site` run never writes, so that run always skips this one by name instead |
 | Semantically Similar | gap | — | needs embeddings; simhash finds near-duplicates by shingles, not by meaning |
 | Low Relevance Content | gap | — | needs a query or a topic model to be relevant to |
@@ -153,10 +153,10 @@ having, because the alternative is an absence nobody has noticed.
 | Issue | Status | Found by | Note |
 |---|---|---|---|
 | Missing Alt Text | check | `IMG_MISSING_ALT` |  |
-| Missing Alt Attribute | partial | `IMG_MISSING_ALT` | an absent attribute and an empty one are reported together; a decorative image with alt="" is correct and is not distinguished |
+| Missing Alt Attribute | check | `IMG_MISSING_ALT_ATTRIBUTE` | a native crawl's own per-image inventory distinguishes the attribute being absent from a decorative alt="" -- only the former fires; IMG_MISSING_ALT (an SF export column) still reports the two together, since that export's own shape has not changed |
 | Background Images | tool | `parse` | CSS url() sources are extracted by the parser's url_sources option, which is how four images invisible to the HTML were found on a live site |
 | Over 100 kb | check | `IMG_OVER_KB` |  |
-| Alt Text Over 100 Characters | gap | — | alt length is not thresholded |
+| Alt Text Over 100 Characters | check | `IMG_ALT_TOO_LONG` |  |
 | Incorrectly Sized Images | gap | — | needs the rendered layout box to compare against the intrinsic size |
 | Missing Size Attributes | check | `IMG_MISSING_DIMENSIONS` |  |
 
@@ -166,7 +166,7 @@ having, because the alternative is an absence nobody has noticed.
 |---|---|---|---|
 | Multiple Conflicting | check | `CANONICAL_MULTIPLE` |  |
 | Non-Indexable Canonical | check | `CANONICAL_NON_INDEXABLE` |  |
-| Invalid Attribute In Annotation | gap | — | rel attribute values are not validated |
+| Invalid Attribute In Annotation | gap | — | a matched canonical <link> already has a well-formed 'canonical' token by construction (BeautifulSoup only yields whitespace-free tokens, and the match itself requires one); every other token a real document could add is either a known link-relation keyword or an unrecognised-but-well-formed one, which the issue's own acceptance criteria say must stay unknown, not invalid -- leaving no reachable case that is actually malformed without a raw-attribute-text signal this parser does not keep |
 | Contains Fragment URL | check | `CANONICAL_FRAGMENT` |  |
 | Outside <head> | check | `CANONICAL_OUTSIDE_HEAD` |  |
 | Canonicalised | check | `CANONICALISED` |  |
@@ -263,7 +263,7 @@ having, because the alternative is an absence nobody has noticed.
 |---|---|---|---|
 | Validation Errors | check | `SCHEMA_VALIDATION_ERROR` |  |
 | Rich Result Validation Errors | tool | `schema-check` |  |
-| Parse Errors | partial | — | found and parsed block counts are recorded per page, so a malformed block is visible; it is not raised as its own registry finding |
+| Parse Errors | check | `STRUCTURED_DATA_PARSE_ERROR` | found and parsed block counts were already recorded per page; this reads the two together and fires when found exceeds parsed |
 | Missing | check | `STRUCTURED_DATA_MISSING` |  |
 | Validation Warnings | tool | `schema-check` |  |
 | Rich Result Validation Warnings | tool | `schema-check` |  |
@@ -310,7 +310,7 @@ having, because the alternative is an absence nobody has noticed.
 | Viewport Not Set | check | `VIEWPORT_MISSING` |  |
 | Content Not Sized Correctly | out of scope | — | needs a rendered mobile layout to measure overflow |
 | Illegible Font Size | out of scope | — | needs computed styles from a rendered page |
-| Contains Unsupported Plugins | gap | — | object/embed elements are not extracted |
+| Contains Unsupported Plugins | check | `UNSUPPORTED_PLUGIN` | <object>/<embed>/<applet> are counted, excluding an <object> whose type declares an image (an SVG or raster fallback, not plugin content) |
 | Target Size | out of scope | — | needs rendered hit-box geometry |
 | Mobile Alternate Link | gap | — | rel=alternate media annotations are not read |
 

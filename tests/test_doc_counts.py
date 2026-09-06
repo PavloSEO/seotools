@@ -96,8 +96,13 @@ EXEMPT = (
     # CHECKLIST_AUDIT.md is a frozen snapshot of the registry as it stood when
     # issue #30 was being worked, superseded by COVERAGE_SF_ISSUES.md — its own
     # header says so. The count it names is the one that was live *then*, not
-    # a claim this suite should keep matching to the current registry.
-    "121 checks today, up from 104",
+    # a claim this suite should keep matching to the current registry. This
+    # string had drifted to name a count ("121") the document no longer
+    # contains, which meant the exemption was quietly matching nothing and the
+    # line only kept passing because the live count still happened to equal
+    # the frozen one -- exactly the silent failure this constant exists to
+    # prevent (coverage-evidence, #385/#386).
+    "139 checks today, up from 104",
 )
 
 # Documents claim "over 1100 offline tests" rather than an exact figure: an
