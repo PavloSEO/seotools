@@ -20,6 +20,7 @@ from typing import Any
 from urllib.parse import urljoin, urlsplit
 
 from seohead.recon.net import UA, http_client, normalize_domain, normalize_url
+from seohead.sf.core.normalize import norm_url
 from seohead.tools.parser import document_base_url, robots_directives, robots_meta_scoped
 
 MAX_DONORS = 500
@@ -64,7 +65,7 @@ def _inspect_donor(
     canonical_href = urljoin(resolve_from, str(canonical.get("href"))) if canonical else None
     record["canonical"] = canonical_href
     record["canonical_elsewhere"] = bool(
-        canonical_href and normalize_url(canonical_href).rstrip("/") != str(resp.url).rstrip("/")
+        canonical_href and norm_url(canonical_href) != norm_url(str(resp.url))
     )
 
     for tag in soup.find_all("a", href=True):
