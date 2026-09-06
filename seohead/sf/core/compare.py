@@ -142,6 +142,11 @@ def compare(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
     # only that it did not see it (issue #212). Without this, every finding on
     # a URL outside the truncated baseline is misreported as "appeared".
     before_partial = bool(before.get("run", {}).get("crawl_partial"))
+    # Symmetrically, a partial after-crawl cannot prove a URL it never reached
+    # is genuinely gone — only that it did not see it (issue #458). Without
+    # this, every finding on a URL outside the truncated after crawl is
+    # misreported as "disappeared" instead of the unproven "left".
+    after_partial = bool(after.get("run", {}).get("crawl_partial"))
 
     entered: list[dict[str, Any]] = []
     left: list[dict[str, Any]] = []
@@ -179,7 +184,7 @@ def compare(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
                 appeared.append(record)  # the URL itself is new to this crawl
         elif in_before and not in_after:
             record = dict(before_issues[key])
-            if url_in_after_crawl:
+            if url_in_after_crawl or after_partial:
                 left.append(record)  # still crawled, no longer matches — a fix
             else:
                 disappeared.append(record)  # not in this crawl at all — unproven
