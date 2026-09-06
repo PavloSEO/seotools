@@ -6,6 +6,7 @@ All fixtures are synthetic and offline; no network access, no real credentials.
 from __future__ import annotations
 
 import copy
+import csv
 import json
 
 from openpyxl import load_workbook
@@ -273,3 +274,133 @@ def test_complete_sf_audit_has_no_scope_warning(tmp_path):
     assert "Crawl failed" not in joined
     assert "Partial crawl" not in joined
     assert "Disabled check" not in joined
+
+
+# ── #574: CSV must retain the same run-scope evidence as other reports ─────
+
+
+def test_csv_writes_scope_evidence_without_polluting_tracker_findings(tmp_path):
+    """A failed, partial run cannot be indistinguishable from a clean zero-issue CSV."""
+    target = tmp_path / "partial.csv"
+    doc = copy.deepcopy(_PARTIAL_SF_AUDIT)
+    doc["issues"] = []
+    doc["pages"] = []
+    doc["run"]["checks_disabled"] = [{"id": "BROKEN_PAGE_4XX", "reason": "disabled in config"}]
+    doc["run"]["checks_skipped"] = [{"id": "SF_LOG_ANALYZE", "reason": "log file unavailable"}]
+    from seohead.servers.handlers import report_build
+
+    result = report_build(audit=doc, fmt="csv", out=str(target))
+    assert result["ok"], result
+    assert result["outputs"] == [
+        str(target),
+        str(target.with_suffix(".pages.csv")),
+        str(target.with_suffix(".scope.csv")),
+    ]
+
+    with target.open(encoding="utf-8-sig", newline="") as fh:
+        findings = list(csv.reader(fh, delimiter=";"))
+    assert len(findings) == 1  # Scope evidence cannot be mistaken for a tracker finding.
+
+    with target.with_suffix(".scope.csv").open(encoding="utf-8-sig", newline="") as fh:
+        scope = list(csv.DictReader(fh, delimiter=";"))
+    assert scope == [
+        {
+            "Evidence type": "crawl",
+            "Identifier": "validity",
+            "Status": "failed",
+            "Reason": "no response",
+        },
+        {
+            "Evidence type": "crawl",
+            "Identifier": "scope",
+            "Status": "partial",
+            "Reason": "stopped: url_limit; 1 of 1,000 sitemap URLs crawled",
+        },
+        {
+            "Evidence type": "check",
+            "Identifier": "BROKEN_PAGE_4XX",
+            "Status": "disabled",
+            "Reason": "disabled in config",
+        },
+        {
+            "Evidence type": "check",
+            "Identifier": "SF_LOG_ANALYZE",
+            "Status": "unavailable",
+            "Reason": "log file unavailable",
+        },
+    ]
+
+
+def test_clean_csv_replaces_stale_scope_and_page_rows(tmp_path):
+    """A new empty report must not advertise data from a previous output at the same path."""
+    target = tmp_path / "clean.csv"
+    previous = copy.deepcopy(_PARTIAL_SF_AUDIT)
+    assert build_report(previous, fmt="csv", path=str(target))["ok"]
+
+    clean = copy.deepcopy(SF_DOCUMENT)
+    clean["pages"] = []
+    result = build_report(clean, fmt="csv", path=str(target))
+    assert result["ok"], result
+    assert result["outputs"] == [
+        str(target),
+        str(target.with_suffix(".pages.csv")),
+        str(target.with_suffix(".scope.csv")),
+    ]
+    with target.with_suffix(".pages.csv").open(encoding="utf-8-sig", newline="") as fh:
+        assert list(csv.reader(fh, delimiter=";")) == [
+            [
+                "url",
+                "status",
+                "title",
+                "title_length",
+                "description_length",
+                "h1",
+                "canonical",
+                "words",
+                "schema_types",
+                "schema_errors",
+                "social_missing",
+            ]
+        ]
+    with target.with_suffix(".scope.csv").open(encoding="utf-8-sig", newline="") as fh:
+        assert list(csv.reader(fh, delimiter=";")) == [
+            ["Evidence type", "Identifier", "Status", "Reason"]
+        ]
+
+
+# ── #575: present-but-None page facts are absent, not the text "None" ────
+
+
+def test_docx_and_markdown_leave_none_page_fields_blank(tmp_path):
+    doc = copy.deepcopy(SITE_DOCUMENT)
+    doc["pages"] = [
+        {
+            "url": "https://example.com/unavailable",
+            "status": None,
+            "title": None,
+            "words": None,
+            "canonical": None,
+        }
+    ]
+
+    md_target = tmp_path / "none.md"
+    docx_target = tmp_path / "none.docx"
+    assert build_report(doc, fmt="md", path=str(md_target))["ok"]
+    assert build_report(doc, fmt="docx", path=str(docx_target))["ok"]
+
+    page_row = next(
+        line for line in md_target.read_text(encoding="utf-8").splitlines() if "unavailable" in line
+    )
+    assert page_row == "| https://example.com/unavailable |  |  |  |  |"
+
+    from docx import Document
+
+    document = Document(str(docx_target))
+    page_table = next(table for table in document.tables if table.cell(0, 0).text == "URL")
+    assert [cell.text for cell in page_table.rows[1].cells] == [
+        "https://example.com/unavailable",
+        "",
+        "",
+        "",
+        "",
+    ]

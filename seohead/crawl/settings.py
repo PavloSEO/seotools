@@ -35,9 +35,11 @@ from typing import Any
 # fixtures over 40 000 edges and 8 000 records with distinct URL/text strings;
 # summing sys.getsizeof over a shared object graph roughly doubles them. The paired
 # iframe-head/combined-record fixture measures a 56-byte empty-hreflang-list
-# increment; the eight fields added for the #385/#386 coverage checks are empty
-# strings and zeros by default and measure no further allocation either. Field
-# lengths affect absolute memory,
+# increment; the eight fields added for the #385/#386 coverage checks, and the two
+# added for the AJAX-crawling-scheme checks (#386), are empty strings and zeros by
+# default and measure no further allocation either -- the 56-field and 58-field
+# records were measured side by side with one instrument and came back identical.
+# Field lengths affect absolute memory,
 # so 2 456 bytes is an approximate combined PageRecord estimate; the rounded totals are
 #
 #   10 000 URLs x 150 links/page -> 0.56 GiB
@@ -452,7 +454,9 @@ DESCRIPTIONS: dict[str, str] = {
     "limits.max_crawl_seconds": "Wall-clock budget for the whole crawl; 0 means no limit.",
     "http.timeout_seconds": "Per-request timeout in seconds.",
     "http.user_agent": "Request User-Agent string; empty uses the toolkit's identifiable default.",
-    "http.headers": "Extra request headers to send with every fetch.",
+    "http.headers": (
+        "Extra request headers to send with every fetch. With --set, pass a JSON object."
+    ),
     "http.retry_on_timeout": "Number of retries after a request times out.",
     "http.credential_headers": (
         "Host-bound extra headers for authenticated crawling: "
@@ -624,7 +628,12 @@ def _coerce(path: str, raw: str) -> Any:
     """Environment and command-line values arrive as strings; give them the default's type."""
     current = _flatten(DEFAULTS).get(path)
     if isinstance(current, bool):
-        return raw.strip().lower() in ("1", "true", "yes", "on")
+        value = raw.strip().lower()
+        if value in ("1", "true", "yes", "on"):
+            return True
+        if value in ("0", "false", "no", "off"):
+            return False
+        raise ValueError("expected true or false")
     if isinstance(current, int) and not isinstance(current, bool):
         return int(raw)
     if isinstance(current, float):
@@ -634,6 +643,14 @@ def _coerce(path: str, raw: str) -> Any:
         # empty list rather than a list containing one empty pattern, which would
         # match everything and silently widen a crawl.
         return [item.strip() for item in raw.split(",") if item.strip()]
+    if isinstance(current, dict):
+        value = json.loads(raw)
+        if not isinstance(value, dict) or any(
+            not isinstance(name, str) or not isinstance(header, str)
+            for name, header in value.items()
+        ):
+            raise ValueError("expected a JSON object with string keys and values")
+        return value
     return raw
 
 
@@ -782,6 +799,11 @@ def validate(config: dict[str, Any]) -> None:
             )
 
     _validate_segments(config["scope"])
+    headers = config["http"]["headers"]
+    if not isinstance(headers, dict) or any(
+        not isinstance(name, str) or not isinstance(value, str) for name, value in headers.items()
+    ):
+        raise ConfigError("http.headers must be an object mapping header names to string values")
     _validate_credential_headers(config["http"])
     _validate_rendering(config["rendering"])
 
@@ -951,7 +973,7 @@ def load(path: str | None = None, overrides: dict[str, Any] | None = None) -> di
         # Dotted paths only. A nested mapping here replaces the whole subtree and
         # takes its siblings' defaults with it, and the failure then surfaces from
         # validate() as a bare KeyError about a key the caller never mentioned.
-        if isinstance(value, dict):
+        if isinstance(value, dict) and not isinstance(_flatten(DEFAULTS).get(setting), dict):
             raise ConfigError(
                 f"override {setting!r} is a mapping; use dotted paths such as "
                 f"{setting}.{next(iter(value), 'key')} so sibling defaults survive"

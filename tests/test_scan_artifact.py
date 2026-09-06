@@ -87,7 +87,11 @@ def test_same_run_reports_are_byte_identical(legacy_run, tmp_path, fmt):
     assert build_report(read_audit(artifact), fmt, str(actual))["ok"]
     assert actual.read_bytes() == expected.read_bytes()
     if fmt == "csv":
-        assert (
-            actual.with_suffix(".pages.csv").read_bytes()
-            == expected.with_suffix(".pages.csv").read_bytes()
-        )
+        for suffix in (".pages.csv", ".scope.csv"):
+            actual_sidecar, expected_sidecar = (
+                actual.with_suffix(suffix),
+                expected.with_suffix(suffix),
+            )
+            assert actual_sidecar.exists() == expected_sidecar.exists()
+            if actual_sidecar.exists():
+                assert actual_sidecar.read_bytes() == expected_sidecar.read_bytes()

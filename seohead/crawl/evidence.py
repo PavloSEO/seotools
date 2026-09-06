@@ -225,6 +225,12 @@ def _row(
         # Native-crawl only (#385): legacy plugin-dependent elements
         # (<object>/<embed>/<applet>) that are not a benign image fallback.
         "Unsupported Plugin Elements": record.plugin_elements,
+        # Native-crawl only (#386): the deprecated AJAX crawling scheme, in its
+        # two shapes -- the page-wide <meta name="fragment"> opt-in, and how many
+        # of the page's own outlinks are written as "#!"/"?_escaped_fragment_="
+        # URLs. An SF export carries neither, so both checks skip there.
+        "Meta Fragment": record.meta_fragment,
+        "AJAX Scheme Outlinks": record.ajax_scheme_outlinks,
         # Not an SF column; seohead.sf.core.normalize resolves it only for
         # this collector's own frames (#18). "static" unless selective
         # rendering escalation re-fetched this page under a fuller

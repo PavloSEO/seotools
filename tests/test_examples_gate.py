@@ -6,8 +6,8 @@ the code, but the shipped example was hand-committed and drifted silently, going
 three summary fields that qualify a health score missing.
 
 This gate regenerates the example from examples/exports with the exact command README.md
-documents and fails if the committed copy differs in anything but volatile values
-(generated_at, absolute paths).
+documents and fails if the committed copy differs in anything but generated_at.
+The command uses a fixed relative source path; its output directory is not report evidence.
 """
 
 from __future__ import annotations
@@ -21,9 +21,12 @@ from seohead.sf.cli import main as sf_main
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES = ROOT / "examples"
 
-# Matches an ISO-8601 UTC timestamp like the one audit.json/tasks.json stamp into
-# generated_at and the human-readable date line in the .md reports.
-_TIMESTAMP_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
+# Normalize only generated-at metadata lines, never dates embedded in URLs or findings.
+_TIMESTAMP_RE = re.compile(
+    r"^(- \*\*Generated:\*\* |- Source: audit generated at )"
+    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z",
+    re.MULTILINE,
+)
 
 
 def _run_fresh(out_dir: Path) -> None:
@@ -57,12 +60,8 @@ def _normalize_json(data: dict) -> dict:
 
 
 def _normalize_text(text: str) -> str:
-    """Strip volatile substrings (timestamps, absolute paths) from a rendered .md file."""
-    text = _TIMESTAMP_RE.sub("<normalized>", text)
-    # Any absolute filesystem path (starts with "/") becomes a placeholder so a run
-    # under a different checkout or tmp directory can't fail this gate on path alone.
-    text = re.sub(r"/[^\s`\"']*", lambda m: "<path>" if "/" in m.group(0)[1:] else m.group(0), text)
-    return text
+    """Normalize generated-at metadata while retaining every evidence value."""
+    return _TIMESTAMP_RE.sub(r"\1<normalized>", text)
 
 
 def test_examples_match_a_fresh_run(tmp_path, monkeypatch):
@@ -87,9 +86,8 @@ def test_examples_match_a_fresh_run(tmp_path, monkeypatch):
         )
 
 
-def test_negative_control_generated_at_and_absolute_path_alone_do_not_fail(tmp_path, monkeypatch):
-    """A run whose only differences are a fresh timestamp and a different absolute output
-    path must still pass — proving the gate tests drift, not volatility."""
+def test_generated_time_and_output_directory_do_not_change_evidence(tmp_path, monkeypatch):
+    """A fresh timestamp and a different output directory do not change report evidence."""
     monkeypatch.chdir(ROOT)
     out_dir = tmp_path / "fresh"
     _run_fresh(out_dir)
@@ -102,7 +100,6 @@ def test_negative_control_generated_at_and_absolute_path_alone_do_not_fail(tmp_p
 
     committed_md = (EXAMPLES / "audit.md").read_text(encoding="utf-8")
     fresh_md = (out_dir / "audit.md").read_text(encoding="utf-8")
-    # Different absolute tmp_path per test run stands in for "a different absolute
-    # output path" varying between two runs of the same command.
-    assert str(out_dir) not in committed_md or str(out_dir) != str(EXAMPLES)
+    assert str(out_dir) not in committed_md
+    assert str(out_dir) not in fresh_md
     assert _normalize_text(committed_md) == _normalize_text(fresh_md)

@@ -5,7 +5,7 @@ different object: every .ru domain came back aged 32.4 years, the .RU
 delegation date. A confident wrong age silently changes an audit's conclusion.
 """
 
-from seohead.recon import net
+from seohead.recon import domain, net
 from seohead.recon.domain import whois_record_is_about
 
 ZONE_RECORD = """
@@ -48,6 +48,59 @@ def test_gtld_style_domain_name_key_is_understood():
 
 def test_a_different_domain_is_rejected():
     assert whois_record_is_about("domain: other.ru\n", "example.ru") is False
+
+
+def _profile_with_whois(monkeypatch, text: str):
+    """Run registration handling only; every network boundary is an offline fixture."""
+    monkeypatch.setattr(domain, "rdap", lambda _path: {"supported": False, "error": "absent"})
+    monkeypatch.setattr(domain, "whois_lookup", lambda _name: (text, "whois.example"))
+    monkeypatch.setattr(domain, "doh", lambda _name, _record_type: [])
+    return domain.profile_domain("example.ru", with_tls=False)
+
+
+def test_rate_limited_whois_does_not_claim_a_zone_record(monkeypatch):
+    profile = _profile_with_whois(
+        monkeypatch, "Your connection limit exceeded. Try again after 5 minutes."
+    )
+
+    assert profile["registration"]["source"] == "none"
+    assert profile["registration"]["whois_note"] == (
+        "WHOIS response did not identify the requested domain; "
+        "no registration data was taken from it"
+    )
+    assert "zone" not in " ".join(profile["flags"]).lower()
+
+
+def test_whitespace_whois_response_is_not_described_as_another_record(monkeypatch):
+    profile = _profile_with_whois(monkeypatch, " \n\t ")
+
+    assert profile["registration"]["source"] == "none"
+    assert profile["registration"]["whois_note"].startswith("WHOIS response did not identify")
+    assert "another object" not in " ".join(profile["flags"]).lower()
+
+
+def test_zone_record_is_reported_without_naming_an_unobserved_cause(monkeypatch):
+    profile = _profile_with_whois(monkeypatch, ZONE_RECORD)
+
+    assert profile["registration"]["source"] == "none"
+    assert profile["registration"]["whois_note"].startswith("WHOIS response did not identify")
+    assert "zone" not in " ".join(profile["flags"]).lower()
+
+
+def test_punycode_whois_identity_still_supplies_registration_data(monkeypatch):
+    monkeypatch.setattr(domain, "rdap", lambda _path: {"supported": False, "error": "absent"})
+    monkeypatch.setattr(
+        domain,
+        "whois_lookup",
+        lambda _name: ("domain: XN--E1AFMKFD.XN--P1AI\ncreated: 2013-09-25\n", "whois.example"),
+    )
+    monkeypatch.setattr(domain, "doh", lambda _name, _record_type: [])
+
+    profile = domain.profile_domain("пример.рф", with_tls=False)
+
+    assert profile["domain"] == "xn--e1afmkfd.xn--p1ai"
+    assert profile["registration"]["source"] == "whois"
+    assert "whois_note" not in profile["registration"]
 
 
 # ── referral and server selection ────────────────────────────────────────────

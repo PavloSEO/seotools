@@ -146,6 +146,11 @@ INTERNAL_FIELD_MAP: dict[str, list[str]] = {
     "lorem_ipsum_count": ["Lorem Ipsum Occurrences"],
     # Native-crawl only (#385): legacy plugin-dependent elements.
     "plugin_elements": ["Unsupported Plugin Elements"],
+    # Native-crawl only (#386): the deprecated AJAX crawling scheme -- the
+    # page-wide <meta name="fragment"> opt-in, and how many of the page's own
+    # outlinks are written as "#!"/"?_escaped_fragment_=" URLs.
+    "meta_fragment": ["Meta Fragment"],
+    "ajax_scheme_outlinks": ["AJAX Scheme Outlinks"],
 }
 
 # Canonical field -> headers for a ``*:Inlinks`` bulk export.
@@ -263,6 +268,7 @@ INT_FIELDS = frozenset(
         "images_max_alt_length",
         "lorem_ipsum_count",
         "plugin_elements",
+        "ajax_scheme_outlinks",
     }
 )
 FLOAT_FIELDS = frozenset(

@@ -122,11 +122,16 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
             table.rows[0].cells[i].text = title
         for page in pages[:_MAX_PAGES_IN_TABLE]:
             cells = table.add_row().cells
-            cells[0].text = str(page.get("url", ""))
-            cells[1].text = str(page.get("status", ""))
-            cells[2].text = str(page.get("title", ""))[:120]
-            cells[3].text = str(page.get("words", ""))
-            cells[4].text = str(page.get("canonical", ""))[:120]
+            for index, name, limit in (
+                (0, "url", None),
+                (1, "status", None),
+                (2, "title", 120),
+                (3, "words", None),
+                (4, "canonical", 120),
+            ):
+                value = page.get(name)
+                text = "" if value is None else str(value)
+                cells[index].text = text[:limit] if limit else text
         if len(pages) > _MAX_PAGES_IN_TABLE:
             doc.add_paragraph(f"Showing the first {_MAX_PAGES_IN_TABLE} of {len(pages)} pages.")
 

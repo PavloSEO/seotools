@@ -376,7 +376,11 @@ def build_report(data: Any, fmt: str = "xlsx", path: str | None = None) -> dict[
     target = pathlib.Path(path or f"audit-{rendered.get('domain', 'site')}.{fmt}")
     from seohead.storage.inputs import protects_scan_input
 
-    targets = [target, target.with_suffix(".pages.csv")] if fmt == "csv" else [target]
+    targets = (
+        [target, target.with_suffix(".pages.csv"), target.with_suffix(".scope.csv")]
+        if fmt == "csv"
+        else [target]
+    )
     if protects_scan_input(data, targets):
         return {"ok": False, "error": "report output must not overwrite its source scan"}
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -421,4 +425,6 @@ def build_report(data: Any, fmt: str = "xlsx", path: str | None = None) -> dict[
     }
     if input_diagnostics:
         result["input_diagnostics"] = input_diagnostics
+    if fmt == "csv":
+        result["outputs"] = [str(candidate) for candidate in targets if candidate.exists()]
     return result

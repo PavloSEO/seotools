@@ -484,7 +484,7 @@ def build_server():  # -> FastMCP
     def seo_soft404_check(url: str) -> dict[str, Any]:
         """Detect soft-404: whether the site returns an honest 404/410 for non-existent URLs,
         or silently serves 200/3xx (which pollutes the index with junk pages). Sends two
-        deterministic probes (sha256 of origin, under /.well-known/) and applies strict
+        deterministic probes (sha256 of origin, at ordinary root paths) and applies strict
         AND-logic: both 2xx/3xx -> soft-404 confirmed (warning); both 404/410 -> pass;
         anything else -> unknown. Screaming Frog cannot see this — it crawls known URLs,
         not invented ones, so this needs an active request."""
@@ -568,11 +568,11 @@ def build_server():  # -> FastMCP
         path to either one's JSON, or a validated scan.v1 SQLite artifact) — both audit
         schemas are recognized and normalized before
         rendering. xlsx has four sheets with filters and a live Excel chart — for work;
-        docx is prose with headings — for the client; csv is flat data for a tracker (two
-        files: findings and pages); md is for reading and for git. The generators compute
-        nothing and reach no network: what is not in the JSON does not appear in the
-        report. A document matching neither schema is refused with ok: false naming the
-        mismatch, never rendered as an empty report."""
+        docx is prose with headings — for the client; csv writes separate findings,
+        scope-evidence, and page tables for a tracker, listed under outputs;
+        md is for reading and for git. The generators compute nothing and reach no network:
+        what is not in the JSON does not appear in the report. A document matching neither
+        schema is refused with ok: false naming the mismatch, never rendered as an empty report."""
         return _checked(handlers.report_build(audit=audit, fmt=fmt, out=out))
 
     @mcp.tool(annotations=pure, structured_output=True)
