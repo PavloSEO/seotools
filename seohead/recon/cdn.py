@@ -170,7 +170,7 @@ def check_cdn(url: str, timeout: float = 25.0) -> dict[str, Any]:
             "http3_advertised": "h3" in head1.get("alt-svc", "").lower(),
             "alt_svc": head1.get("alt-svc"),
             "content_encoding": head1.get("content-encoding"),
-            "brotli_supported": brotli == "br",
+            "brotli_supported": None if brotli is None else brotli == "br",
             "brotli_probe": brotli,
             "ttfb_first_ms": ttfb_first,
             "ttfb_second_ms": ttfb_second,
@@ -255,6 +255,8 @@ def _findings(result: dict[str, Any]) -> list[str]:
         out.append("HTTP/3 is not advertised through Alt-Svc")
     if not transport["content_encoding"]:
         out.append("the response is uncompressed: neither gzip nor Brotli is enabled")
+    elif transport["brotli_supported"] is None:
+        out.append("Brotli support could not be probed")
     elif not transport["brotli_supported"]:
         out.append(
             f"using {transport['content_encoding']} compression; Brotli is not enabled "

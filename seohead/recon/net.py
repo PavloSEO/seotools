@@ -366,6 +366,14 @@ def http_client(timeout: float, **kwargs: Any):
     except ImportError as exc:  # pragma: no cover - a base dependency
         raise NetworkUnavailable("httpx is required") from exc
 
+    reserved = kwargs.keys() & {"transport", "http2"}
+    if reserved:
+        raise TypeError(
+            f"http_client() does not accept {', '.join(sorted(reserved))!s}: "
+            "the pinning transport and its HTTP/2 negotiation are not "
+            "overridable by callers"
+        )
+
     supplied_hooks = kwargs.pop("event_hooks", None) or {}
     hooks = network_event_hooks()
     for phase, values in supplied_hooks.items():

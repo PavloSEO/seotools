@@ -261,3 +261,25 @@ def test_template_shingles_detected_above_minimum_corpus_size():
     assert D.shingles(template_tokens, k=3)[0] in template
     # A shingle unique to one document is never treated as template text.
     assert D.shingles(["only0_0", "only0_1", "only0_2"], k=3)[0] not in template
+
+
+def test_items_with_no_id_or_url_are_counted_not_silently_dropped():
+    """Issue #477: an item with neither id nor url must be visibly excluded,
+    with count plus exclusion counters reconciling to the input size."""
+    items = [
+        {"id": "a", "text": "x" * 50},
+        {"text": "y" * 50},
+        {"id": "b", "text": "z" * 50},
+    ]
+    r = D.find_duplicates(items)
+    assert r["excluded_no_id"] == 1
+    assert r["count"] + r["excluded_non_indexable"] + r["excluded_no_id"] == 3
+
+
+def test_all_items_with_ids_leave_excluded_no_id_at_zero():
+    """Negative control: every item has a valid id, so the new counter must
+    stay at 0 and count must equal len(items) as before."""
+    items = [{"id": "a", "text": "x" * 50}, {"id": "b", "text": "z" * 50}]
+    r = D.find_duplicates(items)
+    assert r["excluded_no_id"] == 0
+    assert r["count"] == len(items)

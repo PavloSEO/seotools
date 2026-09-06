@@ -2,8 +2,10 @@
 
 import datetime as dt
 
+import pytest
+
 from seohead.recon import backlinks, cdn, domain, security, tech
-from seohead.recon.net import normalize_domain, normalize_url, registrable_domain
+from seohead.recon.net import http_client, normalize_domain, normalize_url, registrable_domain
 
 # ── Input normalization ──────────────────────────────────────────────────────
 
@@ -266,6 +268,32 @@ def test_cdn_findings_do_not_blame_the_server_when_h2_is_missing():
     assert "HTTP/2 would" not in joined
 
 
+def test_cdn_findings_report_probe_failure_not_brotli_disabled():
+    """#482: brotli_supported=None (probe failed) must not read as 'not enabled'."""
+    found = cdn._findings(
+        _cdn_result(transport={"content_encoding": "gzip", "brotli_supported": None})
+    )
+    joined = " ".join(found)
+    assert "Brotli is not enabled" not in joined
+    assert "could not be probed" in joined
+
+
+def test_cdn_findings_still_report_confirmed_brotli_absence():
+    """Negative control: a probe that succeeded and returned non-br still fires."""
+    found = cdn._findings(
+        _cdn_result(transport={"content_encoding": "gzip", "brotli_supported": False})
+    )
+    assert any("Brotli is not enabled" in f for f in found)
+
+
+def test_cdn_findings_stay_quiet_when_brotli_confirmed():
+    """Negative control: a probe confirming br must not fire any brotli finding."""
+    found = cdn._findings(
+        _cdn_result(transport={"content_encoding": "br", "brotli_supported": True})
+    )
+    assert not any("Brotli" in f for f in found)
+
+
 def test_cdn_findings_report_real_http1_and_dead_cache():
     found = cdn._findings(
         _cdn_result(
@@ -468,3 +496,27 @@ def test_same_site_matches_domain_and_subdomains_only():
     assert backlinks._same_site("https://www.example.com/", "example.com")
     assert not backlinks._same_site("https://other.example/", "example.com")
     assert not backlinks._same_site("/relative", "example.com")
+
+
+# ── http_client reserved kwargs (#484) ───────────────────────────────────────
+
+
+def test_http_client_rejects_reserved_transport_kwarg_clearly():
+    httpx = pytest.importorskip("httpx")
+    with pytest.raises(TypeError, match="transport"):
+        http_client(5.0, transport=httpx.HTTPTransport())
+
+
+def test_http_client_rejects_reserved_http2_kwarg_clearly():
+    with pytest.raises(TypeError, match="http2"):
+        http_client(5.0, http2=False)
+
+
+def test_http_client_still_accepts_ordinary_kwargs():
+    """Negative control: kwargs that already worked must keep working unchanged."""
+    pytest.importorskip("httpx")
+    client, _ = http_client(5.0, verify=False)
+    client.close()
+    client, _ = http_client(5.0, headers={"X-Test": "1"})
+    assert client.headers.get("x-test") == "1"
+    client.close()
