@@ -28,7 +28,7 @@ import httpx
 
 from seohead.crawl.cache import ResponseCache
 from seohead.crawl.settings import checked_url_budget, resolve_credential_headers
-from seohead.crawl.throttle import MAX_DELAY_S, Throttle
+from seohead.crawl.throttle import MAX_DELAY_S, DispatchGate, Throttle
 from seohead.recon.net import UA, BlockedRedirectError, http_client, pinned_target, validate_url
 from seohead.tools.parser import parse_html
 from seohead.tools.robots import is_allowed, match_path, parse_robots
@@ -218,25 +218,6 @@ class CrawlResult:
     # the same field for the same reason: what would be blocked must be visible under
     # report_only too, not only when it changes what was fetched.
     robots_blocked: list[str] = field(default_factory=list)
-
-
-class _DispatchGate:
-    """One sequential list-mode dispatch clock for robots and page attempts."""
-
-    def __init__(
-        self, throttle: Throttle, sleeper: Callable[[float], None], clock: Callable[[], float]
-    ):
-        self._throttle = throttle
-        self._sleeper = sleeper
-        self._clock = clock
-        self._next_at = clock()
-
-    def wait_turn(self) -> None:
-        now = self._clock()
-        start_at = max(now, self._next_at)
-        self._next_at = start_at + self._throttle.delay
-        if start_at > now:
-            self._sleeper(start_at - now)
 
 
 def _text_of(value: Any) -> str:
@@ -871,11 +852,10 @@ def _resolve_redirect_destination(
     retry_on_timeout: int,
     parse_options: dict[str, Any] | None,
     cache: ResponseCache | None,
-    sleeper: Callable[[float], None],
+    wait: Callable[[], None],
     capture_observer: Callable[[Any], None] | None = None,
     capture_max_bytes: int | None = None,
     headers_for_url: Callable[[str], dict[str, str] | None] | None = None,
-    wait: Callable[[], None] | None = None,
 ) -> None:
     """Follow ``record``'s redirect past its first hop to where it actually lands.
 
@@ -973,7 +953,7 @@ def collect_urls(
     limit = checked_url_budget(max_urls)
     result = CrawlResult()
     throttle = Throttle(min_delay=min_delay, max_delay=max_delay_seconds, adaptive=adaptive)
-    dispatch_gate = _DispatchGate(throttle, sleeper, clock)
+    dispatch_gate = DispatchGate(throttle, sleeper, clock)
     started = clock()
 
     seen: set[str] = set()
@@ -1059,7 +1039,6 @@ def collect_urls(
                     retry_on_timeout=retry_on_timeout,
                     parse_options=parse_options,
                     cache=cache,
-                    sleeper=sleeper,
                     wait=dispatch_gate.wait_turn,
                 )
             result.pages.append(record)

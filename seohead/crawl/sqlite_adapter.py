@@ -707,7 +707,7 @@ def crawl_to_scan(
                             retry_on_timeout=settings["http"]["retry_on_timeout"],
                             parse_options=parse_options,
                             cache=None,
-                            sleeper=sleeper,
+                            wait=dispatch_gate.wait_turn,
                             capture_observer=(
                                 lambda observation, captured=captures: _append_capture(
                                     captured, observation

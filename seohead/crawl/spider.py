@@ -21,7 +21,6 @@ import dataclasses
 import json
 import os
 import re
-import threading
 import time
 from collections import deque
 from collections.abc import Callable
@@ -44,7 +43,7 @@ from seohead.crawl.settings import (
     checked_url_budget,
     resolve_credential_headers,
 )
-from seohead.crawl.throttle import MAX_CONCURRENCY_CEILING, MAX_DELAY_S, Throttle
+from seohead.crawl.throttle import MAX_CONCURRENCY_CEILING, MAX_DELAY_S, DispatchGate, Throttle
 from seohead.recon.net import UA, http_client, normalize_url, registrable_domain
 from seohead.tools.robots import crawl_delay, is_allowed, match_path, parse_robots
 
@@ -60,43 +59,7 @@ MAX_ROBOTS_REDIRECTS = 5
 STOP_AFTER_CONSECUTIVE_FAILURES = 5
 
 
-class _DispatchGate:
-    """Spaces out request *dispatch* across every concurrent worker sharing one
-    origin, so ``min_delay`` still means "at least this long between requests
-    to the origin" once more than one worker is fetching for it.
-
-    Each worker independently sleeping ``throttle.delay`` before its own
-    request would honour the floor against its own clock only: with N workers
-    doing that in parallel, N requests would go out every ``delay`` seconds
-    instead of one, multiplying the configured rate by N. This gate hands out
-    dispatch turns from a single shared clock instead, so the gap between any
-    two dispatches to the origin is still at least ``delay`` — concurrency then
-    buys overlap on the response *wait*, never on how densely requests are sent.
-    """
-
-    def __init__(
-        self,
-        throttle: Throttle,
-        sleeper: Callable[[float], None],
-        clock: Callable[[], float] = time.monotonic,
-    ) -> None:
-        self._throttle = throttle
-        self._sleeper = sleeper
-        # The crawl's own clock, not the wall clock: the pacing decision is then testable
-        # against a fake clock instead of by measuring real elapsed time, which made the
-        # cross-worker pacing test fail whenever the machine was busy (#107).
-        self._clock = clock
-        self._lock = threading.Lock()
-        self._next_at = clock()
-
-    def wait_turn(self) -> None:
-        with self._lock:
-            now = self._clock()
-            start_at = max(now, self._next_at)
-            self._next_at = start_at + self._throttle.delay
-            wait = start_at - now
-        if wait > 0:
-            self._sleeper(wait)
+_DispatchGate = DispatchGate
 
 
 @dataclass

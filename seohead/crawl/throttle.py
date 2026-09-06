@@ -30,6 +30,8 @@ from __future__ import annotations
 
 import math
 import threading
+import time
+from collections.abc import Callable
 from typing import Any
 
 TIMEOUT_PENALTY = 4.0
@@ -47,6 +49,35 @@ WIDEN_AFTER_CONSECUTIVE_OK = 3
 # a config value — so any caller building a ``Throttle`` directly, not only
 # ``crawl_site()``, is bound by it too.
 MAX_CONCURRENCY_CEILING = 16
+
+
+class DispatchGate:
+    """Thread-safe shared dispatch clock for every request to one origin."""
+
+    def __init__(
+        self,
+        throttle: Throttle,
+        sleeper: Callable[[float], None],
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._throttle = throttle
+        self._sleeper = sleeper
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._last_at: float | None = None
+
+    def wait_turn(self) -> None:
+        with self._lock:
+            now = self._clock()
+            # Read the current delay when reserving a turn: a timeout or a newly
+            # learned robots delay must apply to the next request, not one later.
+            start_at = (
+                now if self._last_at is None else max(now, self._last_at + self._throttle.delay)
+            )
+            self._last_at = start_at
+            wait = start_at - now
+        if wait > 0:
+            self._sleeper(wait)
 
 
 class Throttle:
