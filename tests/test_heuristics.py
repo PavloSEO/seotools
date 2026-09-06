@@ -99,6 +99,62 @@ def test_title_templated_silent_without_a_separator_or_majority(tmp_path):
     assert issues == []
 
 
+def _dom_context(tmp_path, stored_count, total_count, depth_max=10, nodes_max=1000):
+    from seohead.sf.core.context import AuditContext
+    from seohead.sf.core.loader import LoadedExports
+
+    rows = [
+        {
+            "Address": f"https://example.com/page{i}.html",
+            "Content Type": "text/html; charset=utf-8",
+            "Status Code": 200,
+            "Indexability": "Indexable",
+        }
+        for i in range(total_count)
+    ]
+    exports = LoadedExports({"internal_all": __import__("pandas").DataFrame(rows)})
+    html_dir = tmp_path / "example.com"
+    html_dir.mkdir()
+    for i in range(stored_count):
+        (html_dir / f"page{i}.html").write_text(
+            "<html><body><div><p><span>x</span></p></div></body></html>", encoding="utf-8"
+        )
+    ctx = AuditContext(
+        exports,
+        {
+            "input": {"html_store_dir": str(tmp_path)},
+            "thresholds": {"dom_depth_max": depth_max, "dom_nodes_max": nodes_max},
+        },
+    )
+    return ctx
+
+
+def test_dom_low_coverage_skips_with_ratio(tmp_path):
+    """#455: 1 of 10 pages stored must not read as a clean DOM check."""
+    ctx = _dom_context(tmp_path, stored_count=1, total_count=10)
+    heuristics.check_dom(ctx)
+    assert ctx.issues == []
+    reasons = {s.id: s.reason for s in ctx.skipped}
+    assert "1 of 10" in reasons["DOM_TOO_DEEP"]
+    assert "1 of 10" in reasons["DOM_TOO_MANY_NODES"]
+
+
+def test_dom_full_coverage_stays_silent(tmp_path):
+    """Negative control: full coverage with nothing over threshold stays clean, no skip."""
+    ctx = _dom_context(tmp_path, stored_count=10, total_count=10)
+    heuristics.check_dom(ctx)
+    assert ctx.issues == []
+    assert ctx.skipped == []
+
+
+def test_dom_low_coverage_findings_carry_coverage_detail(tmp_path):
+    """When a low-coverage sample does exceed a threshold, the finding is still tagged."""
+    ctx = _dom_context(tmp_path, stored_count=1, total_count=10, depth_max=1)
+    heuristics.check_dom(ctx)
+    assert len(ctx.issues) >= 1
+    assert all("html_coverage" in i.details for i in ctx.issues)
+
+
 def test_html_index_matches_by_path_and_basename(tmp_path):
     host_dir = tmp_path / "example.com" / "blog"
     host_dir.mkdir(parents=True)
