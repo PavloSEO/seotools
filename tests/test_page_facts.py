@@ -185,3 +185,19 @@ def test_single_product_visible_text_keeps_heuristics():
     assert f["price"]["value"] == 20.0
     assert f["price"]["source"] == "text"
     assert f["rating"] == {"value": "4.0", "count": None, "heuristic": True, "source": "text"}
+
+
+def test_svg_label_price_is_not_the_pages_price():
+    """Issue #544: text inside <svg> is a drawing label, never page copy.
+
+    A parent-only exclusion test missed it -- the number sits in a text node
+    under <text>, not directly under <svg> -- so a chart axis was returned as
+    a confident price for a page that states none.
+    """
+    html = (
+        "<html><body><h1>Product</h1>"
+        '<svg width="200" height="50"><text x="0" y="20">19 900 rub.</text></svg>'
+        "<p>Call for pricing.</p></body></html>"
+    )
+    f = page_facts.extract(html, "https://example.com/p")
+    assert f["price"] is None

@@ -27,6 +27,7 @@ from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
 
+from seohead.tools.content_area import TEXT_EXCLUDED_TAGS
 from seohead.tools.parser import (
     collapse_whitespace,
     document_base_url,
@@ -306,8 +307,18 @@ def _organization(soup: BeautifulSoup, og: dict[str, str]) -> dict[str, Any]:
     }
 
 
-# Text carried by these elements is markup, not something a visitor reads.
-_NON_PROSE = ("script", "style", "template", "noscript")
+def _is_markup_text(node: Any) -> bool:
+    """True when ``node`` is text an element carries as markup, not as prose.
+
+    ``content_area.TEXT_EXCLUDED_TAGS`` is the one place that answer lives, and
+    this reader takes it whole rather than keeping a copy that falls behind it.
+    The whole ancestor chain is tested, not just the immediate parent: an SVG
+    label is a text node under ``<text>`` under ``<svg>``, so a parent-only test
+    let a chart axis reading "19 900 rub." be returned as the page's price
+    (issue #544). Unlike the stripped-tree readers, the price scan below walks
+    the live document's text nodes, so it filters instead of decomposing.
+    """
+    return any(parent.name in TEXT_EXCLUDED_TAGS for parent in node.parents)
 
 
 def _price(soup: BeautifulSoup, text: str, scope: Any) -> dict[str, Any] | None:
@@ -347,7 +358,7 @@ def _price(soup: BeautifulSoup, text: str, scope: Any) -> dict[str, Any] | None:
     # begin in one price and end in the next, which on a listing of 19 900 and
     # 23 000 returned a number that was on the page nowhere.
     for node in soup.find_all(string=True):
-        if node.parent is not None and node.parent.name in _NON_PROSE:
+        if _is_markup_text(node):
             continue
         found = parse_price(collapse_whitespace(node))
         if found:
@@ -388,7 +399,7 @@ def _structure(soup: BeautifulSoup, breadcrumbs: list[dict[str, Any]] | None) ->
     """
     priced_items = 0
     for node in soup.find_all(string=True):
-        if node.parent is not None and node.parent.name in _NON_PROSE:
+        if _is_markup_text(node):
             continue
         if not parse_price(collapse_whitespace(node)):
             continue
