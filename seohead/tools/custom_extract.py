@@ -139,6 +139,8 @@ def _extract_regex(
     flags = 0 if case_sensitive else re.IGNORECASE
     compiled = re.compile(pattern, flags)
     if output == "group":
+        if group > compiled.groups:
+            return []
         return [m.group(group) or "" for m in compiled.finditer(html or "") if m.group(group)]
     return [m.group(0) for m in compiled.finditer(html or "")]
 
