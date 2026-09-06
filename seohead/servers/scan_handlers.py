@@ -326,8 +326,8 @@ def reanalyze_scan(
     Offline by construction: the shared audit assembly receives the retained
     start URL so it can replay graph and form checks, but ``offline=True``
     prevents render escalation and names the sitemap/robots checks that have
-    no retained source document. No HTTP client module is imported anywhere
-    on this path.
+    no retained source document. No HTTP, DNS, or browser request is
+    dispatched on this path.
 
     ``scan_in`` is opened only through a private working copy -- the
     original file is hashed up front and never reopened for writing, so its
