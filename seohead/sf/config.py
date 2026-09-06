@@ -258,6 +258,10 @@ def validate_config(cfg: dict[str, Any]) -> None:
             continue
         if "severity" in check_cfg and check_cfg["severity"] not in ALLOWED_SEVERITIES:
             _bad_severity("checks", check_id, check_cfg["severity"])
+        if "enabled" in check_cfg and not isinstance(check_cfg["enabled"], bool):
+            errors.append(
+                f"checks[{check_id!r}].enabled is {check_cfg['enabled']!r}; must be true or false"
+            )
 
     for severity, weight in cfg.get("scoring", {}).get("weights", {}).items():
         if isinstance(weight, bool) or not isinstance(weight, (int, float)):
