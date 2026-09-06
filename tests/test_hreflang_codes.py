@@ -65,3 +65,29 @@ def test_duplicates_are_matched_case_insensitively():
 def test_x_default_is_recognised_in_any_case():
     alternates = [{"hreflang": "X-DEFAULT", "href": "https://e.com/"}]
     assert "no x-default alternate" not in validate(alternates, "https://e.com/")
+
+
+@pytest.mark.parametrize(
+    ("page_url", "href"),
+    (
+        ("https://example.com/page", "HTTPS://EXAMPLE.COM/page"),
+        ("https://example.com/page", "https://example.com/page/"),
+    ),
+)
+def test_self_reference_uses_shared_url_identity(page_url, href):
+    alternates = [{"hreflang": "en", "href": href}]
+
+    assert "page does not self-reference in its hreflang set" not in validate(alternates, page_url)
+
+
+@pytest.mark.parametrize(
+    ("page_url", "href"),
+    (
+        ("https://example.com/News", "https://example.com/news"),
+        ("https://example.com/page?ref=a", "https://example.com/page?ref=b"),
+    ),
+)
+def test_self_reference_preserves_path_and_query_identity(page_url, href):
+    alternates = [{"hreflang": "en", "href": href}]
+
+    assert "page does not self-reference in its hreflang set" in validate(alternates, page_url)
