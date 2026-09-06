@@ -1,21 +1,17 @@
 #!/usr/bin/env python3
 # ruff: noqa: E402
-"""Subprocess memory profile for the F native SQLite analysis path.
+"""Subprocess memory profile for direct-seeded analysis and whole discovery.
 
-The synthetic writer fixture has complete page fields and a balanced graph.
-Every analysis child opens its own artifact and uses injected sitemap handling.
-The whole stage runs real CLI dispatch and saved-artifact reporting, replacing
-only collection with the prepared observations. Separate subprocesses measure
-page projection, SQL graph work, audit/task materialization, all five report
-formats, and the saved-scan CLI-to-Markdown path.
+The build/pages/graph/audit/report stages are direct-seeded SQLite microprofiles.
+The separate whole stage runs CLI dispatch, real offline link discovery, saved
+audit persistence, reopen, and Markdown reporting in one child process.
+Their audit digests are never compared because their fixture depths differ.
 """
 
 from __future__ import annotations
 
 import argparse
-import contextlib
 import hashlib
-import io
 import json
 import platform
 import resource
@@ -25,11 +21,13 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from scripts import profile_scan_collector as collector
 from scripts import profile_scan_graph as fixture
 from seohead import __version__
 from seohead.crawl.collect import PageRecord
@@ -45,7 +43,7 @@ from seohead.sf.core.link_score import (
 )
 from seohead.sf.core.normalize import norm_url
 from seohead.sf.tasks import build_tasks
-from seohead.storage import read_audit
+from seohead.storage import open_scan, read_audit
 from seohead.storage.analysis_graph import AnalysisGraph
 from seohead.storage.native_scan import NativeScan
 
@@ -64,6 +62,7 @@ def _digest(value: object) -> str:
 def _environment() -> dict[str, object]:
     files = (
         "scripts/profile_scan_analysis.py",
+        "scripts/profile_scan_collector.py",
         "scripts/profile_scan_graph.py",
         "seohead/storage/analysis_graph.py",
         "seohead/storage/analysis_score.py",
@@ -75,10 +74,24 @@ def _environment() -> dict[str, object]:
         "python": sys.version.split()[0],
         "sqlite": sqlite3.sqlite_version,
         "platform": platform.platform(),
-        "source_sha256": {
-            name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest() for name in files
-        },
+        **collector.source_manifest(files),
     }
+
+
+def _load_environment(source_manifest: Path | None) -> dict[str, object]:
+    environment = (
+        json.loads(source_manifest.read_text(encoding="utf-8"))
+        if source_manifest is not None
+        else _environment()
+    )
+    if not isinstance(environment, dict):
+        raise RuntimeError("profile source manifest must be a JSON object")
+    collector.validated_source_revision(environment.get("source_revision"))
+    if not isinstance(environment.get("source_dirty"), bool):
+        raise RuntimeError("profile source manifest must record whether the checkout is dirty")
+    if not isinstance(environment.get("source_sha256"), dict):
+        raise RuntimeError("profile source manifest must include source hashes")
+    return environment
 
 
 def _settings(pages: int) -> dict:
@@ -314,35 +327,56 @@ def _report_stage(audit_path: Path, out: Path) -> dict[str, object]:
     }
 
 
-def _whole_stage(database: Path, pages: int, out: Path) -> dict[str, object]:
-    """Run real CLI dispatch, native audit persistence, reopen, and Markdown report.
+def _artifact_bytes(path: Path) -> dict[str, int]:
+    """Report the bounded on-disk footprint left by one whole-path child."""
 
-    Only collection is replaced by the prebuilt synthetic observation fixture.
+    def size(candidate: Path) -> int:
+        return candidate.stat().st_size if candidate.is_file() else 0
+
+    return {
+        "file": size(path),
+        "wal": size(path.with_name(path.name + "-wal")),
+        "shm": size(path.with_name(path.name + "-shm")),
+        "temp": sum(
+            size(candidate) for candidate in path.parent.glob(".native-scan-*") if candidate != path
+        ),
+    }
+
+
+def _whole_stage(
+    database: Path, pages: int, edges: int, out: Path, *, producer_build: str
+) -> dict[str, object]:
+    """Measure CLI collection, analysis, persistence, reopen, and Markdown reporting.
+
+    This is deliberately a separate artifact from the build/pages/graph microprofiles:
+    it must create its own scan so peak RSS includes the real collector.  The sole
+    test seam is the collector fixture's deterministic transport, which prevents
+    every socket, DNS, HTTP, and browser request.
     """
-    from unittest.mock import patch
-
     from seohead.cli import main as cli_main
-    from seohead.crawl.sqlite_adapter import ScanRun
+    from seohead.crawl import sqlite_adapter
 
     started = time.perf_counter()
-    with NativeScan.open(database) as scan:
-        counts = scan.resume_snapshot(include_edges=True)["counts"]
-    run = ScanRun(
-        path=str(database),
-        pages=counts["pages"],
-        links=counts["links"],
-        forms=counts["forms"],
-        lifecycle="running",
-        finish_reason="finished",
-        partial=False,
-        start_page_gate=_start_gate(),
-    )
+    whole_database = database.with_name(f"{database.stem}.whole.sqlite")
+    if whole_database.exists():
+        raise RuntimeError(f"whole profile scan already exists: {whole_database}")
+    collector.PAGES = pages
+    fetcher, fetched_pages = collector.offline_fetcher(edges)
+    original_crawl_to_scan = sqlite_adapter.crawl_to_scan
+
+    def offline_crawl_to_scan(*args, **kwargs):
+        if "fetcher" in kwargs:
+            raise AssertionError("CLI whole profile must own the sole offline transport seam")
+        return original_crawl_to_scan(*args, **kwargs, fetcher=fetcher)
+
     config = out.with_suffix(".config.json")
     config.write_text(json.dumps(_settings(pages)), encoding="utf-8")
-    output = io.StringIO()
+    import contextlib
+    from io import StringIO
+
+    output = StringIO()
     with (
-        patch("seohead.crawl.sqlite_adapter.crawl_to_scan", return_value=run),
-        patch("seohead.sf.core.sitemap_coverage.run_sitemap", return_value={"sitemaps": []}),
+        patch.object(sqlite_adapter, "crawl_to_scan", offline_crawl_to_scan),
         contextlib.redirect_stdout(output),
     ):
         status = cli_main(
@@ -351,28 +385,64 @@ def _whole_stage(database: Path, pages: int, out: Path) -> dict[str, object]:
                 "--url",
                 fixture._url(0),
                 "--scan-out",
-                str(database),
+                str(whole_database),
                 "--producer-build",
-                "0" * 40,
+                collector.validated_source_revision(producer_build),
                 "--config",
                 str(config),
             ]
         )
-    response = json.loads(output.getvalue())
-    if status or not response.get("audit_available"):
-        raise RuntimeError(f"whole CLI did not save an audit: {response.get('audit_reason')}")
-    audit = read_audit(database)
-    report = build_report(str(database), "md", str(out))
+    try:
+        response = json.loads(output.getvalue())
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("whole CLI did not emit a structured response") from exc
+    if status:
+        raise RuntimeError(f"whole CLI failed: {response.get('audit_reason', 'unknown error')}")
+    con = open_scan(whole_database, require_audit=False)
+    try:
+        counts = {
+            table: con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in ("pages", "links", "forms", "bodies")
+        }
+    finally:
+        con.close()
+    rss, unit = _rss()
+    outcome: dict[str, object] = {
+        "pages": counts["pages"],
+        "links": counts["links"],
+        "body_count": counts["bodies"],
+        "collection": {
+            "profile_kind": "offline_true_discovery_whole_path",
+            "fetched_pages": fetched_pages(),
+            "counts": counts,
+            "finish_reason": response.get("finish_reason"),
+            "partial": response.get("partial"),
+        },
+        "artifact_bytes": _artifact_bytes(whole_database),
+        "wall_seconds": round(time.perf_counter() - started, 3),
+        "peak_rss_mib": round(rss, 2),
+        "rss_source_unit": unit,
+    }
+    if not response.get("audit_available"):
+        return {
+            **outcome,
+            "status": "blocked",
+            "reason": str(response.get("audit_reason") or "audit unavailable"),
+            "saved_audit": False,
+        }
+    audit = read_audit(whole_database)
+    report = build_report(str(whole_database), "md", str(out))
     rss, unit = _rss()
     if not report.get("ok") or not out.exists() or not audit["pages"]:
         raise RuntimeError("profile whole stage did not produce audit and report")
     return {
+        **outcome,
+        "status": "measured",
         "pages": len(audit["pages"]),
         "issues": len(audit["issues"]),
         "audit_digest": _digest(audit),
         "report_sha256": hashlib.sha256(out.read_bytes()).hexdigest(),
         "saved_audit": True,
-        "wall_seconds": round(time.perf_counter() - started, 3),
         "peak_rss_mib": round(rss, 2),
         "rss_source_unit": unit,
     }
@@ -388,6 +458,7 @@ def _child(
     source_manifest: Path | None,
 ) -> dict[str, object]:
     fixture.PAGES = pages
+    environment = _load_environment(source_manifest)
     if stage == "build":
         result = _fixture_build(pages, edges, database)
     elif stage == "pages":
@@ -403,12 +474,13 @@ def _child(
     else:
         if report_out is None:
             raise ValueError("whole stage requires a report path")
-        result = _whole_stage(database, pages, report_out)
-    environment = (
-        json.loads(source_manifest.read_text(encoding="utf-8"))
-        if source_manifest is not None
-        else _environment()
-    )
+        result = _whole_stage(
+            database,
+            pages,
+            edges,
+            report_out,
+            producer_build=collector.validated_source_revision(environment["source_revision"]),
+        )
     return {stage: result, **environment}
 
 
@@ -441,7 +513,9 @@ def _run_child(
     if source_manifest is not None:
         command.extend(("--source-manifest", str(source_manifest)))
     try:
-        completed = subprocess.run(command, check=True, text=True, capture_output=True)
+        completed = subprocess.run(command, check=True, text=True, capture_output=True, timeout=900)
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"analysis profile child exceeded 900 seconds: {stage}") from exc
     except subprocess.CalledProcessError as exc:
         raise RuntimeError(exc.stderr or "analysis profile child failed without stderr") from exc
     if completed.stderr:
@@ -456,6 +530,12 @@ def main() -> None:
     parser.add_argument("--database", type=Path)
     parser.add_argument("--pages", type=int, default=10_000)
     parser.add_argument("--edges", type=int, choices=(30, 150))
+    parser.add_argument(
+        "--edges-only",
+        type=int,
+        choices=(30, 150),
+        help="run one edge-density case in profile mode",
+    )
     parser.add_argument("--audit-out", type=Path)
     parser.add_argument("--report-out", type=Path)
     parser.add_argument("--source-manifest", type=Path)
@@ -483,54 +563,57 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="seohead-analysis-profile-") as temporary:
         directory = Path(temporary)
         manifest = directory / "source-manifest.json"
-        manifest.write_text(json.dumps(_environment(), sort_keys=True), encoding="utf-8")
-        for edges in (30, 150):
+        environment = _load_environment(args.source_manifest)
+        manifest.write_text(json.dumps(environment, sort_keys=True), encoding="utf-8")
+        for edges in (args.edges_only,) if args.edges_only is not None else (30, 150):
             database = directory / f"{edges}.sqlite"
             audit = directory / f"{edges}.audit.json"
             outcome: dict[str, object] = {"edges_per_page": edges, "links": args.pages * edges}
-            for stage in ("build", "pages", "graph"):
-                outcome.update(
-                    _run_child(stage, database, args.pages, edges, source_manifest=manifest)
-                )
-            outcome.update(
-                _run_child(
-                    "audit", database, args.pages, edges, audit_out=audit, source_manifest=manifest
-                )
-            )
-            outcome.update(
-                _run_child(
-                    "report",
-                    database,
-                    args.pages,
-                    edges,
-                    audit_out=audit,
-                    report_out=directory / f"{edges}.reports",
-                    source_manifest=manifest,
-                )
-            )
-            outcome.update(
-                _run_child(
-                    "whole",
-                    database,
-                    args.pages,
-                    edges,
-                    report_out=directory / f"{edges}.whole.md",
-                    source_manifest=manifest,
-                )
-            )
+            for stage, kwargs in (
+                ("build", {}),
+                ("pages", {}),
+                ("graph", {}),
+                ("audit", {"audit_out": audit}),
+                ("report", {"audit_out": audit, "report_out": directory / f"{edges}.reports"}),
+                ("whole", {"report_out": directory / f"{edges}.whole.md"}),
+            ):
+                try:
+                    child = _run_child(
+                        stage,
+                        database,
+                        args.pages,
+                        edges,
+                        source_manifest=manifest,
+                        **kwargs,
+                    )
+                    outcome.update(child)
+                    if stage == "whole" and child["whole"].get("status") == "blocked":
+                        outcome["blocking"] = {
+                            "stage": "whole",
+                            "reason": child["whole"]["reason"],
+                        }
+                        break
+                except RuntimeError as exc:
+                    outcome["blocking"] = {"stage": stage, "reason": str(exc)}
+                    break
             results.append(outcome)
     results.sort(key=lambda row: int(row["edges_per_page"]))
+    complete = [row for row in results if "blocking" not in row]
     deltas = {
         stage: round(
-            float(results[1][stage]["peak_rss_mib"]) - float(results[0][stage]["peak_rss_mib"]), 2
+            float(complete[1][stage]["peak_rss_mib"]) - float(complete[0][stage]["peak_rss_mib"]), 2
         )
         for stage in ("pages", "graph", "audit", "report", "whole")
+        if len(complete) == 2
     }
-    if any(deltas[stage] > 128 for stage in ("graph", "audit", "whole")) or any(
-        float(row["whole"]["peak_rss_mib"]) >= 1024 for row in results
+    if len(complete) == 2 and (
+        any(deltas[stage] > 128 for stage in ("graph", "audit", "whole"))
+        or any(float(row["whole"]["peak_rss_mib"]) >= 1024 for row in complete)
     ):
         raise RuntimeError("native analysis profile exceeded the F memory acceptance budget")
-    if results[0]["audit"]["audit_digest"] == "" or results[1]["audit"]["audit_digest"] == "":
+    if len(complete) == 2 and (
+        complete[0]["audit"]["audit_digest"] == "" or complete[1]["audit"]["audit_digest"] == ""
+    ):
         raise RuntimeError("native analysis profile has no audit digest")
     print(
         json.dumps(
@@ -538,11 +621,14 @@ def main() -> None:
                 "fixture": {
                     "pages": args.pages,
                     "host": fixture.HOST,
-                    "network": "injected run_sitemap and no socket transport",
+                    "microprofile_kind": "direct_seeded_sqlite",
+                    "whole_path_kind": "offline_true_link_discovery",
+                    "audit_digest_comparison": "not compared across fixture depths",
+                    "network": "deterministic injected fetcher; no socket transport",
                 },
                 "results": results,
                 "rss_delta_mib": deltas,
-                "whole_pipeline_rss_delta_mib": deltas["whole"],
+                "whole_pipeline_rss_delta_mib": deltas.get("whole"),
             },
             indent=2,
             sort_keys=True,
