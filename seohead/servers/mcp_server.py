@@ -19,6 +19,21 @@ from seohead.models import ParseManyResult, RobotsCheckResult
 from seohead.servers import handlers
 
 
+def _all_parse_results_failed(result: Any) -> bool:
+    """``handlers.parse`` returns a ``ParseManyResult`` (``{"count", "results": [...]}``) with no
+    top-level ``ok`` key — only each item in ``results`` carries its own. ``handlers.handler_failed``
+    only ever looks at the top level, so it never catches this shape. Total failure (every
+    requested URL failed) must not read as success; a partial failure (some ok, some not) stays a
+    normal result so the per-item errors remain visible to the caller.
+    """
+    if not isinstance(result, dict):
+        return False
+    items = result.get("results")
+    if not isinstance(items, list) or not items:
+        return False
+    return all(isinstance(r, dict) and r.get("ok") is False for r in items)
+
+
 def _checked(result: Any) -> Any:
     """Raise so FastMCP marks the call ``isError`` instead of returning a handler's own-reported
     failure (``ok: False``, see ``handlers.handler_failed``) as a normal success — the same
@@ -29,7 +44,7 @@ def _checked(result: Any) -> Any:
     """
     from mcp.server.fastmcp.exceptions import ToolError
 
-    if handlers.handler_failed(result):
+    if handlers.handler_failed(result) or _all_parse_results_failed(result):
         raise ToolError(json.dumps(result, ensure_ascii=False, default=str))
     return result
 
