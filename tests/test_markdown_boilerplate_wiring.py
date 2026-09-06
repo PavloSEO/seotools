@@ -250,7 +250,11 @@ def test_boilerplate_handoff_rejects_the_misleading_boilerplate_hash_key():
     out = handlers.boilerplate_report(pages=pages)
     assert out["ok"] is True
     assert out["count"] == 2
-    assert len(out["minority_groups"]) == 0  # both pages fell into one group
+    # Both pages fell into the same (no-html, no-boilerplate-regions) group --
+    # the wrong key was ignored, not honored -- rather than being told apart
+    # by the "aaa"/"bbb" hashes a caller mistakenly supplied under it.
+    assert len(out["groups"]) == 1
+    assert out["groups"][0]["count"] == 2
 
 
 def test_full_markdown_is_not_the_boilerplate_report_handoff():

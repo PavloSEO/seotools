@@ -44,12 +44,23 @@ def _live_region_markup(region: Tag) -> str:
     return str(region)
 
 
+# Sentinel hash for "this page has no header/nav/footer regions at all" --
+# distinct from any real sha1 digest, so it can never collide with, and get
+# grouped alongside, pages whose boilerplate was actually compared.
+NO_BOILERPLATE_REGIONS = "no_boilerplate_regions"
+
+
 def boilerplate_hash(html: str) -> str:
     """Return a SHA-1 hex digest of a page's header/nav/footer markup.
 
     Regions are concatenated in document order and their tag structure is
     kept (not just visible text), so a link removed from a menu changes the
     hash even when the remaining text reads the same.
+
+    A page with zero header/nav/footer regions returns
+    ``NO_BOILERPLATE_REGIONS`` instead of the hash of an empty string: no
+    boilerplate was found to compare, which is not the same claim as "this
+    page's boilerplate is identical to every other page with none".
     """
     soup = BeautifulSoup(html, features="lxml")
     pieces = [
@@ -57,6 +68,8 @@ def boilerplate_hash(html: str) -> str:
         for el in soup.find_all(BOILERPLATE_TAGS)
         if not is_inert_template_content(el)
     ]
+    if not pieces:
+        return NO_BOILERPLATE_REGIONS
     basis = "".join(" ".join(piece.split()) for piece in pieces)
     return hashlib.sha1(basis.encode("utf-8"), usedforsecurity=False).hexdigest()
 
@@ -80,8 +93,15 @@ def boilerplate_consistency_report(pages: list[dict[str, Any]]) -> dict[str, Any
         by_hash[h].append(url)
 
     total = sum(len(urls) for urls in by_hash.values())
+    # Pages with no boilerplate regions were never actually compared to one
+    # another, so that bucket can never win "dominant template" -- doing so
+    # would report an absence of evidence as the site's most consistent
+    # markup (issue #435).
+    measured_hashes = [h for h in by_hash if h != NO_BOILERPLATE_REGIONS]
     # Ties break on hash for a stable, arbitrary-but-deterministic pick.
-    dominant_hash = max(by_hash, key=lambda h: (len(by_hash[h]), h))
+    dominant_hash = (
+        max(measured_hashes, key=lambda h: (len(by_hash[h]), h)) if measured_hashes else None
+    )
 
     groups = [
         {
@@ -96,10 +116,13 @@ def boilerplate_consistency_report(pages: list[dict[str, Any]]) -> dict[str, Any
     ]
     groups.sort(key=lambda g: (-g["count"], g["hash"]))
 
+    no_boilerplate_count = len(by_hash.get(NO_BOILERPLATE_REGIONS, []))
+
     return {
         "ok": True,
         "count": total,
         "dominant_hash": dominant_hash,
         "groups": groups,
         "minority_groups": [g for g in groups if not g["dominant"]],
+        "no_boilerplate_count": no_boilerplate_count,
     }

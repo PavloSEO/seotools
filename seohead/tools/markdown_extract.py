@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from bs4 import BeautifulSoup, NavigableString, Tag
 
-from seohead.tools.content_area import resolve_content_area
+from seohead.tools.content_area import TEXT_EXCLUDED_TAGS, resolve_content_area
 
 _BLOCK_TAGS = {"p", "div", "section", "article", "li", "blockquote"}
 _HEADING_LEVELS = {f"h{i}": i for i in range(1, 7)}
@@ -46,7 +46,7 @@ def _inline(node: Tag | NavigableString) -> str:
     """Render inline content: text, links, and bold/italic emphasis."""
     if isinstance(node, NavigableString):
         return str(node)
-    if node.name in ("script", "style", "noscript", "template"):
+    if node.name in TEXT_EXCLUDED_TAGS:
         return ""
     if node.name == "br":
         return "\n"
@@ -92,7 +92,7 @@ def to_markdown(root: Tag) -> str:
                 if text:
                     lines.append(text)
                 continue
-            if child.name in ("script", "style", "noscript", "template"):
+            if child.name in TEXT_EXCLUDED_TAGS:
                 continue
             if child.name in _HEADING_LEVELS:
                 text = _inline(child).strip()
