@@ -12,6 +12,7 @@ as a clean result.
 
 from __future__ import annotations
 
+import urllib.parse
 from collections import Counter
 from typing import TYPE_CHECKING, Any
 
@@ -67,6 +68,38 @@ UNMEASURED_COLUMNS: tuple[str, ...] = (
 )
 
 
+def _same_page(url: str, canonical: str) -> bool:
+    """Is ``canonical`` the same resource as ``url``, per RFC 3986 case rules?
+
+    Scheme and host are case-insensitive and folded; the path, query and
+    fragment are not (a case-sensitive server can serve ``/News`` and
+    ``/news`` as different resources). This mirrors
+    ``seohead.sf.core.normalize.norm_url`` exactly, which answers the same
+    "is this a self-canonical" question for every SF-export-backed check
+    (``check_canonical_directives`` and friends) — kept as a second,
+    parallel implementation only because ``seohead.crawl`` must not import
+    ``seohead.sf`` (interface-layer/core-layer split enforced elsewhere in
+    this codebase). If the two ever need a third home, the fold belongs in
+    a module neither package owns (e.g. ``seohead.tools``), not in either
+    one importing the other.
+    """
+    a_scheme, a_netloc, a_path, a_query, a_fragment = urllib.parse.urlsplit(url)
+    b_scheme, b_netloc, b_path, b_query, b_fragment = urllib.parse.urlsplit(canonical)
+    return (
+        a_scheme.lower(),
+        a_netloc.lower(),
+        a_path.rstrip("/"),
+        a_query,
+        a_fragment,
+    ) == (
+        b_scheme.lower(),
+        b_netloc.lower(),
+        b_path.rstrip("/"),
+        b_query,
+        b_fragment,
+    )
+
+
 def _indexability(record: Any, blocked_by_robots: bool = False) -> tuple[str, str]:
     """Derive SF's Indexability pair without inventing a verdict.
 
@@ -91,7 +124,7 @@ def _indexability(record: Any, blocked_by_robots: bool = False) -> tuple[str, st
     directives = robots_directives(record.meta_robots, record.x_robots)
     if "noindex" in directives:
         return "Non-Indexable", "noindex"
-    if record.canonical and record.canonical.rstrip("/") != record.url.rstrip("/"):
+    if record.canonical and not _same_page(record.url, record.canonical):
         return "Non-Indexable", "Canonicalised"
     return "Indexable", ""
 
