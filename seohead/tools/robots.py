@@ -109,6 +109,12 @@ def _rules_for(parsed: ParsedRobots, user_agent: str) -> RobotsGroup:
         group_best = -1
         has_star = False
         for token in (u.lower().strip() for u in group["user_agents"]):
+            # A blank User-agent line still begins a distinct malformed group:
+            # keep that group's following directives attached to it, but never
+            # let Python's ``name.startswith("")`` turn it into a universal
+            # named match that outranks the real wildcard group (#566).
+            if not token:
+                continue
             if token == "*":
                 has_star = True
                 continue

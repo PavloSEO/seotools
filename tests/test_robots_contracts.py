@@ -138,6 +138,18 @@ def test_sitemap_does_not_close_an_agent_run():
     ]
 
 
+def test_blank_user_agent_group_never_overrides_wildcard_or_absorbs_its_rules():
+    parsed = robots.parse_robots(
+        "User-agent: # retired bot\nDisallow: /old-secret/\n\nUser-agent: *\nDisallow: /\n"
+    )
+
+    assert len(parsed["groups"]) == 2
+    assert parsed["groups"][0]["user_agents"] == [""]
+    assert parsed["groups"][0]["disallow"] == ["/old-secret/"]
+    assert robots.is_allowed(parsed, "/", "GPTBot") is False
+    assert robots.is_allowed(parsed, "/old-secret/", "GPTBot") is False
+
+
 def test_spider_uses_its_selected_agent_crawl_delay():
     robots_text = (
         "User-agent: SEOHEAD-Tools\nCrawl-delay: 10\nUser-agent: OtherBot\nCrawl-delay: 2\n"
