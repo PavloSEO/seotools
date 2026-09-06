@@ -236,6 +236,21 @@ def _fold_failure_streaks(
     return 0, 0
 
 
+def _continues_failure_streak(record: PageRecord) -> bool:
+    """True when ``record`` is the same kind of failure the breaker counts.
+
+    Used only to decide whether an already-completed request from a batch
+    the breaker has already tripped on should be merged as evidence — see
+    the concurrent branch of ``crawl_site`` (#475). It mirrors the two
+    failure arms of ``_fold_failure_streaks`` without needing the running
+    counters: any record that would advance either streak is one more of
+    the failure that already spent the caller's configured tolerance.
+    """
+    if record.status_code is None:
+        return bool(record.error_kind)
+    return record.status_code == 429 or 500 <= record.status_code < 600
+
+
 _PAGE_RECORD_FIELDS = {f.name for f in dataclasses.fields(PageRecord)}
 
 
@@ -955,16 +970,20 @@ def crawl_site(
             # in which case the redirect is still recorded on the page, just never followed.
             if not crawl_redirects:
                 return
-            if record.redirect_url and depth < depth_limit:
-                target = _strip_fragment(record.redirect_url)
-                reason = rules.rejection(target, host) or extra_rejection(target)
-                if reason:
-                    exclude("redirect_off_host" if reason == "outside_host" else reason, target)
-                else:
-                    key = _canonical_key(target)
-                    if key not in seen:
-                        seen.add(key)
-                        queue.append((target, depth + 1))
+            if not record.redirect_url:
+                return
+            target = _strip_fragment(record.redirect_url)
+            if depth >= depth_limit:
+                exclude("depth_limit", target)
+                return
+            reason = rules.rejection(target, host) or extra_rejection(target)
+            if reason:
+                exclude("redirect_off_host" if reason == "outside_host" else reason, target)
+            else:
+                key = _canonical_key(target)
+                if key not in seen:
+                    seen.add(key)
+                    queue.append((target, depth + 1))
 
         def handle_links(parsed: dict[str, Any] | None, url: str, depth: int) -> None:
             def discover(target: str, next_depth: int, _requested_url: str) -> str | None:
@@ -1005,11 +1024,19 @@ def crawl_site(
             if omitted:
                 exclude("form_observations_limit")
 
-        def after_fetch(
+        def record_evidence(
             url: str, depth: int, record: PageRecord, parsed: dict[str, Any] | None
-        ) -> bool:
-            """Bookkeeping shared by every fetched page. Returns True to stop the crawl."""
-            nonlocal consecutive_timeouts, consecutive_server_errors
+        ) -> None:
+            """Persist a fetched page as evidence, independent of the breaker.
+
+            Split out of ``after_fetch`` so the concurrent batch merge (#475) can
+            keep every already-completed request's evidence (per #304 — a spent
+            request must not be discarded) without also feeding it through the
+            streak counters or the frontier: once the breaker has tripped on an
+            earlier, ordered result, later completions in the same batch must be
+            recorded but must not extend how many consecutive failures were
+            tolerated, nor discover further URLs to chase.
+            """
             record.crawl_depth = depth
             result.pages.append(record)
             _write(handle, record)
@@ -1031,6 +1058,13 @@ def crawl_site(
                     "outlinks": record.outlinks,
                     "external_outlinks": record.external_outlinks,
                 }
+
+        def after_fetch(
+            url: str, depth: int, record: PageRecord, parsed: dict[str, Any] | None
+        ) -> bool:
+            """Bookkeeping shared by every fetched page. Returns True to stop the crawl."""
+            nonlocal consecutive_timeouts, consecutive_server_errors
+            record_evidence(url, depth, record, parsed)
 
             consecutive_timeouts, consecutive_server_errors = _fold_failure_streaks(
                 record, consecutive_timeouts, consecutive_server_errors
@@ -1203,18 +1237,29 @@ def crawl_site(
                         # The breaker fired on an earlier, ordered result, but
                         # later requests in this same batch ran concurrently
                         # and may have already completed. Merge each one that
-                        # has — its PageRecord and sidecar write, its forms,
-                        # its discovered links — before requeueing anything,
-                        # so the checkpoint holds only work that never
-                        # resolved rather than repeating requests that already
-                        # reached the origin.
+                        # has — its PageRecord, sidecar write and forms — before
+                        # requeueing anything, so the checkpoint holds only work
+                        # that never resolved rather than repeating requests
+                        # that already reached the origin (#304). But a
+                        # completed record that would itself continue the very
+                        # streak that just tripped the breaker (another
+                        # timeout, another 429/5xx) must not be merged either:
+                        # the tolerance the caller configured has already been
+                        # spent by the ordered result that stopped the crawl,
+                        # and merging more of the same failure would let batch
+                        # size alone raise the effective tolerance (#475).
+                        # Those are requeued for a future crawl to retry, same
+                        # as a completion that has not landed yet.
                         requeue: list[tuple[str, int]] = []
                         for item, future in zip(
                             to_fetch[processed:], futures[processed:], strict=True
                         ):
                             if future.done():
                                 url, depth, record, parsed = future.result()
-                                after_fetch(url, depth, record, parsed)
+                                if _continues_failure_streak(record):
+                                    requeue.append(item)
+                                else:
+                                    record_evidence(url, depth, record, parsed)
                             else:
                                 requeue.append(item)
                         for item in reversed(requeue):

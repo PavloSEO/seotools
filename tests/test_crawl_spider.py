@@ -136,6 +136,49 @@ def test_depth_is_recorded_and_bounded():
     assert result.excluded.get("depth_limit", 0) >= 1
 
 
+def test_a_redirect_target_beyond_max_depth_is_recorded_as_excluded():
+    """#464: handle_redirect must record the identical condition handle_links
+    already does for depth >= depth_limit, instead of dropping the redirect
+    target with no trace."""
+    site = dict(SITE)
+    site["https://example.com/"] = FakeResponse(
+        "", status_code=301, headers={"location": "https://example.com/target"}
+    )
+    result = _crawl(site, max_depth=0)
+    assert result.excluded.get("depth_limit", 0) >= 1
+    assert "https://example.com/target" not in {p.url for p in result.pages}
+
+
+def test_a_redirect_one_hop_past_the_last_permitted_depth_is_excluded():
+    """#464, second reproduction: the start page links to a page at the last
+    permitted depth that itself redirects one hop further."""
+    site = dict(SITE)
+    site["https://example.com/"] = page("/a")
+    site["https://example.com/a"] = FakeResponse(
+        "", status_code=301, headers={"location": "https://example.com/target"}
+    )
+    result = _crawl(site, max_depth=1)
+    assert result.excluded.get("depth_limit", 0) >= 1
+    assert "https://example.com/target" not in {p.url for p in result.pages}
+
+
+def test_a_redirect_within_the_depth_budget_is_still_enqueued():
+    """#464 negative control: a redirect discovered within budget keeps being
+    enqueued exactly as before, and must not spuriously appear as excluded."""
+    site = {
+        "https://example.com/robots.txt": FakeResponse(
+            ROBOTS_OK, headers={"content-type": "text/plain"}
+        ),
+        "https://example.com/": FakeResponse(
+            "", status_code=301, headers={"location": "https://example.com/target"}
+        ),
+        "https://example.com/target": page(),
+    }
+    result = _crawl(site, max_depth=2)
+    assert "https://example.com/target" in {p.url for p in result.pages}
+    assert result.excluded.get("depth_limit", 0) == 0
+
+
 def test_robots_disallow_is_honoured():
     site = dict(SITE)
     site["https://example.com/"] = page("/a", "/private/secret")

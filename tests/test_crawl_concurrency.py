@@ -406,6 +406,56 @@ def test_circuit_breaker_trip_point_is_stable_regardless_of_thread_scheduling():
             assert len(result.pages) == baseline
 
 
+def test_concurrent_breaker_never_records_more_failures_than_sequential():
+    """#475: the ordered consumer correctly stops at the URL that trips the
+    breaker, but the merge of already-completed later requests in the same
+    batch must not fold in more of the same failure than the caller
+    configured — the concurrent crawl must record exactly what a sequential
+    crawl with the same ``stop_after_consecutive_timeouts`` would have.
+    """
+    good = [f"/good{i}" for i in range(40)]
+    bad = [f"/bad{i}" for i in range(8)]
+    site = {
+        "https://example.com/robots.txt": FakeResponse(
+            "User-agent: *\n", headers={"content-type": "text/plain"}
+        ),
+        "https://example.com/": page(*(good + bad)),
+    }
+    for g in good:
+        site[f"https://example.com{g}"] = page()
+
+    base_fetcher = _fetcher(site)
+
+    def counting_fetcher(url):
+        if url.rsplit("/", 1)[-1].startswith("bad"):
+            raise TimeoutError("read timed out")
+        return base_fetcher(url)
+
+    kwargs = dict(
+        fetcher=counting_fetcher,
+        sleeper=lambda _s: None,
+        min_delay=0,
+        max_urls=200,
+        stop_after_consecutive_timeouts=3,
+    )
+    seq = crawl_site("https://example.com/", concurrency=1, **kwargs)
+    conc = crawl_site("https://example.com/", concurrency=8, **kwargs)
+
+    bad_urls = {f"https://example.com{b}" for b in bad}
+    seq_bad = [p for p in seq.pages if p.url in bad_urls]
+    conc_bad = [p for p in conc.pages if p.url in bad_urls]
+    assert len(conc_bad) == len(seq_bad) == 3
+
+    # Negative control: an all-success crawl is unaffected by this change —
+    # same pages, same exclusions, same finish reason, at any concurrency.
+    ok_kwargs = dict(fetcher=base_fetcher, sleeper=lambda _s: None, min_delay=0, max_urls=200)
+    seq_ok = crawl_site("https://example.com/", concurrency=1, **ok_kwargs)
+    conc_ok = crawl_site("https://example.com/", concurrency=8, **ok_kwargs)
+    assert {p.url for p in conc_ok.pages} == {p.url for p in seq_ok.pages}
+    assert conc_ok.excluded == seq_ok.excluded
+    assert conc_ok.finish_reason == seq_ok.finish_reason == "finished"
+
+
 def test_breaker_trip_merges_later_completions_from_the_same_batch(tmp_path):
     """#304: ordered consumption stops at the URL that trips the breaker, but
     later URLs in the same batch run concurrently and may already have a
