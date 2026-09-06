@@ -139,25 +139,21 @@ def _stdin_has_data() -> bool:
 # its first iteration: regular-file stdin is always reported as ready, so the command consumes every
 # unread URL and the loop processes only one.
 #
-# Populated by _source_flag() below rather than hand-listed here: a hand-kept copy of "which
-# flags count" drifted out of sync with the parser once already (#156 — --phrase, --keywords,
-# --query/--queries, --seed, --counter, and --before/--after were all missing), silently
-# truncating any per-line loop over one of them to a single iteration.
-SOURCE_FLAGS: set[str] = set()
-
-
 def _source_flag(sub: argparse.ArgumentParser, *args: str, **kwargs: Any) -> argparse.Action:
     """Add a flag whose value alone supplies a command's complete input (a URL, a file path, a
-    search phrase, a counter ID, ...) and register it in SOURCE_FLAGS in the same place it is
-    defined, so the set cannot drift from the parser the way the old hand-maintained tuple did.
+    search phrase, a counter ID, ...) and register it on that command's parser. Keeping the
+    destinations with their parser prevents an identically named flag on another command from
+    changing whether this command reads stdin.
     """
     action = sub.add_argument(*args, **kwargs)
-    SOURCE_FLAGS.add(action.dest)
+    source_flags = set(sub.get_default("_source_flags") or ())
+    source_flags.add(action.dest)
+    sub.set_defaults(_source_flags=frozenset(source_flags))
     return action
 
 
 def _has_source_flag(args: argparse.Namespace) -> bool:
-    return any(getattr(args, name, None) for name in SOURCE_FLAGS)
+    return any(getattr(args, name, None) for name in getattr(args, "_source_flags", ()))
 
 
 def _load_input(raw: str | None, allow_stdin: bool = True) -> dict[str, Any]:
