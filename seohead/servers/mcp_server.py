@@ -158,11 +158,13 @@ def build_server():  # -> FastMCP
 
         ``scan_out`` opts into a SQLite scan file with bounded collection and
         resume; it cannot be combined with list mode or ``out_dir``. It requires
-        raw rendering and cache off. G captures bounded HTML entity bytes and separate rendered
-        DOM evidence when available; resource fetching and offline replay are unavailable. Audit creation has an explicit
-        compatibility population limit and may return unavailable. Pass the
-        producing source SHA in ``producer_build`` if the installed build cannot
-        determine it from a clean checkout. No response bodies are retained."""
+        ``cache.mode=off``. Native scans retain bounded HTML entity bytes and
+        separately captured DOM according to their storage policy; body mode off,
+        credentials, no-store and exhausted limits retain explicit omission reasons.
+        Resource fetching and offline reanalysis are unavailable. Audit creation has
+        a finite population/output limit and may return unavailable while preserving
+        the scan. Pass the producing source SHA in ``producer_build`` if the installed
+        build cannot determine it from a clean checkout."""
         return _checked(
             handlers.crawl_site(
                 url=url or None,

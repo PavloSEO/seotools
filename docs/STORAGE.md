@@ -35,8 +35,7 @@ internal audit as their input and make no network request.
 `export-run` requires a new, absent output directory. It writes only
 `pages.jsonl`, `links.jsonl`, and `audit.json`; `audit.json` is published last as
 the completion marker. The JSONL files are deterministic UTF-8 with sorted keys,
-compact JSON, and one newline per row. Pages follow committed page order and links
-follow global `link_id` order, including repeated occurrences. SQL `NULL` in a
+compact JSON, and one newline per row. Pages follow committed page order. The link export uses the existing static-plus-new-rendered-destination union in global `link_id` order; the database itself retains every raw/rendered occurrence. SQL `NULL` in a
 late page field is omitted so an older source's absent field remains absent rather
 than becoming a measured default. The saved audit is copied as its exact UTF-8
 bytes. The export contains no response bodies, raw HTML, forms, robots state,
@@ -77,8 +76,7 @@ observations; link occurrences retain their original order and are never
 deduplicated. `forms`, `decisions`, `frontier`, `query_variants`, `resume_state`,
 and `context_items` hold the native storage core's recovery and collection lanes
 (empty in legacy imports). `responses`,
-`documents`, `bodies`, and `resource_refs` reserve captured HTTP, document, and
-resource provenance. `audit.document_json` is the only authoritative stored audit
+`documents` and `bodies` hold captured HTTP/document provenance. `resource_refs` remains reserved until resource capture lands. `audit.document_json` is the only authoritative stored audit
 snapshot; report formats render that document and do not compute new findings.
 
 Existing report and comparison routes can take a scan path directly. The MCP
@@ -103,7 +101,7 @@ bytes when rendering provides them, with SHA-256 deduplication and `identity` or
 consistency evidence, not a signature or an anti-tampering claim.
 
 Native defaults are 5 MiB decoded bytes per body, 10 GiB stored bodies per scan,
-1 GiB free-space reserve, and a 20 GiB history warning. Capture processes one
+1 GiB free-space reserve, and a recorded 20 GiB history-warning threshold. History management is not yet available. Capture processes one
 body at a time. The native fetch clamp is a 64 MiB hard limit: a larger response
 is marked truncated rather than retained, even if a configured policy limit is
 larger; rendering fails rather than silently keeping an over-limit DOM. `off`,
