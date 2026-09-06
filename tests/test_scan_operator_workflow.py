@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
 import sqlite3
 import time
 import zlib
@@ -71,8 +72,32 @@ def _audit_bytes(path: Path) -> bytes:
         )
 
 
+def _documented_reader_sql() -> tuple[str, str, str]:
+    """The three read-only queries docs/STORAGE.md publishes for a stdlib reader.
+
+    Taken from the document rather than retyped here, so a query that is edited into
+    something SQLite will not run fails this gate instead of shipping.
+    """
+    text = (ROOT / "docs" / "STORAGE.md").read_text(encoding="utf-8")
+    blocks = re.findall(r"^```sql\n(.*?)^```", text, re.DOTALL | re.MULTILINE)
+    assert len(blocks) == 1, "docs/STORAGE.md must publish exactly one stdlib SQL recipe"
+    # Split on statement boundaries SQLite itself recognises: a documented comment may
+    # contain a semicolon, and splitting on the character would cut a query in half.
+    statements, buffer = [], ""
+    for line in blocks[0].splitlines(keepends=True):
+        buffer += line
+        if sqlite3.complete_statement(buffer):
+            statements.append(buffer.strip())
+            buffer = ""
+    assert not buffer.strip(), f"docs/STORAGE.md ends with an unterminated query: {buffer!r}"
+    assert len(statements) == 3, f"expected three documented reader queries, got {statements}"
+    identity, status, inlinks = statements
+    return identity, status, inlinks
+
+
 def _documented_stdlib_read(path: Path) -> None:
     """Exercise the documented read-only SQL and bounded body-decoding recipe."""
+    identity_sql, status_sql, inlinks_sql = _documented_reader_sql()
     deadline = time.monotonic() + 30
     con = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
     try:
@@ -80,21 +105,11 @@ def _documented_stdlib_read(path: Path) -> None:
         con.set_progress_handler(lambda: int(time.monotonic() > deadline), 10_000)
         assert con.execute("PRAGMA application_id").fetchone()[0] == 1397051208
         assert con.execute("PRAGMA user_version").fetchone()[0] == 1
-        identity = con.execute(
-            "SELECT scan_uuid, format_version, writer_revision, source_kind, lifecycle, "
-            "crawl_partial, corpus_partial, capabilities_json FROM scan WHERE singleton=1"
-        ).fetchone()
+        identity = con.execute(identity_sql).fetchone()
         assert identity[1] == "scan.v1" and identity[4] == "finished"
         assert con.execute("SELECT format_version FROM scan").fetchone()[0] == "scan.v1"
-        assert con.execute(
-            "SELECT status_code, COUNT(*) AS pages FROM pages "
-            "GROUP BY status_code ORDER BY pages DESC, status_code"
-        ).fetchall() == [(200, 1)]
-        assert con.execute(
-            "SELECT u.url, COUNT(*) AS inlink_occurrences "
-            "FROM links AS l JOIN urls AS u ON u.url_id = l.destination_url_id "
-            "GROUP BY l.destination_url_id ORDER BY inlink_occurrences DESC, u.url LIMIT 20"
-        ).fetchone() == ("https://example.test/", 1)
+        assert con.execute(status_sql).fetchall() == [(200, 1)]
+        assert con.execute(inlinks_sql).fetchone() == ("https://example.test/", 1)
         sha256, codec, decoded_bytes, data = con.execute(
             "SELECT sha256, codec, decoded_bytes, data FROM bodies LIMIT 1"
         ).fetchone()
