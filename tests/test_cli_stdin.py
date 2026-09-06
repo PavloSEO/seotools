@@ -44,6 +44,37 @@ def test_duplicate_check_still_reads_piped_stdin(monkeypatch, capsys):
     assert out["echo"]["items"] and out["echo"]["threshold"] == 0.9
 
 
+def test_segment_diff_target_keeps_stdin_json_as_its_input(monkeypatch, capsys):
+    """A target segment names a comparison side; it is not an audit input itself."""
+    monkeypatch.setattr(cli.sys, "stdin", io.StringIO('{"audit":"/tmp/audit.json"}'))
+    monkeypatch.setitem(handlers.HANDLERS, "segment_diff", lambda **kw: {"ok": True, "echo": kw})
+    rc = cli.main(["segment-diff", "--source", "en", "--target", "fr"])
+    assert rc == 0
+    assert json.loads(capsys.readouterr().out)["echo"] == {
+        "audit": "/tmp/audit.json",
+        "source": "en",
+        "target": "fr",
+    }
+
+
+def test_explicit_input_still_wins_over_stdin_with_segment_names(monkeypatch, capsys):
+    monkeypatch.setattr(cli.sys, "stdin", io.StringIO('{"audit":"/tmp/stdin.json"}'))
+    monkeypatch.setitem(handlers.HANDLERS, "segment_diff", lambda **kw: {"ok": True, "echo": kw})
+    rc = cli.main(
+        [
+            "segment-diff",
+            "--input",
+            '{"audit":"/tmp/explicit.json"}',
+            "--source",
+            "en",
+            "--target",
+            "fr",
+        ]
+    )
+    assert rc == 0
+    assert json.loads(capsys.readouterr().out)["echo"]["audit"] == "/tmp/explicit.json"
+
+
 def test_images_optimize_output_dir_maps_to_settings(monkeypatch, capsys):
     monkeypatch.setattr(cli.sys, "stdin", _NeverReadStdin())
     monkeypatch.setitem(handlers.HANDLERS, "images_optimize", lambda **kw: {"ok": True, "echo": kw})
@@ -65,7 +96,7 @@ def test_duplicate_check_fingerprints_flag(monkeypatch, capsys):
 
 
 # Issue #156: these flags each identify a command's whole input just as --url does, but were
-# missing from SOURCE_FLAGS, so a per-line loop over any one of them silently stopped after its
+# missing from source-flag registration, so a per-line loop over any one of them silently stopped after its
 # first iteration (the exact failure the comment above SOURCE_FLAGS warns about).
 FORMERLY_MISSING_SOURCE_FLAGS = [
     ("keywords-expand", ["--phrase", "floor heating"]),
@@ -84,10 +115,21 @@ FORMERLY_MISSING_SOURCE_FLAGS = [
 
 @pytest.mark.parametrize("command,flag_args", FORMERLY_MISSING_SOURCE_FLAGS)
 def test_formerly_missing_source_flags_are_recognized(command, flag_args):
-    """``_has_source_flag`` must return True from the flag alone — derived from the parser
+    """``_has_source_flag`` must return True from the flag alone — derived from its parser
     (``_source_flag``), not from a hand-kept list that can silently omit a new flag again."""
     args = cli.build_parser().parse_args([command, *flag_args])
     assert cli._has_source_flag(args)
+
+
+def test_source_flag_tracking_is_scoped_to_its_command():
+    segment_args = cli.build_parser().parse_args(
+        ["segment-diff", "--source", "en", "--target", "fr"]
+    )
+    backlinks_args = cli.build_parser().parse_args(
+        ["backlinks-check", "--target", "https://example.com/"]
+    )
+    assert not cli._has_source_flag(segment_args)
+    assert cli._has_source_flag(backlinks_args)
 
 
 def test_a_loop_over_a_formerly_missing_flag_runs_every_line(monkeypatch, capsys):

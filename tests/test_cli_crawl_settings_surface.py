@@ -22,7 +22,7 @@ from seohead.crawl import settings as crawl_config
 
 def _kwargs(*flags):
     """Through the real parser, so the flags are exercised as an operator types them
-    -- a hand-built Namespace would leave SOURCE_FLAGS unpopulated and send
+    -- a hand-built Namespace would leave source-flag metadata unpopulated and send
     _build_kwargs to read stdin."""
     args = cli.build_parser().parse_args(["crawl-site", "--url", "https://example.com", *flags])
     return cli._build_kwargs("crawl-site", args)[1]
