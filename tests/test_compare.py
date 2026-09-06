@@ -139,6 +139,18 @@ def test_differing_results_affecting_config_is_flagged_by_name():
     assert any("robots.policy" in w for w in warnings)
 
 
+def test_differing_results_affecting_config_is_refused_unless_forced():
+    """A configuration change is not a site change, so it needs an explicit override."""
+    before = _audit(["https://e.com/a"], [], crawl_config={"robots.policy": "respect"})
+    after = _audit(["https://e.com/a"], [], crawl_config={"robots.policy": "ignore"})
+
+    with pytest.raises(CompareError, match=r"robots\.policy"):
+        compare(before, after)
+
+    forced = compare(before, after, force=True)
+    assert any("robots.policy" in warning for warning in forced["warnings"])
+
+
 def test_identical_config_produces_no_config_warning():
     cfg = {"robots.policy": "respect", "limits.max_urls": 200}
     before = _audit(["https://e.com/a"], [], crawl_config=cfg)

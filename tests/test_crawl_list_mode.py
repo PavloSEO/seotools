@@ -470,3 +470,33 @@ def test_an_unresolved_redirect_reports_an_empty_chain_rather_than_a_false_desti
     assert page.redirect_url == "https://example.com/new"
     assert page.redirect_chain == []
     assert page.final_url == ""
+
+
+def test_resolving_a_canonical_destination_records_each_hop_without_discovery():
+    """Canonical resolution is a per-row audit, not a crawl of canonical targets."""
+    responses = {
+        "https://example.com/a": FakeResponse(
+            '<link rel="canonical" href="https://example.com/b">'
+        ),
+        "https://example.com/b": FakeResponse(
+            '<link rel="canonical" href="https://example.com/c">'
+        ),
+        "https://example.com/c": FakeResponse(
+            '<link rel="canonical" href="https://example.com/c">'
+        ),
+    }
+
+    result = collect_urls(
+        ["https://example.com/a"],
+        fetcher=_fetch(responses),
+        min_delay=0,
+        resolve_canonical_destination=True,
+    )
+
+    page = result.pages[0]
+    assert [p.url for p in result.pages] == ["https://example.com/a"]
+    assert page.final_canonical == "https://example.com/c"
+    assert [hop["url"] for hop in page.canonical_chain] == [
+        "https://example.com/b",
+        "https://example.com/c",
+    ]

@@ -321,7 +321,10 @@ def _rewrite_pages_sidecar(path: str, pages: list[Any]) -> None:
 
 
 def _segment_counts(
-    pages: list[Any], issues: list[dict[str, Any]], scope_config: dict[str, Any]
+    pages: list[Any],
+    issues: list[dict[str, Any]],
+    scope_config: dict[str, Any],
+    analysis_segments: list[dict[str, Any]] | None = None,
 ) -> dict[str, dict[str, int]]:
     """Page and issue counts per named segment (#358).
 
@@ -342,32 +345,40 @@ def _segment_counts(
     from seohead.sf.core.segments import UNSEGMENTED, assign_segments
 
     scope_rules = Scope.from_config(scope_config)
-    if not scope_rules.segments:
+    engine_segments = list(analysis_segments or ())
+    if not engine_segments:
+        engine_segments = [
+            {
+                "name": rule.name,
+                "rules": [
+                    r
+                    for r in (
+                        {"op": "prefix", "field": "path", "value": rule.prefix}
+                        if rule.prefix
+                        else None,
+                        {"op": "eq", "field": "host", "value": rule.host} if rule.host else None,
+                        {"op": "regex", "field": "url", "value": rule.pattern.pattern}
+                        if rule.pattern
+                        else None,
+                    )
+                    if r is not None
+                ],
+            }
+            for rule in scope_rules.segments
+        ]
+    if not engine_segments:
         return {}
 
-    engine_segments = [
-        {
-            "name": rule.name,
-            "rules": [
-                r
-                for r in (
-                    {"op": "prefix", "field": "path", "value": rule.prefix}
-                    if rule.prefix
-                    else None,
-                    {"op": "eq", "field": "host", "value": rule.host} if rule.host else None,
-                    {"op": "regex", "field": "url", "value": rule.pattern.pattern}
-                    if rule.pattern
-                    else None,
-                )
-                if r is not None
-            ],
-        }
-        for rule in scope_rules.segments
-    ]
-
-    def record(url: str) -> dict[str, str]:
+    def record(page: Any) -> dict[str, Any]:
+        url = page if isinstance(page, str) else page.url
         parts = urlsplit(url)
-        return {"url": url, "path": parts.path, "host": (parts.hostname or "").lower()}
+        values = dict(vars(page)) if not isinstance(page, str) else {}
+        return {
+            **values,
+            "url": url,
+            "path": parts.path,
+            "host": (parts.hostname or "").lower(),
+        }
 
     def bucket(name: str | None) -> dict[str, int]:
         bucket_name = "default" if name in (None, UNSEGMENTED) else name
@@ -375,19 +386,26 @@ def _segment_counts(
 
     counts: dict[str, dict[str, int]] = {}
 
-    # Pages decide segment membership; no rule here references another segment
-    # (op="segment"), so an issue's target can be classified on its own,
-    # against the same rule set, without needing to belong to the page pool.
-    page_records = [record(page.url) for page in pages]
-    page_primary = assign_segments(page_records, engine_segments)["primary"]
+    # Pages decide segment membership first, so dependency rules see the full
+    # collected population. An issue targeting a collected page reuses that
+    # assignment below; an audit-only target is evaluated on its own evidence.
+    page_records = [record(page) for page in pages]
+    assignment = assign_segments(page_records, engine_segments)
+    if analysis_segments:
+        for name in assignment["order"]:
+            bucket(name)
+    page_primary = assignment["primary"]
     for page_record in page_records:
         bucket(page_primary.get(page_record["url"]))["pages"] += 1
 
     for issue in issues:
         target = issue.get("target_url")
         if target:
-            issue_primary = assign_segments([record(target)], engine_segments)["primary"]
-            bucket(issue_primary.get(target))["issues"] += 1
+            if target in page_primary:
+                bucket(page_primary[target])["issues"] += 1
+            else:
+                issue_primary = assign_segments([record(target)], engine_segments)["primary"]
+                bucket(issue_primary.get(target))["issues"] += 1
         else:
             # An audit-wide finding with no single target still counts
             # somewhere, so segment sums keep matching issues_total (#441).
@@ -398,6 +416,7 @@ def _segment_counts(
 def crawl_site(
     url: str | None = None,
     urls: list[str] | None = None,
+    urls_file: str | None = None,
     config: str | None = None,
     max_urls: int | None = None,
     max_depth: int | None = None,
@@ -437,8 +456,14 @@ def crawl_site(
     from seohead.crawl.collect import collect_urls
     from seohead.crawl.spider import crawl_site as _spider
 
+    if urls_file:
+        if url or urls:
+            raise ValueError("urls_file cannot be combined with url or urls")
+        from seohead.crawl.list_input import read_url_list
+
+        urls = read_url_list(urls_file)
     if not url and not urls:
-        raise ValueError("url or urls required")
+        raise ValueError("url, urls, or urls_file required")
 
     # Defaults, then file, then environment, then these explicit arguments.
     # ``overrides`` carries whatever the caller reached for by dotted path -- the
@@ -458,6 +483,14 @@ def crawl_site(
         if value is not None:
             resolved_overrides[path] = value
     settings = crawl_config.load(config, overrides=resolved_overrides)
+    analysis_segments = settings["analysis"]["segments"]
+    if analysis_segments:
+        from seohead.sf.core.segments import SegmentError, resolve_order
+
+        try:
+            resolve_order(analysis_segments)
+        except SegmentError as exc:
+            raise crawl_config.ConfigError(f"analysis.segments: {exc}") from exc
     if settings.get("resources", {}).get("fetch") and not scan_out:
         raise ValueError("resources.fetch requires a SQLite scan_out artifact")
     if scan_out:
@@ -621,6 +654,7 @@ def crawl_site(
             robots_policy=settings["robots"]["policy"],
             robots_token=settings["robots"]["user_agent_token"],
             resolve_redirect_destination=settings["discovery"]["resolve_redirect_destination"],
+            resolve_canonical_destination=settings["discovery"]["resolve_canonical_destination"],
         )
         discovery = {
             "mode": "list",
@@ -628,6 +662,9 @@ def crawl_site(
             # says nothing here is indistinguishable from one that silently ignored it.
             "directive_policy": settings["robots"]["policy"],
             "robots_blocked": len(result.robots_blocked),
+            "canonical_destination_resolution": settings["discovery"][
+                "resolve_canonical_destination"
+            ],
         }
 
     response, _audit = _audit_crawl_result(
@@ -1106,9 +1143,10 @@ def _audit_crawl_result(
     ).to_json()
     # Page and issue counts per named segment (#358) -- only when the operator
     # actually declared segments, so a plain crawl's audit.json is unchanged.
+    analysis_segments = settings["analysis"]["segments"]
     audit["segments"] = (
-        _segment_counts(result.pages, audit["issues"], settings["scope"])
-        if settings["scope"]["segments"]
+        _segment_counts(result.pages, audit["issues"], settings["scope"], analysis_segments)
+        if settings["scope"]["segments"] or analysis_segments
         else {}
     )
 
@@ -1368,7 +1406,7 @@ def _load_audit(
     return load_audit_document(value, label, diagnostics)
 
 
-def compare_crawls(before: Any = None, after: Any = None) -> dict[str, Any]:
+def compare_crawls(before: Any = None, after: Any = None, force: bool = False) -> dict[str, Any]:
     """Diff two audits: which findings were fixed, which are new, which pages
     dropped out of the crawl entirely. See seohead.sf.core.compare for why
     "fixed" and "no longer crawled" are kept apart rather than merged."""
@@ -1377,7 +1415,88 @@ def compare_crawls(before: Any = None, after: Any = None) -> dict[str, Any]:
     diagnostics: list[dict[str, str]] = []
     before_doc = _load_audit(before, "before", diagnostics)
     after_doc = _load_audit(after, "after", diagnostics)
-    result = compare(before_doc, after_doc)
+    result = compare(before_doc, after_doc, force=force)
+    if diagnostics:
+        result["input_diagnostics"] = diagnostics
+    return result
+
+
+def crawl_enrich(
+    audit: Any = None,
+    external_csv: str | None = None,
+    url_column: str = "url",
+    ignore_query: bool = False,
+    ignore_scheme: bool = False,
+    casefold_path: bool = False,
+    out_urls: str | None = None,
+) -> dict[str, Any]:
+    """Join an existing crawl's pages to an offline traffic/search CSV.
+
+    This never changes the original audit. It returns each matched crawl page
+    next to its external row, makes every non-match direction explicit, and
+    can write reliable same-origin external-only URLs as a list-mode input.
+    A partial crawl cannot prove an external-only URL is an orphan, so that
+    list is refused rather than silently turning an incomplete population into
+    an orphan claim.
+    """
+    if not external_csv:
+        raise ValueError("external_csv required")
+    from pathlib import Path
+    import contextlib
+    import os
+    import tempfile
+
+    from seohead.tools.external_join import (
+        join_external_data,
+        load_csv_rows,
+        normalize_join_key,
+        orphan_urls,
+    )
+
+    diagnostics: list[dict[str, str]] = []
+    document = _load_audit(audit, "audit", diagnostics)
+    rows = load_csv_rows(external_csv, url_column=url_column)
+
+    def key(value: str | None) -> str | None:
+        return normalize_join_key(
+            value,
+            ignore_query=ignore_query,
+            ignore_scheme=ignore_scheme,
+            casefold_path=casefold_path,
+        )
+
+    joined = join_external_data(document.get("pages") or [], rows, url_column=url_column, key_fn=key)
+    partial = bool((document.get("run") or {}).get("crawl_partial"))
+    candidates = [] if partial else orphan_urls(joined, url_column=url_column)
+    reason = (
+        "crawl is partial; external-only URLs are not labelled as orphans"
+        if partial
+        else "crawl completed; external-only same-origin URLs can enter list mode"
+    )
+    if out_urls:
+        if partial:
+            raise ValueError("cannot write an orphan list from a partial crawl")
+        target = Path(out_urls)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        descriptor, temporary = tempfile.mkstemp(dir=target.parent, prefix=".crawl-enrich-")
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                handle.writelines(f"{url}\n" for url in candidates)
+            os.replace(temporary, target)
+        except BaseException:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(temporary)
+            raise
+    result: dict[str, Any] = {
+        "schema_version": "crawl_enrich.v1",
+        "join": joined,
+        "orphan_detection": {
+            "state": "partial" if partial else "complete",
+            "reason": reason,
+            "urls": candidates,
+        },
+        "out_urls": out_urls,
+    }
     if diagnostics:
         result["input_diagnostics"] = diagnostics
     return result
@@ -2302,6 +2421,7 @@ _RAW_HANDLERS = {
     "report_build": report_build,
     "facts_export": facts_export,
     "compare_crawls": compare_crawls,
+    "crawl_enrich": crawl_enrich,
     "segment_diff": segment_diff,
     "keywords_expand": keywords_expand,
     "keywords_seasonality": keywords_seasonality,

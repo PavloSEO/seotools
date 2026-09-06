@@ -132,6 +132,7 @@ def build_server():  # -> FastMCP
     def seo_crawl_site(
         url: str = "",
         urls: list[str] | None = None,
+        urls_file: str | None = None,
         sitemap: str | None = None,
         config: str | None = None,
         max_urls: int | None = None,
@@ -147,14 +148,15 @@ def build_server():  # -> FastMCP
         """Crawl a site from a start URL by following links, or fetch an explicit
         ``urls`` list instead of following links at all, then audit the result
         through the same checks used for Screaming Frog exports. One of ``url``
-        or ``urls`` is required. Same host only when following links, politeness
+        or ``urls``/``urls_file`` is required. Same host only when following links, politeness
         adapts to the origin. Checks whose evidence a native crawl cannot produce
         are reported as skipped, never as clean.
 
-        Pass ``urls`` instead of ``url`` for list mode: fetch exactly that set,
+        Pass ``urls`` or a local ``urls_file`` instead of ``url`` for list mode: fetch exactly that set,
         depth 0, no link discovery -- the migration-audit shape (a redirect map,
-        a Search Console export). ``max_depth`` and ``concurrency`` have nothing
-        to discover in that mode and are ignored.
+        a Search Console export). ``urls_file`` scans TXT, CSV, XLSX, or XML for
+        absolute HTTP(S) URLs in source order. ``max_depth`` and ``concurrency``
+        have nothing to discover in that mode and are ignored.
 
         ``robots`` is "respect" (obey), "report_only" (fetch robots.txt, crawl
         anyway, and report what a compliant crawler would have missed) or
@@ -188,6 +190,7 @@ def build_server():  # -> FastMCP
             handlers.crawl_site(
                 url=url or None,
                 urls=urls,
+                urls_file=urls_file,
                 sitemap=sitemap,
                 config=config,
                 max_urls=max_urls,
@@ -596,16 +599,43 @@ def build_server():  # -> FastMCP
         return _checked(handlers.facts_export(sites=sites))
 
     @mcp.tool(annotations=pure, structured_output=True)
-    def seo_compare_crawls(before: Any, after: Any) -> dict[str, Any]:
+    def seo_compare_crawls(before: Any, after: Any, force: bool = False) -> dict[str, Any]:
         """Diff two audit documents (dict, JSON path, or scan.v1 SQLite path) into four disjoint
         sets per finding: entered (new problem on a page that existed before),
         left (the page is still crawled and no longer matches — a real fix),
         appeared (a genuinely new page with a finding), disappeared (the page is
         not in this crawl at all, so a missing finding proves nothing). "left" and
         "disappeared" look identical in a naive diff and mean opposite things.
-        Warns when the two runs used different results-affecting settings, since
-        part of the difference may be the configuration rather than the site."""
-        return _checked(handlers.compare_crawls(before=before, after=after))
+        Refuses a known difference in results-affecting settings unless ``force`` is
+        true; partial-crawl warnings remain attached to the historical result."""
+        return _checked(handlers.compare_crawls(before=before, after=after, force=force))
+
+    @mcp.tool(annotations=create_files_from_web, structured_output=True)
+    def seo_crawl_enrich(
+        audit: Any,
+        external_csv: str,
+        url_column: str = "url",
+        ignore_query: bool = False,
+        ignore_scheme: bool = False,
+        casefold_path: bool = False,
+        out_urls: str | None = None,
+    ) -> dict[str, Any]:
+        """Join an existing audit or scan to an offline URL-keyed CSV without a
+        provider call. Matched rows retain both page and external data; crawl-only,
+        external-only, and unkeyable rows remain separate. A completed crawl can
+        write same-origin external-only URLs to ``out_urls`` for `crawl-site
+        --urls-file`; a partial crawl never labels them as orphan URLs."""
+        return _checked(
+            handlers.crawl_enrich(
+                audit=audit,
+                external_csv=external_csv,
+                url_column=url_column,
+                ignore_query=ignore_query,
+                ignore_scheme=ignore_scheme,
+                casefold_path=casefold_path,
+                out_urls=out_urls,
+            )
+        )
 
     @mcp.tool(annotations=pure, structured_output=True)
     def seo_segment_diff(audit: Any, source: str, target: str) -> dict[str, Any]:

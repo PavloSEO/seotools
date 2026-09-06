@@ -72,6 +72,37 @@ adaptive back-off: latency widens the delay, a timeout widens it hard, and repea
 the run rather than pushing a failing origin. Rows land in `pages.jsonl` as they are collected, so
 an interrupted crawl still leaves evidence behind.
 
+For a migration map, analytics export, or hand-maintained set, list mode fetches
+only the supplied URLs at depth zero. `--urls-file` scans TXT, CSV, XLSX, or XML
+for absolute HTTP(S) URLs and preserves their source order; it does not infer a
+column name or follow links discovered on those pages.
+
+```bash
+seohead crawl-site --urls-file ./redirect-map.xlsx --robots report_only --out-dir ./report
+```
+
+Set `discovery.resolve_redirect_destination` or
+`discovery.resolve_canonical_destination` in the crawl config when a migration
+audit needs the final target of a redirect or canonical chain. Each is an
+explicit bounded per-row walk; neither follows ordinary links or changes list
+mode's depth-zero page population.
+
+`scope.segments` limits discovery by URL shape. For report grouping after
+collection, use `analysis.segments`: its rules can match any recorded page
+field and reference another segment. The engine validates cycles before the
+crawl starts and uses deterministic dependency order.
+
+To join observed pages to traffic or search data without calling a provider,
+give `crawl-enrich` a URL-keyed CSV. It retains unmatched and malformed rows as
+evidence instead of treating them as zero. A completed crawl may write its
+same-origin external-only URLs for a follow-up list-mode audit; partial crawls
+do not label those URLs as orphans.
+
+```bash
+seohead crawl-enrich --audit ./report/audit.json --external-csv ./gsc.csv --out-urls ./not-observed.txt
+seohead crawl-site --urls-file ./not-observed.txt --out-dir ./orphan-audit
+```
+
 This is not Screaming Frog parity. Checks whose evidence a native crawl cannot produce —
 near-duplicates, readability, pixel widths, link score — are reported as **skipped**, never
 as clean, and `summary.check_coverage` states how much of the registry ran. Redirect chain

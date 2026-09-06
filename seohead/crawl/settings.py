@@ -98,6 +98,9 @@ DEFAULTS: dict[str, Any] = {
         # scope.include_patterns regex. Empty means every segment is in scope.
         "segments_only": [],
     },
+    # Post-crawl grouping is distinct from scope.segments: scope controls
+    # discovery, while analysis rules classify already collected evidence.
+    "analysis": {"segments": []},
     "sitemaps": {
         # Seed the crawl from the sitemap declared in robots.txt (the
         # ``Sitemap:`` directive) when no explicit sitemap URL is given.
@@ -124,6 +127,9 @@ DEFAULTS: dict[str, Any] = {
         # hop exists. Off by default because it is extra requests per redirect
         # a plain status check does not need.
         "resolve_redirect_destination": False,
+        # Canonical-chain equivalent: inspect canonical targets without making
+        # them list-mode pages or relaxing depth zero.
+        "resolve_canonical_destination": False,
     },
     "limits": {
         "max_urls": 200,
@@ -315,6 +321,7 @@ RESULTS_AFFECTING: frozenset[str] = frozenset(
         # breakdown even when nothing is excluded.
         "scope.segments",
         "scope.segments_only",
+        "analysis.segments",
         # Seeding from the sitemap changes which URLs are fetched at all.
         "sitemaps.auto_discover",
         "discovery.hyperlinks.store",
@@ -323,6 +330,7 @@ RESULTS_AFFECTING: frozenset[str] = frozenset(
         "discovery.external.store",
         "discovery.follow_nofollow",
         "discovery.resolve_redirect_destination",
+        "discovery.resolve_canonical_destination",
         # Every limit truncates the corpus, and a truncated crawl produces false
         # "not linked from anywhere" conclusions.
         "limits.max_urls",
@@ -429,6 +437,10 @@ DESCRIPTIONS: dict[str, str] = {
         "every segment is in scope. Subsumes a subfolder-only or single-subdomain "
         "crawl without an ad-hoc scope.include_patterns regex."
     ),
+    "analysis.segments": (
+        "Post-crawl segment rules: [{'name': ..., 'rules': [{'op': 'eq|prefix|contains|regex|in|segment', "
+        "'field': ..., 'value': ...}]}]. Rules may use page fields or another segment."
+    ),
     "sitemaps.auto_discover": (
         "Seed the crawl from the sitemap declared in robots.txt when no explicit "
         "sitemap URL is given."
@@ -442,6 +454,10 @@ DESCRIPTIONS: dict[str, str] = {
         "List mode only: follow a fetched redirect past its first hop to where it actually "
         "lands, recording every hop. Depth stays 0; this is a per-URL chain walk, not link "
         "discovery."
+    ),
+    "discovery.resolve_canonical_destination": (
+        "List mode only: follow a fetched page's canonical declaration through a bounded "
+        "chain, recording every inspected target without adding it to the page population."
     ),
     "limits.max_urls": (
         "Maximum number of URLs the crawl will fetch. Values above "
@@ -799,6 +815,8 @@ def validate(config: dict[str, Any]) -> None:
             )
 
     _validate_segments(config["scope"])
+    if not isinstance(config["analysis"]["segments"], list):
+        raise ConfigError("analysis.segments must be a list")
     headers = config["http"]["headers"]
     if not isinstance(headers, dict) or any(
         not isinstance(name, str) or not isinstance(value, str) for name, value in headers.items()
