@@ -6,6 +6,8 @@ import json
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from seohead.crawl import link_findings
 from seohead.crawl.linkgraph import inlink_composition
 from seohead.crawl.sql_graph import StoredGraph
@@ -61,14 +63,24 @@ def _graph(tmp_path):
         )
         ids[value] = url_id
 
-    def link(source, destination, position="", *, nofollow=False, rel=(), target="", raw_href=""):
+    def link(
+        source,
+        destination,
+        position="",
+        *,
+        nofollow=False,
+        rel=(),
+        target="",
+        raw_href="",
+        representation="static",
+    ):
         con.execute(
             "INSERT INTO links(source_url_id,destination_url_id,evidence_representation,ordinal,anchor,"
             "nofollow,position,rel_json,target,raw_href) VALUES(?,?,?,?,?,?,?,?,?,?)",
             (
                 ids[source],
                 url(destination),
-                "static",
+                representation,
                 con.execute(
                     "SELECT COUNT(*) FROM links WHERE source_url_id=?", (ids[source],)
                 ).fetchone()[0],
@@ -145,6 +157,31 @@ def test_composition_and_raw_inlink_counts_match_legacy_for_recorded_page_destin
         {"url": port_page, "inlinks": 3, "unique_inlinks": 1},
     ]
     assert next(row for row in rows if row["url"] == fragment_page)["inlinks_total"] == 1
+    con.close()
+
+
+@pytest.mark.parametrize("representation", ["static", "rendered", "legacy_fragment"])
+def test_unclassified_composition_uses_selected_link_occurrences(tmp_path, representation):
+    con, page, link, _form = _graph(tmp_path)
+    source, destination = "https://example.test/source", "https://example.test/target"
+    page(source, representation=representation)
+    page(destination)
+    # A discarded representation, or an earlier duplicate in the selected DOM,
+    # must not suppress a boilerplate-only finding from the retained nav edge.
+    discarded = "rendered" if representation == "static" else representation
+    link(source, destination, "", representation=discarded)
+    link(source, destination, "nav", representation=representation)
+    con.commit()
+
+    with StoredGraph(con) as graph:
+        edges = list(graph.iter_links())
+        assert len(edges) == 1
+        legacy = inlink_composition(edges, "example.test")
+        rows = list(graph.iter_composition_rows())
+        assert rows == legacy["pages"]
+        assert rows[0]["boilerplate_only"] is True
+        assert rows[0]["inlinks_unclassified"] == 0
+        assert graph.composition_metadata().edges_unclassified == 0
     con.close()
 
 
