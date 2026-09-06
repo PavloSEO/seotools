@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "source": {
     "project": "example.com",
-    "generated_at": "2026-09-06T10:04:29Z",
+    "generated_at": "2026-09-06T10:04:05Z",
     "health_score": 6,
     "crawl_valid": true,
     "crawl_invalid_reason": null,

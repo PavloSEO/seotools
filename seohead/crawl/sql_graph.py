@@ -209,27 +209,49 @@ class StoredGraph:
             "GROUP BY classified.destination_url_id, dst.url, classified.position "
             "ORDER BY dst.url COLLATE BINARY, classified.position COLLATE BINARY"
         )
+        dest_unclassified = self._composition_unclassified_by_destination()
         current_url: str | None = None
         counts: dict[str, int] = {}
         for row in cursor:
             url = row["url"]
             if current_url is not None and url != current_url:
-                yield self._composition_row(current_url, counts)
+                yield self._composition_row(
+                    current_url, counts, dest_unclassified.get(current_url, 0)
+                )
                 counts = {}
             current_url = url
             counts[row["position"]] = row["count"]
         if current_url is not None:
-            yield self._composition_row(current_url, counts)
+            yield self._composition_row(current_url, counts, dest_unclassified.get(current_url, 0))
+
+    def _composition_unclassified_by_destination(self) -> dict[str, int]:
+        """DISTINCT (destination, source) count of unclassified edges, per destination.
+
+        Mirrors ``linkgraph.inlink_composition``'s own dedup: a page repeated
+        as an unclassified source is one unclassified inlink, not many.
+        """
+        cursor = self.con.execute(
+            "SELECT dst.url AS url, COUNT(DISTINCT l.source_url_id) AS count "
+            "FROM links AS l "
+            "JOIN e_graph_destination_ids AS p ON p.url_id=l.destination_url_id "
+            "JOIN urls AS dst ON dst.url_id=l.destination_url_id "
+            "WHERE l.position='' "
+            "GROUP BY l.destination_url_id, dst.url"
+        )
+        return {row["url"]: row["count"] for row in cursor}
 
     @staticmethod
-    def _composition_row(url: str, counts: dict[str, int]) -> dict[str, Any]:
+    def _composition_row(
+        url: str, counts: dict[str, int], dest_unclassified: int
+    ) -> dict[str, Any]:
         total = sum(counts.values())
         boilerplate = sum(counts.get(position, 0) for position in BOILERPLATE_POSITIONS)
         return {
             "url": url,
-            "inlinks_total": total,
+            "inlinks_total": total + dest_unclassified,
             "by_position": dict(sorted(counts.items())),
-            "boilerplate_only": bool(counts) and boilerplate == total,
+            "inlinks_unclassified": dest_unclassified,
+            "boilerplate_only": bool(counts) and boilerplate == total and dest_unclassified == 0,
         }
 
     def iter_localhost_findings(self) -> Iterator[dict[str, Any]]:
