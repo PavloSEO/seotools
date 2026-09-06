@@ -57,6 +57,9 @@ class _Scan:
         assert include_edges
         return {"counts": self.con.counts}
 
+    def sitemap_roots(self):
+        return []
+
 
 def _run(**overrides):
     fields = {
@@ -82,12 +85,15 @@ def bridge(monkeypatch):
         scan_handlers, "_producer_provenance", lambda _build: ("test", "a" * 40, {})
     )
     monkeypatch.setattr(
-        scan_handlers,
-        "_seed_urls",
-        lambda *_args: {"sitemap_url": None, "sitemap_urls": [], "declared": []},
-    )
-    monkeypatch.setattr(
         "seohead.crawl.sqlite_adapter.crawl_to_scan", lambda *_args, **_kwargs: _run()
+    )
+
+    @contextmanager
+    def empty_reconciliation(*_args, **_kwargs):
+        yield SimpleNamespace(available=False, reason="no saved sitemap declarations")
+
+    monkeypatch.setattr(
+        "seohead.crawl.sql_sitemap.prepare_sitemap_reconciliation", empty_reconciliation
     )
     return scan
 
@@ -192,7 +198,8 @@ def test_invalid_native_mode_does_not_start_sitemap_requests(tmp_path, monkeypat
     from seohead.crawl.settings import load
 
     monkeypatch.setattr(
-        scan_handlers, "_seed_urls", lambda *args: pytest.fail("invalid mode fetched a sitemap")
+        "seohead.servers.scan_sitemaps.load_sitemaps",
+        lambda *args, **kwargs: pytest.fail("invalid mode fetched a sitemap"),
     )
     with pytest.raises(ValueError, match=r"cache\.mode=off"):
         scan_handlers.crawl_site_scan(
@@ -218,7 +225,8 @@ def test_real_handler_adapter_native_audit_and_all_report_formats(
     from seohead.crawl.spider import _fetch_robots as real_fetch_robots
     from seohead.reports import build_report
     from seohead.sf.core import sitemap_coverage
-    from seohead.storage import read_audit
+    from seohead.storage import open_scan, read_audit
+    from seohead.tools import sitemap as sitemap_tool
 
     sitemap_url = "https://example.test/sitemap.xml"
     documents = {
@@ -278,24 +286,17 @@ def test_real_handler_adapter_native_audit_and_all_report_formats(
     monkeypatch.setattr(sqlite_adapter, "_client_context", no_client)
     monkeypatch.setattr(sqlite_adapter, "fetch_one", fetch_with_injected_transport)
     monkeypatch.setattr(sqlite_adapter, "_fetch_robots", robots_with_injected_transport)
-    monkeypatch.setattr(
-        scan_handlers,
-        "_seed_urls",
-        lambda *_args: {
-            "sitemap_url": sitemap_url,
-            "sitemap_urls": [sitemap_url],
-            "declared": ["https://example.test/", "https://example.test/next"],
-        },
-    )
     monkeypatch.setattr(sitemap_coverage, "validate_url", lambda _url: None)
+
+    def mock_client(*_args, **_kwargs):
+        return httpx.Client(transport=httpx.MockTransport(sitemap_response)), False
+
     monkeypatch.setattr(
         sitemap_coverage,
         "http_client",
-        lambda *_args, **_kwargs: (
-            httpx.Client(transport=httpx.MockTransport(sitemap_response)),
-            False,
-        ),
+        mock_client,
     )
+    monkeypatch.setattr(sitemap_tool, "http_client", mock_client)
 
     scan = tmp_path / "scan.sqlite"
     response = scan_handlers.crawl_site_scan(
@@ -310,7 +311,24 @@ def test_real_handler_adapter_native_audit_and_all_report_formats(
     assert response["links_collected"] == 1
     assert response["forms_collected"] == 1
 
+    with open_scan(scan) as con:
+        assert (
+            con.execute(
+                "SELECT COUNT(*) FROM context_items WHERE kind='sitemap_declared_url'"
+            ).fetchone()[0]
+            == 2
+        )
+        assert (
+            con.execute(
+                "SELECT completeness FROM context_items WHERE kind='sitemap_fetch_summary'"
+            ).fetchone()[0]
+            == "complete"
+        )
+
     audit = read_audit(scan)
+    desync = [item for item in audit["issues"] if item["check"] == "SITEMAP_DESYNC"]
+    assert len(desync) == 1
+    assert desync[0]["details"]["sitemap_not_in_crawl_pct"] == 50.0
     assert audit["run"]["effective_max_requests_per_second"] == (
         "unbounded" if min_delay == 0 else 100.0
     )

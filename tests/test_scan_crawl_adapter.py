@@ -113,6 +113,7 @@ class _Scan:
                 "lifecycle": self.lifecycle,
                 "crawl_partial": 0,
                 "limitations_json": json.dumps(self.limitations),
+                "capabilities_json": json.dumps({"resume": {"state": "complete"}}),
             },
             "counts": self.counts,
             "runtime": self.runtime,

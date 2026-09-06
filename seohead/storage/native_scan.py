@@ -237,6 +237,7 @@ class NativeScan:
         runtime_versions: dict[str, str],
         limitations: Iterable[str] = (),
         retention: dict[str, Any] | None = None,
+        initial_sitemaps: Iterable[tuple[str, str]] = (),
     ) -> NativeScan:
         """Create a no-clobber running scan with no audit and no body lanes."""
         _runtime()
@@ -255,6 +256,7 @@ class NativeScan:
         ):
             raise ScanError("native scan requires complete runtime version provenance")
         effective = _native_config(config)
+        initial_sitemaps = _bounded_items(initial_sitemaps, "selected sitemap roots", 5000)
         derived_fingerprint = crawl_config_fingerprint(effective)
         if config_fingerprint is not None and config_fingerprint != derived_fingerprint:
             raise ScanError("native scan configuration fingerprint disagrees with effective config")
@@ -352,6 +354,10 @@ class NativeScan:
                     ),
                 },
             )
+            from .sitemaps import declare
+
+            for ordinal, (sitemap_url, source) in enumerate(initial_sitemaps):
+                declare(con, sitemap_url, source, ordinal)
             cls._validate_native(con)
             con.commit()
             # The temporary name entered WAL while schema/header rows were
@@ -743,10 +749,26 @@ class NativeScan:
             "HAVING MIN(ordinal) != 0 OR MAX(ordinal) != COUNT(*) - 1 LIMIT 1"
         ).fetchone():
             raise ScanError("native scan form ordinals are not contiguous per source")
+        from .sitemaps import root_ids
+
+        sitemap_roots = root_ids(con)
         for item in con.execute("SELECT * FROM context_items"):
             from .native_context import validate_context
 
-            validate_context(con, dict(item))
+            validate_context(con, dict(item), sitemap_roots=sitemap_roots)
+        for kind, expression in (
+            ("sitemap_declaration", "CAST(substr(item_key,9) AS INTEGER)"),
+            (
+                "sitemap_declared_url",
+                "CAST(substr(item_key,instr(item_key,':ordinal:')+9) AS INTEGER)",
+            ),
+        ):
+            count, unique, low, high = con.execute(
+                f"SELECT COUNT(*),COUNT(DISTINCT {expression}),MIN({expression}),MAX({expression}) FROM context_items WHERE kind=?",
+                (kind,),
+            ).fetchone()
+            if count and (unique != count or low != 0 or high != count - 1):
+                raise ScanError(f"{kind}: source ordinals are not one contiguous run-wide sequence")
 
     def _assert_mutable(self) -> None:
         lifecycle = self.con.execute("SELECT lifecycle FROM scan WHERE singleton=1").fetchone()[0]
@@ -823,6 +845,103 @@ class NativeScan:
         ).fetchone()
         return json.loads(row[0]) if row else None
 
+    def declare_sitemap(self, url: str, source: str, ordinal: int) -> int:
+        from .sitemaps import declare
+
+        self._assert_mutable()
+        for _ in _json_chunks({"url": url, "source": source, "ordinal": ordinal}):
+            pass
+        self._begin()
+        try:
+            sid = declare(self.con, url, source, ordinal)
+            self.con.commit()
+            return sid
+        except BaseException:
+            self._rollback()
+            raise
+
+    def sitemap_roots(self) -> list[dict[str, Any]]:
+        roots = []
+        for row in self.con.execute(
+            "SELECT payload_json FROM context_items WHERE kind='sitemap_declaration'"
+        ):
+            if len(roots) >= 5000:
+                raise ScanError("too many selected sitemap roots")
+            value = json.loads(row[0])
+            value["url"] = self.con.execute(
+                "SELECT url FROM urls WHERE url_id=?", (value["sitemap_url_id"],)
+            ).fetchone()[0]
+            roots.append(value)
+        return sorted(roots, key=lambda value: value["ordinal"])
+
+    def iter_sitemap_members(self, sid: int):
+        for row in self.con.execute(
+            "SELECT payload_json FROM context_items WHERE kind='sitemap_declared_url' AND item_key LIKE ? ORDER BY CAST(substr(item_key,instr(item_key,':ordinal:')+9) AS INTEGER)",
+            (f"sitemap:{sid}:ordinal:%",),
+        ):
+            payload = json.loads(row[0])
+            url = self.con.execute(
+                "SELECT url FROM urls WHERE url_id=?", (payload["url_id"],)
+            ).fetchone()[0]
+            yield payload["ordinal"], url
+
+    def write_sitemap_members(self, sid: int, entries) -> None:
+        from .native_context import put_context
+        from .sitemaps import _context, root_ids
+
+        self._assert_mutable()
+        entries = _bounded_items(entries, "sitemap membership chunk", 256)
+        roots = root_ids(self.con)
+        self._begin()
+        try:
+            next_ordinal = self.con.execute(
+                "SELECT COUNT(*) FROM context_items WHERE kind='sitemap_declared_url'"
+            ).fetchone()[0]
+            for ordinal, url in entries:
+                if type(ordinal) is not int or ordinal < 0 or type(url) is not str or not url:
+                    raise ScanError("sitemap member requires a source ordinal and URL")
+                key = f"sitemap:{sid}:ordinal:{ordinal}"
+                exists = self.con.execute(
+                    "SELECT 1 FROM context_items WHERE kind='sitemap_declared_url' AND item_key=?",
+                    (key,),
+                ).fetchone()
+                if exists is None:
+                    if ordinal != next_ordinal:
+                        raise ScanError("sitemap member order changed during capture/resume")
+                    next_ordinal += 1
+                put_context(
+                    self.con,
+                    _context(
+                        "sitemap_declared_url",
+                        key,
+                        {
+                            "sitemap_url_id": sid,
+                            "url_id": _url(self.con, url),
+                            "ordinal": ordinal,
+                        },
+                        reason="selected sitemap expansion membership",
+                    ),
+                    sitemap_roots=roots,
+                )
+            self.con.commit()
+        except BaseException:
+            self._rollback()
+            raise
+
+    def finish_sitemap(self, sid: int, complete: bool, reason: str) -> None:
+        from .sitemaps import finish
+
+        self._assert_mutable()
+        for _ in _json_chunks({"sitemap_url_id": sid, "complete": complete, "reason": reason}):
+            pass
+        self._begin()
+        try:
+            finish(self.con, sid, complete, reason)
+            self.con.commit()
+        except BaseException:
+            self._rollback()
+            raise
+
     def begin_collection(self) -> None:
         """Declare the delivered collector and reset only recoverable interruption state."""
         self._assert_mutable()
@@ -836,6 +955,13 @@ class NativeScan:
                 reason.partition(":")[0]
                 in {"link_observations_omitted", "form_observations_omitted"}
                 for reason in limitations
+            )
+            partial = (
+                partial
+                or self.con.execute(
+                    "SELECT (SELECT COUNT(*) FROM context_items WHERE kind='sitemap_declaration') "
+                    "!= (SELECT COUNT(*) FROM context_items WHERE kind='sitemap_fetch_summary' AND completeness='complete')"
+                ).fetchone()[0]
             )
             capabilities = json.loads(row[1])
             for kind in ("pages", "links"):

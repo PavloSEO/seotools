@@ -2,11 +2,14 @@
 
 import json
 import math
+from typing import Any
 
 from . import ScanError, _insert
 
 
-def validate_context(con, item):
+def validate_context(
+    con: Any, item: dict[str, Any], *, sitemap_roots: set[int] | None = None
+) -> None:
     if set(item) != {
         "kind",
         "item_key",
@@ -26,6 +29,11 @@ def validate_context(con, item):
         payload = json.loads(item["payload_json"])
     except (TypeError, ValueError) as exc:
         raise ScanError("native scan context payload is invalid JSON") from exc
+    from . import sitemaps
+
+    if item["kind"] in sitemaps.KINDS:
+        sitemaps.validate_context(con, item, payload, sitemap_roots)
+        return
     if item["kind"] == "native_commit":
         if (
             not item["item_key"].isascii()
@@ -136,8 +144,8 @@ def validate_context(con, item):
         raise ScanError("native robots exclusion lacks its blocked_by_robots decision")
 
 
-def put_context(con, item):
-    validate_context(con, item)
+def put_context(con: Any, item: dict[str, Any], *, sitemap_roots: set[int] | None = None) -> None:
+    validate_context(con, item, sitemap_roots=sitemap_roots)
     existing = con.execute(
         "SELECT * FROM context_items WHERE kind=? AND item_key=?", (item["kind"], item["item_key"])
     ).fetchone()

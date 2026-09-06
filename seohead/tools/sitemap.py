@@ -29,7 +29,11 @@ from __future__ import annotations
 import gzip
 import io
 import re
+import sqlite3
+import tempfile
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing, nullcontext
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import httpx
@@ -59,6 +63,46 @@ _GUNZIP_CHUNK = 64 * 1024  # read granularity for the bounded gunzip loop below
 # One message for "too large", raised whichever stage (compressed or decompressed) catches
 # it, so a caller sees one consistent failure rather than branching on which check fired.
 _TOO_LARGE_MSG = f"Response too large (> {MAX_XML_BYTES} bytes)"
+
+
+class _StreamingDeduper:
+    """Per-selected-root normalized dedup without an in-memory URL map."""
+
+    def __init__(self, sink: Callable[[dict], None]) -> None:
+        self._temporary = tempfile.TemporaryDirectory(prefix="seohead-sitemap-")
+        self._con = sqlite3.connect(f"{self._temporary.name}/keys.sqlite")
+        self._con.execute("PRAGMA temp_store=FILE")
+        self._con.execute("PRAGMA cache_size=-8192")
+        self._con.execute("CREATE TABLE keys (normalized TEXT PRIMARY KEY)")
+        self._sink = sink
+        self.count = 0
+        self.duplicates = 0
+
+    def add(self, entry: dict, normalized: str) -> bool:
+        try:
+            self._con.execute("INSERT INTO keys(normalized) VALUES (?)", (normalized,))
+        except sqlite3.IntegrityError:
+            self.duplicates += 1
+            return False
+        try:
+            self._sink(
+                {
+                    "loc": entry["loc"],
+                    "loc_normalized": normalized,
+                    "lastmod": entry.get("lastmod"),
+                    "changefreq": entry.get("changefreq"),
+                    "priority": entry.get("priority"),
+                }
+            )
+        except Exception:
+            self.close()
+            raise
+        self.count += 1
+        return True
+
+    def close(self) -> None:
+        self._con.close()
+        self._temporary.cleanup()
 
 
 # ── Pure helpers ────────────────────────────────────────────────────────────
@@ -369,15 +413,22 @@ def _fetch(client: httpx.Client, url: str) -> bytes:
 
 
 # ── Crawl ───────────────────────────────────────────────────────────────────
-def crawl(url: str, concurrency: int = 3) -> dict:
+def crawl(
+    url: str,
+    concurrency: int = 3,
+    *,
+    sink: Callable[[dict], None] | None = None,
+) -> dict:
     """Recursively crawl a sitemap tree starting at *url*.
 
     Follows sitemap-index documents down to their child sitemaps and collects
     every ``<url>`` entry, de-duplicating by normalized ``loc``. Child sitemaps
     within a level are fetched in parallel using up to *concurrency* threads.
 
-    Never raises: transport, HTTP and parse failures are recorded in the
-    returned ``errors`` list.
+    Transport, HTTP and parse failures are recorded in the returned ``errors``
+    list. A caller-supplied sink streams accepted URLs instead of returning
+    their list; sink/storage failures propagate so incomplete writes cannot
+    look like a successful expansion.
 
     Returns
     -------
@@ -445,6 +496,7 @@ def crawl(url: str, concurrency: int = 3) -> dict:
     )
     with (
         client,
+        closing(_StreamingDeduper(sink)) if sink is not None else nullcontext() as streaming,
         ThreadPoolExecutor(max_workers=concurrency) as pool,
     ):
         while frontier and not truncated:
@@ -491,6 +543,14 @@ def crawl(url: str, concurrency: int = 3) -> dict:
                             norm_loc = normalize_url(entry["loc"])
                         except ValueError:
                             continue
+                        if streaming is not None:
+                            if not streaming.add(entry, norm_loc):
+                                continue
+                            added += 1
+                            if streaming.count >= MAX_URLS:
+                                truncated = True
+                                break
+                            continue
                         if norm_loc in seen_locs:
                             duplicates.append(norm_loc)
                             sources = duplicate_sources.setdefault(norm_loc, [seen_locs[norm_loc]])
@@ -533,17 +593,22 @@ def crawl(url: str, concurrency: int = 3) -> dict:
                 else:
                     errors.append({"url": target, "error": "Unknown sitemap format"})
 
-    return {
+    count = streaming.count if streaming is not None else len(all_urls)
+    duplicate_count = streaming.duplicates if streaming is not None else len(duplicates)
+    result = {
         "ok": True,
         "root": root,
-        "count": len(all_urls),
-        "urls": all_urls,
+        "count": count,
+        "urls": [] if sink is not None else all_urls,
         "sitemaps": sitemaps,
-        "duplicates": duplicates,
-        "duplicate_sources": duplicate_sources,
+        "duplicates": [] if sink is not None else duplicates,
+        "duplicate_sources": {} if sink is not None else duplicate_sources,
         "errors": errors,
         "truncated": truncated,
     }
+    if sink is not None:
+        result["duplicate_count"] = duplicate_count
+    return result
 
 
 def _err_message(exc: Exception) -> str:
