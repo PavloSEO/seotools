@@ -136,6 +136,18 @@ class _ParsedPageOptional(TypedDict, total=False):
     # Only present when the caller opts in via options["url_sources"]=True
     # (off by default) — see parser.parse_html.
     url_sources: list[dict[str, str]]
+    # Direct script/stylesheet declarations, including repeated occurrences,
+    # are a separate bounded opt-in from the generic URL inventory.
+    resource_declarations: list[ResourceDeclaration]
+    resource_declarations_omitted: int
+
+
+class ResourceDeclaration(TypedDict):
+    """One direct script or stylesheet declaration in source order."""
+
+    kind: Literal["script", "stylesheet"]
+    url: str
+    raw_url: str
 
 
 class DocumentPosition(TypedDict):

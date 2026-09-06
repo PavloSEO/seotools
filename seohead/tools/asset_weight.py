@@ -319,35 +319,24 @@ def flag_outlier_pages(
 
 
 def _discover_resources(soup: BeautifulSoup, base_url: str) -> list[dict[str, str]]:
-    """External ``<link rel=stylesheet>`` and ``<script src>`` URLs, deduplicated.
+    """Direct ``<link rel=stylesheet>`` and ``<script src>`` URLs, deduplicated.
 
     Skips ``<template>`` descendants: a stylesheet or script held only in a
     DocumentFragment is never requested by a browser, so counting it would
     fabricate bytes, minification, cache, and duplicate-library findings for a
     resource nothing ever fetches (#236).
     """
+    from seohead.tools.parser import extract_resource_declarations
+
+    declarations, _omitted = extract_resource_declarations(soup, base_url)
     seen: set[str] = set()
     out: list[dict[str, str]] = []
-    for tag in soup.find_all("link"):
-        if is_inert_template_content(tag):
-            continue
-        rels = tag.get("rel") or []
-        rels = [rels] if isinstance(rels, str) else rels
-        href = tag.get("href")
-        if href and "stylesheet" in [r.lower() for r in rels]:
-            url = urljoin(base_url, href.strip())
-            if url not in seen:
-                seen.add(url)
-                out.append({"url": url, "kind": "css"})
-    for tag in soup.find_all("script"):
-        if is_inert_template_content(tag):
-            continue
-        src = tag.get("src")
-        if src:
-            url = urljoin(base_url, src.strip())
-            if url not in seen:
-                seen.add(url)
-                out.append({"url": url, "kind": "js"})
+    for declaration_kind, output_kind in (("stylesheet", "css"), ("script", "js")):
+        for declaration in declarations:
+            if declaration["kind"] != declaration_kind or declaration["url"] in seen:
+                continue
+            seen.add(declaration["url"])
+            out.append({"url": declaration["url"], "kind": output_kind})
     return out
 
 
