@@ -9,6 +9,7 @@ to the ``wait`` callback, which is the only thing that ever consumes one.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from typing import ClassVar
 
 from seohead.crawl.cache import ResponseCache
 from seohead.crawl.collect import collect_urls, fetch_one
@@ -291,6 +292,31 @@ def test_collect_urls_reports_cache_status_per_page_and_stats_in_aggregate(tmp_p
     assert second.cache_stats["hits"] == 2
     assert second.cache_replay is False
     assert len(fetcher.calls) == 2, "the second run must not re-fetch anything"
+
+
+def test_a_bypassed_lookup_is_reported_distinctly_from_no_cache_configured(monkeypatch, tmp_path):
+    """#462: a cache that was configured but whose own lookup for this URL is unusable must
+    not be reported the same way as "no cache was configured for this run at all"."""
+
+    class BypassingCache:
+        mode = "record"
+        stats: ClassVar[dict] = {}
+
+        def decide(self, url, headers):
+            from seohead.crawl.cache import CacheOutcome
+
+            return CacheOutcome("bypass")
+
+        def store(self, *args, **kwargs):
+            raise AssertionError("store should not be called on a bypassed lookup")
+
+    record, _ = fetch_one(
+        "https://example.com/",
+        fetcher=CountingFetcher({"https://example.com/": page()}),
+        cache=BypassingCache(),
+    )
+    assert record.cache_status == "bypass"
+    assert record.cache_status not in ("", "hit", "revalidated", "miss")
 
 
 def test_with_no_cache_configured_cache_status_stays_empty(tmp_path):
