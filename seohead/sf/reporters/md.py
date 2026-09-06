@@ -103,12 +103,20 @@ def write_markdown(result: AuditResult, path: str) -> str:
     w("")
     top = list(s.get("by_check", {}).items())[:TOP_CHECKS]
     if top:
+        # Use the actual severity carried by this run's issues (post
+        # severity_overrides), not the registry default — the severity-count
+        # table and section headers below are keyed off Issue.severity too,
+        # and this table must not contradict them.
+        check_severity: dict[str, str] = {}
+        for issue in result.issues:
+            check_severity.setdefault(issue.check, issue.severity)
         w("**Most frequent issues:**")
         w("")
         w("| Check | Count | Severity |")
         w("|---|---:|---|")
         for check, count in top:
-            w(f"| `{check}` | {count} | {check_meta(check)['severity']} |")
+            severity = check_severity.get(check, check_meta(check)["severity"])
+            w(f"| `{check}` | {count} | {severity} |")
         w("")
     if "size_stats_bytes" in s:
         ss = s["size_stats_bytes"]
