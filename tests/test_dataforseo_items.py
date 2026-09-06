@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from seohead.data_sources import dataforseo
+from seohead.servers.handlers import handler_failed
 
 
 @pytest.mark.parametrize(
@@ -101,3 +102,40 @@ def test_search_volume_stays_ok_true_for_a_genuine_zero_result(monkeypatch):
 
     assert response["ok"] is True
     assert response["keywords"] == []
+
+
+@pytest.mark.parametrize(
+    ("operation", "args"),
+    [
+        ("search_volume", (["buy shoes"],)),
+        ("keyword_ideas", ("buy shoes",)),
+        ("keyword_difficulty", (["buy shoes"],)),
+        ("serp", ("buy shoes",)),
+    ],
+)
+def test_top_level_provider_rejection_without_tasks_is_not_a_clean_result(
+    monkeypatch, operation, args
+):
+    """A whole-request rejection must reach CLI/MCP as ``ok: false`` for every wrapper."""
+
+    class FakeClient:
+        env = "sandbox"
+
+        def __init__(self, **_kwargs):
+            pass
+
+        def post(self, *_args, **_kwargs):
+            return {
+                "status_code": 40000,
+                "status_message": "Request is not a valid JSON",
+                "tasks": None,
+                "cost": 0,
+            }
+
+    monkeypatch.setattr(dataforseo, "DataForSEOClient", FakeClient)
+
+    response = getattr(dataforseo, operation)(*args)
+
+    assert response["ok"] is False
+    assert response["errors"] == ["40000: Request is not a valid JSON"]
+    assert handler_failed(response) is True

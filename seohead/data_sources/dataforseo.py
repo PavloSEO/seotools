@@ -245,9 +245,22 @@ def task_items(body: dict) -> list[dict]:
     return items
 
 
+def _status_failed(status: object) -> bool:
+    """Return whether a provider status is present and does not confirm success."""
+    if status is None:
+        return False
+    try:
+        return int(status) != 20000
+    except (TypeError, ValueError):
+        return True
+
+
 def task_errors(body: dict) -> list[str]:
-    """Return failed task messages; status code 20000 is success and all others are reported."""
+    """Return failed request and task messages; status code 20000 is success."""
     errors = []
+    response_code = body.get("status_code")
+    if _status_failed(response_code):
+        errors.append(f"{response_code}: {body.get('status_message')}")
     for task in body.get("tasks") or []:
         code = task.get("status_code")
         if code and int(code) != 20000:
@@ -256,10 +269,14 @@ def task_errors(body: dict) -> list[str]:
 
 
 def tasks_all_failed(body: dict) -> bool:
-    """True when every task in the response failed (no task reached ``status_code == 20000``).
+    """True when the provider rejected the request or every task failed.
 
-    An empty ``tasks`` list is not a failure by this definition — it has nothing to report on.
+    A successful response may contain no matching items, but a non-success top-level status means
+    no task result can be treated as evidence of that success.
     """
+    response_code = body.get("status_code")
+    if _status_failed(response_code):
+        return True
     tasks = body.get("tasks") or []
     if not tasks:
         return False

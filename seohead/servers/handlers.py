@@ -1868,6 +1868,8 @@ def google_keywords(
             expanded, location_code=location_code, language=language, country=country
         )
         ideas["difficulty"] = scored
+        if scored.get("ok") is False:
+            ideas["ok"] = False
         return ideas
     if not keywords:
         raise ValueError("keywords or seed required")

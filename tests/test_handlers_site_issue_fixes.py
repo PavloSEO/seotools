@@ -60,6 +60,27 @@ def test_google_keywords_plain_keywords_and_difficulty_is_unaffected():
     assert calls == [("keyword_difficulty", ["x"], mock.ANY)]
 
 
+def test_google_keywords_seed_difficulty_failure_is_visible_at_the_top_level():
+    """The successful ideas remain usable, but requested scoring cannot read as full success."""
+
+    def fake_keyword_ideas(seed, **_kw):
+        return {"ok": True, "seed": seed, "keywords": [{"phrase": "running shoes"}]}
+
+    def fake_keyword_difficulty(_keywords, **_kw):
+        return {"ok": False, "error": "all tasks failed", "status": 40501}
+
+    with (
+        mock.patch("seohead.data_sources.dataforseo.keyword_ideas", fake_keyword_ideas),
+        mock.patch("seohead.data_sources.dataforseo.keyword_difficulty", fake_keyword_difficulty),
+    ):
+        result = handlers.google_keywords(seed="running shoes", difficulty=True)
+
+    assert result["ok"] is False
+    assert result["keywords"] == [{"phrase": "running shoes"}]
+    assert result["difficulty"] == {"ok": False, "error": "all tasks failed", "status": 40501}
+    assert handlers.handler_failed(result) is True
+
+
 # --- #444: keywords_exact must keep task_id/cost when wait() fails ---
 
 
