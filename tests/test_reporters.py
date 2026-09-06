@@ -44,6 +44,54 @@ def test_valid_severity_override_still_produces_a_schema_valid_report(internal_o
     assert validate(res) == []
 
 
+def test_markdown_frequency_table_uses_overridden_severity_not_registry_default(
+    internal_only_dir, tmp_path
+):
+    """Issue #460: the "Most frequent issues" table must show each check's
+    actual severity among the counted issues, not the registry default —
+    otherwise it contradicts the severity-count table and section headers
+    in the same document, which do use the overridden severity.
+    """
+    res = run_audit(
+        input_mode="parse-exports",
+        exports_dir=internal_only_dir,
+        config_overrides={"severity_overrides": {"TITLE_DUPLICATE": "notice"}},
+        log=lambda _: None,
+    )
+    path = write_markdown(res, str(tmp_path / "audit.md"))
+    with open(path, encoding="utf-8") as stream:
+        text = stream.read()
+    freq_line = next(
+        line
+        for line in text.splitlines()
+        if "`TITLE_DUPLICATE`" in line and "|" in line and line.count("|") == 4
+    )
+    assert "notice" in freq_line
+    assert "warning" not in freq_line
+
+
+def test_markdown_frequency_table_keeps_registry_default_without_overrides(result, tmp_path):
+    """Negative control: with no severity_overrides configured, the frequency
+    table must be unchanged — still the registry default for each check.
+    """
+    path = write_markdown(result, str(tmp_path / "audit.md"))
+    with open(path, encoding="utf-8") as stream:
+        text = stream.read()
+    freq_line = next(
+        (
+            line
+            for line in text.splitlines()
+            if "`BROKEN_INTERNAL_LINK`" in line and line.count("|") == 4
+        ),
+        None,
+    )
+    if freq_line is not None:
+        from seohead.sf.core.registry import check_meta
+
+        expected = check_meta("BROKEN_INTERNAL_LINK")["severity"]
+        assert expected in freq_line
+
+
 def test_json_roundtrip_utf8(result, tmp_path):
     path = write_json(result, str(tmp_path / "audit.json"))
     with open(path, encoding="utf-8") as stream:
