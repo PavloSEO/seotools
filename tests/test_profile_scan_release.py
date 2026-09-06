@@ -162,3 +162,19 @@ def test_tiny_real_whole_profile_collects_before_audit_and_report(tmp_path):
             con.execute("SELECT writer_revision FROM scan").fetchone()[0]
             == payload["source_revision"]
         )
+
+
+def test_analysis_timeout_terminates_its_child_process_group_and_keeps_progress(tmp_path):
+    code = (
+        "import subprocess,sys,time; "
+        "p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)']); "
+        "print(p.pid,flush=True); print('started',file=sys.stderr,flush=True); time.sleep(30)"
+    )
+    with pytest.raises(subprocess.TimeoutExpired):
+        release._run_analysis(
+            [sys.executable, "-c", code], log_dir=tmp_path, label="timeout", timeout=1
+        )
+    child = int((tmp_path / "timeout.stdout.log").read_text().strip())
+    assert "started" in (tmp_path / "timeout.stderr.log").read_text()
+    result = subprocess.run(["ps", "-p", str(child), "-o", "stat="], capture_output=True, text=True)
+    assert not result.stdout.strip() or result.stdout.strip().startswith("Z")
