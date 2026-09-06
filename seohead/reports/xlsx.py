@@ -224,15 +224,21 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
     _style_header(ws)
     tech = (document.get("site") or {}).get("tech_detect") or {}
     for item in tech.get("technologies") or []:
-        ws.append([item.get("category", ""), item.get("name", ""), item.get("evidence", "")])
+        ws.append(
+            [
+                neutralize_formula(item.get("category", "")),
+                neutralize_formula(item.get("name", "")),
+                neutralize_formula(item.get("evidence", "")),
+            ]
+        )
     registration = ((document.get("site") or {}).get("domain_profile") or {}).get(
         "registration"
     ) or {}
     if registration:
         ws.append([])
-        ws.append(["domain", "registrar", registration.get("registrar", "")])
-        ws.append(["domain", "created", registration.get("created", "")])
-        ws.append(["domain", "expires", registration.get("expires", "")])
+        ws.append(["domain", "registrar", neutralize_formula(registration.get("registrar", ""))])
+        ws.append(["domain", "created", neutralize_formula(registration.get("created", ""))])
+        ws.append(["domain", "expires", neutralize_formula(registration.get("expires", ""))])
         ws.append(["domain", "age in years", registration.get("age_years", "")])
     _autofit(ws, {3: 70})
 
