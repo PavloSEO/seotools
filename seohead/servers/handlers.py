@@ -998,55 +998,76 @@ def _audit_crawl_result(
                     )
 
     # Same shape again (issue #125): pure functions over the crawl's own LinkEdge/FormEdge
-    # evidence, never through the SF-export analyzer. Localhost outlinks, the per-target
-    # follow/nofollow mix, and both form checks need only fields every crawl already
-    # records; the cross-origin and protocol-relative checks additionally need
-    # link_attributes.capture (off by default -- see its own docstring).
-    if url:
-        from contextlib import nullcontext
+    # evidence, never through the SF-export analyzer.  A URL-list run has no such retained
+    # evidence, but a saved scan or SpiderResult can still answer the three predicates that do
+    # not need one site host.  FOLLOW_AND_NOFOLLOW_INLINKS is different: without a crawl start
+    # URL, a multi-host URL list has no defensible definition of "internal" and must say so.
+    from contextlib import nullcontext
 
-        from seohead.crawl import link_findings
-        from seohead.crawl.sql_graph import StoredGraph
+    from seohead.crawl import link_findings
+    from seohead.crawl.sql_graph import StoredGraph
 
-        with StoredGraph(stored_scan.con) if stored_scan else nullcontext(None) as graph:
-            crawl_host = urlsplit(start_norm).hostname or ""
+    links = getattr(result, "links", None)
+    forms = getattr(result, "forms", None)
+    has_link_evidence = stored_scan is not None or links is not None
+    has_form_evidence = stored_scan is not None or forms is not None
+    with StoredGraph(stored_scan.con) if stored_scan else nullcontext(None) as graph:
+        if has_link_evidence:
             for item in (
                 graph.iter_localhost_findings()
                 if graph
-                else link_findings.outlinks_to_localhost(result.links)
+                else link_findings.outlinks_to_localhost(links)
             ):
                 ctx.add("OUTLINK_TO_LOCALHOST", target_url=item["target_url"], details=item)
-            for dest in (
-                graph.iter_follow_and_nofollow(crawl_host)
-                if graph
-                else link_findings.follow_and_nofollow_inlinks(result.links, crawl_host)
-            ):
-                ctx.add("FOLLOW_AND_NOFOLLOW_INLINKS", target_url=dest)
+            crawl_host = (urlsplit(url).hostname or "") if url else ""
+            if crawl_host:
+                for dest in (
+                    graph.iter_follow_and_nofollow(crawl_host)
+                    if graph
+                    else link_findings.follow_and_nofollow_inlinks(links, crawl_host)
+                ):
+                    ctx.add("FOLLOW_AND_NOFOLLOW_INLINKS", target_url=dest)
+            else:
+                ctx.skip(
+                    "FOLLOW_AND_NOFOLLOW_INLINKS",
+                    "no crawl start URL is available to identify one site's internal links",
+                )
+        else:
+            reason = "crawl-list input retains no link-edge evidence"
+            ctx.skip("OUTLINK_TO_LOCALHOST", reason)
+            ctx.skip("FOLLOW_AND_NOFOLLOW_INLINKS", reason)
+
+        if has_form_evidence:
             for item in (
-                graph.iter_insecure_forms()
-                if graph
-                else link_findings.form_url_insecure(result.forms)
+                graph.iter_insecure_forms() if graph else link_findings.form_url_insecure(forms)
             ):
                 ctx.add("FORM_URL_INSECURE", target_url=item["target_url"], details=item)
             for item in (
                 graph.iter_password_forms_on_http()
                 if graph
-                else link_findings.forms_on_http_pages_with_password(result.forms)
+                else link_findings.forms_on_http_pages_with_password(forms)
             ):
                 ctx.add("FORM_ON_HTTP_URL", target_url=item["target_url"], details=item)
-            if settings["link_attributes"]["capture"]:
-                for item in (
-                    graph.iter_unsafe_cross_origin()
-                    if graph
-                    else link_findings.unsafe_cross_origin_links(result.links)
-                ):
-                    ctx.add("UNSAFE_CROSS_ORIGIN_LINK", target_url=item["target_url"], details=item)
-                for item in (
-                    graph.iter_protocol_relative()
-                    if graph
-                    else link_findings.protocol_relative_links(result.links)
-                ):
-                    ctx.add("PROTOCOL_RELATIVE_LINK", target_url=item["target_url"], details=item)
+        else:
+            reason = "crawl-list input retains no form evidence"
+            ctx.skip("FORM_URL_INSECURE", reason)
+            ctx.skip("FORM_ON_HTTP_URL", reason)
+
+        # These two need optional LinkEdge attributes and retain their existing capture gate.
+        # They are not part of the always-recorded link/form evidence contract above.
+        if url and has_link_evidence and settings["link_attributes"]["capture"]:
+            for item in (
+                graph.iter_unsafe_cross_origin()
+                if graph
+                else link_findings.unsafe_cross_origin_links(links)
+            ):
+                ctx.add("UNSAFE_CROSS_ORIGIN_LINK", target_url=item["target_url"], details=item)
+            for item in (
+                graph.iter_protocol_relative()
+                if graph
+                else link_findings.protocol_relative_links(links)
+            ):
+                ctx.add("PROTOCOL_RELATIVE_LINK", target_url=item["target_url"], details=item)
 
     audit = aggregate(
         ctx,
