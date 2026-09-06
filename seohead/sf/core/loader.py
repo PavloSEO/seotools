@@ -200,6 +200,7 @@ def load_exports(exports_dir: str, required: tuple[str, ...] = ("internal_all",)
     """Discover and read every recognized export; report what's missing."""
     paths = discover_exports(exports_dir)
     result = LoadedExports()
+    read_errors: dict[str, tuple[str, Exception]] = {}
     for key, path in paths.items():
         try:
             frame = read_table(path)
@@ -209,11 +210,17 @@ def load_exports(exports_dir: str, required: tuple[str, ...] = ("internal_all",)
             result.found.append(key)
         except Exception as err:
             result.missing.append(f"{key} (read error: {err})")
+            read_errors[key] = (path, err)
     for key in EXPORT_MATCHERS:
         if key not in result.frames and key not in (m.split(" ")[0] for m in result.missing):
             result.missing.append(key)
     for key in required:
         if key not in result.frames:
+            if key in read_errors:
+                path, err = read_errors[key]
+                raise FileNotFoundError(
+                    f"Required export {key!r} was found at {path!r} but could not be read: {err}."
+                )
             raise FileNotFoundError(
                 f"Required export {key!r} not found in {exports_dir!r}. "
                 "Export at least Internal:All from Screaming Frog."
