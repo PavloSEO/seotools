@@ -123,18 +123,23 @@ def _pinned_browser_route(
             with client.stream(method, url, headers=headers, content=None) as response:
                 response_headers: dict[str, str] = {}
                 cookie_headers: list[str] = []
+                has_cors_header = False
                 for name, value in response.headers.multi_items():
                     lowered = name.lower()
                     if lowered == "set-cookie":
                         cookie_headers.append(value)
                         continue
+                    if lowered == "access-control-allow-origin":
+                        has_cors_header = True
                     if lowered not in _HOP_BY_HOP_HEADERS:
                         response_headers[name] = value
-                if len(cookie_headers) > 1:
-                    abort(route, "multiple Set-Cookie headers are unsupported by pinned rendering")
-                    return
                 if cookie_headers:
-                    response_headers["set-cookie"] = cookie_headers[0]
+                    response_headers["set-cookie"] = "\n".join(cookie_headers)
+                origin = headers.get("origin")
+                request_parts = urlparse(url)
+                request_origin = f"{request_parts.scheme}://{request_parts.netloc}"
+                if origin and origin != request_origin and not has_cors_header:
+                    response_headers["access-control-allow-origin"] = ""
                 raw = bytearray()
                 for chunk in response.iter_raw():
                     if len(raw) + len(chunk) > max_response_bytes:
