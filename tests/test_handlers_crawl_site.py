@@ -824,6 +824,60 @@ def test_segments_summary_reports_page_and_issue_counts_per_segment(tmp_path, mo
     assert out["segments"]["default"]["issues"] >= 1
 
 
+def test_a_no_target_issue_still_counts_in_the_segment_sum(tmp_path, monkeypatch):
+    """Acceptance criterion (#441): an audit-wide finding with no single
+    ``target_url`` (e.g. TITLE_TEMPLATED) still lands somewhere, so
+    ``sum(segments[*].issues) == len(issues)`` never silently breaks."""
+
+    class FakePage:
+        def __init__(self, url):
+            self.url = url
+
+    pages = [FakePage("https://example.com/blog/a"), FakePage("https://example.com/shop/a")]
+    issues = [
+        {"check": "TITLE_MISSING", "target_url": "https://example.com/blog/a"},
+        {"check": "TITLE_TEMPLATED", "target_url": None},
+    ]
+
+    segments = handlers._segment_counts(
+        pages, issues, {"segments": [{"name": "blog", "prefix": "/blog/"}]}
+    )
+
+    assert sum(v["issues"] for v in segments.values()) == len(issues)
+    assert segments["default"]["issues"] == 1
+    assert segments["blog"]["issues"] == 1
+
+
+def test_a_target_less_issue_does_not_appear_when_every_target_is_set(monkeypatch):
+    """Negative control (#441): an audit where every issue has a target keeps
+    behaving exactly as before -- the sums already matched in that case."""
+
+    class FakePage:
+        def __init__(self, url):
+            self.url = url
+
+    pages = [FakePage("https://example.com/blog/a")]
+    issues = [{"check": "TITLE_MISSING", "target_url": "https://example.com/blog/a"}]
+
+    segments = handlers._segment_counts(
+        pages, issues, {"segments": [{"name": "blog", "prefix": "/blog/"}]}
+    )
+
+    assert sum(v["issues"] for v in segments.values()) == len(issues) == 1
+    assert segments["blog"]["issues"] == 1
+    assert "default" not in segments or segments["default"]["issues"] == 0
+
+
+def test_segment_counting_is_wired_through_the_sf_core_segments_engine():
+    """Acceptance criterion (#456): the tested segment engine is a real
+    caller in the handlers path, not only imported by its own test."""
+    import inspect
+
+    source = inspect.getsource(handlers._segment_counts)
+    assert "sf.core.segments" in source
+    assert "assign_segments" in source
+
+
 def test_without_declared_segments_no_segments_summary_is_reported(monkeypatch):
     """A plain crawl that never opted into #358 gets an unchanged, empty summary --
     not a single 'default' bucket holding everything, which would just be noise."""
