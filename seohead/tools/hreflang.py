@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 
 from seohead.recon.net import http_client
+from seohead.sf.core.normalize import norm_url
 
 _UA = "Mozilla/5.0 (compatible; SEOHEAD-Tools/3.0; +https://seohead.tech/seotools)"
 
@@ -759,8 +760,8 @@ def validate(alternates: list[dict], page_url: str = "") -> list[str]:
         issues.append(f"duplicate hreflang: {lang}")
     if "x-default" not in folded:
         issues.append("no x-default alternate")
-    hrefs = {a["href"] for a in alternates}
-    if page_url and page_url not in hrefs:
+    hrefs = {norm_url(a["href"]) for a in alternates}
+    if page_url and norm_url(page_url) not in hrefs:
         issues.append("page does not self-reference in its hreflang set")
     return issues
 
