@@ -1,7 +1,7 @@
 # Audit coverage — the gap map
 
 **Purpose.** The list of SEO checks our SF audit
-(`seohead/sf/core/registry.py`, 139 checks) still **lacks**. For every gap:
+(`seohead/sf/core/registry.py`, 149 checks) still **lacks**. For every gap:
 value, implementation mode, likely home in the code. This is a filling plan,
 not a bug report. Items implemented since this map was written are marked
 **DONE**.
@@ -40,7 +40,8 @@ from different starting lists; read both before filing a new gap.
 > `CANONICAL_FRAGMENT`, `HREFLANG_INVALID_CODE`,
 > `HREFLANG_MISSING_SELF_REFERENCE`, `HREFLANG_MISSING_XDEFAULT`,
 > `HREFLANG_MULTIPLE_ENTRIES`, `HREFLANG_NOT_CANONICAL`, `NOTRANSLATE`,
-> `UNAVAILABLE_AFTER` (issue #30).
+> `UNAVAILABLE_AFTER` (issue #30), and `IMG_MISSING_ALT_ATTRIBUTE` +
+> `IMG_ALT_TOO_LONG` (rows 9.1/9.2 below, coverage-evidence #385/#386).
 
 ---
 
@@ -58,7 +59,7 @@ from different starting lists; read both before filing a new gap.
 
 **Context.** `SLOW_RESPONSE` already catches a slow server, but it is no
 substitute for real CWV — Google ranks by LCP/INP/CLS. This is the largest
-qualitative gap: none of the 139 checks measures them directly. (Lab LCP/CLS
+qualitative gap: none of the 149 checks measures them directly. (Lab LCP/CLS
 from one Chromium run exist in the live `render-check` as `metrics_lab` —
 labelled lab, not field.)
 
@@ -200,8 +201,8 @@ graph checks land in `inlinks.py` with almost no new math.
 
 | # | Name | Checks | Value | Mode | Home |
 |---|---|---|---|---|---|
-| 9.1 | "no alt" vs "empty alt" | Attribute missing vs `alt=""` (the latter often deliberate for decorative images) | medium | B+ / A (HTML) | id `IMG_EMPTY_ALT` |
-| 9.2 | Long alt (>100 chars) | Overly long alt text | low | B+ / A | id `IMG_ALT_TOO_LONG` |
+| 9.1 | "no alt" vs "empty alt" | Attribute missing vs `alt=""` (the latter often deliberate for decorative images) | medium | **DONE** — `IMG_MISSING_ALT_ATTRIBUTE` | `tools/parser.py`, `crawl/collect.py`, `sf/core/rules.py` |
+| 9.2 | Long alt (>100 chars) | Overly long alt text | low | **DONE** — `IMG_ALT_TOO_LONG` | `tools/parser.py`, `crawl/collect.py`, `sf/core/rules.py` |
 | 9.3 | `<picture>` without `<img>` | Lost fallback inside picture | low | A (HTML) | id `PICTURE_NO_IMG` |
 | 9.4 | Modern format (WebP/AVIF) | Legacy formats where WebP/AVIF fits | medium | B+ / A | id `IMG_LEGACY_FORMAT` |
 | 9.5 | Responsiveness (srcset) | No `srcset`/`sizes` on large images | low | A (HTML) | id `IMG_NOT_RESPONSIVE` |

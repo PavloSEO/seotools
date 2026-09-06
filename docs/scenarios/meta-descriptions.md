@@ -11,7 +11,7 @@ speeds, so counting them together is how a two-day job becomes a two-week one.
 
 ## Covers
 
-- **Meta Description** — Missing · Duplicate · Over 155 Characters · Below 70 Characters · Over 985 Pixels · Below 400 Pixels · Outside <head>
+- **Meta Description** — Missing · Multiple · Duplicate · Over 155 Characters · Below 70 Characters · Over 985 Pixels · Below 400 Pixels · Outside <head>
 
 ## The chain
 
@@ -30,10 +30,17 @@ same record.
 seohead log-scan --run ./run
 ```
 
-**3. Separate the four states.** `audit.json` reports them as distinct checks with distinct
-severities: `DESC_MISSING` (there is nothing to edit), `DESC_DUPLICATE` (one text, several
-pages, grouped), `DESC_TOO_LONG` and `DESC_TOO_SHORT` (there is something, and it is the wrong
-size).
+**3. Separate the states.** `audit.json` reports them as distinct checks with distinct
+severities: `DESC_MISSING` (there is nothing to edit), `DESC_MULTIPLE` (there is more than one
+`<meta name="description">` element on the page, live and non-empty), `DESC_DUPLICATE` (one
+text, several pages, grouped), `DESC_TOO_LONG` and `DESC_TOO_SHORT` (there is something, and it
+is the wrong size). `DESC_MULTIPLE` only ever fires from a native crawl's own evidence — an SF
+export never carries a count of occurrences, only the one value it kept.
+
+`meta_description` itself is unaffected: it stays the first occurrence, exactly as before
+`DESC_MULTIPLE` existed, so every check above still measures the same string it always has.
+`DESC_MULTIPLE` is purely additive evidence about *how many* live tags there are, not a change
+in *which* one the rest of this chain reads.
 
 The character thresholds are configuration. The published catalogue names 155 characters as the
 upper bound; this toolkit's default is **160**, and 70 for the lower bound. If a report is going
@@ -103,9 +110,12 @@ One request per page. Nothing paid. Pixel width rides along with an export you a
   the page. A perfect description is an input, not an outcome.
 - **Whether a duplicate is deliberate.** A template that emits one description across a product
   family is indistinguishable, from the outside, from a decision.
-- **Whether two meta descriptions exist on one page.** Only the first is kept during parsing;
-  a second is not counted. `DESC_OUTSIDE_HEAD` still reads the position of whichever one parsing
-  kept.
+- **Which of several meta descriptions a search engine will actually use.** `DESC_MULTIPLE`
+  says how many live tags exist; it does not resolve the ambiguity a second tag creates.
+  `DESC_OUTSIDE_HEAD` still reads the position of whichever one parsing kept — the first.
+- **A second description on an SF-export-only run.** `DESC_MULTIPLE` needs a native crawl's own
+  per-tag count; an export never carries it, so the check skips by name there instead of reading
+  a page with two tags as clean.
 - **Pixel width on a native crawl.** It does not exist there, and "below 400 pixels" is not
   evaluated even where the column does.
 - **Whether the sentence is any good.** Structural only, like everything else here.

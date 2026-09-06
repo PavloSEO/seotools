@@ -6,7 +6,7 @@ Generated from `seohead/sf/core/registry.py` — do not edit by hand. Regenerate
 python scripts/generate_checks_reference.py
 ```
 
-**139 checks.** Severity, evidence and fix all come from the same `CHECKS` dict the rule engine reads, so this table cannot say something the engine disagrees with.
+**149 checks.** Severity, evidence and fix all come from the same `CHECKS` dict the rule engine reads, so this table cannot say something the engine disagrees with.
 
 - **Fires on** — what the check id means, in the registry's own words.
 - **Evidence** — the `source` tag: which export or module has to be present for the check to run at all; its absence is why a check comes back `skipped` instead of a silent pass.
@@ -48,6 +48,7 @@ python scripts/generate_checks_reference.py
 | `TITLE_TOO_SHORT` | notice | SF-derived | Title falls below the configured length threshold | Expand the title to an informative length without padding it with boilerplate. |
 | `TITLE_EQUALS_H1` | notice | SF-derived | Title is identical to the H1 | Differentiate the title and H1 by purpose, wording, or keyword emphasis. |
 | `DESC_MISSING` | warning | SF-derived | Meta description is missing | Add a useful meta description, typically up to about 160 characters. |
+| `DESC_MULTIPLE` | warning | crawl:meta_description_count | More than one <meta name="description"> element is present | Keep exactly one meta description element; a search engine reads only the first, so the rest are dead weight that hides which value is actually live. |
 | `DESC_DUPLICATE` | warning | SF-derived | Duplicate meta description | Write a unique meta description for each page. |
 | `DESC_TOO_LONG` | notice | SF-derived | Meta description exceeds the configured length threshold | Shorten the description while preserving its primary value proposition. |
 | `DESC_TOO_SHORT` | notice | SF-derived | Meta description falls below the configured length threshold | Expand the description with specific, useful page information. |
@@ -60,7 +61,10 @@ python scripts/generate_checks_reference.py
 | `H1_MULTIPLE` | warning | SF:H1:Multiple | Multiple H1 headings on the page | Keep one primary H1 and demote the remaining headings to H2 or H3 as appropriate. |
 | `H1_DUPLICATE` | notice | SF-derived | H1 is duplicated across multiple URLs | Use a unique, page-specific H1 on each URL. |
 | `H1_TOO_LONG` | notice | SF-derived | H1 exceeds the configured length threshold | Shorten the H1 while retaining the page's main topic. |
+| `H1_ALT_TEXT_ONLY` | notice | crawl:h1_alt_text | The H1 has no text of its own; its only content is an image's alt attribute | Add real, visible text to the H1 -- alt text describes an image to assistive technology, it is not a substitute for a heading a search engine reads as text. |
 | `H2_MISSING` | notice | SF-derived | Page has an H1 but no H2 headings | Add meaningful H2 subheadings where needed to structure the content. |
+| `H2_DUPLICATE` | notice | SF-derived | H2 is duplicated across multiple URLs | Use a unique, page-specific H2 on each URL, or accept it for a shared boilerplate subheading that is genuinely meant to repeat. |
+| `H2_TOO_LONG` | notice | SF-derived | H2 exceeds the configured length threshold | Shorten the H2 while retaining what it introduces. |
 
 ## 7.E — canonical & directives
 
@@ -82,18 +86,22 @@ python scripts/generate_checks_reference.py
 | `LOW_TEXT_RATIO` | notice | SF-derived | Low text-to-HTML ratio | Increase the proportion of meaningful visible content or reduce unnecessary markup. |
 | `DUPLICATE_BY_HASH` | warning | SF-derived | Exact duplicate content (identical hash) | Consolidate duplicates with canonicalization or rewrite them to serve distinct search intent. |
 | `NEAR_DUPLICATE` | warning | SF-derived | Near-duplicate content | Differentiate the pages with substantive content or consolidate them into one canonical page. |
+| `LOREM_IPSUM_PLACEHOLDER` | warning | crawl:lorem_ipsum_count | The Lorem Ipsum placeholder passage appears in the page's own content area | Replace the placeholder passage with real, reviewed copy before the page goes live or stays indexed. |
 
 ## 7.G — images
 
 | Check id | Severity | Evidence | Fires on | Fix |
 |---|---|---|---|---|
 | `IMG_MISSING_ALT` | warning | SF:Images:Missing Alt Text | Image is missing alt text | Add concise, descriptive alt text when the image conveys content; use an empty alt attribute for decorative images. |
+| `IMG_MISSING_ALT_ATTRIBUTE` | warning | crawl:images | An <img> has no alt attribute at all (not even alt="") | Add an alt attribute: descriptive text when the image conveys content, or alt="" when it is purely decorative -- an image with no alt attribute at all is read out as its filename by assistive technology, which alt="" correctly avoids. |
+| `IMG_ALT_TOO_LONG` | notice | crawl:images | An image's alt text exceeds the configured length threshold | Shorten the alt text to a concise description; screen readers read the whole string aloud, and a search engine treats an overlong alt as a weaker signal. |
 
 ## 7.H — schema, hreflang, viewport
 
 | Check id | Severity | Evidence | Fires on | Fix |
 |---|---|---|---|---|
 | `SCHEMA_VALIDATION_ERROR` | warning | SF:Structured Data:Validation Errors | Structured data validation errors | Correct invalid JSON-LD or Microdata markup and retest it against the applicable vocabulary and rich-result requirements. |
+| `STRUCTURED_DATA_PARSE_ERROR` | warning | crawl:jsonld_blocks | A JSON-LD block is present but did not parse as valid JSON | Fix the malformed JSON-LD block (a stray comma, an unescaped quote, or an unclosed brace commonly voids the whole block); a search engine ignores structured data it cannot parse the same as if none were present. |
 | `HREFLANG_ERROR` | warning | SF:Hreflang | Hreflang implementation error | Ensure hreflang annotations are reciprocal and reference canonical URLs. |
 
 ## 7.I — URL hygiene & performance
@@ -168,6 +176,7 @@ python scripts/generate_checks_reference.py
 | `NOSNIPPET` | notice | SF:Directives:NoSnippet | Page contains a nosnippet directive | Confirm that suppressing the page's search-result snippet is intentional. |
 | `NOIMAGEINDEX` | notice | SF:Directives:NoImageIndex | Page contains a noimageindex directive | Confirm that preventing images on this page from being indexed is intentional. |
 | `META_REFRESH_REDIRECT` | warning | SF:Directives:Refresh | Redirect is implemented with meta refresh | Replace meta refresh with a server-side 301 redirect when the move is permanent. |
+| `HTTP_REFRESH_REDIRECT` | warning | crawl:http_refresh | Redirect is implemented with an HTTP Refresh response header | Replace it with a server-side 301/302 redirect (Location header); a search engine treats Refresh the same as a meta refresh -- an unreliable, delayed signal compared to a real HTTP redirect status code. |
 | `NOTRANSLATE` | notice | SF-derived | Page contains a notranslate directive | Confirm that blocking the browser's offer-to-translate prompt is intentional. |
 | `UNAVAILABLE_AFTER` | warning | SF-derived | Page carries an unavailable_after directive with a deindex date | Confirm the date is intentional and in the future; once it passes, the page is removed from the index automatically. |
 
@@ -230,6 +239,7 @@ python scripts/generate_checks_reference.py
 | `MISSING_CHARSET` | warning | SF-derived | No character encoding declared via Content-Type or an early <meta> tag | Declare charset in the Content-Type response header, or add a <meta charset> tag in the first 1024 bytes of the HTML. |
 | `MISSING_DOCTYPE` | notice | SF-derived | Document lacks a modern <!DOCTYPE html> declaration, triggering quirks mode | Add `<!DOCTYPE html>` as the very first line of the document, with no PUBLIC or SYSTEM identifier. |
 | `VIEWPORT_MISSING` | warning | SF-derived | No <meta name=viewport> tag with width or an initial-scale of at least 1 | Add `<meta name="viewport" content="width=device-width, initial-scale=1">` to the document head. |
+| `UNSUPPORTED_PLUGIN` | warning | crawl:plugin_elements | Page contains a legacy plugin-dependent element (<object>/<embed>/<applet>) | Replace the plugin-dependent element with a native equivalent (HTML5 <video>/<audio>, an <img>/<svg>, or a JavaScript-driven alternative) -- mobile browsers, and modern desktop ones, do not run plugins, so this content is simply invisible there. |
 | `NO_COMPRESSION` | notice | SF-derived | HTML response is served uncompressed above the size where gzip/br would help | Enable gzip, Brotli, or deflate compression for text responses on the origin server or CDN. |
 
 ## --- extension: element position & document skeleton (issue #123) ---
