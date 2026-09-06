@@ -178,6 +178,41 @@ def test_happy_path_returns_the_rendered_html(fake_stack):
     assert result["final_url"] == "https://example.com/"
 
 
+def test_credential_policy_observes_cookie_only_available_in_complete_request_headers(
+    fake_stack, monkeypatch
+):
+    class Request:
+        def __init__(self):
+            self.headers = {"accept": "text/html"}
+
+        def all_headers(self):
+            return {"accept": "text/html", "cookie": "session=redacted"}
+
+    request = Request()
+    original_goto = fake_stack["page"].goto
+    original_evaluate = fake_stack["page"].evaluate
+
+    def goto(url, **kwargs):
+        original_goto(url, **kwargs)
+        fake_stack["page"].handlers["request"](request)
+
+    def evaluate(script):
+        if "TextEncoder" in script:
+            return {"complete": True, "bytes": 1, "html": fake_stack["page"].html}
+        return original_evaluate(script)
+
+    monkeypatch.setattr(fake_stack["page"], "goto", goto)
+    monkeypatch.setattr(fake_stack["page"], "evaluate", evaluate)
+
+    result = render_document("https://example.com/", _rendering_config(), max_html_bytes=1024)
+
+    assert result["ok"] is True
+    assert result["renderer"]["policy"] == {
+        "credentials_used": True,
+        "cache_control_no_store": False,
+    }
+
+
 def test_pinned_route_is_registered_on_context_before_its_new_page(fake_stack):
     result = render_document("https://example.com/", _rendering_config())
 
