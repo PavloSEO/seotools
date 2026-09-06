@@ -148,6 +148,7 @@ def run_release_profile(
         source_manifest = log_dir / "source-manifest.json"
         source_manifest.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
         command.extend(("--source-manifest", str(source_manifest)))
+        command.extend(("--retain-dir", str(log_dir)))
         if case["pages"] == 50_000:
             command.extend(("--edges-only", str(case["edges_per_page"])))
         began = time.perf_counter()

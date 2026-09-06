@@ -48,6 +48,14 @@ from seohead.storage.analysis_graph import AnalysisGraph
 from seohead.storage.native_scan import NativeScan
 
 
+class ProfileTimeout(RuntimeError):
+    """A timed-out child with an optional consistent partial artifact."""
+
+    def __init__(self, message: str, partial_artifact: dict[str, object] | None = None):
+        super().__init__(message)
+        self.partial_artifact = partial_artifact
+
+
 def _rss() -> tuple[float, str]:
     raw = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     return (raw / (1024 * 1024), "bytes") if platform.system() == "Darwin" else (raw / 1024, "KiB")
@@ -120,7 +128,13 @@ def _fixture_build(pages: int, edges: int, database: Path, provenance: dict) -> 
     metadata["writer_version"] = __version__
     sitemap = f"https://{fixture.HOST}/sitemap.xml"
     with NativeScan.create(database, initial_sitemaps=[(sitemap, "explicit")], **metadata) as scan:
-        scan.enqueue([(fixture._url(page), 0 if page == 0 else 3) for page in range(pages)])
+        for start in range(0, pages, 20_000):
+            scan.enqueue(
+                [
+                    (fixture._url(page), 0 if page == 0 else 3)
+                    for page in range(start, min(start + 20_000, pages))
+                ]
+            )
         for page in range(pages):
             lease = scan.claim(1)[0]
             title = f"Synthetic profile page {page} | Example"
@@ -495,6 +509,43 @@ def _child(
     return {stage: result, **environment}
 
 
+def _retain_partial_artifact(
+    database: Path, stage: str, pages: int, edges: int, retain_dir: Path | None
+) -> dict[str, object] | None:
+    """Copy a timed-out SQLite artifact through Backup API, never its live WAL."""
+    if retain_dir is None:
+        return None
+    source = database.with_name(f"{database.stem}.whole.sqlite") if stage == "whole" else database
+    if not source.is_file():
+        return None
+    retain_dir.mkdir(parents=True, exist_ok=True)
+    destination = retain_dir / f"partial-{pages}-pages-{edges}-edges-{stage}.sqlite"
+    if destination.exists():
+        raise RuntimeError(f"partial artifact destination already exists: {destination}")
+    source_con = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
+    destination_con = sqlite3.connect(destination)
+    try:
+        source_con.backup(destination_con)
+    finally:
+        destination_con.close()
+        source_con.close()
+    con = sqlite3.connect(f"file:{destination}?mode=ro", uri=True)
+    try:
+        counts = {}
+        for table in ("pages", "links", "forms", "bodies", "frontier", "audit"):
+            try:
+                counts[table] = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            except sqlite3.Error:
+                continue
+        return {
+            "path": str(destination),
+            "counts": counts,
+            "integrity_check": con.execute("PRAGMA integrity_check").fetchone()[0],
+        }
+    finally:
+        con.close()
+
+
 def _run_child(
     stage: str,
     database: Path,
@@ -503,6 +554,7 @@ def _run_child(
     audit_out: Path | None = None,
     report_out: Path | None = None,
     source_manifest: Path | None = None,
+    retain_dir: Path | None = None,
 ) -> dict:
     command = [
         sys.executable,
@@ -526,7 +578,10 @@ def _run_child(
     try:
         completed = subprocess.run(command, check=True, text=True, capture_output=True, timeout=900)
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(f"analysis profile child exceeded 900 seconds: {stage}") from exc
+        raise ProfileTimeout(
+            f"analysis profile child exceeded 900 seconds: {stage}",
+            _retain_partial_artifact(database, stage, pages, edges, retain_dir),
+        ) from exc
     except subprocess.CalledProcessError as exc:
         raise RuntimeError(exc.stderr or "analysis profile child failed without stderr") from exc
     if completed.stderr:
@@ -550,6 +605,7 @@ def main() -> None:
     parser.add_argument("--audit-out", type=Path)
     parser.add_argument("--report-out", type=Path)
     parser.add_argument("--source-manifest", type=Path)
+    parser.add_argument("--retain-dir", type=Path)
     args = parser.parse_args()
     if args.child:
         if args.stage is None or args.database is None or args.edges is None or args.pages < 1:
@@ -604,6 +660,7 @@ def main() -> None:
                         args.pages,
                         edges,
                         source_manifest=manifest,
+                        retain_dir=args.retain_dir,
                         **kwargs,
                     )
                     outcome.update(child)
@@ -616,6 +673,8 @@ def main() -> None:
                         outcome.setdefault("blockers", []).append(blocker)
                 except RuntimeError as exc:
                     blocker = {"stage": stage, "reason": str(exc)}
+                    if isinstance(exc, ProfileTimeout) and exc.partial_artifact is not None:
+                        blocker["partial_artifact"] = exc.partial_artifact
                     outcome.setdefault("blocking", blocker)
                     outcome.setdefault("blockers", []).append(blocker)
             results.append(outcome)

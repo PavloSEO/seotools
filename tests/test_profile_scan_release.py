@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
+from scripts import profile_scan_analysis as analysis
 from scripts import profile_scan_collector as collector
 from scripts import profile_scan_release as release
 from seohead.storage import open_scan
@@ -197,3 +200,49 @@ def test_tiny_profile_runs_every_stage_for_both_densities():
         assert row["whole"]["collection"]["fetched_pages"] == 3
         assert row["whole"]["saved_audit"] is True
     assert "collector" in result["rss_delta_mib"]
+
+
+def test_fixture_build_batches_a_50k_frontier(monkeypatch, tmp_path):
+    batches = []
+
+    class StopBuild(Exception):
+        pass
+
+    class Scan:
+        def enqueue(self, entries):
+            batches.append(list(entries))
+            if sum(map(len, batches)) == 50_000:
+                raise StopBuild
+
+    class Context:
+        def __enter__(self):
+            return Scan()
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(analysis.NativeScan, "create", lambda *_args, **_kwargs: Context())
+
+    with pytest.raises(StopBuild):
+        analysis._fixture_build(
+            50_000, 30, tmp_path / "profile.sqlite", {"source_revision": "a" * 40}
+        )
+
+    assert [len(batch) for batch in batches] == [20_000, 20_000, 10_000]
+
+
+def test_timeout_artifact_is_a_consistent_backup_api_snapshot(tmp_path):
+    source = tmp_path / "profile.whole.sqlite"
+    con = sqlite3.connect(source)
+    con.execute("CREATE TABLE pages (id INTEGER PRIMARY KEY)")
+    con.execute("INSERT INTO pages VALUES (1)")
+    con.commit()
+    con.close()
+
+    result = analysis._retain_partial_artifact(
+        tmp_path / "profile.sqlite", "whole", 50_000, 150, tmp_path / "retained"
+    )
+
+    assert result and result["counts"] == {"pages": 1}
+    assert result["integrity_check"] == "ok"
+    assert Path(str(result["path"])).is_file()
