@@ -1712,7 +1712,16 @@ def keywords_exact(
     except MissingCredential as exc:
         return {"ok": False, "error": str(exc)}
     except ArsenkinError as exc:
-        return {"ok": False, "error": str(exc), "code": exc.code}
+        error: dict[str, Any] = {"ok": False, "error": str(exc), "code": exc.code}
+        # `task` exists only once `set_task` has already succeeded (and billed) --
+        # that identifier must survive into a subsequent `wait()` failure, since
+        # parsing it back out of the free-text error string is exactly the recovery
+        # route this handler's own docstring documents. When `set_task` itself is
+        # what raised, nothing was billed, so no task_id/cost should be fabricated.
+        if "task" in locals():
+            error["task_id"] = task["task_id"]
+            error["cost"] = task["cost"]
+        return error
 
 
 def google_keywords(
@@ -1738,9 +1747,21 @@ def google_keywords(
     from seohead.data_sources import dataforseo as core
 
     if seed:
-        return core.keyword_ideas(
+        ideas = core.keyword_ideas(
             seed, location_code=location_code, language=language, limit=limit, country=country
         )
+        if not difficulty or not ideas.get("ok"):
+            return ideas
+        # `difficulty=True` is a documented, independent option -- it must not be
+        # silently dropped just because `seed` also routed through the ideas path.
+        expanded = [k.get("phrase") for k in ideas.get("keywords") or [] if k.get("phrase")]
+        if not expanded:
+            return ideas
+        scored = core.keyword_difficulty(
+            expanded, location_code=location_code, language=language, country=country
+        )
+        ideas["difficulty"] = scored
+        return ideas
     if not keywords:
         raise ValueError("keywords or seed required")
     if difficulty:
