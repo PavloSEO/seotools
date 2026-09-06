@@ -106,17 +106,18 @@ state. Native collection and resume use their own validated lanes; body access,
 retained-resource access, and offline reanalysis remain unavailable.
 
 The `pages` projection follows the prerelease `crawl.v1` `PageRecord`, including
-`content_frames`, `content_frames_same_origin`, ordered `hreflang_json`, and
-`body_unavailable`. The first two are parser observations about frames in the
+`content_frames`, `content_frames_same_origin`, ordered `hreflang_json`,
+`body_unavailable`, and `meta_refresh`. The first two are parser observations about frames in the
 resolved content area. `hreflang_json` preserves the document's alternate
 declarations. `body_unavailable` records why collection could not parse a page
 body (for example, an oversized response); it does **not** describe whether this
-artifact retained that body. Retention remains unavailable in Point A.
+artifact retained that body. `meta_refresh` retains the page's declaration as
+written, including a declaration with no navigation target. Retention remains unavailable in Point A.
 
-Only these four new columns are nullable for legacy compatibility. `NULL` means
-the field was absent from an older 43-field crawl record; it never means measured
-zero frames, an empty hreflang list, or an empty `body_unavailable` reason. A
-current 47-field import validates and stores each field's actual type. Imported
+These five later-added columns are nullable for legacy compatibility. `NULL`
+means the field was absent from an older crawl record; it never means measured
+zero frames, an empty hreflang list, an empty body-unavailability reason, or no
+meta-refresh declaration. Current imports validate and store actual field types. Imported
 older records therefore leave the `pages` capability partial independently of the
 run's `crawl_partial` state.
 

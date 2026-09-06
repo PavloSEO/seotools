@@ -116,7 +116,7 @@ CREATE TABLE pages (
   charset TEXT NOT NULL,
   doctype TEXT NOT NULL,
   viewport TEXT NOT NULL,
-  meta_refresh TEXT NOT NULL,
+  meta_refresh TEXT,
   title_outside_head INTEGER CHECK (title_outside_head IN (0,1)),
   meta_description_outside_head INTEGER CHECK (meta_description_outside_head IN (0,1)),
   canonical_outside_head INTEGER CHECK (canonical_outside_head IN (0,1)),

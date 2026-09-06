@@ -13,6 +13,25 @@ from tests.test_scan_artifact import legacy_run as legacy_run
 NEW_FIELDS = ("content_frames", "content_frames_same_origin", "hreflang", "body_unavailable")
 
 
+def test_pre_refresh_records_import_as_unknown_and_current_values_survive(legacy_run, tmp_path):
+    path = legacy_run / "pages.jsonl"
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    rows[0].pop("meta_refresh")
+    rows[1]["meta_refresh"] = "0; url=/next"
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    out = import_run(legacy_run, tmp_path / "scan.sqlite", producer_build=BUILD)
+    with open_scan(out) as con:
+        assert [
+            row[0] for row in con.execute("SELECT meta_refresh FROM pages ORDER BY page_ordinal")
+        ] == [None, "0; url=/next"]
+        header = con.execute(
+            "SELECT crawl_partial,capabilities_json,limitations_json FROM scan"
+        ).fetchone()
+        assert header[0] == 0
+        assert json.loads(header[1])["pages"]["state"] == "partial"
+        assert "meta_refresh" in header[2]
+
+
 def test_current_frames_alternates_and_unavailable_body_survive(legacy_run, tmp_path):
     out = import_run(legacy_run, tmp_path / "scan.sqlite", producer_build=BUILD)
     con = open_scan(out)
