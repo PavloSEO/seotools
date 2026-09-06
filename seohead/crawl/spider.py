@@ -21,7 +21,6 @@ import dataclasses
 import json
 import os
 import re
-import threading
 import time
 from collections import deque
 from collections.abc import Callable
@@ -44,9 +43,9 @@ from seohead.crawl.settings import (
     checked_url_budget,
     resolve_credential_headers,
 )
-from seohead.crawl.throttle import MAX_CONCURRENCY_CEILING, MAX_DELAY_S, Throttle
+from seohead.crawl.throttle import MAX_CONCURRENCY_CEILING, MAX_DELAY_S, DispatchGate, Throttle
 from seohead.recon.net import UA, http_client, normalize_url, registrable_domain
-from seohead.tools.robots import crawl_delay, is_allowed, match_path, parse_robots
+from seohead.tools.robots import is_allowed, match_path, parse_robots, politeness_delay
 
 MAX_DEPTH_CEILING = 20
 ROBOTS_TOKEN = "SEOHEAD-Tools"
@@ -60,43 +59,7 @@ MAX_ROBOTS_REDIRECTS = 5
 STOP_AFTER_CONSECUTIVE_FAILURES = 5
 
 
-class _DispatchGate:
-    """Spaces out request *dispatch* across every concurrent worker sharing one
-    origin, so ``min_delay`` still means "at least this long between requests
-    to the origin" once more than one worker is fetching for it.
-
-    Each worker independently sleeping ``throttle.delay`` before its own
-    request would honour the floor against its own clock only: with N workers
-    doing that in parallel, N requests would go out every ``delay`` seconds
-    instead of one, multiplying the configured rate by N. This gate hands out
-    dispatch turns from a single shared clock instead, so the gap between any
-    two dispatches to the origin is still at least ``delay`` — concurrency then
-    buys overlap on the response *wait*, never on how densely requests are sent.
-    """
-
-    def __init__(
-        self,
-        throttle: Throttle,
-        sleeper: Callable[[float], None],
-        clock: Callable[[], float] = time.monotonic,
-    ) -> None:
-        self._throttle = throttle
-        self._sleeper = sleeper
-        # The crawl's own clock, not the wall clock: the pacing decision is then testable
-        # against a fake clock instead of by measuring real elapsed time, which made the
-        # cross-worker pacing test fail whenever the machine was busy (#107).
-        self._clock = clock
-        self._lock = threading.Lock()
-        self._next_at = clock()
-
-    def wait_turn(self) -> None:
-        with self._lock:
-            now = self._clock()
-            start_at = max(now, self._next_at)
-            self._next_at = start_at + self._throttle.delay
-            wait = start_at - now
-        if wait > 0:
-            self._sleeper(wait)
+_DispatchGate = DispatchGate
 
 
 @dataclass
@@ -159,6 +122,8 @@ class SpiderResult(CrawlResult):
     # listed here, which is what an audit needs: full coverage plus an inventory
     # of what a compliant crawler would not have seen.
     robots_blocked: list[str] = field(default_factory=list)
+    # Effective robots-derived interval: the stricter applicable Crawl-delay
+    # or Request-rate floor, after the configured floor is considered.
     crawl_delay_applied: float | None = None
     effective_delay: float = 0.0
     # The adaptive concurrency level reached by the end of the crawl. 1 means
@@ -528,7 +493,11 @@ class Scope:
 
 
 def _fetch_robots(
-    start: str, fetcher: Callable[[str], Any] | None, client: Any
+    start: str,
+    fetcher: Callable[[str], Any] | None,
+    client: Any,
+    *,
+    wait: Callable[[], None] | None = None,
 ) -> tuple[dict, str, bool]:
     """Read robots.txt. Returns ``(parsed_or_empty, note, unavailable)``.
 
@@ -581,6 +550,8 @@ def _fetch_robots(
     redirected = False
     while True:
         try:
+            if wait is not None:
+                wait()
             response = fetcher(url) if fetcher else client.get(url)
         except Exception as exc:
             return dict(EMPTY_ROBOTS), f"robots.txt unreachable: {exc}", True
@@ -670,6 +641,7 @@ def crawl_site(
     store_external_links: bool = True,
     crawl_redirects: bool = True,
     capture_link_attributes: bool = False,
+    dispatch_gate: DispatchGate | None = None,
 ) -> SpiderResult:
     """Crawl one host breadth-first from ``start_url``, within ``scope``.
 
@@ -764,12 +736,16 @@ def crawl_site(
     )
 
     result = SpiderResult()
-    throttle = Throttle(
-        min_delay=min_delay,
-        max_delay=max_delay_seconds,
-        max_concurrency=max_concurrency,
-        adaptive=adaptive,
-    )
+    if dispatch_gate is None:
+        throttle = Throttle(
+            min_delay=min_delay,
+            max_delay=max_delay_seconds,
+            max_concurrency=max_concurrency,
+            adaptive=adaptive,
+        )
+        dispatch_gate = _DispatchGate(throttle, sleeper, clock)
+    else:
+        throttle = dispatch_gate.throttle
     excluded: dict[str, int] = {}
     # Distinct query strings already enqueued for a given path, so the Nth+1
     # facet/filter variant on the same path is excluded rather than fetched.
@@ -834,7 +810,9 @@ def crawl_site(
             robots = dict(EMPTY_ROBOTS)
             note, unavailable = "robots.txt not fetched (policy: ignore)", False
         else:
-            robots, note, unavailable = _fetch_robots(start, fetcher, client)
+            robots, note, unavailable = _fetch_robots(
+                start, fetcher, client, wait=dispatch_gate.wait_turn
+            )
         result.robots_note = note
         if enforce and unavailable and unavailable_means_stop:
             result.partial = True
@@ -848,11 +826,13 @@ def crawl_site(
         # the site asks for more than the crawl's own ceiling, so every later clamp
         # into [min_delay, max_delay] keeps honouring this value instead of silently
         # sinking back to a smaller max_delay.
-        asked = crawl_delay(robots, robots_token) if robots else None
-        if asked and asked > throttle.min_delay:
-            throttle.min_delay = asked
-            throttle.delay = max(throttle.delay, asked)
-            result.crawl_delay_applied = asked
+        asked = politeness_delay(robots, robots_token) if robots else None
+        if asked is not None:
+            effective = max(throttle.min_delay, asked)
+            if asked > throttle.min_delay:
+                throttle.min_delay = asked
+                throttle.delay = max(throttle.delay, asked)
+            result.crawl_delay_applied = effective
 
         loaded_state, resume_note = (
             crawl_state.load(state_path, start, config_fingerprint) if state_path else (None, "")
@@ -1121,7 +1101,7 @@ def crawl_site(
                         retry_on_timeout=retry_on_timeout,
                         parse_options=parse_options,
                         cache=cache,
-                        wait=(lambda: sleeper(throttle.delay)) if throttle.delay else None,
+                        wait=dispatch_gate.wait_turn,
                     )
                 except KeyboardInterrupt:
                     # Not processed: put it back so a resume retries it rather
@@ -1133,7 +1113,7 @@ def crawl_site(
                     break
                 stopped = after_fetch(url, depth, record, parsed)
         else:
-            gate = _DispatchGate(throttle, sleeper, clock)
+            gate = dispatch_gate
 
             def dispatch(item: tuple[str, int]) -> tuple[str, int, PageRecord, dict | None]:
                 url, depth = item

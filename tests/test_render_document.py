@@ -13,7 +13,6 @@ import types
 import pytest
 
 from seohead.crawl import settings as crawl_config
-from seohead.tools import render as render_module
 from seohead.tools.render import render_document
 
 
@@ -75,11 +74,17 @@ class _FakeContext:
     def __init__(self, page, **options):
         self.page = page
         self.options = options
+        self.routes = []
+        self.new_page_route_snapshots = []
         self.ws_routes = []
         self.closed = False
 
     def new_page(self):
+        self.new_page_route_snapshots.append(list(self.routes))
         return self.page
+
+    def route(self, pattern, handler):
+        self.routes.append((pattern, handler))
 
     def route_web_socket(self, pattern, handler):
         self.ws_routes.append((pattern, handler))
@@ -106,10 +111,12 @@ class _FakeChromium:
         self._browser = browser
         self._context = context
         self.launched = False
+        self.launch_calls = []
         self.launch_persistent_calls = []
 
-    def launch(self):
+    def launch(self, **options):
         self.launched = True
+        self.launch_calls.append(options)
         return self._browser
 
     def launch_persistent_context(self, user_data_dir, **options):
@@ -171,16 +178,78 @@ def test_happy_path_returns_the_rendered_html(fake_stack):
     assert result["final_url"] == "https://example.com/"
 
 
+def test_credential_policy_observes_cookie_only_available_in_complete_request_headers(
+    fake_stack, monkeypatch
+):
+    class Request:
+        def __init__(self):
+            self.headers = {"accept": "text/html"}
+
+        def all_headers(self):
+            return {"accept": "text/html", "cookie": "session=redacted"}
+
+    request = Request()
+    original_goto = fake_stack["page"].goto
+    original_evaluate = fake_stack["page"].evaluate
+
+    def goto(url, **kwargs):
+        original_goto(url, **kwargs)
+        fake_stack["page"].handlers["request"](request)
+
+    def evaluate(script):
+        if "TextEncoder" in script:
+            return {"complete": True, "bytes": 1, "html": fake_stack["page"].html}
+        return original_evaluate(script)
+
+    monkeypatch.setattr(fake_stack["page"], "goto", goto)
+    monkeypatch.setattr(fake_stack["page"], "evaluate", evaluate)
+
+    result = render_document("https://example.com/", _rendering_config(), max_html_bytes=1024)
+
+    assert result["ok"] is True
+    assert result["renderer"]["policy"] == {
+        "credentials_used": True,
+        "cache_control_no_store": False,
+    }
+
+
+def test_pinned_route_is_registered_on_context_before_its_new_page(fake_stack):
+    result = render_document("https://example.com/", _rendering_config())
+
+    assert result["ok"] is True
+    assert fake_stack["context"].routes[0][0] == "**/*"
+    assert fake_stack["context"].new_page_route_snapshots == [fake_stack["context"].routes]
+    assert fake_stack["page"].routes == []
+
+
 def test_service_workers_are_blocked_by_default(fake_stack):
     render_document("https://example.com/", _rendering_config())
     assert fake_stack["context"].options["service_workers"] == "block"
 
 
-def test_the_websocket_guard_is_installed_on_the_context(fake_stack):
-    render_document("https://example.com/", _rendering_config())
-    assert fake_stack["context"].ws_routes
-    _pattern, handler = fake_stack["context"].ws_routes[0]
-    assert handler is render_module._guard_websocket_route
+def test_a_blocked_websocket_marks_the_rendered_dom_unavailable(fake_stack, monkeypatch):
+    class WebSocket:
+        def __init__(self):
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    websocket = WebSocket()
+    original_goto = fake_stack["page"].goto
+
+    def goto(url, **kwargs):
+        original_goto(url, **kwargs)
+        _pattern, handler = fake_stack["context"].ws_routes[0]
+        handler(websocket)
+
+    monkeypatch.setattr(fake_stack["page"], "goto", goto)
+
+    result = render_document("https://example.com/", _rendering_config())
+
+    assert result["ok"] is False
+    assert "WebSocket" in result["error"]
+    assert websocket.closed
 
 
 def test_navigation_honours_the_configured_wait_until(fake_stack):
@@ -280,18 +349,23 @@ def test_no_screenshot_without_an_artifacts_dir(fake_stack):
     assert fake_stack["page"].screenshot_calls == []
 
 
-def test_persistent_profile_uses_launch_persistent_context(fake_stack, tmp_path):
+def test_persistent_profile_is_refused_until_pinned_cookie_continuity_is_proven(
+    fake_stack, tmp_path
+):
     config = _rendering_config(
         persistent_profile=True, persistent_profile_dir=str(tmp_path / "profile")
     )
-    render_document("https://example.com/", config)
-    assert fake_stack["chromium"].launch_persistent_calls
+    result = render_document("https://example.com/", config)
+    assert result["ok"] is False
+    assert "cookie continuity" in result["error"]
+    assert not fake_stack["chromium"].launch_persistent_calls
     assert fake_stack["chromium"].launched is False
 
 
 def test_without_a_persistent_profile_the_ordinary_launch_path_is_used(fake_stack):
     render_document("https://example.com/", _rendering_config())
     assert fake_stack["chromium"].launched is True
+    assert fake_stack["chromium"].launch_calls == [{"chromium_sandbox": True}]
     assert fake_stack["chromium"].launch_persistent_calls == []
 
 

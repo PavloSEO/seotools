@@ -9,7 +9,7 @@ from contextlib import nullcontext
 from seohead.crawl.resource_fetch import ResourceFetchResult, ResourceStop, fetch_resource
 from seohead.crawl.spider import _DispatchGate
 from seohead.crawl.sqlite_adapter import _client_context, _storage_failure
-from seohead.crawl.throttle import Throttle
+from seohead.crawl.throttle import DispatchGate, Throttle
 from seohead.storage import ScanError
 from seohead.storage.credential_context import credential_verifier
 from seohead.storage.resource_capture import commit_resource, request_count
@@ -17,7 +17,15 @@ from seohead.tools.robots import is_allowed, match_path
 
 
 def capture_resources(
-    scan, settings, *, client=None, fetcher=None, clock=time.monotonic, sleeper=time.sleep
+    scan,
+    settings,
+    *,
+    client=None,
+    fetcher=None,
+    clock=time.monotonic,
+    sleeper=time.sleep,
+    throttle: Throttle | None = None,
+    dispatch_gate: DispatchGate | None = None,
 ):
     """Resolve resource references without making them crawl frontier entries."""
     if not settings.get("resources", {}).get("fetch"):
@@ -38,18 +46,21 @@ def capture_resources(
     robots = scan.read_context("robots_summary")
     policy = settings["robots"]["policy"]
     token = settings["robots"]["user_agent_token"]
-    throttle = Throttle(
-        min_delay=settings["speed"]["min_delay_seconds"],
-        max_delay=settings["speed"]["max_delay_seconds"],
-        max_concurrency=settings["speed"]["concurrency"],
-        adaptive=settings["speed"]["adaptive"],
-    )
-    throttle.restore_state(snapshot["runtime"]["throttle"])
-    delay = snapshot["runtime"]["crawl_delay_applied"]
-    if delay:
-        throttle.min_delay = max(throttle.min_delay, delay)
-        throttle.delay = max(throttle.delay, delay)
-    gate = _DispatchGate(throttle, sleeper, clock)
+    if (throttle is None) != (dispatch_gate is None):
+        raise ValueError("resource pacing needs both a throttle and dispatch gate")
+    if throttle is None:
+        throttle = Throttle(
+            min_delay=settings["speed"]["min_delay_seconds"],
+            max_delay=settings["speed"]["max_delay_seconds"],
+            max_concurrency=settings["speed"]["concurrency"],
+            adaptive=settings["speed"]["adaptive"],
+        )
+        throttle.restore_state(snapshot["runtime"]["throttle"])
+        delay = snapshot["runtime"]["crawl_delay_applied"]
+        if delay:
+            throttle.min_delay = max(throttle.min_delay, delay)
+            throttle.delay = max(throttle.delay, delay)
+        dispatch_gate = _DispatchGate(throttle, sleeper, clock)
     began = clock()
     elapsed_before = snapshot["runtime"]["elapsed_seconds"]
     duration = settings["limits"]["max_crawl_seconds"]
@@ -120,7 +131,7 @@ def capture_resources(
                         throttle=throttle,
                         origin_url=start_url,
                         robots_allowed=allowed,
-                        wait=gate.wait_turn,
+                        wait=dispatch_gate.wait_turn,
                         remaining_requests=settings["resources"]["max_requests"] - used,
                         before_request=preflight,
                         fetcher=fetcher,

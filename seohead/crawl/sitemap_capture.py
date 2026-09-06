@@ -43,6 +43,7 @@ def capture_declared_roots(
     read_sitemap_members: Callable[[int], Iterable[tuple[int, str]]] | None = None,
     crawl_fn: Callable[..., dict[str, Any]] = crawl,
     concurrency: int = 3,
+    request_gate: Callable[[], None] | None = None,
 ) -> list[CaptureSummary]:
     """Capture roots one at a time with root-local normalized deduplication.
 
@@ -105,7 +106,13 @@ def capture_declared_roots(
                     emit_seed(loc, root)
                 chunk.clear()
 
-        result = crawl_fn(root.url, concurrency=concurrency, sink=sink)
+        crawl_kwargs: dict[str, Any] = {"concurrency": concurrency, "sink": sink}
+        # Existing injected crawl functions predate pacing and deliberately
+        # accept only concurrency/sink.  Keep their narrow contract when no
+        # shared budget is in play.
+        if request_gate is not None:
+            crawl_kwargs["request_gate"] = request_gate
+        result = crawl_fn(root.url, **crawl_kwargs)
         if previous_members is not None and next(previous_members, None) is not None:
             previous_tail = True
         if chunk:

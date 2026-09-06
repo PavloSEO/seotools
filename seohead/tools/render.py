@@ -28,8 +28,9 @@ import hashlib
 import json
 import os
 import re
+from collections.abc import Callable
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunsplit
 
 from bs4 import BeautifulSoup
 
@@ -64,43 +65,110 @@ _SCRIPT_STYLE_RE = re.compile(
     r"<(script|style|noscript)\b[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL
 )
 _TAG_RE = re.compile(r"<[^>]+>")
+_BROWSER_RESPONSE_BYTES = 5 * 1024 * 1024
+_BROWSER_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+_BLOCKED_WEBSOCKET_LIMITATION = "browser WebSocket requests are unsupported by pinned rendering"
+_HOP_BY_HOP_HEADERS = frozenset(
+    {
+        "connection",
+        "content-length",
+        "host",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade",
+    }
+)
 
 
 def _guard_browser_route(route) -> None:
-    """Block browser subrequests that escape the public-network boundary."""
-    request_url = route.request.url
-    if request_url.startswith(("about:", "blob:", "data:")):
-        route.continue_()
-        return
-    try:
-        validate_url(request_url)
-    except ValueError:
+    """Fail closed if a pinned HTTP fulfiller was not installed."""
+    route.abort("blockedbyclient")
+
+
+def _pinned_browser_route(
+    client: Any,
+    *,
+    request_gate: Callable[[], None] | None = None,
+    max_response_bytes: int = _BROWSER_RESPONSE_BYTES,
+) -> tuple[Callable[[Any], None], list[str]]:
+    """Build a Playwright fulfiller backed by the shared pinned HTTP transport."""
+    if type(max_response_bytes) is not int or max_response_bytes < 1:
+        raise ValueError("browser response limit must be a positive integer")
+    limitations: list[str] = []
+
+    def abort(route: Any, reason: str) -> None:
+        if reason not in limitations:
+            limitations.append(reason)
         route.abort("blockedbyclient")
-        return
-    route.continue_()
+
+    def handler(route: Any) -> None:
+        request = route.request
+        url = str(request.url)
+        method = str(request.method).upper()
+        if method not in _BROWSER_METHODS:
+            abort(route, f"browser method {method} is unsupported by pinned rendering")
+            return
+        try:
+            validate_url(url)
+            if request_gate is not None:
+                request_gate()
+            headers = {
+                name: value
+                for name, value in request.all_headers().items()
+                if name.lower() not in _HOP_BY_HOP_HEADERS
+            }
+            cookies = getattr(client, "cookies", None)
+            if cookies is not None:
+                cookies.clear()
+            with client.stream(method, url, headers=headers, content=None) as response:
+                response_headers: dict[str, str] = {}
+                response_header_names: dict[str, str] = {}
+                cookie_headers: list[str] = []
+                has_cors_header = False
+                for name, value in response.headers.multi_items():
+                    lowered = name.lower()
+                    if lowered == "set-cookie":
+                        cookie_headers.append(value)
+                        continue
+                    if lowered == "access-control-allow-origin":
+                        has_cors_header = True
+                    if lowered not in _HOP_BY_HOP_HEADERS:
+                        response_name = response_header_names.setdefault(lowered, name)
+                        if response_name in response_headers:
+                            response_headers[response_name] += f", {value}"
+                        else:
+                            response_headers[response_name] = value
+                if cookie_headers:
+                    response_headers["set-cookie"] = "\n".join(cookie_headers)
+                origin = headers.get("origin")
+                request_parts = urlparse(url)
+                request_origin = f"{request_parts.scheme}://{request_parts.netloc}"
+                if origin and origin != request_origin and not has_cors_header:
+                    response_headers["access-control-allow-origin"] = ""
+                raw = bytearray()
+                for chunk in response.iter_raw():
+                    if len(raw) + len(chunk) > max_response_bytes:
+                        abort(route, "browser response exceeds pinned rendering byte limit")
+                        return
+                    raw.extend(chunk)
+                route.fulfill(
+                    status=response.status_code, headers=response_headers, body=bytes(raw)
+                )
+        except Exception as exc:
+            abort(route, f"pinned browser request failed: {type(exc).__name__}: {exc}")
+
+    return handler, limitations
 
 
-def _guard_websocket_route(ws_route: Any) -> None:
-    """Block a WebSocket the address guard would reject as an HTTP request.
-
-    ``page.route()`` never sees WebSocket traffic -- Playwright does not run
-    it through the same request-interception pipeline -- so a page could
-    otherwise reach a private address over a channel ``_guard_browser_route``
-    never inspects. ``context.route_web_socket`` intercepts before the real
-    connection is made, so validating and closing here happens before any
-    byte reaches -- or comes back from -- the target.
-    """
-    scheme = {"ws": "http", "wss": "https"}.get(urlsplit(ws_route.url).scheme.lower())
-    if scheme is None:
-        ws_route.close()
-        return
-    parts = urlsplit(ws_route.url)
-    try:
-        validate_url(urlunsplit((scheme, parts.netloc, parts.path or "/", parts.query, "")))
-    except ValueError:
-        ws_route.close()
-        return
-    ws_route.connect_to_server()
+def _guard_websocket_route(ws_route: Any, limitations: list[str] | None = None) -> None:
+    """Fail closed because this renderer has no pinned WebSocket transport."""
+    if limitations is not None and _BLOCKED_WEBSOCKET_LIMITATION not in limitations:
+        limitations.append(_BLOCKED_WEBSOCKET_LIMITATION)
+    ws_route.close()
 
 
 def _refuse_if_root() -> None:
@@ -401,7 +469,12 @@ def compare(
 
 
 def render_check(
-    url: str, timeout: float = 30.0, wait: str = "load", viewport: str = "desktop"
+    url: str,
+    timeout: float = 30.0,
+    wait: str = "load",
+    viewport: str = "desktop",
+    *,
+    request_gate: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     """Compare a server response with the DOM produced after JavaScript executes.
 
@@ -436,7 +509,10 @@ def render_check(
         return {"ok": False, "url": target, "error": str(exc)}
 
     # Fetch raw HTML with the regular client: this is what a non-rendering crawler receives.
-    client, _ = http_client(timeout)
+    if request_gate is None:
+        client, _ = http_client(timeout)
+    else:
+        client, _ = http_client(timeout, event_hooks={"request": [lambda _request: request_gate()]})
     try:
         resp = client.get(target)
         raw_html = resp.text
@@ -452,9 +528,13 @@ def render_check(
         client.close()
 
     size = VIEWPORT_PRESETS.get(viewport, VIEWPORT_PRESETS["desktop"])
+    browser_client = None
     try:
+        browser_client, _http2 = http_client(
+            timeout, follow_redirects=False, headers={"User-Agent": UA}
+        )
         with sync_playwright() as pw:
-            browser = pw.chromium.launch()
+            browser = pw.chromium.launch(chromium_sandbox=True)
             try:
                 # service_workers="block": a default-configuration service
                 # worker can serve requests the page.route() guard below never
@@ -472,17 +552,24 @@ def render_check(
                     user_agent=UA,
                 )
                 context.add_init_script(_CLS_INIT_JS)
+                route_handler, limitations = _pinned_browser_route(
+                    browser_client, request_gate=request_gate
+                )
+                context.route("**/*", route_handler)
                 # WebSockets are not HTTP requests and page.route() never sees
                 # them either; route_web_socket is the separate interception
                 # point that covers them.
-                context.route_web_socket("**/*", _guard_websocket_route)
+                context.route_web_socket(
+                    "**/*", lambda ws_route: _guard_websocket_route(ws_route, limitations)
+                )
                 page = context.new_page()
-                page.route("**/*", _guard_browser_route)
                 page.goto(target, wait_until=wait, timeout=timeout * 1000)
                 rendered_html = page.content()
                 rendered_url = page.url
                 metrics = page.evaluate(_METRICS_JS)
                 computed_backgrounds = page.evaluate(_BACKGROUND_IMAGES_JS)
+                if limitations:
+                    raise RuntimeError("; ".join(limitations))
             finally:
                 browser.close()
     except Exception as exc:
@@ -492,6 +579,9 @@ def render_check(
             "url": target,
             "raw": _snapshot(raw_html, final_url),
         }
+    finally:
+        if browser_client is not None:
+            browser_client.close()
 
     raw = _snapshot(raw_html, final_url)
     rendered = _snapshot(rendered_html, rendered_url)
@@ -538,7 +628,13 @@ def render_check(
     }
 
 
-def rendered_html(url: str, timeout: float = 30.0, wait: str = "load") -> dict[str, Any]:
+def rendered_html(
+    url: str,
+    timeout: float = 30.0,
+    wait: str = "load",
+    *,
+    request_gate: Callable[[], None] | None = None,
+) -> dict[str, Any]:
     """Return rendered HTML for tools that require the final DOM.
 
     A separate narrow function lets regional and similar audits request one HTML
@@ -563,19 +659,37 @@ def rendered_html(url: str, timeout: float = 30.0, wait: str = "load") -> dict[s
         _refuse_if_root()
     except RuntimeError as exc:
         return {"ok": False, "url": target, "error": str(exc)}
+    browser_client = None
     try:
+        browser_client, _http2 = http_client(
+            timeout, follow_redirects=False, headers={"User-Agent": UA}
+        )
         with sync_playwright() as pw:
-            browser = pw.chromium.launch()
+            browser = pw.chromium.launch(chromium_sandbox=True)
             try:
-                page = browser.new_page(service_workers="block")
-                page.route("**/*", _guard_browser_route)
-                page.context.route_web_socket("**/*", _guard_websocket_route)
-                page.goto(target, wait_until=wait, timeout=timeout * 1000)
-                return {"ok": True, "url": page.url, "html": page.content()}
+                context = browser.new_context(service_workers="block", user_agent=UA)
+                try:
+                    route_handler, limitations = _pinned_browser_route(
+                        browser_client, request_gate=request_gate
+                    )
+                    context.route("**/*", route_handler)
+                    context.route_web_socket(
+                        "**/*", lambda ws_route: _guard_websocket_route(ws_route, limitations)
+                    )
+                    page = context.new_page()
+                    page.goto(target, wait_until=wait, timeout=timeout * 1000)
+                    if limitations:
+                        raise RuntimeError("; ".join(limitations))
+                    return {"ok": True, "url": page.url, "html": page.content()}
+                finally:
+                    context.close()
             finally:
                 browser.close()
     except Exception as exc:
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}", "url": target}
+    finally:
+        if browser_client is not None:
+            browser_client.close()
 
 
 # Merges every open shadow root's light-DOM-visible children into its host
@@ -652,6 +766,7 @@ def render_document(
     user_agent: str = "",
     max_html_bytes: int | None = None,
     policy_facts: dict[str, Any] | None = None,
+    request_gate: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     """Render one URL under the full crawler rendering configuration.
 
@@ -696,6 +811,12 @@ def render_document(
             "error": "max_html_bytes must be a non-negative integer",
         }
     browser_cfg = rendering_config.get("browser", {})
+    if browser_cfg.get("persistent_profile"):
+        return {
+            "ok": False,
+            "url": target,
+            "error": "persistent browser profiles are unavailable with pinned rendering until cookie continuity is verified",
+        }
     artifacts_cfg = rendering_config.get("artifacts", {})
     preset = VIEWPORT_PRESETS.get(
         browser_cfg.get("viewport", "desktop"), VIEWPORT_PRESETS["desktop"]
@@ -708,6 +829,7 @@ def render_document(
     observed_policy = _safe_policy_facts(policy_facts)
     observed_policy["credentials_used"] |= bool(browser_cfg.get("persistent_profile"))
     engine_version = "unknown"
+    browser_limitations: list[str] = []
 
     def _capture_request(request: Any) -> None:
         if max_html_bytes is None:
@@ -732,7 +854,13 @@ def render_document(
             console_errors.append(msg.text)
 
     browser = None
+    network_client = None
     try:
+        network_client, _http2 = http_client(
+            nav_timeout,
+            follow_redirects=False,
+            headers={"User-Agent": user_agent or UA},
+        )
         with sync_playwright() as pw:
             context_options = {
                 "viewport": viewport,
@@ -754,28 +882,23 @@ def render_document(
                 # requests page.route() never sees.
                 "service_workers": "block",
             }
-            profile_dir = (
-                browser_cfg.get("persistent_profile_dir")
-                if browser_cfg.get("persistent_profile")
-                else None
-            )
-            if profile_dir:
-                # Off by default, and seohead.crawl.settings refuses to
-                # enable this without an explicit directory: a persistent
-                # profile crawls the site as whoever's cookies it carries.
-                context = pw.chromium.launch_persistent_context(profile_dir, **context_options)
-            else:
-                browser = pw.chromium.launch()
-                context = browser.new_context(**context_options)
+            browser = pw.chromium.launch(chromium_sandbox=True)
+            context = browser.new_context(**context_options)
             actual_browser = browser if browser is not None else getattr(context, "browser", None)
             engine_version = str(getattr(actual_browser, "version", "unknown"))
             try:
+                route_handler, browser_limitations = _pinned_browser_route(
+                    network_client, request_gate=request_gate
+                )
+                context.route("**/*", route_handler)
+                context.route_web_socket(
+                    "**/*",
+                    lambda ws_route: _guard_websocket_route(ws_route, browser_limitations),
+                )
                 page = context.new_page()
                 if max_html_bytes is not None:
                     page.on("request", _capture_request)
                     page.on("response", _capture_response)
-                page.route("**/*", _guard_browser_route)
-                context.route_web_socket("**/*", _guard_websocket_route)
                 page.on("console", _on_console)
                 page.goto(
                     target,
@@ -807,12 +930,17 @@ def render_document(
                         artifacts_dir, _artifact_filename(target) + ".png"
                     )
                     page.screenshot(path=screenshot_path, full_page=True)
+                if browser_limitations:
+                    raise RuntimeError("; ".join(browser_limitations))
             finally:
                 context.close()
                 if browser is not None:
                     browser.close()
     except Exception as exc:
         return {"ok": False, "url": target, "error": f"{type(exc).__name__}: {exc}"}
+    finally:
+        if network_client is not None:
+            network_client.close()
 
     renderer = {
         "engine": "playwright-chromium",
