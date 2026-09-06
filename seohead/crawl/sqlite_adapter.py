@@ -72,6 +72,10 @@ class ScanRun:
     start_page_gate: dict[str, Any] | None = None
     corpus_partial: bool = True
     capabilities: dict[str, Any] | None = None
+    # Runtime-only orchestration state.  It is intentionally not written to
+    # the scan artifact: locks and callbacks cannot survive a process, while
+    # one in-process handler must carry its budget through audit follow-ups.
+    dispatch_gate: _DispatchGate | None = None
 
 
 @dataclass
@@ -336,7 +340,7 @@ def crawl_to_scan(
     runtime_versions: dict[str, str],
     seed_urls: Iterable[str] = (),
     initial_sitemaps: tuple[tuple[str, str], ...] = (),
-    seed_loader: Callable[[NativeScan, Callable[[Iterable[str]], None]], None] | None = None,
+    seed_loader: Callable[..., None] | None = None,
     content_area_config: dict[str, Any] | None = None,
     fetcher: Callable[[str], Any] | None = None,
     sleeper: Callable[[float], None] = time.sleep,
@@ -493,6 +497,7 @@ def crawl_to_scan(
                 limitations=tuple(json.loads(outcome["scan"]["limitations_json"])),
                 corpus_partial=bool(outcome["scan"]["corpus_partial"]),
                 capabilities=json.loads(outcome["scan"]["capabilities_json"]),
+                dispatch_gate=dispatch_gate,
             )
         asked_delay = robots_crawl_delay(cast(ParsedRobots, robots), robots_token)
         if asked_delay and asked_delay > throttle.min_delay:
@@ -553,7 +558,7 @@ def crawl_to_scan(
             if seed_loader is None:
                 emit_seeds(seed_urls)
             else:
-                seed_loader(scan, emit_seeds)
+                seed_loader(scan, emit_seeds, request_gate=dispatch_gate.wait_turn)
 
         frontier_state = scan.resume_snapshot()["counts"]
         if frontier_state.get("queued", 0) or frontier_state.get("inflight", 0):
@@ -817,7 +822,14 @@ def crawl_to_scan(
             from .sqlite_resources import capture_resources
 
             capture_resources(
-                scan, settings, client=client, fetcher=fetcher, clock=clock, sleeper=sleeper
+                scan,
+                settings,
+                client=client,
+                fetcher=fetcher,
+                clock=clock,
+                sleeper=sleeper,
+                throttle=throttle,
+                dispatch_gate=dispatch_gate,
             )
         if start_page_gate is None:
             start_page_gate = retained_start_gate(scan, settings, content_area_config)
@@ -833,6 +845,7 @@ def crawl_to_scan(
             resumed=existing,
             limitations=tuple(json.loads(outcome["scan"]["limitations_json"])),
             start_page_gate=start_page_gate,
+            dispatch_gate=dispatch_gate,
             corpus_partial=bool(outcome["scan"]["corpus_partial"]),
             capabilities=json.loads(outcome["scan"]["capabilities_json"]),
         )

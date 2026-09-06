@@ -639,6 +639,7 @@ def crawl_site(
     store_external_links: bool = True,
     crawl_redirects: bool = True,
     capture_link_attributes: bool = False,
+    dispatch_gate: DispatchGate | None = None,
 ) -> SpiderResult:
     """Crawl one host breadth-first from ``start_url``, within ``scope``.
 
@@ -733,13 +734,16 @@ def crawl_site(
     )
 
     result = SpiderResult()
-    throttle = Throttle(
-        min_delay=min_delay,
-        max_delay=max_delay_seconds,
-        max_concurrency=max_concurrency,
-        adaptive=adaptive,
-    )
-    dispatch_gate = _DispatchGate(throttle, sleeper, clock)
+    if dispatch_gate is None:
+        throttle = Throttle(
+            min_delay=min_delay,
+            max_delay=max_delay_seconds,
+            max_concurrency=max_concurrency,
+            adaptive=adaptive,
+        )
+        dispatch_gate = _DispatchGate(throttle, sleeper, clock)
+    else:
+        throttle = dispatch_gate.throttle
     excluded: dict[str, int] = {}
     # Distinct query strings already enqueued for a given path, so the Nth+1
     # facet/filter variant on the same path is excluded rather than fetched.
@@ -1093,7 +1097,7 @@ def crawl_site(
                         retry_on_timeout=retry_on_timeout,
                         parse_options=parse_options,
                         cache=cache,
-                        wait=(lambda: sleeper(throttle.delay)) if throttle.delay else None,
+                        wait=dispatch_gate.wait_turn,
                     )
                 except KeyboardInterrupt:
                     # Not processed: put it back so a resume retries it rather

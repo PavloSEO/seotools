@@ -66,6 +66,11 @@ class DispatchGate:
         self._lock = threading.Lock()
         self._last_at: float | None = None
 
+    @property
+    def throttle(self) -> Throttle:
+        """The live throttle whose delay this gate reserves against."""
+        return self._throttle
+
     def wait_turn(self) -> None:
         with self._lock:
             now = self._clock()

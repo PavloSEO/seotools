@@ -113,6 +113,58 @@ def test_sqlite_adapter_paces_robots_redirects_before_page_dispatch(tmp_path):
     ]
 
 
+def test_sqlite_adapter_keeps_sitemap_page_and_resource_requests_on_one_gate(tmp_path):
+    now = [0.0]
+    calls = []
+
+    def fetcher(url):
+        calls.append((now[0], url))
+        if url.endswith("/robots.txt"):
+            return _Response(200, "User-agent: *\nAllow: /\n", {"content-type": "text/plain"})
+        if url.endswith("app.js"):
+            return _Response(200, "window.app=true", {"content-type": "application/javascript"})
+        return _Response(
+            200,
+            '<html><head><script src="/app.js"></script></head><body>page</body></html>',
+        )
+
+    def seed_loader(_scan, _emit_seeds, *, request_gate):
+        request_gate()
+        calls.append((now[0], "sitemap"))
+
+    crawl_to_scan(
+        "https://example.test/",
+        scan_out=str(tmp_path / "paced-all.sqlite"),
+        settings=load(
+            overrides={
+                "speed.min_delay_seconds": 1.0,
+                "limits.max_urls": 1,
+                "resources.fetch": True,
+            }
+        ),
+        producer_version="3.0.0",
+        producer_revision="a" * 40,
+        runtime_versions={
+            "python": "test",
+            "sqlite": "test",
+            "httpx": "test",
+            "lxml": "test",
+            "beautifulsoup4": "test",
+        },
+        seed_loader=seed_loader,
+        fetcher=fetcher,
+        sleeper=lambda seconds: now.__setitem__(0, now[0] + seconds),
+        clock=lambda: now[0],
+    )
+
+    assert calls == [
+        (0.0, "https://example.test/robots.txt"),
+        (1.0, "sitemap"),
+        (2.0, "https://example.test/"),
+        (3.0, "https://example.test/app.js"),
+    ]
+
+
 class _Response:
     def __init__(self, status_code, text, headers=None):
         self.status_code = status_code

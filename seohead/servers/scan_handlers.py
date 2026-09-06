@@ -206,8 +206,14 @@ def crawl_site_scan(
 
     from seohead.servers.scan_sitemaps import initial_sitemaps, load_sitemaps
 
-    def seed_loader(scan, emit_seeds):
-        load_sitemaps(scan, emit_seeds, settings=settings, result=sitemap_seed)
+    def seed_loader(scan, emit_seeds, *, request_gate):
+        load_sitemaps(
+            scan,
+            emit_seeds,
+            settings=settings,
+            result=sitemap_seed,
+            request_gate=request_gate,
+        )
 
     from seohead.crawl.sqlite_adapter import crawl_to_scan
     from seohead.storage.native_scan import NativeScan
@@ -275,6 +281,7 @@ def crawl_site_scan(
                 pages_resume_path=None,
                 stored_scan=scan,
                 stored_sitemap=reconciliation,
+                dispatch_gate=run.dispatch_gate,
             )
         from dataclasses import replace
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextlib
 import math
 import re
+from collections.abc import Callable
 from typing import Any, cast
 from urllib.parse import urlparse, urlsplit
 
@@ -160,13 +161,19 @@ def is_allowed(parsed: ParsedRobots, path: str, user_agent: str = "*") -> bool:
 
 
 def check_robots(
-    url: str, user_agent: str = "*", paths: list[str] | None = None, timeout: float = 20.0
+    url: str,
+    user_agent: str = "*",
+    paths: list[str] | None = None,
+    timeout: float = 20.0,
+    *,
+    request_gate: Callable[[], None] | None = None,
 ) -> RobotsCheckResult:
     robots_url = _robots_url(url)
     try:
-        client, _http2_capable = http_client(
-            timeout, follow_redirects=True, headers={"User-Agent": _UA}
-        )
+        options = {"follow_redirects": True, "headers": {"User-Agent": _UA}}
+        if request_gate is not None:
+            options["event_hooks"] = {"request": [lambda _request: request_gate()]}
+        client, _http2_capable = http_client(timeout, **options)
         with client:
             resp = client.get(robots_url)
     except Exception as exc:

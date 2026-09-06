@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import httpx
+
 from seohead.crawl.sitemap_capture import SourceRoot, capture_declared_roots
+from seohead.crawl.throttle import DispatchGate, Throttle
 from seohead.tools import sitemap
 
 
@@ -47,6 +50,54 @@ def test_streaming_sink_expands_nested_index_without_urls_or_seen_map(monkeypatc
         "https://example.test/a",
         "https://example.test/b",
     ]
+
+
+def test_sitemap_request_gate_paces_httpx_redirect_hops_and_nested_documents(monkeypatch):
+    now = [0.0]
+    calls = []
+
+    def handler(request):
+        calls.append((now[0], request.url.path))
+        if request.url.path == "/root.xml":
+            return httpx.Response(302, headers={"location": "/index.xml"}, request=request)
+        if request.url.path == "/index.xml":
+            return httpx.Response(
+                200,
+                content=(
+                    b"<sitemapindex><sitemap><loc>https://example.test/child.xml</loc>"
+                    b"</sitemap></sitemapindex>"
+                ),
+                request=request,
+            )
+        return httpx.Response(
+            200,
+            content=b"<urlset><url><loc>https://example.test/page</loc></url></urlset>",
+            request=request,
+        )
+
+    def client_factory(_timeout, **kwargs):
+        return (
+            httpx.Client(
+                transport=httpx.MockTransport(handler),
+                follow_redirects=kwargs["follow_redirects"],
+                max_redirects=kwargs["max_redirects"],
+                event_hooks=kwargs.get("event_hooks"),
+            ),
+            False,
+        )
+
+    monkeypatch.setattr(sitemap, "http_client", client_factory)
+    throttle = Throttle(min_delay=1.0, adaptive=False)
+    gate = DispatchGate(
+        throttle,
+        lambda seconds: now.__setitem__(0, now[0] + seconds),
+        lambda: now[0],
+    )
+
+    result = sitemap.crawl("https://example.test/root.xml", concurrency=1, request_gate=gate.wait_turn)
+
+    assert result["count"] == 1
+    assert calls == [(0.0, "/root.xml"), (1.0, "/index.xml"), (2.0, "/child.xml")]
 
 
 def test_capture_streams_root_members_in_global_order_and_chunks():
