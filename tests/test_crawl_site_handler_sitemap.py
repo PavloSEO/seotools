@@ -9,6 +9,8 @@ URL_NOT_IN_SITEMAP check ids that pipeline already defines.
 
 from __future__ import annotations
 
+import pytest
+
 import seohead.tools.sitemap as sitemap_tool
 from seohead.crawl.collect import CrawlResult, PageRecord
 from seohead.crawl.spider import LinkEdge, SpiderResult
@@ -83,10 +85,11 @@ def test_handler_passes_one_gate_from_sitemap_seeding_to_page_collection(monkeyp
     assert gates[0].__self__ is gates[1].__self__
 
 
-def test_handler_warns_when_native_crawl_ignores_robots(monkeypatch, capsys):
+@pytest.mark.parametrize("target", ["https://native.example.test/", "native.example.test"])
+def test_handler_warns_when_native_crawl_ignores_robots(monkeypatch, capsys, target):
     monkeypatch.setattr("seohead.crawl.spider.crawl_site", lambda *_args, **_kwargs: SpiderResult())
 
-    handlers.crawl_site(url="https://native.example.test/", robots="ignore")
+    handlers.crawl_site(url=target, robots="ignore")
 
     assert "robots.txt bypass enabled for native.example.test" in capsys.readouterr().err
 

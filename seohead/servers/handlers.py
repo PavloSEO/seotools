@@ -48,10 +48,14 @@ def handler_failed(result: Any) -> bool:
 
 def _warn_ignored_robots(settings: dict[str, Any], url: str | None, urls: list[str] | None) -> None:
     """Make an explicit robots bypass visible at each CLI or MCP run boundary."""
+    from seohead.recon.net import normalize_url
+
     if settings["robots"]["policy"] != "ignore":
         return
     targets = [url] if url else (urls or [])
-    hosts = sorted({(urlsplit(target).hostname or "").lower() for target in targets if target})
+    hosts = sorted(
+        {(urlsplit(normalize_url(target)).hostname or "").lower() for target in targets if target}
+    )
     for host in hosts:
         if host:
             print(
