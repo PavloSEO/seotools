@@ -112,8 +112,44 @@ cache, which remains part of the directory workflow.
 
 `scan_decoder.v1` records entity decoding. A static document's logical URL stays
 separate from the effective navigation URL; legacy-fragment navigation is recorded
-as its explicit transform. Native G does not fetch scripts or stylesheets, and it
-does not provide offline replay or reanalysis; those remain H/I work.
+as its explicit transform. Direct script and stylesheet fetching requires the explicit resource setting below.
+Offline replay and reanalysis remain unavailable until child I.
+
+## Direct script and stylesheet capture
+
+The `resource_refs` lane records every declared script and stylesheet
+occurrence for a selected static, rendered, or legacy-fragment document. It
+keeps repeated declarations and uses separate occurrence ordinals per resource
+kind. A single fetched URL may serve many references; references are not
+deduplicated. The active extraction records `resource_inventory` under
+`document:<id>` with the exact payload
+`{"document_id": <id>, "state": "complete|partial|unavailable", "omitted": <n>}`.
+`complete` with zero declarations means the document inventory was measured and
+empty. `unavailable` means it was not measured; it is never a clean empty
+inventory. A later extraction for the same logical document representation
+supersedes the current coverage marker without deleting historical evidence.
+
+Resource network collection is opt-in through `resources.fetch=true`. Its
+default bounds are 20,000 HTTP attempts per scan, including retries and
+redirects, and 5 MiB content-decoded bytes per resource response. Resource
+attempts share the crawl's total time limit, retained-body store limit, and
+free-space reserve. They do not consume the page URL limit or add resources to
+the page frontier. Every redirect hop stays within the crawl start origin (scheme, host and effective port) under guarded transport. One request is made per URL and kind-specific `Accept` variant, while
+every referring occurrence remains in `resource_refs`.
+
+When fetching is disabled, declarations have the named `resources_disabled`
+state. Other named omissions include `not_fetched`, scope or robots exclusion,
+request/body budget exhaustion, fetch failure, and body unavailability. Resource
+bodies are complete only when every declaration in the measured scope has a
+successful complete response; declaration coverage is independent of whether
+bodies were fetched. CSS `@import`, JavaScript modules, third-party resources,
+and browser-network response capture are outside this slice. Resource inventory
+and capture add no SEO findings, and they do not enable I's offline replay.
+
+The writer records `resource_commit` with
+`{"digest": <64 lowercase hex>, "requests_used": <n>}` alongside inventory
+context. These are operational consistency metadata, not signatures or an
+anti-tampering claim.
 
 Credential material is re-supplied out of band. The closed `credential_context`
 payload is exactly `{"verifier": null|<64 lowercase hex>, "implicit_state": bool}`:

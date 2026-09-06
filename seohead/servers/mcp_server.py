@@ -158,13 +158,16 @@ def build_server():  # -> FastMCP
 
         ``scan_out`` opts into a SQLite scan file with bounded collection and
         resume; it cannot be combined with list mode or ``out_dir``. It requires
-        ``cache.mode=off``. Native scans retain bounded HTML entity bytes and
-        separately captured DOM according to their storage policy; body mode off,
-        credentials, no-store and exhausted limits retain explicit omission reasons.
-        Resource fetching and offline reanalysis are unavailable. Audit creation has
-        a finite population/output limit and may return unavailable while preserving
-        the scan. Pass the producing source SHA in ``producer_build`` if the installed
-        build cannot determine it from a clean checkout."""
+        ``cache.mode=off``. Native scans retain bounded HTML entities and separate
+        DOM; their policy records disabled, sensitive, no-store and budget omissions.
+        In the config file, ``resources.fetch=true`` opts into direct same-origin
+        script/stylesheet capture (20,000 HTTP attempts and 5 MiB per response by
+        default). Resource requests share total crawl-time and storage budgets but
+        do not consume the page URL limit. CSS imports, JavaScript modules and browser
+        network recording are excluded. Offline reanalysis is unavailable. Audit
+        creation has a finite population/output limit and may return unavailable
+        while preserving the scan. Supply ``producer_build`` when source provenance
+        cannot be determined from a clean checkout."""
         return _checked(
             handlers.crawl_site(
                 url=url or None,

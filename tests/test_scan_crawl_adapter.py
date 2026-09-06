@@ -145,6 +145,7 @@ class _Scan:
             "scan": {
                 "lifecycle": self.lifecycle,
                 "crawl_partial": 0,
+                "corpus_partial": 1,
                 "limitations_json": json.dumps(self.limitations),
                 "capabilities_json": json.dumps({"resume": {"state": "complete"}}),
             },

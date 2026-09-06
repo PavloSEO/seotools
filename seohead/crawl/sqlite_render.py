@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import time
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlsplit
@@ -274,6 +275,18 @@ def run_render_escalation(scan: Any, result: Any, settings: dict[str, Any]) -> A
 
     from seohead.tools import render as render_tool
 
+    render_started = time.monotonic()
+    elapsed_before = (
+        scan.resume_snapshot()["runtime"]["elapsed_seconds"]
+        if hasattr(scan, "resume_snapshot")
+        else None
+    )
+
+    def commit_render(*args, **kwargs):
+        if elapsed_before is not None:
+            kwargs["elapsed_seconds"] = elapsed_before + time.monotonic() - render_started
+        return scan.commit_render(*args, **kwargs)
+
     rendering_config = settings["rendering"]
     start_url = (
         scan.con.execute("SELECT start_url FROM scan").fetchone()[0]
@@ -297,7 +310,7 @@ def run_render_escalation(scan: Any, result: Any, settings: dict[str, Any]) -> A
             except Exception:
                 raw_html = ""
             if not raw_html:
-                scan.commit_render(
+                commit_render(
                     target,
                     None,
                     html=None,
@@ -322,7 +335,7 @@ def run_render_escalation(scan: Any, result: Any, settings: dict[str, Any]) -> A
             if not isinstance(renderer, dict):
                 renderer = _unknown_renderer(target, settings)
             if not fetched.get("ok"):
-                scan.commit_render(
+                commit_render(
                     target,
                     None,
                     html=None,
@@ -339,7 +352,7 @@ def run_render_escalation(scan: Any, result: Any, settings: dict[str, Any]) -> A
             # A probe DOM is an observation in its own right.  Store it before
             # comparing, then free it; a later accepted full render gets its
             # own document and page/graph update.
-            scan.commit_render(
+            commit_render(
                 target,
                 None,
                 html=fetched.get("html"),
@@ -399,7 +412,7 @@ def run_render_escalation(scan: Any, result: Any, settings: dict[str, Any]) -> A
         # URL; static evidence remains selected.
         if not fetched.get("ok"):
             renderer = fetched.get("renderer")
-            scan.commit_render(
+            commit_render(
                 target,
                 None,
                 html=None,
@@ -436,7 +449,7 @@ def run_render_escalation(scan: Any, result: Any, settings: dict[str, Any]) -> A
             max_parse_bytes,
         )
         if candidate is None or parsed is None:
-            scan.commit_render(
+            commit_render(
                 target,
                 None,
                 html=fetched.get("html") if label == "rendered" else None,
@@ -459,7 +472,12 @@ def run_render_escalation(scan: Any, result: Any, settings: dict[str, Any]) -> A
             settings=settings,
         )
         captures = fetched.get("captures", ()) if label == "legacy_fragment" else ()
-        document_id = scan.commit_render(
+        from .sqlite_adapter import _resource_observations
+
+        resource_observations = _resource_observations(candidate, parsed, captures, settings)
+        if resource_observations.get("resources_omitted"):
+            partial_reasons.append("resource_declarations_omitted")
+        document_id = commit_render(
             target,
             dataclasses.asdict(candidate),
             html=fetched.get("html") if label == "rendered" else None,
@@ -470,6 +488,7 @@ def run_render_escalation(scan: Any, result: Any, settings: dict[str, Any]) -> A
             representation=label,
             captures=captures,
             partial_reasons=partial_reasons,
+            **resource_observations,
         )
         state, reason = _document_state(scan, document_id)
         _apply_committed_result(record, candidate)

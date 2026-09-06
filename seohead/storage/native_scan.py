@@ -118,7 +118,7 @@ def _native_config(value: Any, *, recorded: bool = False) -> dict[str, Any]:
     # their recorded configuration without filling it or changing its fingerprint.
     require_fields(
         config,
-        DEFAULTS if "storage" in config else {k: v for k, v in DEFAULTS.items() if k != "storage"},
+        {k: v for k, v in DEFAULTS.items() if k not in {"storage", "resources"} or k in config},
     )
     try:
         validate_crawl_config(validate_recorded_credentials(config) if recorded else value)
@@ -623,6 +623,7 @@ class NativeScan:
                 if name in {"pages", "links", "resume"}
                 else {"partial", "complete", "unavailable"}
                 if name in {"responses", "html_bodies", "rendered_bodies"}
+                or ("resources" in config and name in {"resource_refs", "resource_bodies"})
                 else {"unavailable"}
             )
             for name, value in capabilities.items()
@@ -788,6 +789,9 @@ class NativeScan:
             scan["evidence_revision"]
             != page_count
             + con.execute(
+                "SELECT COUNT(*) FROM context_items WHERE kind='resource_commit'"
+            ).fetchone()[0]
+            + con.execute(
                 "SELECT COUNT(*) FROM documents WHERE representation IN ('rendered','legacy_fragment')"
             ).fetchone()[0]
             or con.execute(
@@ -836,6 +840,7 @@ class NativeScan:
 
             validate_context(con, dict(item), sitemap_roots=sitemap_roots)
         for kind, expression in (
+            ("resource_commit", "CAST(substr(item_key,10) AS INTEGER)"),
             ("sitemap_declaration", "CAST(substr(item_key,9) AS INTEGER)"),
             (
                 "sitemap_declared_url",
@@ -1049,6 +1054,7 @@ class NativeScan:
                     "link_observations_omitted",
                     "form_observations_omitted",
                     "response_body_unavailable",
+                    "resource_declarations_omitted",
                 }
                 for reason in limitations
             )
@@ -1459,6 +1465,9 @@ class NativeScan:
         runtime: dict[str, Any] | None = None,
         context: Iterable[dict[str, Any]] = (),
         captures: Iterable[Any] = (),
+        resources: Iterable[dict[str, Any]] = (),
+        resource_inventory_state: str | None = None,
+        resources_omitted: int = 0,
     ) -> CommitReceipt:
         """Commit one complete fold-back unit or none of it."""
         self._assert_mutable()
@@ -1483,6 +1492,7 @@ class NativeScan:
             capture_metadata.append(item)
             checked_captures.append(event)
         captures = checked_captures
+        resources = _bounded_items(resources, "resource declarations", MAX_EDGES_PER_PAGE)
         candidates = _bounded_items(candidates, "ordered discovery candidates")
         partial_reasons = _bounded_items(partial_reasons, "partial reasons", 16)
         for _ in _json_chunks(record):
@@ -1508,6 +1518,12 @@ class NativeScan:
         }
         if capture_metadata:
             payload["captures"] = capture_metadata
+        if resource_inventory_state is not None:
+            payload["resources"] = {
+                "declarations": resources,
+                "state": resource_inventory_state,
+                "omitted": resources_omitted,
+            }
         if candidates or partial_reasons:
             payload.update(candidates=candidates, partial_reasons=partial_reasons)
         digest = _digest(payload)
@@ -1583,6 +1599,21 @@ class NativeScan:
             _insert(self.con, "pages", page_row)
             self._hit("after_page")
             self._write_observations(lease, document_id, "static", links, forms)
+            if resource_inventory_state is not None:
+                from .resources import put_declarations
+
+                put_declarations(
+                    self.con,
+                    page_url_id=lease.url_id,
+                    document_id=document_id,
+                    representation="static",
+                    declarations=resources,
+                    fetch_enabled=json.loads(
+                        self.con.execute("SELECT config_json FROM scan").fetchone()[0]
+                    )["resources"]["fetch"],
+                    inventory_state=resource_inventory_state,
+                    omitted=resources_omitted,
+                )
             self._hit("after_observations")
             for index, item in enumerate(decisions):
                 allowed = {"url", "reason", "source", "depth", "occurrence_key"}
@@ -1768,6 +1799,10 @@ class NativeScan:
         body_reason: str = "none",
         captures: Iterable[Any] = (),
         partial_reasons: Iterable[str] = (),
+        resources: Iterable[dict[str, Any]] = (),
+        resource_inventory_state: str | None = None,
+        resources_omitted: int = 0,
+        elapsed_seconds: float | None = None,
     ) -> int:
         """Retain one render attempt and its accepted extraction atomically."""
         from .corpus import store_rendered_document, store_response
@@ -1779,6 +1814,7 @@ class NativeScan:
         links = _bounded_items(links, "rendered links", MAX_EDGES_PER_PAGE)
         forms = _bounded_items(forms, "rendered forms", 2000)
         partial_reasons = _bounded_items(partial_reasons, "render partial reasons", 16)
+        resources = _bounded_items(resources, "render resource declarations", MAX_EDGES_PER_PAGE)
         captures = list(itertools.islice(captures, 1001))
         if (
             len(captures) > 1000
@@ -1856,9 +1892,30 @@ class NativeScan:
                     (page["url_id"], representation),
                 )
                 self._write_observations(lease, document_id, representation, links, forms)
+                if resource_inventory_state is not None:
+                    from .resources import put_declarations
+
+                    put_declarations(
+                        self.con,
+                        page_url_id=lease.url_id,
+                        document_id=document_id,
+                        representation=representation,
+                        declarations=resources,
+                        fetch_enabled=json.loads(
+                            self.con.execute("SELECT config_json FROM scan").fetchone()[0]
+                        )["resources"]["fetch"],
+                        inventory_state=resource_inventory_state,
+                        omitted=resources_omitted,
+                    )
             elif links or forms:
                 raise ScanError("unaccepted render cannot replace graph observations")
             self._hit("after_render_page")
+            if elapsed_seconds is not None:
+                runtime = self.resume_snapshot()["runtime"]
+                if elapsed_seconds < runtime["elapsed_seconds"]:
+                    raise ScanError("render elapsed time cannot go backwards")
+                runtime["elapsed_seconds"] = elapsed_seconds
+                self._write_runtime(runtime, runtime["max_depth_reached"])
             self._partial_reasons(partial_reasons)
             self.con.execute(
                 "UPDATE scan SET evidence_revision=evidence_revision+?",

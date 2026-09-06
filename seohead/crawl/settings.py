@@ -215,6 +215,11 @@ DEFAULTS: dict[str, Any] = {
         # (never touch the network for an entry already on disk).
         "invalidate": False,
     },
+    "resources": {
+        "fetch": False,
+        "max_requests": 20_000,
+        "max_response_bytes": 5 * 1024 * 1024,
+    },
     "storage": {
         "body_mode": "captured_entity_bytes",
         "max_body_bytes": 5 * 1024 * 1024,
@@ -355,6 +360,9 @@ RESULTS_AFFECTING: frozenset[str] = frozenset(
         "cache.mode",
         "cache.invalidate",
         "storage.body_mode",
+        "resources.fetch",
+        "resources.max_requests",
+        "resources.max_response_bytes",
         "storage.max_body_bytes",
         "storage.max_body_store_bytes",
         "storage.min_free_bytes",
@@ -390,6 +398,9 @@ RESULTS_AFFECTING: frozenset[str] = frozenset(
 # --config-help and, eventually, an MCP "describe settings" tool (#23) — so the three cannot drift
 # into different descriptions of the same setting. A test fails if a DEFAULTS path has no entry here.
 DESCRIPTIONS: dict[str, str] = {
+    "resources.fetch": "SQLite only: opt in to fetching directly declared same-origin scripts and stylesheets; never follows CSS imports or JavaScript modules.",
+    "resources.max_requests": "SQLite only: maximum resource HTTP attempts, including redirects and retries; independent of the page URL limit.",
+    "resources.max_response_bytes": "SQLite only: maximum content-decoded bytes per resource response; total crawl time and body-store limits still apply.",
     "storage.body_mode": "SQLite only: captured_entity_bytes retains fetched HTML/DOM; off retains metadata only.",
     "storage.max_body_bytes": "SQLite only: maximum decoded bytes retained for one complete body.",
     "storage.max_body_store_bytes": "SQLite only: total unique encoded body bytes retained per scan.",
@@ -701,6 +712,14 @@ def validate(config: dict[str, Any]) -> None:
             "exists to override. Pick one: cache.mode='live' with cache.invalidate=true for "
             "a forced hard refresh, or drop invalidate to keep replaying from disk."
         )
+    if "resources" in config:
+        resources = config["resources"]
+        if type(resources["fetch"]) is not bool:
+            raise ConfigError("resources.fetch must be boolean")
+        for name in ("max_requests", "max_response_bytes"):
+            value = resources[name]
+            if type(value) is not int or not 0 <= value <= 2**63 - 1:
+                raise ConfigError(f"resources.{name} must be a nonnegative SQLite-sized integer")
     if "storage" in config:
         storage = config["storage"]
         if storage["body_mode"] not in {"off", "captured_entity_bytes"}:
