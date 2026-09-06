@@ -331,8 +331,12 @@ def verify_bot_rdns(
             }
         try:
             _, _, addrs = socket.gethostbyname_ex(hostname)
-        except OSError:
-            addrs = []
+        except OSError as exc:
+            return {
+                "verified": None,
+                "reason": f"Forward resolution of {hostname} is unavailable: {exc}",
+                "hostname": hostname,
+            }
         if ip in addrs:
             return {
                 "verified": True,
