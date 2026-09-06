@@ -512,24 +512,24 @@ def _child(
 def _retain_partial_artifact(
     database: Path, stage: str, pages: int, edges: int, retain_dir: Path | None
 ) -> dict[str, object] | None:
-    """Copy a timed-out SQLite artifact through Backup API, never its live WAL."""
+    """Retain a profile's SQLite artifact through Backup API, never its live WAL."""
     if retain_dir is None:
         return None
     source = database.with_name(f"{database.stem}.whole.sqlite") if stage == "whole" else database
     if not source.is_file():
         return None
     retain_dir.mkdir(parents=True, exist_ok=True)
-    destination = retain_dir / f"partial-{pages}-pages-{edges}-edges-{stage}.sqlite"
+    destination = retain_dir / f"retained-{pages}-pages-{pages * edges}-links-{stage}.sqlite"
     if destination.exists():
-        raise RuntimeError(f"partial artifact destination already exists: {destination}")
-    source_con = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
+        raise RuntimeError(f"retained artifact destination already exists: {destination}")
+    source_con = sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)
     destination_con = sqlite3.connect(destination)
     try:
         source_con.backup(destination_con)
     finally:
         destination_con.close()
         source_con.close()
-    con = sqlite3.connect(f"file:{destination}?mode=ro", uri=True)
+    con = sqlite3.connect(destination.resolve().as_uri() + "?mode=ro", uri=True)
     try:
         counts = {}
         for table in ("pages", "links", "forms", "bodies", "frontier", "audit"):
@@ -539,6 +539,7 @@ def _retain_partial_artifact(
                 continue
         return {
             "path": str(destination),
+            "bytes": destination.stat().st_size,
             "counts": counts,
             "integrity_check": con.execute("PRAGMA integrity_check").fetchone()[0],
         }
@@ -575,18 +576,36 @@ def _run_child(
         command.extend(("--report-out", str(report_out)))
     if source_manifest is not None:
         command.extend(("--source-manifest", str(source_manifest)))
+
+    def retain_logs(stdout, stderr):
+        if retain_dir is not None:
+            retain_dir.mkdir(parents=True, exist_ok=True)
+            for stream, output in (("stdout", stdout), ("stderr", stderr)):
+                data = output if isinstance(output, bytes) else (output or "").encode("utf-8")
+                (
+                    retain_dir / f"{pages}-pages-{pages * edges}-links-{stage}.{stream}.log"
+                ).write_bytes(data)
+
     try:
         completed = subprocess.run(command, check=True, text=True, capture_output=True, timeout=900)
     except subprocess.TimeoutExpired as exc:
+        retain_logs(exc.stdout, exc.stderr)
         raise ProfileTimeout(
             f"analysis profile child exceeded 900 seconds: {stage}",
             _retain_partial_artifact(database, stage, pages, edges, retain_dir),
         ) from exc
     except subprocess.CalledProcessError as exc:
+        retain_logs(exc.stdout, exc.stderr)
         raise RuntimeError(exc.stderr or "analysis profile child failed without stderr") from exc
+    retain_logs(completed.stdout, completed.stderr)
     if completed.stderr:
         sys.stderr.write(completed.stderr)
-    return json.loads(completed.stdout)
+    result = json.loads(completed.stdout)
+    if stage == "whole" and retain_dir is not None:
+        result["whole"]["retained_artifact"] = _retain_partial_artifact(
+            database, stage, pages, edges, retain_dir
+        )
+    return result
 
 
 def main() -> None:
@@ -633,6 +652,7 @@ def main() -> None:
         environment = _load_environment(args.source_manifest)
         manifest.write_text(json.dumps(environment, sort_keys=True), encoding="utf-8")
         for edges in (args.edges_only,) if args.edges_only is not None else (30, 150):
+            case_started = time.perf_counter()
             database = directory / f"{edges}.sqlite"
             audit = directory / f"{edges}.audit.json"
             outcome: dict[str, object] = {"edges_per_page": edges, "links": args.pages * edges}
@@ -677,6 +697,7 @@ def main() -> None:
                         blocker["partial_artifact"] = exc.partial_artifact
                     outcome.setdefault("blocking", blocker)
                     outcome.setdefault("blockers", []).append(blocker)
+            outcome["case_wall_seconds"] = round(time.perf_counter() - case_started, 3)
             results.append(outcome)
     results.sort(key=lambda row: int(row["edges_per_page"]))
     deltas = {}

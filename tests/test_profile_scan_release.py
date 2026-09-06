@@ -24,6 +24,7 @@ def test_default_manifest_does_not_run_profiles_and_names_the_heavy_case(tmp_pat
     assert all(case["status"] == "not_measured" for case in result["cases"])
     assert "--large" in result["cases"][-1]["blocking_reason"]
     assert result["manifest"]["source_sha256"]
+    assert "seohead/storage/resources.py" in result["manifest"]["source_sha256"]
     assert re.fullmatch(r"[0-9a-f]{40}", result["manifest"]["source_revision"])
     assert isinstance(result["manifest"]["source_dirty"], bool)
     assert result["runner"]["rss_source_unit"] in {"bytes", "KiB"}
@@ -61,8 +62,8 @@ def test_run_executes_only_10k_cases_sequentially_and_preserves_child_logs(monke
             )()
         payload = {
             "results": [
-                {"links": 300_000, "pages": {"pages": 10_000}},
-                {"links": 1_500_000, "pages": {"pages": 10_000}},
+                {"links": 300_000, "pages": {"pages": 10_000}, "case_wall_seconds": 11},
+                {"links": 1_500_000, "pages": {"pages": 10_000}, "case_wall_seconds": 22},
             ]
         }
         return type(
@@ -84,6 +85,9 @@ def test_run_executes_only_10k_cases_sequentially_and_preserves_child_logs(monke
     ]
     assert list(tmp_path.glob("*.stdout.log")) and list(tmp_path.glob("*.stderr.log"))
     assert (tmp_path / "source-manifest.json").is_file()
+    first, second = result["cases"][:2]
+    assert [first["wall_seconds"], second["wall_seconds"]] == [11, 22]
+    assert first["analysis_process_wall_seconds"] == second["analysis_process_wall_seconds"]
 
 
 def test_large_opt_in_includes_the_50k_case_without_lowering_its_requested_config(
@@ -199,6 +203,7 @@ def test_tiny_profile_runs_every_stage_for_both_densities():
         assert {"build", "pages", "graph", "audit", "report", "whole"} <= row.keys()
         assert row["whole"]["collection"]["fetched_pages"] == 3
         assert row["whole"]["saved_audit"] is True
+        assert row["case_wall_seconds"] >= row["whole"]["wall_seconds"]
     assert "collector" in result["rss_delta_mib"]
 
 
@@ -246,3 +251,35 @@ def test_timeout_artifact_is_a_consistent_backup_api_snapshot(tmp_path):
     assert result and result["counts"] == {"pages": 1}
     assert result["integrity_check"] == "ok"
     assert Path(str(result["path"])).is_file()
+
+
+def test_completed_whole_child_retains_its_artifact_and_exact_logs(monkeypatch, tmp_path):
+    database = tmp_path / "profile.sqlite"
+    with sqlite3.connect(tmp_path / "profile.whole.sqlite") as con:
+        con.execute("CREATE TABLE pages(id INTEGER)")
+        con.execute("INSERT INTO pages VALUES(1)")
+    stdout = '{"whole":{"status":"measured"}}\n'
+    monkeypatch.setattr(
+        analysis.subprocess,
+        "run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0, stdout, "collected 1\n"),
+    )
+    retained = tmp_path / "retained"
+    result = analysis._run_child("whole", database, 1, 30, retain_dir=retained)
+    snapshot = result["whole"]["retained_artifact"]
+    assert snapshot["counts"] == {"pages": 1}
+    assert snapshot["bytes"] > 0 and Path(snapshot["path"]).is_file()
+    assert (retained / "1-pages-30-links-whole.stdout.log").read_text() == stdout
+    assert (retained / "1-pages-30-links-whole.stderr.log").read_text() == "collected 1\n"
+
+
+def test_timeout_keeps_partial_child_output(monkeypatch, tmp_path):
+    def timeout(*_args, **_kwargs):
+        raise subprocess.TimeoutExpired([], 900, output=b"partial stdout", stderr=b"progress")
+
+    monkeypatch.setattr(analysis.subprocess, "run", timeout)
+    retained = tmp_path / "retained"
+    with pytest.raises(analysis.ProfileTimeout):
+        analysis._run_child("whole", tmp_path / "missing.sqlite", 1, 30, retain_dir=retained)
+    assert (retained / "1-pages-30-links-whole.stdout.log").read_bytes() == b"partial stdout"
+    assert (retained / "1-pages-30-links-whole.stderr.log").read_bytes() == b"progress"

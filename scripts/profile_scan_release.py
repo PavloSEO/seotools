@@ -58,7 +58,22 @@ def _source_manifest() -> dict[str, Any]:
         "python": sys.version.split()[0],
         "sqlite": sqlite3.sqlite_version,
         "platform": platform.platform(),
-        **collector.source_manifest(SOURCES),
+        **collector.source_manifest(
+            tuple(
+                dict.fromkeys(
+                    (
+                        *collector.SOURCES,
+                        *SOURCES,
+                        "seohead/storage/resources.py",
+                        "seohead/storage/corpus.py",
+                        "seohead/storage/scan_v1.sql",
+                        "seohead/storage/analysis_graph.py",
+                        "seohead/servers/handlers.py",
+                        "seohead/servers/scan_handlers.py",
+                    )
+                )
+            )
+        ),
     }
 
 
@@ -166,7 +181,7 @@ def run_release_profile(
                     "status": "failed",
                     "returncode": None,
                     "blocking_reason": f"analysis profile exceeded {exc.timeout} seconds",
-                    "wall_seconds": round(time.perf_counter() - began, 3),
+                    "analysis_process_wall_seconds": round(time.perf_counter() - began, 3),
                 }
                 for candidate in expected
             )
@@ -179,7 +194,7 @@ def run_release_profile(
                     **candidate,
                     "status": "failed",
                     "returncode": completed.returncode,
-                    "wall_seconds": round(time.perf_counter() - began, 3),
+                    "analysis_process_wall_seconds": round(time.perf_counter() - began, 3),
                 }
                 for candidate in expected
             )
@@ -188,6 +203,7 @@ def run_release_profile(
             payload = json.loads(completed.stdout)
         except json.JSONDecodeError as exc:
             raise RuntimeError("analysis profile did not emit JSON") from exc
+        process_wall_seconds = round(time.perf_counter() - began, 3)
         analysis_summaries[str(case["pages"])] = {
             key: payload[key]
             for key in (
@@ -213,7 +229,7 @@ def run_release_profile(
                         **candidate,
                         "status": "blocked",
                         "blocking_reason": "analysis profile JSON lacks the requested case",
-                        "wall_seconds": round(time.perf_counter() - began, 3),
+                        "analysis_process_wall_seconds": process_wall_seconds,
                     }
                 )
             elif "blocking" in profile:
@@ -222,7 +238,8 @@ def run_release_profile(
                         **candidate,
                         "status": "blocked",
                         "blocking": profile["blocking"],
-                        "wall_seconds": round(time.perf_counter() - began, 3),
+                        "analysis_process_wall_seconds": process_wall_seconds,
+                        "wall_seconds": profile.get("case_wall_seconds"),
                         "profile": profile,
                     }
                 )
@@ -231,7 +248,8 @@ def run_release_profile(
                     {
                         **candidate,
                         "status": "measured",
-                        "wall_seconds": round(time.perf_counter() - began, 3),
+                        "analysis_process_wall_seconds": process_wall_seconds,
+                        "wall_seconds": profile.get("case_wall_seconds"),
                         "profile": profile,
                     }
                 )
