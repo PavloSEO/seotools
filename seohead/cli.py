@@ -684,10 +684,16 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
     if cmd == "crawl-enrich":
         _source_flag(sub, "--audit", help="crawl audit JSON or SQLite scan")
         _source_flag(sub, "--external-csv", help="URL-keyed traffic or search CSV")
-        sub.add_argument("--url-column", default="url", help="external CSV URL column (default: url)")
-        sub.add_argument("--ignore-query", action="store_true", help="join URLs without query strings")
+        sub.add_argument(
+            "--url-column", default="url", help="external CSV URL column (default: url)"
+        )
+        sub.add_argument(
+            "--ignore-query", action="store_true", help="join URLs without query strings"
+        )
         sub.add_argument("--ignore-scheme", action="store_true", help="join HTTP and HTTPS URLs")
-        sub.add_argument("--casefold-path", action="store_true", help="case-fold URL paths for the join")
+        sub.add_argument(
+            "--casefold-path", action="store_true", help="case-fold URL paths for the join"
+        )
         sub.add_argument(
             "--out-urls",
             help="write reliable external-only URLs as a list-mode input file",

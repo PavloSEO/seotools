@@ -144,7 +144,9 @@ def compare(
     after_cfg = after.get("run", {}).get("crawl_config")
     if before_cfg is not None and after_cfg is not None and before_cfg != after_cfg and not force:
         changed = sorted(
-            key for key in set(before_cfg) | set(after_cfg) if before_cfg.get(key) != after_cfg.get(key)
+            key
+            for key in set(before_cfg) | set(after_cfg)
+            if before_cfg.get(key) != after_cfg.get(key)
         )
         raise CompareError(
             "results-affecting settings differ between the two runs: "

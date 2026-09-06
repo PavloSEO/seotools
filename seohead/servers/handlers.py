@@ -1441,10 +1441,10 @@ def crawl_enrich(
     """
     if not external_csv:
         raise ValueError("external_csv required")
-    from pathlib import Path
     import contextlib
     import os
     import tempfile
+    from pathlib import Path
 
     from seohead.tools.external_join import (
         join_external_data,
@@ -1465,7 +1465,9 @@ def crawl_enrich(
             casefold_path=casefold_path,
         )
 
-    joined = join_external_data(document.get("pages") or [], rows, url_column=url_column, key_fn=key)
+    joined = join_external_data(
+        document.get("pages") or [], rows, url_column=url_column, key_fn=key
+    )
     partial = bool((document.get("run") or {}).get("crawl_partial"))
     candidates = [] if partial else orphan_urls(joined, url_column=url_column)
     reason = (

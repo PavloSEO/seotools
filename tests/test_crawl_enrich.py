@@ -56,5 +56,7 @@ def test_writing_orphan_list_from_a_partial_crawl_is_refused(tmp_path):
 
     with pytest.raises(ValueError, match="partial"):
         handlers.crawl_enrich(
-            audit=_audit(partial=True), external_csv=str(external), out_urls=str(tmp_path / "urls.txt")
+            audit=_audit(partial=True),
+            external_csv=str(external),
+            out_urls=str(tmp_path / "urls.txt"),
         )
