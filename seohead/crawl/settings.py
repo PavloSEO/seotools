@@ -590,6 +590,12 @@ RENDER_WAIT_UNTIL = ("load", "domcontentloaded", "networkidle")
 # only value shape a credential header may carry in a config file.
 _ENV_REF_RE = re.compile(r"^env:([A-Za-z_][A-Za-z0-9_]*)$")
 
+# These headers authenticate a request. They may not use the global
+# ``http.headers`` lane: that lane is deliberately sent with every fetch.
+SENSITIVE_HEADER_NAMES = frozenset(
+    {"authorization", "proxy-authorization", "cookie", "x-api-key", "x-auth-token"}
+)
+
 # Applied automatically to the crawl scope once credential_headers is set. A
 # crawler clicks every link, and while logged in that includes links that log
 # out, publish, or delete — this is a default, not a guarantee, and a caller
@@ -799,11 +805,7 @@ def validate(config: dict[str, Any]) -> None:
             )
 
     _validate_segments(config["scope"])
-    headers = config["http"]["headers"]
-    if not isinstance(headers, dict) or any(
-        not isinstance(name, str) or not isinstance(value, str) for name, value in headers.items()
-    ):
-        raise ConfigError("http.headers must be an object mapping header names to string values")
+    _validate_http_headers(config["http"])
     _validate_credential_headers(config["http"])
     _validate_rendering(config["rendering"])
 
@@ -939,6 +941,31 @@ def _validate_credential_headers(http: dict[str, Any]) -> None:
                 )
 
 
+def _validate_http_headers(http: dict[str, Any]) -> None:
+    headers = http["headers"]
+    if not isinstance(headers, dict) or any(
+        not isinstance(name, str) or not isinstance(value, str) for name, value in headers.items()
+    ):
+        raise ConfigError("http.headers must be an object mapping header names to string values")
+    if any(name.lower() in SENSITIVE_HEADER_NAMES for name in headers):
+        raise ConfigError(
+            "http.headers cannot carry credentials; use host-bound, environment-sourced "
+            "http.credential_headers instead"
+        )
+
+
+def redact_sensitive_headers(headers: Any) -> Any:
+    """Copy a header map while redacting credential values from legacy mappings."""
+    if not isinstance(headers, dict):
+        return headers
+    return {
+        name: "REDACTED"
+        if isinstance(name, str) and name.lower() in SENSITIVE_HEADER_NAMES
+        else value
+        for name, value in headers.items()
+    }
+
+
 def load(path: str | None = None, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
     """Resolve the configuration: defaults, then file, then environment, then arguments.
 
@@ -1015,7 +1042,9 @@ def manifest(config: dict[str, Any]) -> dict[str, Any]:
         if path not in flat:
             continue
         value = flat[path]
-        if path == "http.credential_headers":
+        if path == "http.headers":
+            value = redact_sensitive_headers(value)
+        elif path == "http.credential_headers":
             value = _redact_credential_headers(value)
         out[path] = value
     return out

@@ -243,7 +243,9 @@ anti-tampering claim.
 
 Credential material is re-supplied out of band. The closed `credential_context`
 payload is exactly `{"verifier": null|<64 lowercase hex>, "implicit_state": bool}`:
-environment references and profile paths are redacted. A changed explicit verifier
+environment references and profile paths are redacted. Global `http.headers` refuses
+credential-bearing names; a legacy mapping is defensively redacted in any new
+manifest or effective-config snapshot. A changed explicit verifier
 refuses resume. Changed implicit cookie or browser-profile state cannot be resumed
 safely and is refused conservatively.
 
