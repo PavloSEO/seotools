@@ -111,10 +111,12 @@ class _FakeChromium:
         self._browser = browser
         self._context = context
         self.launched = False
+        self.launch_calls = []
         self.launch_persistent_calls = []
 
-    def launch(self):
+    def launch(self, **options):
         self.launched = True
+        self.launch_calls.append(options)
         return self._browser
 
     def launch_persistent_context(self, user_data_dir, **options):
@@ -174,6 +176,41 @@ def test_happy_path_returns_the_rendered_html(fake_stack):
     assert result["ok"] is True
     assert result["html"] == "<html><body>rendered</body></html>"
     assert result["final_url"] == "https://example.com/"
+
+
+def test_credential_policy_observes_cookie_only_available_in_complete_request_headers(
+    fake_stack, monkeypatch
+):
+    class Request:
+        def __init__(self):
+            self.headers = {"accept": "text/html"}
+
+        def all_headers(self):
+            return {"accept": "text/html", "cookie": "session=redacted"}
+
+    request = Request()
+    original_goto = fake_stack["page"].goto
+    original_evaluate = fake_stack["page"].evaluate
+
+    def goto(url, **kwargs):
+        original_goto(url, **kwargs)
+        fake_stack["page"].handlers["request"](request)
+
+    def evaluate(script):
+        if "TextEncoder" in script:
+            return {"complete": True, "bytes": 1, "html": fake_stack["page"].html}
+        return original_evaluate(script)
+
+    monkeypatch.setattr(fake_stack["page"], "goto", goto)
+    monkeypatch.setattr(fake_stack["page"], "evaluate", evaluate)
+
+    result = render_document("https://example.com/", _rendering_config(), max_html_bytes=1024)
+
+    assert result["ok"] is True
+    assert result["renderer"]["policy"] == {
+        "credentials_used": True,
+        "cache_control_no_store": False,
+    }
 
 
 def test_pinned_route_is_registered_on_context_before_its_new_page(fake_stack):
@@ -328,6 +365,7 @@ def test_persistent_profile_is_refused_until_pinned_cookie_continuity_is_proven(
 def test_without_a_persistent_profile_the_ordinary_launch_path_is_used(fake_stack):
     render_document("https://example.com/", _rendering_config())
     assert fake_stack["chromium"].launched is True
+    assert fake_stack["chromium"].launch_calls == [{"chromium_sandbox": True}]
     assert fake_stack["chromium"].launch_persistent_calls == []
 
 

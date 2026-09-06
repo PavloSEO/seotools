@@ -101,8 +101,10 @@ class _FakeBrowser:
 class _FakeChromium:
     def __init__(self, browser):
         self._browser = browser
+        self.launch_calls = []
 
-    def launch(self):
+    def launch(self, **options):
+        self.launch_calls.append(options)
         return self._browser
 
 
@@ -178,6 +180,33 @@ def test_each_render_entry_registers_the_pinned_route_before_new_page(fake_stack
     )
     assert [pattern for pattern, _handler in fake_stack["context"].routes] == ["**/*", "**/*"]
     assert fake_stack["page"].routes == []
+
+
+def test_render_check_and_rendered_html_require_the_chromium_sandbox(fake_stack):
+    render_check("https://example.com/")
+    render_module.rendered_html("https://example.com/")
+
+    assert fake_stack["chromium"].launch_calls == [
+        {"chromium_sandbox": True},
+        {"chromium_sandbox": True},
+    ]
+
+
+def test_rendered_html_reports_a_sandbox_launch_failure(fake_stack, monkeypatch):
+    attempts = []
+
+    def fail_to_launch(**options):
+        attempts.append(options)
+        assert options == {"chromium_sandbox": True}
+        raise RuntimeError("sandbox launch unavailable")
+
+    monkeypatch.setattr(fake_stack["chromium"], "launch", fail_to_launch)
+
+    result = render_module.rendered_html("https://example.com/")
+
+    assert result["ok"] is False
+    assert "sandbox launch unavailable" in result["error"]
+    assert attempts == [{"chromium_sandbox": True}]
 
 
 class _PinnedRequest:
