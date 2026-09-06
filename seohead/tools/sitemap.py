@@ -511,6 +511,16 @@ def crawl(
                 queued.discard(u)
 
             for result in pool.map(process, batch):
+                if truncated:
+                    # The cap already tripped on an earlier document in this same
+                    # frontier batch. pool.map() has no way to cancel the results
+                    # still queued behind it, so we must keep draining the
+                    # iterator but stop appending anything it yields — otherwise
+                    # every remaining document in the batch adds at least one
+                    # more URL before its own inner-loop check ever fires, and
+                    # `count` overshoots MAX_URLS (#473).
+                    break
+
                 target = result["url"]
                 if result["kind"] == "error":
                     errors.append({"url": target, "error": result["error"]})
