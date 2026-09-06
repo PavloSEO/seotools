@@ -14,7 +14,7 @@ core through two interfaces — CLI and local MCP. It is not a general-purpose c
 | New to the toolkit | [GUIDELINE.md](GUIDELINE.md) — what it is, the first run, reading an audit honestly, the usual mistakes |
 | A native crawl stopped early | [RECOVERY.md](RECOVERY.md) — the checkpoint, the exact resume requirement, resume vs. intentional fresh start |
 | Wondering what this can do end to end | [scenarios/](scenarios/README.md) — 56 chains, each with its commands, its output, its cost and its limits |
-| Looking for a tool | [TOOLS.md](TOOLS.md) — reference for all 54 |
+| Looking for a tool | [TOOLS.md](TOOLS.md) — reference for all 55 |
 | Looking for a tool's exact arguments, types, defaults, or cost | [TOOL_REFERENCE.md](TOOL_REFERENCE.md) — generated from the MCP tool definitions |
 | Looking for a check the SF audit runs | [CHECKS.md](CHECKS.md) — all 139, generated from the registry |
 | Wondering how this compares to a licensed crawler | [COVERAGE_SF_ISSUES.md](COVERAGE_SF_ISSUES.md) — all 320 published issues, each with a status |
