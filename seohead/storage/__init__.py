@@ -75,6 +75,36 @@ _LATE_PAGE_FIELDS = {
     "hreflang": "hreflang_json",
     "body_unavailable": "body_unavailable",
     "meta_refresh": "meta_refresh",
+    "http_refresh": "http_refresh",
+    "meta_description_count": "meta_description_count",
+    "h1_alt_text": "h1_alt_text",
+    "lorem_ipsum_count": "lorem_ipsum_count",
+    "images_total": "images_total",
+    "images_missing_alt_attr": "images_missing_alt_attr",
+    "images_max_alt_length": "images_max_alt_length",
+    "plugin_elements": "plugin_elements",
+    "meta_fragment": "meta_fragment",
+    "ajax_scheme_outlinks": "ajax_scheme_outlinks",
+}
+_PAGE_NONNEGATIVE_INTS = {
+    "ajax_scheme_outlinks",
+    "body_count",
+    "content_frames",
+    "content_frames_same_origin",
+    "crawl_depth",
+    "external_outlinks",
+    "head_count",
+    "images_max_alt_length",
+    "images_missing_alt_attr",
+    "images_total",
+    "jsonld_blocks_found",
+    "jsonld_blocks_parsed",
+    "lorem_ipsum_count",
+    "meta_description_count",
+    "outlinks",
+    "plugin_elements",
+    "size_bytes",
+    "word_count",
 }
 
 
@@ -353,6 +383,9 @@ def _import_pages(con, source: Path, limitations: list[str], inputs: list[dict])
                 if type(row[key]) is not bool:
                     raise ScanError(f"pages.{key}: expected boolean")
                 row[key] = int(row[key])
+        for key in _PAGE_NONNEGATIVE_INTS:
+            if row[key] is not None and (type(row[key]) is not int or row[key] < 0):
+                raise ScanError(f"pages.{key}: expected a nonnegative integer")
         _insert(con, "pages", row)
 
 

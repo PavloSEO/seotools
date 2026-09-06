@@ -11,7 +11,7 @@ import pytest
 
 from seohead.crawl.collect import PageRecord
 from seohead.crawl.settings import fingerprint, load
-from seohead.storage import ScanError
+from seohead.storage import _PAGE_NONNEGATIVE_INTS, ScanError
 from seohead.storage.native_scan import Lease, NativeScan
 
 SOURCE = Path(__file__).resolve().parents[1]
@@ -295,6 +295,23 @@ def test_forged_lease_and_invalid_inputs_rollback_before_page_insert(tmp_path):
         invalid["body_unavailable"] = "invented"
         with pytest.raises(ScanError, match="body_unavailable"):
             scan.commit_page(lease, invalid, runtime=_runtime())
+        assert scan.con.execute("SELECT COUNT(*) FROM pages").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("field", sorted(_PAGE_NONNEGATIVE_INTS))
+def test_native_write_rejects_negative_page_counts(tmp_path, field):
+    path = tmp_path / "scan.sqlite"
+    with NativeScan.create(path, **_metadata()) as scan:
+        scan.enqueue([("https://example.test/", 0)])
+        record = _record()
+        record[field] = -1
+        message = (
+            "page record crawl depth differs from the claimed frontier lease"
+            if field == "crawl_depth"
+            else rf"pages\.{field}: expected a nonnegative integer"
+        )
+        with pytest.raises(ScanError, match=message):
+            scan.commit_page(scan.claim(1)[0], record, runtime=_runtime())
         assert scan.con.execute("SELECT COUNT(*) FROM pages").fetchone()[0] == 0
 
 

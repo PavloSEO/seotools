@@ -252,27 +252,29 @@ For legacy imports, the only populated `context_items` lane is
 state. These historical imported files have no retained bodies or resources and
 cannot be reanalyzed; native captures use their own validated lanes.
 
-The `pages` projection follows the prerelease `crawl.v1` `PageRecord`, including
-`content_frames`, `content_frames_same_origin`, ordered `hreflang_json`,
-`body_unavailable`, and `meta_refresh`. The first two are parser observations about frames in the
+The `pages` projection follows the prerelease `crawl.v1` `PageRecord`. Fifteen
+later-added fields are nullable for legacy compatibility: `content_frames`,
+`content_frames_same_origin`, ordered `hreflang_json`, `body_unavailable`,
+`meta_refresh`, `http_refresh`, `meta_description_count`, `h1_alt_text`,
+`lorem_ipsum_count`, `images_total`, `images_missing_alt_attr`,
+`images_max_alt_length`, `plugin_elements`, `meta_fragment`, and
+`ajax_scheme_outlinks`. The first two are parser observations about frames in the
 resolved content area. `hreflang_json` preserves the document's alternate
 declarations. `body_unavailable` records why collection could not parse a page
 body (for example, an oversized response); it does **not** describe whether this
-artifact retained that body. `meta_refresh` retains the page's declaration as
-written, including a declaration with no navigation target. Retention remains unavailable in Point A.
+artifact retained that body. `meta_refresh` and `http_refresh` retain the markup
+and HTTP declarations as written. Retention remains unavailable in Point A.
 
-These five later-added columns are nullable for legacy compatibility. `NULL`
-means the field was absent from an older crawl record; it never means measured
-zero frames, an empty hreflang list, an empty body-unavailability reason, or no
-meta-refresh declaration. Current imports validate and store actual field types. Imported
-older records therefore leave the `pages` capability partial independently of the
-run's `crawl_partial` state.
+`NULL` means the field was absent from an older crawl record; it never means a
+measured empty value or zero count. Current imports validate and store actual
+field types. Imported older records therefore leave the `pages` capability partial
+independently of the run's `crawl_partial` state.
 
 This is a prerelease `scan.v1` schema synchronized with that current record
 contract. There is no automatic migration. A prototype SQLite file with the old
 DDL is refused and must be explicitly reimported from its legacy source. The
 legacy importer can preserve a pre-merge 43-field JSONL record losslessly by
-recording these four unknown fields as `NULL`; it does not invent defaults that
+recording these fifteen unavailable fields as `NULL`; it does not invent defaults that
 claim a measurement.
 
 ## Read safely with the Python standard library

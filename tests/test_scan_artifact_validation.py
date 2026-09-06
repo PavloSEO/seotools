@@ -10,7 +10,15 @@ import sys
 
 import pytest
 
-from seohead.storage import APPLICATION_ID, ScanError, import_run, open_scan, read_audit
+from seohead.storage import (
+    _LATE_PAGE_FIELDS,
+    _PAGE_NONNEGATIVE_INTS,
+    APPLICATION_ID,
+    ScanError,
+    import_run,
+    open_scan,
+    read_audit,
+)
 from tests.test_scan_artifact import BUILD
 from tests.test_scan_artifact import legacy_run as legacy_run
 
@@ -346,6 +354,7 @@ def test_documented_stdlib_queries_and_bounded_decoder_execute(artifact, tmp_pat
 
 def test_schema_maps_all_current_page_and_link_fields():
     from dataclasses import fields
+    from typing import get_type_hints
 
     from seohead.crawl.collect import PageRecord
     from seohead.crawl.spider import LinkEdge
@@ -357,6 +366,12 @@ def test_schema_maps_all_current_page_and_link_fields():
         "page_ordinal",
         "document_id",
     }
+    page_record_fields = {field.name for field in fields(PageRecord)}
+    assert set(_LATE_PAGE_FIELDS) <= page_record_fields
+    assert len(page_record_fields - set(_LATE_PAGE_FIELDS)) == 43
+    assert {
+        name for name, annotation in get_type_hints(PageRecord).items() if annotation is int
+    } == _PAGE_NONNEGATIVE_INTS
     assert {field.name for field in fields(LinkEdge)} == {
         "source",
         "destination",
@@ -466,3 +481,48 @@ def test_import_run_merges_partial_crawl_reason_into_pages_capability(legacy_run
     assert capabilities["pages"]["state"] == "partial"
     assert capabilities["pages"]["reason"].startswith("legacy page fields unavailable:")
     assert "legacy source is partial" not in capabilities["pages"]["reason"]
+
+
+def test_import_preserves_all_missing_late_page_fields_as_unavailable(legacy_run, tmp_path):
+    audit_bytes = (legacy_run / "audit.json").read_bytes()
+    pages_path = legacy_run / "pages.jsonl"
+    pages_path.write_text(
+        "".join(
+            json.dumps(
+                {
+                    key: value
+                    for key, value in json.loads(line).items()
+                    if key not in _LATE_PAGE_FIELDS
+                }
+            )
+            + "\n"
+            for line in pages_path.read_text().splitlines()
+        )
+    )
+
+    out = import_run(legacy_run, tmp_path / "historical.sqlite", producer_build=BUILD)
+    con = open_scan(out)
+    try:
+        assert all(
+            value is None
+            for row in con.execute("SELECT " + ",".join(_LATE_PAGE_FIELDS.values()) + " FROM pages")
+            for value in row
+        )
+        capabilities = json.loads(con.execute("SELECT capabilities_json FROM scan").fetchone()[0])
+        assert capabilities["pages"]["state"] == "partial"
+        for name in _LATE_PAGE_FIELDS:
+            assert name in capabilities["pages"]["reason"]
+        assert con.execute("SELECT document_json FROM audit").fetchone()[0].encode() == audit_bytes
+    finally:
+        con.close()
+
+
+@pytest.mark.parametrize("field", sorted(_PAGE_NONNEGATIVE_INTS))
+def test_import_rejects_negative_page_counts(legacy_run, tmp_path, field):
+    pages_path = legacy_run / "pages.jsonl"
+    pages = [json.loads(line) for line in pages_path.read_text().splitlines()]
+    pages[0][field] = -1
+    pages_path.write_text("".join(json.dumps(page) + "\n" for page in pages))
+
+    with pytest.raises(ScanError, match=rf"pages\.{field}: expected a nonnegative integer"):
+        import_run(legacy_run, tmp_path / f"negative-{field}.sqlite", producer_build=BUILD)
