@@ -223,6 +223,26 @@ def _first_meta_tag(soup: BeautifulSoup, *, name: str) -> Any:
     return None
 
 
+def _live_meta_tag_count(soup: BeautifulSoup, *, name: str) -> int:
+    """Count every live ``<meta name=...>`` tag with a non-empty ``content`` (#385).
+
+    ``_first_meta_tag``/``_meta_content`` intentionally keep reading only the first
+    occurrence -- that is the value every existing consumer (``DESC_MISSING``,
+    ``DESC_DUPLICATE``, the length checks) has always measured, and changing which
+    string those measure was explicitly out of scope for adding this count. A tag with
+    a blank ``content`` is not a second declaration a search engine would read either
+    way, so it is excluded the same way ``_meta_content`` treats a blank as absent.
+    """
+    count = 0
+    for tag in soup.find_all("meta", attrs={"name": _ci(name)}):
+        if _has_ancestor(tag, _INERT_LINK_CONTAINERS):
+            continue
+        content = tag.get("content")
+        if isinstance(content, str) and content.strip():
+            count += 1
+    return count
+
+
 def _meta_content(soup: BeautifulSoup, *, name: str) -> str | None:
     """Return the ``content`` of ``<meta name=...>`` (case-insensitive)."""
     tag = _first_meta_tag(soup, name=name)
@@ -478,6 +498,104 @@ def _extract_headings(soup: BeautifulSoup) -> dict[str, list[str]]:
         if found:
             headings[f"h{level}"] = found
     return headings
+
+
+def h1_alt_only_text(soup: BeautifulSoup) -> str | None:
+    """The alt text of an H1 whose own text is empty, when an image supplies it (#385).
+
+    ``_extract_headings`` above already treats an H1 with no text of its own as absent —
+    ``tag.get_text()`` never reads an ``alt`` attribute, matching how a search engine's
+    text-based reading of the page sees it. This is a separate, additive fact for the same
+    tag: whether the reason it read as empty is that the H1 contains nothing but an
+    alt-bearing image. A logo image *beside real heading text* — ``<h1><img alt="Logo">
+    Actual Heading</h1>`` — is normal and must not fire: that H1 already has text of its
+    own, and ``own_text`` short-circuits before the image is ever inspected. Only the
+    first qualifying H1 in document order is returned, matching how ``h1``/``h1_2`` track
+    only the first two headings elsewhere in this module.
+    """
+    for tag in soup.find_all("h1"):
+        if _has_ancestor(tag, _INERT_LINK_CONTAINERS):
+            continue
+        own_text = collapse_whitespace(tag.get_text(" "))
+        if own_text:
+            continue  # has real text of its own -- an image inside it is incidental
+        for img in tag.find_all("img"):
+            if _has_ancestor(img, _INERT_LINK_CONTAINERS):
+                continue
+            alt = collapse_whitespace(cast("str | None", img.get("alt")) or "")
+            if alt:
+                return alt
+    return None
+
+
+def extract_images(soup: BeautifulSoup) -> list[dict[str, Any]]:
+    """Every ``<img>`` element's alt-attribute evidence (#386).
+
+    Two facts per image, kept separate rather than collapsed into one "no alt text"
+    boolean: ``has_alt`` is ``True`` iff the ``alt`` attribute is written at all --
+    ``alt=""`` counts, because an empty alt is the correct way to mark a decorative
+    image and must never read the same as the attribute being absent outright. ``alt_length``
+    is the collapsed alt string's length when the attribute is present (0 for both a missing
+    attribute and a genuinely empty one). Scoped to ``<img>`` only: a CSS background image
+    carries no ``alt`` concept to evaluate.
+    """
+    images: list[dict[str, Any]] = []
+    for tag in soup.find_all("img"):
+        if _has_ancestor(tag, _INERT_LINK_CONTAINERS):
+            continue
+        has_alt = "alt" in tag.attrs
+        alt_value = collapse_whitespace(cast("str | None", tag.get("alt")) or "") if has_alt else ""
+        images.append({"has_alt": has_alt, "alt_length": len(alt_value)})
+    return images
+
+
+# Deprecated, plugin-dependent embedding elements. <object>/<embed> also carry
+# entirely ordinary, non-plugin uses today -- an inline SVG or PDF fallback via
+# <object type="image/..."> renders natively in every browser and a mobile
+# device handles it exactly as well as desktop -- so only the tags whose type
+# does not declare an image are counted (#385). <applet> has no legitimate
+# non-plugin use left; it is always counted.
+_PLUGIN_TAGS = ("object", "embed", "applet")
+
+
+def unsupported_plugin_count(soup: BeautifulSoup) -> int:
+    """Count of legacy plugin-dependent elements (Flash, Java, Silverlight, ...) on the page.
+
+    Mobile browsers, and modern desktop ones, do not run plugins at all, so content behind
+    one of these elements is simply invisible there -- unlike an ``<iframe>`` or a native
+    ``<video>``, which every browser still renders.
+    """
+    count = 0
+    for name in _PLUGIN_TAGS:
+        for tag in soup.find_all(name):
+            if _has_ancestor(tag, _INERT_LINK_CONTAINERS):
+                continue
+            if name == "object":
+                type_attr = (cast("str | None", tag.get("type")) or "").strip().lower()
+                if type_attr.startswith("image/"):
+                    continue  # an SVG/raster fallback, not plugin content
+            count += 1
+    return count
+
+
+# The canonical placeholder passage (Cicero's "de Finibus", corrupted into English filler
+# since the 1500s). Matched as a phrase, not a single common word, so an incidental mention
+# of "lorem" or "ipsum" alone -- a product named Lorem, a Latin-teaching page discussing the
+# real source text -- cannot trip it.
+_LOREM_IPSUM_RE = re.compile(r"lorem\s+ipsum\s+dolor\s+sit\s+amet", re.IGNORECASE)
+
+
+def count_lorem_ipsum(content_text: str) -> int:
+    """Occurrences of the Lorem Ipsum placeholder passage within scoped content text (#385).
+
+    Counted against ``content_text`` -- already scoped to the resolved content area, nav and
+    footer boilerplate excluded -- rather than the whole raw document, and matched as a full
+    multi-word phrase rather than any substring. Either restriction alone was enough per the
+    issue's own acceptance criteria; both together keep a page that merely *mentions* the
+    passage once in a sidebar demo, or in an unrelated typography callout outside the content
+    area, from reading the same as one that shipped it as real body copy.
+    """
+    return len(_LOREM_IPSUM_RE.findall(content_text or ""))
 
 
 # How much of a broken block to quote back, so the reader can find it in the
@@ -1248,6 +1366,9 @@ def parse_html(html: str, final_url: str, options: dict[str, Any] | None = None)
     if opts["meta"]:
         result["title"] = document_title(soup)
         result["meta_description"] = _meta_content(soup, name="description")
+        # How many live occurrences exist, not which one is authoritative --
+        # "meta_description" above stays exactly the first, unchanged (#385).
+        result["meta_description_count"] = _live_meta_tag_count(soup, name="description")
         result["robots"] = _meta_content(soup, name="robots")
         # Separate from "robots": that key keeps its literal meaning, this one
         # carries every crawler-addressed tag, which is what indexability needs.
@@ -1265,6 +1386,7 @@ def parse_html(html: str, final_url: str, options: dict[str, Any] | None = None)
     else:
         result["title"] = None
         result["meta_description"] = None
+        result["meta_description_count"] = 0
         result["robots"] = None
         result["robots_meta"] = []
         result["robots_meta_scoped"] = []
@@ -1305,6 +1427,7 @@ def parse_html(html: str, final_url: str, options: dict[str, Any] | None = None)
         result["twitter"] = {}
 
     result["headings"] = _extract_headings(soup) if opts["headings"] else {}
+    result["h1_alt_only_text"] = h1_alt_only_text(soup) if opts["headings"] else None
     # jsonld stays what it has always been — the blocks that parsed — and the
     # ones that did not are reported beside it rather than dropped.
     if opts["jsonld"]:
@@ -1375,6 +1498,8 @@ def parse_html(html: str, final_url: str, options: dict[str, Any] | None = None)
         result["content_text"] = content_text
         result["content_area_strategy"] = strategy
         result["word_count"] = len(content_text.split())
+        # Scoped to content_text, not the whole document -- see count_lorem_ipsum.
+        result["lorem_ipsum_count"] = count_lorem_ipsum(content_text)
         result["frames"] = extract_frames(
             soup,
             base_url,
@@ -1388,6 +1513,7 @@ def parse_html(html: str, final_url: str, options: dict[str, Any] | None = None)
         result["content_text"] = ""
         result["content_area_strategy"] = None
         result["word_count"] = 0
+        result["lorem_ipsum_count"] = 0
         result["frames"] = []
 
     # Always computed, regardless of the option flags above: it is a handful of
@@ -1399,6 +1525,10 @@ def parse_html(html: str, final_url: str, options: dict[str, Any] | None = None)
     # that is already built, and the one authoritative statement a site makes
     # about which pages are the same page in another language (#357).
     result["hreflang"] = extract_hreflang(soup, base_url)
+    # Same reasoning again: <img> alt-attribute evidence and legacy plugin
+    # elements are both handful-of-lookups on the already-built tree (#385, #386).
+    result["images"] = extract_images(soup)
+    result["plugin_elements_count"] = unsupported_plugin_count(soup)
 
     # Built imperatively above (one assignment per option branch) rather than as
     # one literal, so a plain dict is the natural builder; cast once at the

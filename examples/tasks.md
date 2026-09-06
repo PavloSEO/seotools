@@ -1,9 +1,9 @@
 # Audit Tasks — example.com
 
-> 73 of 139 checks could run; the score is not comparable to a run with full evidence
+> 75 of 149 checks could run; the score is not comparable to a run with full evidence
 
-- Source: audit generated at 2026-09-06T10:04:05Z (health 6)
-- Tasks: **15** (P1: 3, P2: 8, P3: 4)
+- Source: audit generated at 2026-09-06T10:04:05Z (health 2)
+- Tasks: **16** (P1: 3, P2: 8, P3: 5)
 
 ## P1 (3)
 
@@ -57,7 +57,13 @@
     - _How to fix:_ Add substantial, useful content or exclude the page from indexing when it has no standalone search value.
         - https://example.com/page-b
 
-## P3 (4)
+## P3 (5)
+
+- [ ] **H2 is duplicated across multiple URLs — 3 pages** `H2_DUPLICATE` · notice · effort: low · `TASK-9ea5b337`
+    - _How to fix:_ Use a unique, page-specific H2 on each URL, or accept it for a shared boilerplate subheading that is genuinely meant to repeat.
+        - https://example.com/
+        - https://example.com/no-title
+        - https://example.com/page-a
 
 - [ ] **Title falls below the configured length threshold — 2 pages** `TITLE_TOO_SHORT` · notice · effort: low · `TASK-f4d7444c`
     - _How to fix:_ Expand the title to an informative length without padding it with boilerplate.

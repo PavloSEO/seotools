@@ -99,7 +99,14 @@ def test_silent_checks_are_named_so_the_gap_is_visible(tmp_path):
     # link-security/forms checks (#125) read a native crawl's own
     # LinkEdge/FormEdge evidence this SF-export fixture never produces, which
     # moves ids into it.
-    assert coverage["checks_silent"] <= 58
+    # 58 -> 59 when H2_TOO_LONG was added (#385): unlike the other nine checks
+    # added alongside it, H2_TOO_LONG reads the same H2-1 column an SF export
+    # already carries (no native-only dependency to declare a skip for), and
+    # this fixture's own H2 values are all short, so it runs clean rather than
+    # skip or fire. Its sibling H2_DUPLICATE, added in the same change, reads
+    # the same column and happens to fire here instead (two fixture rows
+    # already share an H2), which is why only one id moved, not two.
+    assert coverage["checks_silent"] <= 59
 
 
 def test_a_disabled_check_is_its_own_bucket_never_silent_or_clean(tmp_path):

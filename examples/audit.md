@@ -7,25 +7,26 @@
 
 ## Health summary
 
-**Health score: 6 / 100**
+**Health score: 2 / 100**
 
-_73 of 139 checks could run; the score is not comparable to a run with full evidence_
+_75 of 149 checks could run; the score is not comparable to a run with full evidence_
 
-- Checks: **15 fired**, 66 skipped, 58 silent, 0 disabled (of 139 total)
+- Checks: **16 fired**, 74 skipped, 59 silent, 0 disabled (of 149 total)
 
 - URLs crawled: **6** (HTML: 4, indexable: 4)
-- Total issues: **18**
+- Total issues: **21**
 
 | Severity | Count |
 |---|---:|
 | 🔴 Critical | 3 |
 | 🟡 Warning | 10 |
-| ⚪ Notice | 5 |
+| ⚪ Notice | 8 |
 
 **Most frequent issues:**
 
 | Check | Count | Severity |
 |---|---:|---|
+| `H2_DUPLICATE` | 3 | notice |
 | `DESC_DUPLICATE` | 2 | warning |
 | `TITLE_DUPLICATE` | 2 | warning |
 | `TITLE_TOO_SHORT` | 2 | notice |
@@ -37,9 +38,16 @@ _73 of 139 checks could run; the score is not comparable to a run with full evid
 | `H1_MULTIPLE` | 1 | warning |
 | `HTML_BLOAT` | 1 | notice |
 | `LARGE_HTML` | 1 | warning |
-| `LOW_TEXT_RATIO` | 1 | notice |
 
 **HTML size:** median 76 KB, p90 229 KB, p95 261 KB, max 293 KB.
+
+## Look at these before trusting the rest
+
+Each check below describes more than half the crawled pages. That can be true -- a site really may have no meta description anywhere -- but it is also what a broken check looks like, and it is worth one minute of checking against the live site before the rest of this report is acted on.
+
+| Check | Pages | Share of crawl |
+|---|---:|---:|
+| `H2_DUPLICATE` | 3 | 75% |
 
 ## 🔴 Critical (3)
 
@@ -128,7 +136,7 @@ _73 of 139 checks could run; the score is not comparable to a run with full evid
 
 > _How to fix:_ Give each page a unique title element.
 
-## ⚪ Notice (5)
+## ⚪ Notice (8)
 
 ### `DESC_TOO_SHORT` — Meta description falls below the configured length threshold (1)
 
@@ -137,6 +145,16 @@ _73 of 139 checks could run; the score is not comparable to a run with full evid
 | https://example.com/page-a | length=7, min_chars=70 |
 
 > _How to fix:_ Expand the description with specific, useful page information.
+
+### `H2_DUPLICATE` — H2 is duplicated across multiple URLs (3)
+
+| URL | Details |
+|---|---|
+| https://example.com/ | value=Section, duplicate_count=3 |
+| https://example.com/no-title | value=Section, duplicate_count=3 |
+| https://example.com/page-a | value=Section, duplicate_count=3 |
+
+> _How to fix:_ Use a unique, page-specific H2 on each URL, or accept it for a shared boilerplate subheading that is genuinely meant to repeat.
 
 ### `HTML_BLOAT` — HTML bloat: high document size relative to text content (1)
 
@@ -185,14 +203,22 @@ _73 of 139 checks could run; the score is not comparable to a run with full evid
 | `SITEMAP_URL_4XX_5XX` | missing export: sitemap_non_200 |
 | `SITEMAP_URL_3XX` | missing export: sitemap_redirects |
 | `SITEMAP_URL_NON_INDEXABLE` | missing export: sitemap_non_indexable |
+| `DESC_MULTIPLE` | no meta description count evidence (native crawl only) |
+| `H1_ALT_TEXT_ONLY` | no H1 alt-text evidence (native crawl only) |
 | `CONTENT_IN_IFRAME` | no iframe inventory in this evidence |
 | `SCHEMA_VALIDATION_ERROR` | no Structured Data validation columns in Internal:All |
+| `STRUCTURED_DATA_PARSE_ERROR` | no JSON-LD found/parsed block counts (native crawl only) |
 | `READABILITY_DIFFICULT` | no Readability/Flesch column |
 | `LONG_SENTENCES` | no Average Words Per Sentence column |
 | `SPELLING_ERRORS` | no Spelling Errors column (enable spell-check in SF) |
 | `GRAMMAR_ERRORS` | no Grammar Errors column (enable grammar-check in SF) |
+| `HTTP_REFRESH_REDIRECT` | no Refresh response header evidence (native crawl only) |
 | `PAGINATION_LOOP` | no rel="next" column in Internal:All |
 | `UNLINKED_PAGINATION_SERIES` | no rel="next" column in Internal:All |
+| `LOREM_IPSUM_PLACEHOLDER` | no Lorem Ipsum evidence (native crawl only) |
+| `UNSUPPORTED_PLUGIN` | no plugin-element evidence (native crawl only) |
+| `IMG_MISSING_ALT_ATTRIBUTE` | no per-image evidence (native crawl only) |
+| `IMG_ALT_TOO_LONG` | no per-image evidence (native crawl only) |
 | `MISSING_CHARSET` | no Meta Charset column, so a page without a header charset cannot be distinguished from one declaring <meta charset> (needs a native seohead crawl or Custom Extraction in SF) |
 | `MISSING_DOCTYPE` | no Doctype column (needs a native seohead crawl or Custom Extraction in SF) |
 | `VIEWPORT_MISSING` | no Viewport column (needs a native seohead crawl or Custom Extraction in SF) |

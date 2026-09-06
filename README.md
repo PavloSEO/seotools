@@ -6,7 +6,7 @@
 
 **The local evidence and audit-automation layer for SEO specialists and tool-calling AI agents.**
 
-61 callable tools · 139 checks · 29 workflow skills · 56 scenarios · 2 400+ offline tests · CLI · local MCP · Docker
+61 callable tools · 149 checks · 29 workflow skills · 56 scenarios · 2 400+ offline tests · CLI · local MCP · Docker
 
 [Website](https://seohead.tech) · [Documentation](docs/README.md)
 
@@ -21,9 +21,9 @@
 </div>
 
 **SEOHEAD is not a Screaming Frog replacement.** Screaming Frog produces the CSV/XLSX exports
-consumed by SEOHEAD's 139-check analyzer, and remains the stronger choice for web-scale crawls.
+consumed by SEOHEAD's 149-check analyzer, and remains the stronger choice for web-scale crawls.
 SEOHEAD also ships its own bounded native crawler (`crawl-site`) for when no SF licence is
-installed: it fetches a site directly and feeds the same 139-check registry, but it is not
+installed: it fetches a site directly and feeds the same 149-check registry, but it is not
 SF-scale or SF-parity — checks whose evidence only Screaming Frog's own crawl produces (near-
 duplicates, readability, pixel widths, link score) come back honestly `skipped`, not clean.
 SEOHEAD then runs complementary bounded checks, keeps failed and unavailable measurements
@@ -44,8 +44,8 @@ commercial-proposal draft while a specialist keeps control of interpretation.
 
 | Stage | Primary owner | Role |
 |---|---|---|
-| Crawl collection | Screaming Frog, or SEOHEAD's own bounded `crawl-site` when no SF licence is installed | Discover site URLs and produce evidence for the 139-check registry — SF for web-scale crawls, `crawl-site` for a licence-free bounded pass |
-| Evidence processing | SEOHEAD Tools | Analyze that evidence against a 139-check registry, run targeted live and infrastructure tools, preserve uncertainty, and build structured artifacts |
+| Crawl collection | Screaming Frog, or SEOHEAD's own bounded `crawl-site` when no SF licence is installed | Discover site URLs and produce evidence for the 149-check registry — SF for web-scale crawls, `crawl-site` for a licence-free bounded pass |
+| Evidence processing | SEOHEAD Tools | Analyze that evidence against a 149-check registry, run targeted live and infrastructure tools, preserve uncertainty, and build structured artifacts |
 | Interpretation and approval | SEO specialist, optionally supported by an AI agent | Connect findings to business context, implementation risk, and final priorities |
 
 See [how SEOHEAD fits with crawlers and data providers](docs/COMPARISON.md) for the exact scope
@@ -64,8 +64,8 @@ No client data is included.
 
 | Starting point | Start with | What it does |
 |---|---|---|
-| **A site, and no crawl yet** | `seohead crawl-site --url https://example.com --out-dir ./run` | Crawls the site with this toolkit's own crawler — no Screaming Frog, no licence — audits the result through the same 139-check registry, and writes `audit.json` beside a prioritized `tasks.md` backlog |
-| **Existing Screaming Frog exports** | `seohead sf run --exports-dir ./exports --out ./report --tasks` | Evaluates crawl evidence you already have against the 139-check registry and builds an audit plus a prioritized backlog |
+| **A site, and no crawl yet** | `seohead crawl-site --url https://example.com --out-dir ./run` | Crawls the site with this toolkit's own crawler — no Screaming Frog, no licence — audits the result through the same 149-check registry, and writes `audit.json` beside a prioritized `tasks.md` backlog |
+| **Existing Screaming Frog exports** | `seohead sf run --exports-dir ./exports --out ./report --tasks` | Evaluates crawl evidence you already have against the 149-check registry and builds an audit plus a prioritized backlog |
 | **Screaming Frog installed and licensed** | `seohead sf run --crawl https://example.com --out ./report` | Drives your local Screaming Frog CLI, then audits its exports — one command instead of crawl, export, import |
 | A bounded current-state pass | `seohead site-audit --url https://example.com --limit 25` | Sitemap-based live, page and infrastructure checks. Not a link-graph crawl, and it says so |
 | A tool-calling AI agent | `seohead mcp` | 56 shared `seo_*` handlers plus five `sf_*` crawl-workflow tools over local stdio |
@@ -187,7 +187,7 @@ it is idempotent, and whether it can spend money.
 
 ### Three ways to get crawl evidence
 
-The audit layer does not care where the crawl came from. Three sources feed the same 139-check
+The audit layer does not care where the crawl came from. Three sources feed the same 149-check
 registry and produce the same audit document, so a report built one way is comparable with a
 report built another.
 
@@ -234,7 +234,7 @@ this repository does and does not cover.
 Five additional `sf_*` MCP tools turn a Screaming Frog crawl into machine-readable evidence,
 compact summaries, filtered findings, an export inventory, and a prioritized task backlog.
 
-The analyzer has a registry of **139 checks** across metadata, indexability, canonicals, redirects,
+The analyzer has a registry of **149 checks** across metadata, indexability, canonicals, redirects,
 internal links, sitemaps, hreflang, structured data, page depth, HTML weight, performance signals,
 and other crawl-derived evidence. It applies the checks supported by the available exports;
 missing input is reported as skipped with a reason, never silently converted into “zero issues.”

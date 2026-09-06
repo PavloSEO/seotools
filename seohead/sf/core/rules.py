@@ -251,6 +251,18 @@ def check_titles(ctx: AuditContext) -> None:
 def check_descriptions(ctx: AuditContext) -> None:
     from .normalize import INTERNAL_FIELD_MAP, find_column
 
+    # DESC_MULTIPLE (#385): a distinct piece of evidence from "meta_description" below --
+    # a native crawl counts every live occurrence while still keeping the first one as the
+    # authoritative value everything else here reads, so this is evaluated independently of
+    # whether the Meta Description column itself is present in this run's evidence.
+    if _has_column(ctx, "meta_description_count"):
+        for page in ctx.indexable_html_pages():
+            count = _rec(page).get("meta_description_count")
+            if count is not None and count > 1:
+                ctx.add("DESC_MULTIPLE", target_url=page.url, details={"count": count})
+    else:
+        ctx.skip("DESC_MULTIPLE", "no meta description count evidence (native crawl only)")
+
     # Same distinction as check_titles (#205): an absent Meta Description column is not
     # evidence that every page lacks one.
     if (
@@ -334,8 +346,30 @@ def check_headings(ctx: AuditContext) -> None:
                 target_url=page.url,
                 details={"length": h1_len, "max_chars": t["h1_max_chars"]},
             )
-        if require_h2 and h1 and not rec.get("h2"):
+        # H1_ALT_TEXT_ONLY (#385): additive to h1/h1_2 above, never a substitute for them --
+        # an H1 whose only content is an alt-bearing image still reads as empty for
+        # H1_MISSING/H1_MULTIPLE/H1_TOO_LONG exactly as before, matching how a text-only
+        # reading of the page (and Google's own crawl of the raw HTML) sees it. A logo
+        # sitting *beside* real heading text never reaches this: h1_alt_text is only ever
+        # populated when the H1's own text was empty (see parser.h1_alt_only_text).
+        alt_text = rec.get("h1_alt_text")
+        if alt_text:
+            ctx.add("H1_ALT_TEXT_ONLY", target_url=page.url, details={"alt_text": alt_text})
+        h2 = rec.get("h2")
+        if require_h2 and h1 and not h2:
             ctx.add("H2_MISSING", target_url=page.url, details={"h1": h1})
+        # H2_TOO_LONG (#385): no dedicated length column exists for H2 on either an SF
+        # export or a native crawl (unlike title/H1), so the length is measured directly
+        # off the value itself -- the same fallback check_titles/check_descriptions use
+        # when their own length column is absent.
+        if h2 and len(str(h2)) > t.get("h2_max_chars", 70):
+            ctx.add(
+                "H2_TOO_LONG",
+                target_url=page.url,
+                details={"length": len(str(h2)), "max_chars": t.get("h2_max_chars", 70)},
+            )
+    if not _has_column(ctx, "h1_alt_text"):
+        ctx.skip("H1_ALT_TEXT_ONLY", "no H1 alt-text evidence (native crawl only)")
 
 
 # --------------------------------------------------------------------------
@@ -529,16 +563,37 @@ def check_url_and_perf(ctx: AuditContext) -> None:
 
 def check_schema(ctx: AuditContext) -> None:
     found_any = False
+    has_parse_evidence = _has_column(ctx, "structured_data_parsed")
     for page in ctx.html_pages():
-        ve = _rec(page).get("validation_errors")
+        rec = _rec(page)
+        ve = rec.get("validation_errors")
         if ve is not None:
             found_any = True
         if ve and ve > 0:
             ctx.add(
                 "SCHEMA_VALIDATION_ERROR", target_url=page.url, details={"validation_errors": ve}
             )
+        # STRUCTURED_DATA_PARSE_ERROR (#386): "found" and "parsed" are both already recorded
+        # per page by a native crawl; nothing read them together until now. A block that is
+        # merely absent reads found == parsed == 0 and never fires -- only found > parsed,
+        # meaning at least one block existed in the markup and failed to parse as JSON, is
+        # a defect distinct from STRUCTURED_DATA_MISSING.
+        if has_parse_evidence:
+            found = rec.get("structured_data") or 0
+            parsed = rec.get("structured_data_parsed") or 0
+            if found > parsed:
+                ctx.add(
+                    "STRUCTURED_DATA_PARSE_ERROR",
+                    target_url=page.url,
+                    details={"blocks_found": found, "blocks_parsed": parsed},
+                )
     if not found_any:
         ctx.skip("SCHEMA_VALIDATION_ERROR", "no Structured Data validation columns in Internal:All")
+    if not has_parse_evidence:
+        ctx.skip(
+            "STRUCTURED_DATA_PARSE_ERROR",
+            "no JSON-LD found/parsed block counts (native crawl only)",
+        )
 
 
 # --------------------------------------------------------------------------
@@ -549,6 +604,7 @@ def check_duplicates(ctx: AuditContext) -> None:
     by_desc: dict[str, list[str]] = defaultdict(list)
     by_hash: dict[str, list[str]] = defaultdict(list)
     by_h1: dict[str, list[str]] = defaultdict(list)
+    by_h2: dict[str, list[str]] = defaultdict(list)
     has_hash = False
     for page in ctx.indexable_html_pages():
         rec = _rec(page)
@@ -561,6 +617,8 @@ def check_duplicates(ctx: AuditContext) -> None:
             by_hash[str(rec["hash"]).strip()].append(page.url)
         if rec.get("h1"):
             by_h1[str(rec["h1"]).strip()].append(page.url)
+        if rec.get("h2"):
+            by_h2[str(rec["h2"]).strip()].append(page.url)
 
     def emit(groups: dict[str, list[str]], check_id: str) -> None:
         for value, urls in groups.items():
@@ -583,6 +641,7 @@ def check_duplicates(ctx: AuditContext) -> None:
     emit(by_title, "TITLE_DUPLICATE")
     emit(by_desc, "DESC_DUPLICATE")
     emit(by_h1, "H1_DUPLICATE")
+    emit(by_h2, "H2_DUPLICATE")
     if has_hash:
         emit(by_hash, "DUPLICATE_BY_HASH")
     else:
@@ -712,6 +771,14 @@ def check_directives_extra(ctx: AuditContext) -> None:
                 target_url=page.url,
                 details={"meta_refresh": refresh},
             )
+        if rec.get("http_refresh"):
+            ctx.add(
+                "HTTP_REFRESH_REDIRECT",
+                target_url=page.url,
+                details={"refresh_header": rec.get("http_refresh")},
+            )
+    if not _has_column(ctx, "http_refresh"):
+        ctx.skip("HTTP_REFRESH_REDIRECT", "no Refresh response header evidence (native crawl only)")
 
 
 def check_canonical_extra(ctx: AuditContext) -> None:
@@ -1373,6 +1440,61 @@ def check_document_skeleton(ctx: AuditContext) -> None:
             ctx.add("HEAD_NOT_FIRST", target_url=page.url)
 
 
+def check_native_page_evidence(ctx: AuditContext) -> None:
+    """LOREM_IPSUM_PLACEHOLDER, UNSUPPORTED_PLUGIN, IMG_MISSING_ALT_ATTRIBUTE, IMG_ALT_TOO_LONG.
+
+    Four independent facts a native crawl's own HTML parse already records per page (#385,
+    #386), none of which a Screaming Frog export carries by default -- each guards itself
+    honestly instead of reading a run that never measured it as clean. Grouped in one
+    function because they share nothing but that shape, not because they are related in
+    meaning; see seohead.tools.parser for how each is extracted.
+    """
+    t = ctx.thresholds
+    alt_max_chars = t.get("alt_max_chars", 100)
+    has_lorem = _has_column(ctx, "lorem_ipsum_count")
+    has_plugin = _has_column(ctx, "plugin_elements")
+    has_images = _has_column(ctx, "images_total")
+    for page in ctx.html_pages():
+        rec = _rec(page)
+        if has_lorem:
+            occurrences = rec.get("lorem_ipsum_count") or 0
+            if occurrences > 0:
+                ctx.add(
+                    "LOREM_IPSUM_PLACEHOLDER",
+                    target_url=page.url,
+                    details={"occurrences": occurrences},
+                )
+        if has_plugin:
+            count = rec.get("plugin_elements") or 0
+            if count > 0:
+                ctx.add("UNSUPPORTED_PLUGIN", target_url=page.url, details={"count": count})
+        if has_images:
+            missing_alt_attr = rec.get("images_missing_alt_attr") or 0
+            if missing_alt_attr > 0:
+                ctx.add(
+                    "IMG_MISSING_ALT_ATTRIBUTE",
+                    target_url=page.url,
+                    details={
+                        "images_missing_alt_attribute": missing_alt_attr,
+                        "images_total": rec.get("images_total"),
+                    },
+                )
+            max_alt_length = rec.get("images_max_alt_length") or 0
+            if max_alt_length > alt_max_chars:
+                ctx.add(
+                    "IMG_ALT_TOO_LONG",
+                    target_url=page.url,
+                    details={"max_alt_length": max_alt_length, "max_chars": alt_max_chars},
+                )
+    if not has_lorem:
+        ctx.skip("LOREM_IPSUM_PLACEHOLDER", "no Lorem Ipsum evidence (native crawl only)")
+    if not has_plugin:
+        ctx.skip("UNSUPPORTED_PLUGIN", "no plugin-element evidence (native crawl only)")
+    if not has_images:
+        ctx.skip("IMG_MISSING_ALT_ATTRIBUTE", "no per-image evidence (native crawl only)")
+        ctx.skip("IMG_ALT_TOO_LONG", "no per-image evidence (native crawl only)")
+
+
 def check_og(ctx: AuditContext) -> None:
     """Check Open Graph presence.
 
@@ -1538,6 +1660,7 @@ ALL_CHECKS = [
     check_pagination_series,
     check_links_extra,
     check_tech_extra,
+    check_native_page_evidence,
     check_charset,
     check_doctype,
     check_viewport,
