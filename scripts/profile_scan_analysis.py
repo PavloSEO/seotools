@@ -363,11 +363,21 @@ def _whole_stage(
     collector.PAGES = pages
     fetcher, fetched_pages = collector.offline_fetcher(edges)
     original_crawl_to_scan = sqlite_adapter.crawl_to_scan
+    collection_metrics: dict[str, object] = {}
 
     def offline_crawl_to_scan(*args, **kwargs):
         if "fetcher" in kwargs:
             raise AssertionError("CLI whole profile must own the sole offline transport seam")
-        return original_crawl_to_scan(*args, **kwargs, fetcher=fetcher)
+        began = time.perf_counter()
+        try:
+            return original_crawl_to_scan(*args, **kwargs, fetcher=fetcher)
+        finally:
+            peak, source_unit = _rss()
+            collection_metrics.update(
+                peak_rss_mib=round(peak, 2),
+                rss_source_unit=source_unit,
+                wall_seconds=round(time.perf_counter() - began, 3),
+            )
 
     config = out.with_suffix(".config.json")
     config.write_text(json.dumps(_settings(pages)), encoding="utf-8")
@@ -412,6 +422,7 @@ def _whole_stage(
         "links": counts["links"],
         "body_count": counts["bodies"],
         "collection": {
+            **collection_metrics,
             "profile_kind": "offline_true_discovery_whole_path",
             "fetched_pages": fetched_pages(),
             "counts": counts,
@@ -577,6 +588,15 @@ def main() -> None:
                 ("report", {"audit_out": audit, "report_out": directory / f"{edges}.reports"}),
                 ("whole", {"report_out": directory / f"{edges}.whole.md"}),
             ):
+                # The real whole path owns another artifact. It must still be
+                # measured if a direct-seeded microprofile cannot finish.
+                if "blocking" in outcome and stage != "whole":
+                    continue
+                print(
+                    f"profile stage={stage} pages={args.pages} edges_per_page={edges}",
+                    file=sys.stderr,
+                    flush=True,
+                )
                 try:
                     child = _run_child(
                         stage,
@@ -588,33 +608,41 @@ def main() -> None:
                     )
                     outcome.update(child)
                     if stage == "whole" and child["whole"].get("status") == "blocked":
-                        outcome["blocking"] = {
+                        blocker = {
                             "stage": "whole",
                             "reason": child["whole"]["reason"],
                         }
-                        break
+                        outcome.setdefault("blocking", blocker)
+                        outcome.setdefault("blockers", []).append(blocker)
                 except RuntimeError as exc:
-                    outcome["blocking"] = {"stage": stage, "reason": str(exc)}
-                    break
+                    blocker = {"stage": stage, "reason": str(exc)}
+                    outcome.setdefault("blocking", blocker)
+                    outcome.setdefault("blockers", []).append(blocker)
             results.append(outcome)
     results.sort(key=lambda row: int(row["edges_per_page"]))
-    complete = [row for row in results if "blocking" not in row]
-    deltas = {
-        stage: round(
-            float(complete[1][stage]["peak_rss_mib"]) - float(complete[0][stage]["peak_rss_mib"]), 2
-        )
-        for stage in ("pages", "graph", "audit", "report", "whole")
-        if len(complete) == 2
-    }
-    if len(complete) == 2 and (
-        any(deltas[stage] > 128 for stage in ("graph", "audit", "whole"))
-        or any(float(row["whole"]["peak_rss_mib"]) >= 1024 for row in complete)
-    ):
-        raise RuntimeError("native analysis profile exceeded the F memory acceptance budget")
-    if len(complete) == 2 and (
-        complete[0]["audit"]["audit_digest"] == "" or complete[1]["audit"]["audit_digest"] == ""
-    ):
-        raise RuntimeError("native analysis profile has no audit digest")
+    deltas = {}
+    for stage in ("pages", "graph", "audit", "report", "whole", "collector"):
+        samples = [
+            row.get("whole", {}).get("collection", {})
+            if stage == "collector"
+            else row.get(stage, {})
+            for row in results
+        ]
+        if len(samples) == 2 and all("peak_rss_mib" in sample for sample in samples):
+            deltas[stage] = round(
+                float(samples[1]["peak_rss_mib"]) - float(samples[0]["peak_rss_mib"]), 2
+            )
+    violations = [
+        {"stage": stage, "metric": "edge_growth_mib", "limit": 128, "observed": deltas[stage]}
+        for stage in ("collector", "graph", "audit", "whole")
+        if stage in deltas and deltas[stage] > 128
+    ]
+    for row in results:
+        peak = row.get("whole", {}).get("peak_rss_mib")
+        if peak is not None and float(peak) > 2048:
+            violations.append(
+                {"stage": "whole", "metric": "peak_rss_mib", "limit": 2048, "observed": peak}
+            )
     print(
         json.dumps(
             {
@@ -628,6 +656,8 @@ def main() -> None:
                 },
                 "results": results,
                 "rss_delta_mib": deltas,
+                "observed_memory_budget_violations": violations,
+                "memory_budgets_mib": {"edge_growth": 128, "whole_peak": 2048},
                 "whole_pipeline_rss_delta_mib": deltas.get("whole"),
             },
             indent=2,

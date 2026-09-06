@@ -69,6 +69,7 @@ def test_run_executes_only_10k_cases_sequentially_and_preserves_child_logs(monke
         )()
 
     monkeypatch.setattr(release.subprocess, "run", fake_run)
+    monkeypatch.setattr(release, "_run_analysis", fake_run)
     result = release.run_release_profile(execute=True, log_dir=tmp_path)
 
     assert len(calls) == 3  # Git provenance plus one 10k profile covering both densities
@@ -109,6 +110,7 @@ def test_large_opt_in_includes_the_50k_case_without_lowering_its_requested_confi
         )()
 
     monkeypatch.setattr(release.subprocess, "run", fake_run)
+    monkeypatch.setattr(release, "_run_analysis", fake_run)
     result = release.run_release_profile(execute=True, include_large=True, log_dir=tmp_path)
 
     assert [case["status"] for case in result["cases"]] == ["measured", "measured", "measured"]

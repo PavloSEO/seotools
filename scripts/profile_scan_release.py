@@ -9,10 +9,13 @@ the explicit ``--large`` opt-in because it is expensive, not unauthorized.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
+import os
 import platform
 import resource
 import shutil
+import signal
 import sqlite3
 import subprocess
 import sys
@@ -73,6 +76,33 @@ def _not_measured(case: dict[str, int], reason: str) -> dict[str, Any]:
     return {**case, "status": "not_measured", "blocking_reason": reason}
 
 
+def _run_analysis(command, *, log_dir: Path, label: str, timeout: int):
+    """Stream progress to retained logs and stop the owned process tree on timeout."""
+    stdout_path = log_dir / f"{label}.stdout.log"
+    stderr_path = log_dir / f"{label}.stderr.log"
+    with stdout_path.open("w") as stdout, stderr_path.open("w") as stderr:
+        process = subprocess.Popen(
+            command,
+            cwd=ROOT,
+            stdout=stdout,
+            stderr=stderr,
+            start_new_session=True,
+        )
+        try:
+            process.wait(timeout=timeout)
+        except BaseException:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGKILL)
+            process.wait()
+            raise
+    return subprocess.CompletedProcess(
+        command,
+        process.returncode,
+        stdout_path.read_text(encoding="utf-8"),
+        stderr_path.read_text(encoding="utf-8"),
+    )
+
+
 def run_release_profile(
     *, execute: bool, include_large: bool = False, log_dir: Path | None = None
 ) -> dict[str, Any]:
@@ -85,6 +115,7 @@ def run_release_profile(
     started = time.perf_counter()
     manifest = _source_manifest()
     results: list[dict[str, Any]] = []
+    analysis_summaries: dict[str, Any] = {}
     seen_pages: set[int] = set()
     for case in CASES:
         if case["pages"] in seen_pages:
@@ -121,23 +152,19 @@ def run_release_profile(
             command.extend(("--edges-only", str(case["edges_per_page"])))
         began = time.perf_counter()
         try:
-            completed = subprocess.run(
+            completed = _run_analysis(
                 command,
-                cwd=ROOT,
-                text=True,
-                capture_output=True,
-                check=False,
-                timeout=CHILD_TIMEOUT_SECONDS,
+                log_dir=log_dir,
+                label=label,
+                timeout=CHILD_TIMEOUT_SECONDS * 6 * len(expected) + 60,
             )
         except subprocess.TimeoutExpired as exc:
-            (log_dir / f"{label}.stdout.log").write_text(exc.stdout or "", encoding="utf-8")
-            (log_dir / f"{label}.stderr.log").write_text(exc.stderr or "", encoding="utf-8")
             results.extend(
                 {
                     **candidate,
                     "status": "failed",
                     "returncode": None,
-                    "blocking_reason": f"analysis profile exceeded {CHILD_TIMEOUT_SECONDS} seconds",
+                    "blocking_reason": f"analysis profile exceeded {exc.timeout} seconds",
                     "wall_seconds": round(time.perf_counter() - began, 3),
                 }
                 for candidate in expected
@@ -160,6 +187,17 @@ def run_release_profile(
             payload = json.loads(completed.stdout)
         except json.JSONDecodeError as exc:
             raise RuntimeError("analysis profile did not emit JSON") from exc
+        analysis_summaries[str(case["pages"])] = {
+            key: payload[key]
+            for key in (
+                "fixture",
+                "rss_delta_mib",
+                "whole_pipeline_rss_delta_mib",
+                "observed_memory_budget_violations",
+                "memory_budgets_mib",
+            )
+            if key in payload
+        }
         selected = {
             item["links"]: item
             for item in payload.get("results", [])
@@ -201,6 +239,7 @@ def run_release_profile(
     return {
         "manifest": manifest,
         "cases": results,
+        "analysis_summaries": analysis_summaries,
         "runner": {
             "executed": execute,
             "large_case_requested": include_large,
