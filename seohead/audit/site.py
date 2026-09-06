@@ -335,12 +335,32 @@ def audit_site(
         page_urls = [start]  # An empty sitemap still warrants a homepage analysis.
     page_urls = page_urls[:limit]
 
-    def _one_page(page_url: str) -> dict[str, Any]:
+    def _one_page(page_url: str) -> tuple[dict[str, Any], set[str]]:
         results = {tool: _run(tools[tool], url=page_url) for tool in page_tools if tool in tools}
-        return _page_row(page_url, results)
+        failed_tools = {
+            tool
+            for tool, data in results.items()
+            if isinstance(data, dict) and data.get("ok") is False
+        }
+        return _page_row(page_url, results), failed_tools
 
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
-        pages = list(pool.map(_one_page, page_urls))
+        page_results = list(pool.map(_one_page, page_urls))
+    pages = [row for row, _ in page_results]
+
+    # A page tool that raises for every sampled page hides just as much evidence
+    # as a site-level tool failure and must be counted the same way, not left to
+    # whatever severity classify() happens to assign a raw exception message.
+    page_tool_failure_counts: dict[str, int] = {}
+    for _, failed_tools in page_results:
+        for tool in failed_tools:
+            page_tool_failure_counts[tool] = page_tool_failure_counts.get(tool, 0) + 1
+    page_tools_failed = [
+        {"tool": tool, "failed_pages": count, "pages_checked": len(pages)}
+        for tool, count in sorted(page_tool_failure_counts.items())
+        if pages and count == len(pages)
+    ]
+    fully_failed_page_tools = {row["tool"] for row in page_tools_failed}
 
     findings: list[dict[str, Any]] = []
     failed: list[dict[str, str]] = []
@@ -354,12 +374,19 @@ def audit_site(
             findings.append({"source": tool, "severity": classify(str(text)), "text": str(text)})
     for page in pages:
         for text in page.get("issues", []):
+            text_str = str(text)
+            severity = classify(text_str)
+            if any(text_str.startswith(f"{tool}: ") for tool in fully_failed_page_tools):
+                # This tool produced zero usable evidence for the whole crawl -- a raw
+                # exception message must not be allowed to fall through to "notice"
+                # purely because its text doesn't match a SEVERITY_RULES marker.
+                severity = "critical"
             findings.append(
                 {
                     "source": "page",
                     "url": page["url"],
-                    "severity": classify(str(text)),
-                    "text": str(text),
+                    "severity": severity,
+                    "text": text_str,
                 }
             )
 
@@ -402,8 +429,13 @@ def audit_site(
             "pages_checked": len(pages),
             "findings_total": len(findings),
             "findings_by_severity": by_severity,
-            "tools_run": sorted(site),
+            "tools_run": sorted(
+                tool
+                for tool, data in site.items()
+                if not (isinstance(data, dict) and data.get("ok") is False)
+            ),
             "tools_failed": failed,
+            "page_tools_failed": page_tools_failed,
             "severity_note": "Severity is assigned by the aggregation policy "
             "(SEVERITY_RULES); it is not measured by the source tool.",
         },
