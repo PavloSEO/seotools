@@ -417,6 +417,60 @@ def test_metrika_paginated_failure_keeps_the_usage_already_made(monkeypatch, jou
     assert rows[0]["extra"]["outcome"] == "failed"
 
 
+def test_metrika_total_failure_does_not_journal_a_fabricated_success(monkeypatch, journal):
+    """A request that raises before returning anything must not log items:1 as if it succeeded.
+
+    Before the fix, ``report(paginate=False)`` (and the other non-paginated methods) called
+    ``spend.record`` before ``_request`` ran, so a totally failed call left the same shaped
+    journal entry as a genuine one-item success.
+    """
+    from seohead.data_sources import metrika
+
+    client = metrika.MetrikaClient(token="synthetic")
+
+    def fake_request(_url):
+        raise metrika.MetrikaError(403, "invalid oauth_token")
+
+    monkeypatch.setattr(client, "_request", fake_request)
+
+    with pytest.raises(metrika.MetrikaError):
+        client.report({"metrics": "ym:pv:pageviews"}, paginate=False)
+
+    assert spend.read_all() == []  # No entry claims a request that never returned.
+
+
+def test_metrika_report_logs_actual_row_count_not_a_hardcoded_one(monkeypatch, journal):
+    """A non-paginated report returning 500 rows must be journalled as items:500, not items:1."""
+    from seohead.data_sources import metrika
+
+    client = metrika.MetrikaClient(token="synthetic")
+    monkeypatch.setattr(
+        client,
+        "_request",
+        lambda _url: {"data": [{"metrics": [1]}] * 500, "query": {}},
+    )
+
+    result = client.report({"metrics": "ym:pv:pageviews"}, paginate=False, limit=500)
+
+    assert len(result["data"]) == 500
+    rows = spend.read_all()
+    assert len(rows) == 1
+    assert rows[0]["items"] == 500  # Negative control against the old hardcoded 1.
+
+
+def test_metrika_counters_logs_zero_items_for_an_empty_list(monkeypatch, journal):
+    """An empty counters list must be journalled as items:0, the genuine measured count."""
+    from seohead.data_sources import metrika
+
+    client = metrika.MetrikaClient(token="synthetic")
+    monkeypatch.setattr(client, "_request", lambda _url: {"counters": []})
+
+    assert client.counters() == []
+    rows = spend.read_all()
+    assert len(rows) == 1
+    assert rows[0]["items"] == 0
+
+
 # --- Arsenkin task batches -------------------------------------------------
 
 
