@@ -434,10 +434,13 @@ def _flags(profile: dict[str, Any]) -> list[str]:
     if any("hold" in str(s).lower() for s in reg.get("status") or []):
         out.append(f"domain has a hold status: {', '.join(reg['status'])}")
     if reg.get("source") == "none":
-        out.append(
-            "registration data is unavailable: the registry has no RDAP service and WHOIS "
-            "is not installed"
-        )
+        if reg.get("whois_note"):
+            out.append(f"registration data is unavailable: {reg['whois_note']}")
+        else:
+            out.append(
+                "registration data is unavailable: the registry has no RDAP service and WHOIS "
+                "is not installed"
+            )
     if not profile["dns"]["a"] and not profile["dns"]["aaaa"]:
         out.append("domain does not resolve to an IP address")
     if not profile["dns"]["spf"]:
