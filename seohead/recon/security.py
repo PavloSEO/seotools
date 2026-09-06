@@ -54,7 +54,9 @@ SENSITIVE_PATHS = (
 _PATH_MARKERS = {
     "/.git/HEAD": "ref:",
     "/.env": "=",
-    "/.svn/entries": "",
+    # Classic (pre-1.7) SVN entries files open with a lone format-version line,
+    # a blank line, then the literal "dir" kind for the root entry.
+    "/.svn/entries": "\ndir\n",
     "/phpinfo.php": "phpinfo()",
     "/server-status": "Server Version",
 }
@@ -92,10 +94,11 @@ def _cookie_flags(resp) -> list[dict[str, Any]]:
         for part in low.split(";"):
             if part.strip().startswith("samesite="):
                 same_site = part.split("=", 1)[1].strip()
+        attrs = {part.strip() for part in low.split(";")}
         out.append(
             {
                 "name": name,
-                "secure": "; secure" in low or low.endswith("secure"),
+                "secure": "secure" in attrs,
                 "http_only": "httponly" in low,
                 "same_site": same_site,
             }
