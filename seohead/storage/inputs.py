@@ -68,6 +68,23 @@ def resolve_audit_input(value: Any) -> tuple[Any, list[dict[str, str]]]:
         con.close()
 
 
+def load_audit_document(
+    value: Any, label: str, diagnostics: list[dict[str, str]] | None = None
+) -> dict[str, Any]:
+    """Accept an already-parsed audit document, or a path to one, without changing its
+    contents. ``label`` names the argument in the error, so a caller taking more than one
+    audit (a before/after compare, a source/target segment diff) can say which one is bad.
+    """
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, (str, os.PathLike)):
+        document, notices = resolve_audit_input(value)
+        if diagnostics is not None:
+            diagnostics.extend({**notice, "input": label} for notice in notices)
+        return document
+    raise ValueError(f"{label} required: an audit document or a path to its JSON file")
+
+
 def protects_scan_input(value: Any, targets: list[Path]) -> bool:
     """A report destination cannot replace its source scan, including an alias."""
     return is_sqlite_input(value) and any(

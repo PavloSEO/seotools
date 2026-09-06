@@ -178,14 +178,14 @@ def test_skills_map_command_coverage_is_current():
 def test_documented_product_counts_match_the_registries():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     provenance = (ROOT / "PROVENANCE.md").read_text(encoding="utf-8")
-    assert len(COMMANDS) == len(HANDLERS) == 55
+    assert len(COMMANDS) == len(HANDLERS) == 56
     assert len(_sf_tool_names()) == 5
     assert len(CHECKS) == 149
     assert len(TECHNICAL_SKILLS) == 22
     assert len(PACKAGED_SKILLS) == 7
     for text in (readme, provenance):
-        assert "55" in text and "149" in text and "five" in text.lower()
-    assert "60 callable tools" in readme
+        assert "56" in text and "149" in text and "five" in text.lower()
+    assert "61 callable tools" in readme
     assert "29 workflow skills" in readme
     assert (ROOT / "CITATION.cff").is_file()
 
@@ -292,7 +292,7 @@ def test_tool_reference_is_generated_and_current():
     sf_tools = load_sf_tools()
     expected = {tool.command or tool.name for tool in (*seo_tools, *sf_tools)}
     assert documented == expected, "every seo_*/sf_* tool must appear in the generated reference"
-    assert len(seo_tools) == len(COMMANDS) == 55
+    assert len(seo_tools) == len(COMMANDS) == 56
     assert len(sf_tools) == 5
 
 

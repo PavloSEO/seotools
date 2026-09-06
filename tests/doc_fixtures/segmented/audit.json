@@ -1,0 +1,101 @@
+{
+  "schema_version": "2.0",
+  "tool": {
+    "name": "SF Analyzer",
+    "version": "2.0.0"
+  },
+  "run": {
+    "input_mode": "crawl",
+    "source": "https://example.com/",
+    "generated_at": "2026-09-05T00:00:00Z",
+    "crawl_config": {
+      "scope.segments": [
+        {
+          "name": "en",
+          "prefix": "/en/"
+        },
+        {
+          "name": "pl",
+          "prefix": "/pl/"
+        }
+      ],
+      "scope.segments_only": []
+    }
+  },
+  "summary": {
+    "by_check": {},
+    "totals": {
+      "issues": 0
+    },
+    "by_severity": {
+      "critical": 0,
+      "warning": 0,
+      "notice": 0
+    },
+    "health_score": null,
+    "health_score_reason": "Synthetic fixture does not assign a health score"
+  },
+  "issues": [],
+  "pages": [
+    {
+      "url": "https://example.com/en/",
+      "status_code": 200,
+      "content_type": "text/html; charset=utf-8",
+      "hreflang": [
+        {
+          "lang": "pl",
+          "url": "https://example.com/pl/"
+        }
+      ]
+    },
+    {
+      "url": "https://example.com/en/about",
+      "status_code": 200,
+      "content_type": "text/html; charset=utf-8",
+      "hreflang": [
+        {
+          "lang": "pl",
+          "url": "https://example.com/pl/about"
+        }
+      ]
+    },
+    {
+      "url": "https://example.com/en/blog",
+      "status_code": 200,
+      "content_type": "text/html; charset=utf-8"
+    },
+    {
+      "url": "https://example.com/en/contact",
+      "status_code": 200,
+      "content_type": "text/html; charset=utf-8"
+    },
+    {
+      "url": "https://example.com/pl/",
+      "status_code": 200,
+      "content_type": "text/html; charset=utf-8",
+      "hreflang": [
+        {
+          "lang": "en",
+          "url": "https://example.com/en/"
+        }
+      ]
+    },
+    {
+      "url": "https://example.com/pl/about",
+      "status_code": 200,
+      "content_type": "text/html; charset=utf-8",
+      "hreflang": [
+        {
+          "lang": "en",
+          "url": "https://example.com/en/about"
+        }
+      ]
+    },
+    {
+      "url": "https://example.com/pl/blog",
+      "status_code": 200,
+      "content_type": "text/html; charset=utf-8"
+    }
+  ],
+  "groups": []
+}

@@ -97,7 +97,7 @@ Then by the layer of the task.
 
 ## Tools without a skill of their own
 
-26 of the 55 commands are not named in any skill's own body (a mention inside
+27 of the 56 commands are not named in any skill's own body (a mention inside
 another tool's Markdown table above does not count) — used inline as plumbing
 inside a workflow's write-up, or not yet needed by one at all — and have no
 skill of their own, deliberately: a skill per single command is noise.
@@ -107,7 +107,7 @@ for each command name, so it cannot silently rot the way this line once did.
 Page-level utilities: `asset-weight-check` · `boilerplate-report` ·
 `crawl-describe-settings` · `facts-export` · `hreflang-check` · `images-download` ·
 `images-optimize` · `keywords-cluster` · `log-analyze` · `mirror-check` ·
-`redirects-check` · `redirects-generate` · `soft404-check`
+`redirects-check` · `redirects-generate` · `segment-diff` · `soft404-check`
 
 External data sources (`data_sources/` layer): `crtsh-subdomains` ·
 `crux-report` · `google-keywords` · `google-serp` · `gsc-query` ·
