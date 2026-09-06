@@ -280,12 +280,16 @@ def test_no_screenshot_without_an_artifacts_dir(fake_stack):
     assert fake_stack["page"].screenshot_calls == []
 
 
-def test_persistent_profile_uses_launch_persistent_context(fake_stack, tmp_path):
+def test_persistent_profile_is_refused_until_pinned_cookie_continuity_is_proven(
+    fake_stack, tmp_path
+):
     config = _rendering_config(
         persistent_profile=True, persistent_profile_dir=str(tmp_path / "profile")
     )
-    render_document("https://example.com/", config)
-    assert fake_stack["chromium"].launch_persistent_calls
+    result = render_document("https://example.com/", config)
+    assert result["ok"] is False
+    assert "cookie continuity" in result["error"]
+    assert not fake_stack["chromium"].launch_persistent_calls
     assert fake_stack["chromium"].launched is False
 
 

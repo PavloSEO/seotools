@@ -137,7 +137,7 @@ def fake_stack(monkeypatch):
     monkeypatch.setattr(
         render_module,
         "http_client",
-        lambda _timeout: (_FakeHttpClient(_FakeResponse(raw_html)), True),
+        lambda _timeout, **_kwargs: (_FakeHttpClient(_FakeResponse(raw_html)), True),
     )
     monkeypatch.setattr(render_module, "validate_url", lambda url: url)
     monkeypatch.setattr(render_module, "_refuse_if_root", lambda: None)
