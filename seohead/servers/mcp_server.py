@@ -585,6 +585,22 @@ def build_server():  # -> FastMCP
         part of the difference may be the configuration rather than the site."""
         return _checked(handlers.compare_crawls(before=before, after=after))
 
+    @mcp.tool(annotations=pure, structured_output=True)
+    def seo_segment_diff(audit: Any, source: str, target: str) -> dict[str, Any]:
+        """Cross-segment counterpart diff (#358): which pages in the ``source`` segment
+        (e.g. "en") have a counterpart in the ``target`` segment (e.g. "pl"), and which
+        do not. Requires a native crawl whose scope.segments were declared and whose
+        pages carry hreflang alternates (#357) — an audit missing either is refused by
+        name. Classifies every eligible page into exactly one of: declared (hreflang
+        names the counterpart and it was crawled), declared_not_crawled (hreflang names
+        one the crawl never reached), inferred (no hreflang, but the mirrored path
+        exists and this site's own mirror rate measured high enough to trust that),
+        absent (no counterpart by either method), or undetermined (naming why neither
+        method could safely answer — e.g. a translated slug on a site whose mirror rate
+        is too low for path inference, or a target segment the crawl only partially
+        reached, where "absent" would be an unsupported negative claim)."""
+        return _checked(handlers.segment_diff(audit=audit, source=source, target=target))
+
     # --- External data providers: demand, search results, traffic, and spend ---
 
     @mcp.tool(annotations=paid, structured_output=True)

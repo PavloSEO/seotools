@@ -1283,16 +1283,9 @@ def _load_audit(
     value: Any, label: str, diagnostics: list[dict[str, str]] | None = None
 ) -> dict[str, Any]:
     """Accept a document, JSON path or validated scan without changing its contents."""
-    if isinstance(value, dict):
-        return value
-    if isinstance(value, str):
-        from seohead.storage.inputs import resolve_audit_input
+    from seohead.storage.inputs import load_audit_document
 
-        document, notices = resolve_audit_input(value)
-        if diagnostics is not None:
-            diagnostics.extend({**notice, "input": label} for notice in notices)
-        return document
-    raise ValueError(f"{label} required: an audit document or a path to its JSON file")
+    return load_audit_document(value, label, diagnostics)
 
 
 def compare_crawls(before: Any = None, after: Any = None) -> dict[str, Any]:
@@ -1308,6 +1301,45 @@ def compare_crawls(before: Any = None, after: Any = None) -> dict[str, Any]:
     if diagnostics:
         result["input_diagnostics"] = diagnostics
     return result
+
+
+def segment_diff(
+    audit: Any = None, source: str | None = None, target: str | None = None
+) -> dict[str, Any]:
+    """Cross-segment counterpart diff (#358): which pages of ``source`` have a
+    counterpart in ``target``, and which do not.
+
+    This is the one place ``seohead.crawl`` and ``seohead.sf`` meet for this
+    feature: the audit's own recorded ``scope.segments`` / ``scope.segments_only``
+    build a ``Scope`` here, and only its ``segment_for``/``rejection`` methods
+    are handed to the pure analyzer in ``seohead.sf.core.segment_diff``, which
+    never imports the crawl module itself.
+    """
+    if not source or not target:
+        raise ValueError("source and target segment names required")
+    from urllib.parse import urlsplit
+
+    from seohead.crawl.spider import Scope
+    from seohead.sf.core.segment_diff import diff_segments
+
+    doc = _load_audit(audit, "audit")
+    run = doc.get("run") or {}
+    crawl_config = run.get("crawl_config") or {}
+    segments_cfg = crawl_config.get("scope.segments") or []
+    segments_only_cfg = crawl_config.get("scope.segments_only") or []
+    scope = Scope.from_config({"segments": segments_cfg, "segments_only": segments_only_cfg})
+    start_host = urlsplit(str(run.get("source") or "")).hostname or ""
+
+    return diff_segments(
+        doc.get("pages") or [],
+        source=source,
+        target=target,
+        segments=segments_cfg,
+        segment_for=scope.segment_for,
+        rejection=(lambda u: scope.rejection(u, start_host)) if start_host else None,
+        segments_only=set(segments_only_cfg),
+        crawl_partial=bool(run.get("crawl_partial")),
+    )
 
 
 def render_check(
@@ -2109,6 +2141,7 @@ _RAW_HANDLERS = {
     "report_build": report_build,
     "facts_export": facts_export,
     "compare_crawls": compare_crawls,
+    "segment_diff": segment_diff,
     "keywords_expand": keywords_expand,
     "keywords_seasonality": keywords_seasonality,
     "keywords_exact": keywords_exact,

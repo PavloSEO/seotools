@@ -27,6 +27,7 @@ COMMANDS = (
     "crawl-describe-settings",
     "log-scan",
     "compare-crawls",
+    "segment-diff",
     "redirects-generate",
     "redirects-check",
     "sitemap-crawl",
@@ -306,6 +307,13 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
             kw["before"] = args.before
         if getattr(args, "after", None):
             kw["after"] = args.after
+    elif cmd == "segment-diff":
+        if getattr(args, "audit", None):
+            kw["audit"] = args.audit
+        if getattr(args, "source", None):
+            kw["source"] = args.source
+        if getattr(args, "target", None):
+            kw["target"] = args.target
     elif cmd == "regions-check":
         if args.url:
             kw["url"] = args.url
@@ -741,6 +749,15 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
             sub, "--before", help="path to the earlier audit.json or scan.v1 SQLite artifact"
         )
         _source_flag(sub, "--after", help="path to the later audit.json or scan.v1 SQLite artifact")
+    if cmd == "segment-diff":
+        # See the log-scan comment above: `required=True` here would reject a JSON-only
+        # `--input '{"audit": ..., "source": ..., "target": ...}'` call the same way (#218).
+        # segment_diff already raises a clear error when any of the three is missing.
+        _source_flag(
+            sub, "--audit", help="path to the audit.json or scan.v1 SQLite artifact to diff"
+        )
+        sub.add_argument("--source", help="segment name that should have a counterpart")
+        sub.add_argument("--target", help="segment name to look for the counterpart in")
     if cmd == "regions-check":
         _source_flag(sub, "--url", help="any site page, usually the home page")
         sub.add_argument(

@@ -6,7 +6,7 @@ Generated from the MCP tool definitions in `seohead/servers/mcp_server.py` and `
 python scripts/generate_tool_reference.py
 ```
 
-**55 live/recon/data-source tools** (`seohead <command>` / `seo_<command>` on the MCP server) plus **5 crawl-audit tools** (`sf_<command>`, driven by `seohead sf ...`) — 60 in total.
+**56 live/recon/data-source tools** (`seohead <command>` / `seo_<command>` on the MCP server) plus **5 crawl-audit tools** (`sf_<command>`, driven by `seohead sf ...`) — 61 in total.
 
 Every tool shares one contract: JSON in, JSON out. A target that could not be reached comes back as `{"ok": false, "error": "..."}` instead of raising, so an unreachable site is data, not a crash.
 
@@ -569,6 +569,20 @@ Diff two audit documents (dict, JSON path, or scan.v1 SQLite path) into four dis
 |---|---|---|
 | `before` | `Any` | `required` |
 | `after` | `Any` | `required` |
+
+**Cost** — network: no · writes files: no · idempotent: yes · spends money: no
+
+### `segment-diff`
+
+MCP name: `seo_segment_diff`
+
+Cross-segment counterpart diff (#358): which pages in the ``source`` segment (e.g. "en") have a counterpart in the ``target`` segment (e.g. "pl"), and which do not. Requires a native crawl whose scope.segments were declared and whose pages carry hreflang alternates (#357) — an audit missing either is refused by name. Classifies every eligible page into exactly one of: declared (hreflang names the counterpart and it was crawled), declared_not_crawled (hreflang names one the crawl never reached), inferred (no hreflang, but the mirrored path exists and this site's own mirror rate measured high enough to trust that), absent (no counterpart by either method), or undetermined (naming why neither method could safely answer — e.g. a translated slug on a site whose mirror rate is too low for path inference, or a target segment the crawl only partially reached, where "absent" would be an unsupported negative claim).
+
+| Argument | Type | Default |
+|---|---|---|
+| `audit` | `Any` | `required` |
+| `source` | `str` | `required` |
+| `target` | `str` | `required` |
 
 **Cost** — network: no · writes files: no · idempotent: yes · spends money: no
 
