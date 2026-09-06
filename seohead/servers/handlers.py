@@ -1019,7 +1019,7 @@ def _audit_crawl_result(
                 else link_findings.outlinks_to_localhost(links)
             ):
                 ctx.add("OUTLINK_TO_LOCALHOST", target_url=item["target_url"], details=item)
-            crawl_host = (urlsplit(url).hostname or "") if url else ""
+            crawl_host = (urlsplit(start_norm).hostname or "") if url else ""
             if crawl_host:
                 for dest in (
                     graph.iter_follow_and_nofollow(crawl_host)

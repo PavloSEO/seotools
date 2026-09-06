@@ -28,11 +28,11 @@ def _page() -> PageRecord:
     )
 
 
-def _audit(result):
+def _audit(result, *, url=None):
     return handlers._audit_crawl_result(
         result,
         settings=load(overrides={"speed.min_delay_seconds": 0}),
-        url=None,
+        url=url,
         sitemap_seed={"sitemap_url": None, "sitemap_urls": [], "declared": []},
         discovery={"mode": "list"},
         offline=True,
@@ -105,3 +105,30 @@ def test_url_list_without_retained_edges_or_forms_skips_by_name():
     assert "no link-edge evidence" in skipped["FOLLOW_AND_NOFOLLOW_INLINKS"]
     assert "no form evidence" in skipped["FORM_URL_INSECURE"]
     assert "no form evidence" in skipped["FORM_ON_HTTP_URL"]
+
+
+def test_bare_domain_uses_the_normalized_start_host_for_follow_mix():
+    """A supported bare start domain still defines the crawl's internal-link host."""
+    result = SpiderResult(
+        pages=[_page()],
+        links=[
+            LinkEdge(
+                source="https://example.test/a",
+                destination="https://example.test/target",
+                anchor="Follow",
+                nofollow=False,
+            ),
+            LinkEdge(
+                source="https://example.test/b",
+                destination="https://example.test/target",
+                anchor="Nofollow",
+                nofollow=True,
+            ),
+        ],
+    )
+
+    audit = _audit(result, url="example.test")
+
+    fired = {issue["check"] for issue in audit["issues"]}
+    assert "FOLLOW_AND_NOFOLLOW_INLINKS" in fired
+    assert "FOLLOW_AND_NOFOLLOW_INLINKS" not in _skips(audit)
