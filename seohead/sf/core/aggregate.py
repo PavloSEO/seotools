@@ -188,6 +188,14 @@ def _health_score(
 # three.
 IMPLAUSIBLE_SHARE = 0.5
 
+# Checks whose evidence unit is an image URL, not an HTML page -- a site can
+# have (and routinely does have) more images than pages, so dividing their
+# finding count by n_pages produces a share above 1.0 for a completely
+# ordinary, image-heavy site. There is no crawled "distinct images" population
+# available here to divide by instead, so these are excluded from the
+# heuristic rather than scored against the wrong denominator.
+IMAGE_TARGETED_CHECKS = frozenset({"IMG_OVER_KB", "IMG_MISSING_DIMENSIONS", "IMG_MISSING_ALT"})
+
 
 def _implausible_checks(issues: list[Issue], n_pages: int) -> list[dict[str, Any]]:
     """Checks whose findings cover more than ``IMPLAUSIBLE_SHARE`` of the crawled pages.
@@ -200,6 +208,8 @@ def _implausible_checks(issues: list[Issue], n_pages: int) -> list[dict[str, Any
         return []
     pages_by_check: dict[str, set[str]] = {}
     for issue in issues:
+        if issue.check in IMAGE_TARGETED_CHECKS:
+            continue
         targets = {issue.target_url} if issue.target_url else set()
         targets |= {
             str(loc.get("url"))

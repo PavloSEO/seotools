@@ -552,6 +552,8 @@ def check_duplicates(ctx: AuditContext) -> None:
             if len(urls) < 2:
                 continue
             group = ctx.add_group(check_id, value, sorted(urls))
+            if group is None:
+                continue
             for url in urls:
                 ctx.add(
                     check_id,
