@@ -98,15 +98,18 @@ def _outcome(audit):
 
     ``generated_at`` is a report wall clock.  Every ``response_time`` in this
     contract is independently measured by each crawl, including a copied value
-    in a finding's details, so it cannot decide graph parity.  All other
-    fields, including thresholds, counts, URLs, and findings, stay strict.
+    in a finding's details, so a numeric duration cannot decide graph parity.
+    Missing or invalid duration values, plus all thresholds, counts, URLs, and
+    findings, stay strict.
     """
     measured_duration_fields = {"response_time"}
 
     def normalize(value):
         if isinstance(value, dict):
             return {
-                key: 0.0 if key in measured_duration_fields else normalize(child)
+                key: 0.0
+                if key in measured_duration_fields and type(child) in (int, float)
+                else normalize(child)
                 for key, child in value.items()
             }
         if isinstance(value, list):
@@ -172,6 +175,10 @@ def test_outcome_normalizes_measured_durations_but_keeps_issues_strict():
     right["issues"][0]["details"]["response_time"] = 0.999
 
     assert _outcome(left) == _outcome(right)
+
+    missing_duration = copy.deepcopy(right)
+    missing_duration["pages"][0]["metrics"]["response_time"] = None
+    assert _outcome(left) != _outcome(missing_duration)
 
     strict_number = copy.deepcopy(right)
     strict_number["pages"][0]["metrics"]["word_count"] = 11
