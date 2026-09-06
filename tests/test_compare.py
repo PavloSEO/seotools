@@ -246,6 +246,47 @@ def test_a_full_baseline_still_reports_a_genuinely_new_url_as_appeared():
     assert [i["target_url"] for i in result["appeared"]] == ["https://e.com/new"]
 
 
+# ── partial after crawl (issue #458) ─────────────────────────────────────
+#
+# Symmetric to the partial-baseline cases above: a partial after crawl cannot
+# prove a before-only URL is genuinely gone, only that it was not reached.
+
+
+def test_a_partial_after_crawl_does_not_report_an_unreached_url_as_disappeared():
+    before = _audit(
+        ["https://x.com/a", "https://x.com/b"],
+        [("MISSING_TITLE", "https://x.com/a")],
+    )
+    after = _audit(["https://x.com/b"], [], crawl_partial=True)  # /a never reached this run
+    result = compare(before, after)
+    assert result["disappeared"] == []
+    assert [i["target_url"] for i in result["left"]] == ["https://x.com/a"]
+
+
+def test_a_full_after_crawl_still_reports_a_genuinely_gone_url_as_disappeared():
+    """crawl_partial absent (a complete after crawl) keeps the useful signal."""
+    before = _audit(
+        ["https://x.com/a", "https://x.com/b"],
+        [("MISSING_TITLE", "https://x.com/a")],
+    )
+    after = _audit(["https://x.com/b"], [])  # full crawl, /a genuinely gone
+    result = compare(before, after)
+    assert [i["target_url"] for i in result["disappeared"]] == ["https://x.com/a"]
+    assert result["left"] == []
+
+
+def test_a_partial_after_crawl_still_reports_a_reached_url_as_left():
+    """The URL IS present in the after crawl — not the unproven case."""
+    before = _audit(
+        ["https://x.com/a", "https://x.com/b"],
+        [("MISSING_TITLE", "https://x.com/a")],
+    )
+    after = _audit(["https://x.com/a", "https://x.com/b"], [], crawl_partial=True)
+    result = compare(before, after)
+    assert [i["target_url"] for i in result["left"]] == ["https://x.com/a"]
+    assert result["disappeared"] == []
+
+
 # ── audit-wide findings (issue #213) ─────────────────────────────────────
 #
 # A finding with no target_url (e.g. TITLE_TEMPLATED) describes the crawl as
