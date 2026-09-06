@@ -957,7 +957,7 @@ def check_pagination_declarations(ctx: AuditContext) -> None:
     declarations in it at all.
     """
     records = _all_inlink_records(ctx)
-    if records is None:
+    if records is None and _graph_access(ctx) is None:
         for check_id in _PAGINATION_DECLARATION_CHECKS:
             ctx.skip(
                 check_id,
@@ -965,11 +965,17 @@ def check_pagination_declarations(ctx: AuditContext) -> None:
                 "declaration and the anchors beside them)",
             )
         return
-    if not any(rec.get("type") for rec in records):
+    # A native crawl arrives here by either route and neither carries a link
+    # type: its All Inlinks projection leaves Type unset because the spider
+    # records only <a href> hyperlinks (see crawl/evidence._inlinks_frame), and
+    # the SQL-backed graph declares has_resource_type False. Both therefore
+    # reach the same verdict as an export written without the column, which is
+    # also what the two routes' parity contract requires of every check.
+    if records is None or not any(rec.get("type") for rec in records):
         for check_id in _PAGINATION_DECLARATION_CHECKS:
             ctx.skip(
                 check_id,
-                "all_inlinks export has no Type column (needed to tell a "
+                "the link inventory carries no link type (needed to tell a "
                 'rel="next" declaration from an anchor)',
             )
         return

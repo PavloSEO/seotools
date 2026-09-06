@@ -182,7 +182,7 @@ def test_an_export_with_no_type_column_declares_itself_absent(tmp_path):
         inlink_cols=["Source", "Destination", "Anchor Text", "Status Code", "Follow"],
     )
     for check in ("PAGINATION_MULTIPLE", "PAGINATION_URL_NOT_IN_ANCHOR"):
-        assert "no Type column" in (_skip_reason(res, check) or "")
+        assert "carries no link type" in (_skip_reason(res, check) or "")
 
 
 def test_an_export_with_no_pagination_rows_declares_itself_absent(tmp_path):
