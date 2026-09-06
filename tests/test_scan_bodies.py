@@ -246,3 +246,17 @@ def test_binary_codec_is_not_a_charset():
     text, decoder = decode_entity(b"\xffhello", "text/html; charset=base64_codec")
     assert text == "\ufffdhello"
     assert decoder["decoder_source"] == "utf8_fallback"
+
+
+def test_http_entity_cannot_be_relabelled_as_a_rendered_dom():
+    con = _con()
+    sha = _body(con, b"HTTP entity")
+    _response(con, sha)
+    _document(
+        con,
+        sha,
+        representation="rendered",
+        renderer_json='{"engine":"test","engine_version":"1","settings":{},"flattened_iframes":false,"capture_limitations":[],"navigation_url_id":1,"final_url_id":1,"navigation_transform":"direct"}',
+    )
+    with pytest.raises(ScanError, match="representation.*fidelity"):
+        read_document(con, 1, max_decoded_bytes=100)

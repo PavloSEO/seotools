@@ -25,6 +25,10 @@ def _renderer(document: dict[str, object], con=None) -> dict[str, object]:
     except (TypeError, ValueError) as exc:
         raise ScanError("document renderer provenance is invalid") from exc
     representation = document["representation"]
+    if document["body_state"] == "complete" and (
+        (representation == "rendered") != (document["fidelity"] == "serialized_dom")
+    ):
+        raise ScanError("document representation and body fidelity disagree")
     if representation == "static":
         if value != {}:
             raise ScanError("static document renderer must be empty")
