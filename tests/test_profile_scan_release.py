@@ -158,7 +158,16 @@ def test_tiny_real_whole_profile_collects_before_audit_and_report(tmp_path):
 
     assert whole["status"] == "measured"
     assert whole["collection"]["fetched_pages"] == 3
-    assert whole["collection"]["counts"] == {"pages": 3, "links": 90, "forms": 0, "bodies": 3}
+    assert whole["collection"]["counts"] == {
+        "pages": 3,
+        "links": 90,
+        "forms": 0,
+        "bodies": 3,
+        "resource_refs": 0,
+    }
+    # Zero resource references is a measurement of this fixture's link-only HTML,
+    # not evidence that a resource lane exists and stayed empty on a real site.
+    assert whole["resource_ref_count"] == 0
     assert whole["saved_audit"] is True
     assert database.with_name("profile.whole.sqlite").is_file()
     assert report.is_file() and report.read_bytes()

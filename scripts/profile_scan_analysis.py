@@ -426,7 +426,7 @@ def _whole_stage(
     try:
         counts = {
             table: con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-            for table in ("pages", "links", "forms", "bodies")
+            for table in ("pages", "links", "forms", "bodies", "resource_refs")
         }
     finally:
         con.close()
@@ -435,6 +435,7 @@ def _whole_stage(
         "pages": counts["pages"],
         "links": counts["links"],
         "body_count": counts["bodies"],
+        "resource_ref_count": counts["resource_refs"],
         "collection": {
             **collection_metrics,
             "profile_kind": "offline_true_discovery_whole_path",

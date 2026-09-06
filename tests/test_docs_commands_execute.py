@@ -159,6 +159,18 @@ def _seed_scan_inputs(tmp_path: Path) -> None:
         shutil.copyfile(scan, tmp_path / name)
 
 
+def _seed_prune_plan(tmp_path: Path) -> None:
+    """`scan prune --apply` is the second half of a documented two-step review: preview
+    to a file, read it, apply exactly that envelope. Seed the file the second step reads
+    by running the first step, so the gate exercises the real handoff instead of a plan
+    the code would never emit (a hand-written one is rejected on its digest anyway)."""
+    from seohead.servers.history_handlers import scan_prune
+
+    (tmp_path / "plan.json").write_text(
+        json.dumps(scan_prune(str(tmp_path.resolve()))), encoding="utf-8"
+    )
+
+
 def _seed_reanalysis_input(tmp_path: Path) -> None:
     # A legacy JSONL import cannot stand in for a retained corpus. This fixture
     # uses the real native collector with an injected owned HTML response and
@@ -209,6 +221,8 @@ def test_documented_command_executes_or_at_least_still_parses(
         _seed_scan_inputs(tmp_path)
     if argv[:2] == ["scan", "reanalyze"] or argv[:1] == ["scan-reanalyze"]:
         _seed_reanalysis_input(tmp_path)
+    if "--plan" in argv:
+        _seed_prune_plan(tmp_path)
     if command.source.name == "robots-blocked.md":
         (tmp_path / "config.json").write_text(
             json.dumps({"robots": {"user_agent_token": "Googlebot"}}), encoding="utf-8"

@@ -71,25 +71,26 @@ seohead report-build --audit native.sqlite --format md --out native-report.md
 seohead compare-crawls --before before.sqlite --after after.sqlite
 
 # Pin a selected baseline. The container hash changes; the saved audit and
-# evidence revision do not.
+# evidence revision do not. A pin is only ever lifted explicitly.
 seohead scan pin --input native.sqlite
+seohead scan pin --input native.sqlite --unpin
 
 # Preview first and preserve exactly the emitted JSON envelope for review.
 seohead scan prune --directory . > plan.json
+
+# Apply only after reading plan.json; apply accepts that reviewed envelope alone.
+seohead scan prune --directory . --plan plan.json --apply
 ```
 
 `compare-crawls` separates a finding that left a still-crawled page from a page
 that disappeared. It reports incompatible scope or provenance; an absent page is
-not evidence that an issue was fixed. Unpin a retained baseline explicitly with
-`seohead scan pin --input native.sqlite --unpin`.
+not evidence that an issue was fixed.
 
 Prune preview defaults to finished, unpinned, non-partial scans older than 30
 days and outside the newest five scans for the same host/configuration. Active
-writers are excluded. Apply accepts the reviewed envelope and rechecks the
-directory, candidate identity, metadata, lock state, and current retention rank
-before unlinking anything. After reviewing `plan.json`, run `seohead scan prune
---directory . --plan plan.json --apply`. Keep scan artifacts outside the
-repository.
+writers are excluded. Apply rechecks the directory, candidate identity, metadata,
+lock state, and current retention rank before unlinking anything. Keep scan
+artifacts outside the repository.
 
 For `--format csv`, a successful build produces three files: the requested
 findings CSV, `<name>.pages.csv`, and `<name>.scope.csv`. Its `outputs` response

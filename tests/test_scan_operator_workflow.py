@@ -10,6 +10,7 @@ import time
 import zlib
 from pathlib import Path
 
+from scripts.doc_commands import extract_commands, to_argv
 from seohead import cli
 from seohead.storage import read_audit
 from tests.test_scan_artifact_office import frozen_office_clock as frozen_office_clock
@@ -19,10 +20,48 @@ from tests.test_scan_reanalysis_integration import (
     _source,
 )
 
+ROOT = Path(__file__).resolve().parent.parent
+OPERATOR_DOC = "SQLITE_ACCEPTANCE.md"
+
+# The one documented step this test cannot perform: `crawl-site` is a live capture,
+# not an operation on a saved artifact, so it has no place inside a run that forbids
+# every socket. It is not unchecked — tests/test_docs_commands_execute.py runs it
+# against the loopback fixture site, and scripts/profile_scan_analysis.py's whole
+# stage runs it offline at capacity through an injected transport.
+LIVE_CAPTURE_COMMANDS = {("crawl-site",)}
+
+# Every argv this workflow actually dispatched, so the coverage check below compares
+# executed commands rather than the prose that describes them.
+_EXECUTED: list[tuple[str, ...]] = []
+
 
 def _cli(capsys, *argv: str) -> dict:
+    _EXECUTED.append(tuple(argv))
     assert cli.main(list(argv)) == 0
     return json.loads(capsys.readouterr().out)
+
+
+def _shape(argv: list[str] | tuple[str, ...]) -> tuple[tuple[str, ...], frozenset[str]]:
+    """One command reduced to what must still run: its subcommand path and its flags.
+
+    Paths, hosts and build SHAs differ between the documentation and a temporary
+    fixture directory; the command being invoked and the options it is invoked with
+    do not.
+    """
+    argv = tuple(argv)
+    end = next((i for i, token in enumerate(argv) if token.startswith("-")), len(argv))
+    return argv[:end], frozenset(token for token in argv if token.startswith("--"))
+
+
+def _documented_shapes() -> dict[tuple[tuple[str, ...], frozenset[str]], str]:
+    """Every `seohead` invocation the operator document shows, keyed by shape."""
+    documented = {
+        _shape(to_argv(command.raw)): command.raw
+        for command in extract_commands(ROOT)
+        if command.source.name == OPERATOR_DOC
+    }
+    assert documented, f"docs/{OPERATOR_DOC} showed no seohead commands to check"
+    return documented
 
 
 def _audit_bytes(path: Path) -> bytes:
@@ -74,6 +113,7 @@ def _documented_stdlib_read(path: Path) -> None:
 
 def test_offline_saved_scan_operator_workflow(tmp_path, monkeypatch, capsys, frozen_office_clock):
     """Operators can inspect, preserve, reanalyze, compare, and report one artifact offline."""
+    _EXECUTED.clear()
     source = tmp_path / "source.sqlite"
     snapshot = tmp_path / "snapshot.sqlite"
     derived = tmp_path / "derived.sqlite"
@@ -91,10 +131,24 @@ def test_offline_saved_scan_operator_workflow(tmp_path, monkeypatch, capsys, fro
         server = build_server()
         attempts = _forbid_network(monkeypatch, [])
 
-        listed = _cli(capsys, "scan", "list", "--directory", str(tmp_path))
+        listed = _cli(capsys, "scan", "list", "--directory", str(tmp_path), "--limit", "100")
         mcp_listed = server._tool_manager.get_tool("seo_scan_list").fn(directory=str(tmp_path))
         assert listed["total"] == mcp_listed["total"] == 1
-        inspected = _cli(capsys, "scan", "inspect", "--input", str(source), "--table", "pages")
+        inspected = _cli(
+            capsys,
+            "scan",
+            "inspect",
+            "--input",
+            str(source),
+            "--table",
+            "pages",
+            "--offset",
+            "0",
+            "--limit",
+            "100",
+            "--max-bytes",
+            "1048576",
+        )
         assert inspected["rows"][0]["title"] == "Owned iframe fixture"
 
         copied = _cli(capsys, "scan", "snapshot", "--input", str(source), "--out", str(snapshot))
@@ -197,3 +251,14 @@ def test_offline_saved_scan_operator_workflow(tmp_path, monkeypatch, capsys, fro
         assert attempts == {}
     finally:
         loop.close()
+
+    # The document is a route an operator follows in order, not a list of unrelated
+    # examples, so the gate is that this run dispatched every step it shows -- with
+    # the live capture named, not silently dropped.
+    executed = {_shape(argv) for argv in _EXECUTED}
+    unrun = {
+        raw: shape
+        for shape, raw in _documented_shapes().items()
+        if shape not in executed and shape[0] not in LIVE_CAPTURE_COMMANDS
+    }
+    assert not unrun, f"docs/{OPERATOR_DOC} documents commands this workflow never ran: {unrun}"
