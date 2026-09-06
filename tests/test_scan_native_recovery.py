@@ -110,7 +110,10 @@ def test_real_sqlite_full_preserves_previous_page_and_resume(tmp_path):
         record["title"] = "x" * 100_000
         with pytest.raises(sqlite3.OperationalError, match="full") as error:
             scan.commit_page(lease, record, runtime=_runtime())
-        assert error.value.sqlite_errorcode == sqlite3.SQLITE_FULL
+        # Python 3.10 exposes the real SQLite failure only through its message;
+        # newer runtimes additionally expose the numeric extended error code.
+        if sys.version_info >= (3, 11):
+            assert error.value.sqlite_errorcode == sqlite3.SQLITE_FULL
     assert NativeScan.inspect(path)["counts"]["pages"] == 1
     with NativeScan.open(path) as scan:
         assert scan.recover_inflight() == 1
