@@ -1010,8 +1010,9 @@ def check_meta(check_id: str) -> dict[str, Any]:
 # check, when neither source has redirect data.
 # Only frames other than ``internal_all`` are listed: the master table is
 # required for a run at all, and checks derived from its columns guard
-# themselves per column. A check absent from this map and lacking its own skip
-# path is caught by ``test_every_check_can_be_skipped``.
+# themselves per column. ``test_every_declared_check_reports_its_frame_as_missing_when_absent``
+# covers the entries declared here. Checks absent from this map rely on their
+# own evidence guards; this map does not provide a universal inline-skip gate.
 CHECK_REQUIRES: dict[str, tuple[str, ...]] = {
     "IMG_MISSING_ALT": ("images_missing_alt",),
     "IMG_OVER_KB": ("images_over_kb",),
