@@ -164,8 +164,14 @@ def _resolve_options(options: dict[str, Any] | None) -> dict[str, bool]:
 # (or the Content-Type header, checked separately in rules.py from the
 # response we already have). See https://developer.chrome.com/docs/lighthouse/best-practices/charset/
 _CHARSET_WINDOW_CHARS = 1024
-_CHARSET_META_RE = re.compile(r"<meta[^>]+charset[^<]+>", re.IGNORECASE)
+_CHARSET_META_RE = re.compile(r"<meta\b[^>]*>", re.IGNORECASE)
 _CHARSET_VALUE_RE = re.compile(r'charset\s*=\s*["\']?([a-zA-Z0-9_\-:.()]{2,})', re.IGNORECASE)
+# Matches one HTML attribute (name + quoted/unquoted value) inside a tag's raw text,
+# used to inspect a candidate <meta> tag's actual attributes rather than its raw
+# substring -- see document_charset()'s use below.
+_ATTR_RE = re.compile(
+    r"""([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))"""
+)
 # A doctype declaration is only meaningful at the top of the document; scanning
 # the whole body would risk matching an escaped/quoted example elsewhere.
 _DOCTYPE_WINDOW_CHARS = 2048
@@ -180,11 +186,21 @@ def document_charset(html: str) -> str | None:
     against the header seohead already captured, in
     ``seohead.sf.core.rules.check_charset``, not here.
     """
-    match = _CHARSET_META_RE.search(html[:_CHARSET_WINDOW_CHARS])
-    if not match:
-        return None
-    value = _CHARSET_VALUE_RE.search(match.group(0))
-    return value.group(1) if value else match.group(0)
+    window = html[:_CHARSET_WINDOW_CHARS]
+    for tag_match in _CHARSET_META_RE.finditer(window):
+        tag_text = tag_match.group(0)
+        attrs: dict[str, str] = {}
+        for attr_match in _ATTR_RE.finditer(tag_text):
+            name = attr_match.group(1).lower()
+            value = next(g for g in attr_match.groups()[1:] if g is not None)
+            attrs[name] = value
+        if attrs.get("charset"):
+            return attrs["charset"]
+        if attrs.get("http-equiv", "").lower() == "content-type":
+            value_match = _CHARSET_VALUE_RE.search(attrs.get("content", ""))
+            if value_match:
+                return value_match.group(1)
+    return None
 
 
 def document_doctype(html: str) -> str | None:
@@ -752,10 +768,10 @@ def document_position(soup: BeautifulSoup, html: str) -> DocumentPosition:
         "meta_description_outside_head": (not _in_head(desc_tag)) if desc_tag else None,
         "canonical_outside_head": (not _in_head(canonical_tag)) if canonical_tag else None,
         "directives_outside_head": (
-            any(not _in_head(tag) for tag in robots_tags) if robots_tags else None
+            all(not _in_head(tag) for tag in robots_tags) if robots_tags else None
         ),
         "hreflang_outside_head": (
-            any(not _in_head(tag) for tag in hreflang_tags) if hreflang_tags else None
+            all(not _in_head(tag) for tag in hreflang_tags) if hreflang_tags else None
         ),
     }
 
@@ -826,13 +842,19 @@ def _link_target(tag: Any, base_url: str, final_url: str) -> tuple[str, str, boo
     href_raw = (cast("str | None", tag.get("href")) or "").strip()
     if not href_raw:
         return None
-    lowered = href_raw.lower()
-    if (
-        href_raw.startswith("#")
-        or lowered.startswith("javascript:")
-        or lowered.startswith("mailto:")
-        or lowered.startswith("tel:")
-    ):
+    if href_raw.startswith("#"):
+        return None
+    # A scheme other than http(s) -- mailto:, tel:, javascript:, and the same
+    # family of non-fetchable contact/deep-link schemes (sms:, skype:,
+    # whatsapp:, viber:, facetime:, intent:, market:, ...) -- is never a page
+    # a crawler can fetch, so it is excluded the same way mailto/tel already
+    # were rather than left to leak in as an ordinary link (#471). A relative
+    # or protocol-relative href has no scheme here and is unaffected.
+    try:
+        scheme = urlparse(href_raw).scheme.lower()
+    except ValueError:
+        return None
+    if scheme and scheme not in ("http", "https"):
         return None
     try:
         href = urljoin(base_url, href_raw)
@@ -886,8 +908,11 @@ def _extract_link_observations(
     external, because "external" means a host other than the page's own —
     a ``<base>`` pointing elsewhere must not reclassify the whole page.
 
-    Skips empty hrefs and ``javascript:`` / ``mailto:`` / ``tel:`` /
-    pure-fragment (``#...``) links, and any ``<a>`` inside a ``<template>``
+    Skips empty hrefs, pure-fragment (``#...``) links, and any href whose
+    scheme is not ``http``/``https`` -- ``javascript:``, ``mailto:``, ``tel:``,
+    and the same family of non-fetchable contact/deep-link schemes (``sms:``,
+    ``skype:``, ``whatsapp:``, etc., see ``_link_target``) -- plus any ``<a>``
+    inside a ``<template>``
     (see ``_INERT_LINK_CONTAINERS`` for why ``<noscript>`` is not skipped
     too). Each entry carries the resolved absolute href, the href exactly as
     written (``raw_href`` — the only place a protocol-relative ``//host/path``
