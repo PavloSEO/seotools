@@ -425,6 +425,8 @@ it did not measure**. That is enforced mechanically, not by intention:
 - File-changing operations require explicit intent; image optimization is non-destructive by
   default and validates output before reporting success.
 - Security path probes, bot DNS verification, and sitemap live rechecks are opt-in.
+- Credential-bearing headers belong only in host-bound, environment-sourced
+  `http.credential_headers`; global `http.headers` refuses them.
 - DataForSEO production mode is opt-in; its default is sandbox.
 - Yandex SERP uses only the asynchronous endpoint.
 - The toolkit does not discover the web-scale backlink profile of a domain.

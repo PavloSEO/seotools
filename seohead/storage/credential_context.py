@@ -10,6 +10,8 @@ import re
 import uuid
 from typing import Any
 
+from seohead.crawl.settings import redact_sensitive_headers
+
 from . import ScanError
 
 _ENV = re.compile(r"env:([A-Za-z_][A-Za-z0-9_]*)\Z")
@@ -28,6 +30,7 @@ def redact_config(settings: dict[str, Any]) -> dict[str, Any]:
     entries = http.get("credential_headers")
     if not isinstance(entries, list):
         raise ScanError("credential headers must be a list")
+    http["headers"] = redact_sensitive_headers(http.get("headers"))
     for entry in entries:
         if not isinstance(entry, dict) or not isinstance(entry.get("headers"), dict):
             raise ScanError("credential header entry is malformed")

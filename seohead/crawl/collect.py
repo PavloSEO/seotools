@@ -27,7 +27,11 @@ from urllib.parse import urljoin, urlsplit
 import httpx
 
 from seohead.crawl.cache import ResponseCache
-from seohead.crawl.settings import checked_url_budget, resolve_credential_headers
+from seohead.crawl.settings import (
+    SENSITIVE_HEADER_NAMES,
+    checked_url_budget,
+    resolve_credential_headers,
+)
 from seohead.crawl.throttle import MAX_DELAY_S, Throttle
 from seohead.recon.net import UA, BlockedRedirectError, http_client, pinned_target, validate_url
 from seohead.tools.parser import parse_html, uses_ajax_crawling_scheme
@@ -474,10 +478,9 @@ def fetch_one(
         request_pairs = header_pairs(
             request_object.headers if request_object is not None else sent_headers
         )
-        sensitive = {"authorization", "proxy-authorization", "cookie", "x-api-key", "x-auth-token"}
-        credentials = any(name in sensitive and value for name, value in request_pairs)
+        credentials = any(name in SENSITIVE_HEADER_NAMES and value for name, value in request_pairs)
         for name, value in request_pairs:
-            if name in sensitive and value:
+            if name in SENSITIVE_HEADER_NAMES and value:
                 record.error = record.error.replace(value, "REDACTED")
         final_headers = getattr(response, "headers", None) or response_headers or {}
         history = list(getattr(response, "history", ()) or ())
