@@ -52,6 +52,34 @@ def test_regex_mode_extracts_a_group():
     assert "raw HTML" in " ".join(result["notes"])  # the regex-vs-rendered caveat is surfaced
 
 
+def test_regex_default_group_on_pattern_without_capturing_groups_does_not_raise():
+    """Issue #474: 'group' defaults to 1 and 'output' defaults to 'group' for
+    regex mode, so a pattern with no capturing groups at all must not crash."""
+    documents = [_doc("https://example.com/a", "<div>price: 100</div>")]
+    result = run_extraction(documents, [{"mode": "regex", "query": r"price:\s*\d+"}])
+    assert result["ok"] is True
+    assert result["extractors"][0]["rows"][0]["values"] == []
+
+
+def test_regex_group_index_beyond_pattern_group_count_does_not_raise():
+    """Issue #474: a group index beyond what the pattern actually captures
+    must not raise IndexError."""
+    documents = [_doc("https://example.com/a", "<div>price: 100</div>")]
+    result = run_extraction(documents, [{"mode": "regex", "query": r"price:\s*(\d+)", "group": 5}])
+    assert result["ok"] is True
+    assert result["extractors"][0]["rows"][0]["values"] == []
+
+
+def test_regex_valid_group_still_extracts_values():
+    """Negative control for issue #474: a legitimate group index on a matching
+    pattern must keep returning the extracted value, not be swallowed by the
+    out-of-range guard."""
+    documents = [_doc("https://example.com/a", "<div>price: 100</div>")]
+    result = run_extraction(documents, [{"mode": "regex", "query": r"price:\s*(\d+)"}])
+    assert result["ok"] is True
+    assert result["extractors"][0]["rows"][0]["values"] == ["100"]
+
+
 def test_pathological_regex_aborts_only_that_document_and_the_run_finishes():
     """Acceptance criterion: a pathological expression aborts that document and
     is reported, and the crawl (the whole extraction call) still finishes."""
