@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import httpx
+
 from seohead.tools import render
 
 
@@ -31,6 +33,14 @@ class _Route:
 
     def fulfill(self, **kwargs):
         self.fulfilled.append(kwargs)
+
+
+class _RawStream(httpx.SyncByteStream):
+    def __iter__(self):
+        yield b"ok"
+
+    def close(self):
+        pass
 
 
 def test_browser_route_does_not_continue_after_validation(monkeypatch):
@@ -101,6 +111,63 @@ def test_pinned_fulfiller_aborts_before_a_response_exceeds_its_finite_cap(monkey
     assert route.aborted == ["blockedbyclient"]
     assert not route.fulfilled
     assert limitations == ["browser response exceeds pinned rendering byte limit"]
+
+
+def test_pinned_fulfiller_does_not_replay_httpx_cookies_when_browser_omits_them(monkeypatch):
+    seen_cookies = []
+
+    def transport(request):
+        seen_cookies.append(request.headers.get("cookie"))
+        headers = {"set-cookie": "session=server-state; Path=/"} if len(seen_cookies) == 1 else {}
+        return httpx.Response(200, headers=headers, stream=_RawStream())
+
+    client = httpx.Client(transport=httpx.MockTransport(transport))
+    monkeypatch.setattr(render, "validate_url", lambda url: url)
+    handler, _limitations = render._pinned_browser_route(client)
+
+    first = _Route(
+        _Request(headers={"accept": "*/*", "host": "public.example.test", "cookie": "browser=1"})
+    )
+    second = _Route()
+    handler(first)
+    handler(second)
+
+    assert seen_cookies == ["browser=1", None]
+    assert not first.aborted
+    assert not second.aborted
+    assert len(first.fulfilled) == len(second.fulfilled) == 1
+    client.close()
+
+
+def test_pinned_fulfiller_combines_duplicate_ordinary_headers(monkeypatch):
+    def transport(_request):
+        return httpx.Response(
+            200,
+            headers=[
+                ("content-security-policy", "default-src 'self'"),
+                ("content-security-policy", "img-src https://cdn.example.test"),
+                ("access-control-allow-origin", "https://one.example.test"),
+                ("access-control-allow-origin", "https://two.example.test"),
+            ],
+            stream=_RawStream(),
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(transport))
+    monkeypatch.setattr(render, "validate_url", lambda url: url)
+    route = _Route()
+    handler, _limitations = render._pinned_browser_route(client)
+
+    handler(route)
+
+    headers = route.fulfilled[0]["headers"]
+    assert (
+        headers["content-security-policy"] == "default-src 'self', img-src https://cdn.example.test"
+    )
+    assert (
+        headers["access-control-allow-origin"]
+        == "https://one.example.test, https://two.example.test"
+    )
+    client.close()
 
 
 def test_pinned_fulfiller_fails_closed_for_private_url_method_and_cookie_response(monkeypatch):

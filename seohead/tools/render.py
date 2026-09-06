@@ -120,8 +120,12 @@ def _pinned_browser_route(
                 for name, value in request.all_headers().items()
                 if name.lower() not in _HOP_BY_HOP_HEADERS
             }
+            cookies = getattr(client, "cookies", None)
+            if cookies is not None:
+                cookies.clear()
             with client.stream(method, url, headers=headers, content=None) as response:
                 response_headers: dict[str, str] = {}
+                response_header_names: dict[str, str] = {}
                 cookie_headers: list[str] = []
                 has_cors_header = False
                 for name, value in response.headers.multi_items():
@@ -132,7 +136,11 @@ def _pinned_browser_route(
                     if lowered == "access-control-allow-origin":
                         has_cors_header = True
                     if lowered not in _HOP_BY_HOP_HEADERS:
-                        response_headers[name] = value
+                        response_name = response_header_names.setdefault(lowered, name)
+                        if response_name in response_headers:
+                            response_headers[response_name] += f", {value}"
+                        else:
+                            response_headers[response_name] = value
                 if cookie_headers:
                     response_headers["set-cookie"] = "\n".join(cookie_headers)
                 origin = headers.get("origin")
@@ -533,13 +541,13 @@ def render_check(
                     user_agent=UA,
                 )
                 context.add_init_script(_CLS_INIT_JS)
+                route_handler, limitations = _pinned_browser_route(browser_client)
+                context.route("**/*", route_handler)
                 # WebSockets are not HTTP requests and page.route() never sees
                 # them either; route_web_socket is the separate interception
                 # point that covers them.
                 context.route_web_socket("**/*", _guard_websocket_route)
                 page = context.new_page()
-                route_handler, limitations = _pinned_browser_route(browser_client)
-                page.route("**/*", route_handler)
                 page.goto(target, wait_until=wait, timeout=timeout * 1000)
                 rendered_html = page.content()
                 rendered_url = page.url
@@ -634,11 +642,15 @@ def rendered_html(url: str, timeout: float = 30.0, wait: str = "load") -> dict[s
         with sync_playwright() as pw:
             browser = pw.chromium.launch()
             try:
-                page = browser.new_page(service_workers="block")
-                page.route("**/*", _guard_browser_route)
-                page.context.route_web_socket("**/*", _guard_websocket_route)
-                page.goto(target, wait_until=wait, timeout=timeout * 1000)
-                return {"ok": True, "url": page.url, "html": page.content()}
+                context = browser.new_context(service_workers="block")
+                try:
+                    context.route("**/*", _guard_browser_route)
+                    context.route_web_socket("**/*", _guard_websocket_route)
+                    page = context.new_page()
+                    page.goto(target, wait_until=wait, timeout=timeout * 1000)
+                    return {"ok": True, "url": page.url, "html": page.content()}
+                finally:
+                    context.close()
             finally:
                 browser.close()
     except Exception as exc:
@@ -840,15 +852,15 @@ def render_document(
             actual_browser = browser if browser is not None else getattr(context, "browser", None)
             engine_version = str(getattr(actual_browser, "version", "unknown"))
             try:
+                route_handler, browser_limitations = _pinned_browser_route(
+                    network_client, request_gate=request_gate
+                )
+                context.route("**/*", route_handler)
+                context.route_web_socket("**/*", _guard_websocket_route)
                 page = context.new_page()
                 if max_html_bytes is not None:
                     page.on("request", _capture_request)
                     page.on("response", _capture_response)
-                route_handler, browser_limitations = _pinned_browser_route(
-                    network_client, request_gate=request_gate
-                )
-                page.route("**/*", route_handler)
-                context.route_web_socket("**/*", _guard_websocket_route)
                 page.on("console", _on_console)
                 page.goto(
                     target,

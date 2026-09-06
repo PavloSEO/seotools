@@ -44,9 +44,10 @@ class _FakePage:
     def __init__(self, html):
         self.html = html
         self.url = "https://example.com/"
+        self.routes = []
 
-    def route(self, _pattern, _handler):
-        pass
+    def route(self, pattern, handler):
+        self.routes.append((pattern, handler))
 
     def goto(self, _url, wait_until=None, timeout=None):
         pass
@@ -64,6 +65,8 @@ class _FakeContext:
     def __init__(self, page):
         self.page = page
         self.options: dict[str, object] = {}
+        self.routes = []
+        self.new_page_route_snapshots = []
 
     def add_init_script(self, _script):
         pass
@@ -71,8 +74,15 @@ class _FakeContext:
     def route_web_socket(self, _pattern, _handler):
         pass
 
+    def route(self, pattern, handler):
+        self.routes.append((pattern, handler))
+
     def new_page(self):
+        self.new_page_route_snapshots.append(list(self.routes))
         return self.page
+
+    def close(self):
+        pass
 
 
 class _FakeBrowser:
@@ -154,3 +164,16 @@ def test_the_shared_identity_is_recorded_in_the_result(fake_stack):
     result = render_check("https://example.com/")
     assert result["ok"] is True
     assert result["user_agent"] == UA
+
+
+def test_each_render_entry_registers_the_pinned_route_before_new_page(fake_stack):
+    checked = render_check("https://example.com/")
+    rendered = render_module.rendered_html("https://example.com/")
+
+    assert checked["ok"] is True
+    assert rendered["ok"] is True
+    assert all(
+        snapshot[-1][0] == "**/*" for snapshot in fake_stack["context"].new_page_route_snapshots
+    )
+    assert [pattern for pattern, _handler in fake_stack["context"].routes] == ["**/*", "**/*"]
+    assert fake_stack["page"].routes == []
