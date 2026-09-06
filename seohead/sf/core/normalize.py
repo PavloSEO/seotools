@@ -8,11 +8,25 @@ missing column yields ``None``, never an exception.
 from __future__ import annotations
 
 import math
+import re
 import urllib.parse
 from collections.abc import Iterable
 from typing import Any
 
 import pandas as pd
+
+# Matches a comma-decimal numeric string with no dot anywhere (e.g. "2,500",
+# "-0,000"), which is what Screaming Frog writes for Text Ratio, Flesch score
+# etc. under a comma-decimal OS locale. A value with a dot already, or with
+# more than one comma (thousands separators), is left alone rather than
+# guessed at.
+_COMMA_DECIMAL_RE = re.compile(r"^-?\d+,\d+$")
+
+
+def _comma_to_dot(value: str) -> str:
+    """Rewrite a lone comma-decimal string to dot-decimal; pass anything else through."""
+    return value.replace(",", ".") if _COMMA_DECIMAL_RE.match(value) else value
+
 
 # Canonical field -> ordered list of possible SF headers (matched case-insensitively).
 # First match wins. Confirmed against a real SF 19.4 ``Internal:All`` export.
@@ -160,6 +174,8 @@ def to_int(value: Any) -> int | None:
     value = normalize_value(value)
     if value is None:
         return None
+    if isinstance(value, str):
+        value = _comma_to_dot(value)
     try:
         f = float(value)
     except (ValueError, TypeError):
@@ -173,6 +189,8 @@ def to_float(value: Any) -> float | None:
     value = normalize_value(value)
     if value is None:
         return None
+    if isinstance(value, str):
+        value = _comma_to_dot(value)
     try:
         f = float(value)
     except (ValueError, TypeError):
@@ -290,6 +308,10 @@ def records_from_df(df: pd.DataFrame, field_map: dict[str, list[str]]) -> list[d
 
     for field_name in INT_FIELDS | FLOAT_FIELDS:
         if field_name in sub.columns:
+            if sub[field_name].dtype == object or pd.api.types.is_string_dtype(sub[field_name]):
+                sub[field_name] = sub[field_name].map(
+                    lambda v: _comma_to_dot(v) if isinstance(v, str) else v
+                )
             sub[field_name] = pd.to_numeric(sub[field_name], errors="coerce")
 
     records: list[dict[str, Any]] = sub.to_dict("records")

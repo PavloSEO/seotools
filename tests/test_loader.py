@@ -67,6 +67,28 @@ def test_load_reports_found_and_missing(exports_dir):
     assert "sitemap_in" in loaded.missing
 
 
+def test_required_export_present_but_corrupt_names_the_read_error(tmp_path):
+    """#453: a present-but-undecodable required export must not be reported as 'not found'."""
+    corrupt = tmp_path / "corrupt"
+    corrupt.mkdir()
+    path = corrupt / "internal_all.csv"
+    path.write_bytes(bytes([0xC0, 0x80, 0x00, 0xFF, 0xFE, 0xFE, 0xFF, 0x81, 0x8D, 0x90]) * 20)
+    with pytest.raises(FileNotFoundError) as excinfo:
+        load_exports(str(corrupt))
+    message = str(excinfo.value)
+    assert "not found" not in message
+    assert str(path) in message
+    assert "could not be read" in message
+
+
+def test_required_export_genuinely_absent_keeps_the_not_found_message(tmp_path):
+    """Negative control: a truly missing required export must raise unchanged."""
+    empty = tmp_path / "empty2"
+    empty.mkdir()
+    with pytest.raises(FileNotFoundError, match=r"not found.*Export at least"):
+        load_exports(str(empty))
+
+
 def test_load_records_which_encoding_each_export_was_read_with(exports_dir):
     """#160: nothing recorded the winning codec, so mojibake had no signal to find."""
     loaded = load_exports(exports_dir)

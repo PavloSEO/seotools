@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
-from seohead.sf.core.normalize import norm_url, to_float, to_int
+import pandas as pd
+
+from seohead.sf.core.normalize import (
+    INTERNAL_FIELD_MAP,
+    norm_url,
+    records_from_df,
+    to_float,
+    to_int,
+)
 
 
 def test_to_int_handles_non_finite():
@@ -38,3 +46,24 @@ def test_norm_url_still_folds_a_trailing_slash():
 
 def test_norm_url_query_case_is_preserved():
     assert norm_url("https://example.com/x?Q=A") != norm_url("https://example.com/x?q=a")
+
+
+# --------------------------------------------------------------------------
+# #449 — a comma-decimal numeric SF column must not silently collapse to None.
+# --------------------------------------------------------------------------
+def test_to_float_accepts_comma_decimal():
+    assert to_float("2,500") == 2.5
+    assert to_int("2,500") == 2
+
+
+def test_to_float_dot_decimal_and_empty_still_normalize_as_before():
+    """Negative control: the already-correct path must stay untouched."""
+    assert to_float("2.5") == 2.5
+    assert to_float("") is None
+    assert to_float(None) is None
+
+
+def test_records_from_df_does_not_collapse_comma_decimal_text_ratio():
+    df = pd.DataFrame({"Address": ["a", "b", "c"], "Text Ratio": ["2,500", "0,000", ""]})
+    recs = records_from_df(df, INTERNAL_FIELD_MAP)
+    assert [r["text_ratio"] for r in recs] == [2.5, 0.0, None]
