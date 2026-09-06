@@ -6,7 +6,7 @@ and its identity is also recorded as `application_id=1397051208` (`SEOH`) and
 `user_version=1`. A reader must require all three identifiers to agree before it
 treats a file as a scan artifact.
 
-The delivered foundation imports an existing crawl directory into a portable file,
+The legacy foundation imports an existing crawl directory into a portable file,
 reopens its stored audit without fetching again, and exports compatible legacy
 observations again. It does not change the existing crawler or directory workflow.
 Use one file per imported run; do not merge runs or write an imported artifact
@@ -75,7 +75,8 @@ configuration, lifecycle, capability states, retention policy, and partialness.
 `urls` interns exact URL strings. `pages` and `links` are the primary crawl
 observations; link occurrences retain their original order and are never
 deduplicated. `forms`, `decisions`, `frontier`, `query_variants`, `resume_state`,
-and `context_items` reserve the recovery and collection lanes. `responses`,
+and `context_items` hold the native storage core's recovery and collection lanes
+(empty in legacy imports). `responses`,
 `documents`, `bodies`, and `resource_refs` reserve captured HTTP, document, and
 resource provenance. `audit.document_json` is the only authoritative stored audit
 snapshot; report formats render that document and do not compute new findings.
@@ -97,8 +98,8 @@ unknown/newer versions and missing required fields rather than guessing.
 Raw HTTP entities, decoded documents, and rendered DOM are distinct evidence. A
 future complete body may use `bodies` plus a document/response hash and one of the
 declared fidelity values; a rendered DOM never substitutes for raw HTTP bytes.
-Point A+B retains no bodies: `bodies`, `responses`, `documents`, and
-`resource_refs` are future schema lanes and are not populated by the legacy
+The current legacy importer and native storage core retain no bodies: `bodies`,
+`responses`, `documents`, and `resource_refs` are future schema lanes and are not populated by the legacy
 importer. Its only populated `context_items` lane is
 `legacy_import_provenance`; it exports no restore checkpoint or equivalent resume
 state. Body access, retained-resource access, native SQLite collection, resume,
@@ -223,8 +224,9 @@ def decode_body(codec: str, data: bytes, decoded_bytes: int, sha256: str) -> byt
 ```
 
 For a live writer, do not copy the main `.sqlite` file alone: committed rows can be
-in its WAL. A later snapshot command uses SQLite's Backup API to publish a
-validated single-file copy. Until a file is finalized or snapshot-created, retain
+in its WAL. The native core's `NativeScan.snapshot()` uses SQLite's Backup API to
+publish a validated single-file copy; a public snapshot command is a later slice.
+Until a file is finalized or snapshot-created, retain
 its WAL/SHM beside it and treat lifecycle/partialness as part of the evidence.
 Future format changes use an explicit migration into a new file; readers do not
 silently add columns or reinterpret a newer version.
@@ -263,3 +265,78 @@ reanalysis, pruning, SQL-backed graph work, or memory-ceiling improvement is
 delivered here. Audit-level findings and context already saved in the exact audit
 remain available; the missing raw crawl corpus cannot be reconstructed from the
 three exported files.
+
+## Native transaction core (Point C)
+
+`seohead.storage.native_scan.NativeScan` is an internal Python storage API for a
+native `scan.v1` file. It does not yet connect `crawl-site` to SQLite. Its
+`create`, `open`, `enqueue`, `claim`, `commit_page`, `recover_inflight`, `interrupt`,
+`inspect`, `finish_without_audit`, `resume_or_finalize`, and `snapshot` operations
+are exercised with offline page observations.
+Fetch workers must return their bounded results to the one writer; they must not
+share its connection or start additional writers. The existing directory crawler,
+CLI/MCP registrations, report reader, and legacy-import validator are unchanged.
+
+A committed page unit contains its page projection, ordered duplicate link/form
+occurrences, decisions, accepted query variants, frontier updates, runtime state,
+and one evidence revision. A rejected query variant keeps its exact URL decision
+and excluded frontier identity without consuming its query reservation. Frontier
+order and committed-page order are separate contiguous sequences. A retry of an
+already committed lease succeeds only when its whole input digest matches; a
+changed retry is refused. This digest is idempotency bookkeeping, not a signature
+or protection against an editor who can recompute it.
+
+The core records the producing build, complete validated effective configuration,
+result-affecting configuration fingerprint, runtime versions, and unavailable
+body/resource/reanalysis states. A different start URL or configuration refuses
+resume. Missing, foreign, newer, malformed, and terminal files cannot become live
+writers. Validation occurs read-only before writer setup; reading never upgrades
+the file. `NativeScan.inspect()` validates native metadata and references in one
+bounded read transaction. It returns no SEO audit: Point C has no `audit` row, and
+report/compare/task routes deliberately refuse these unfinished native files.
+
+Only the process holding the lifetime POSIX advisory lock may requeue orphaned
+inflight URLs. The lock lives at `<scan>.writer.lock`, separate from SQLite's own
+database locks on macOS/Linux. Keep its inode in place; unlinking/recreating an
+active lock could let another writer acquire a different inode. A second writer
+is refused. A committed URL stays done; fetched but uncommitted work may be
+fetched again after a crash. Exactly-once HTTP execution is not promised.
+
+Live writes use WAL, FULL synchronous mode, foreign keys, a finite busy timeout,
+an 8 MiB SQLite page cache, and file-backed temporary work on a local filesystem.
+Transaction failure rolls back the complete pending unit. If the filesystem also
+prevents saving an error state, the caller still receives the failure and retains
+the last committed artifact; no success is inferred from an unchanged header.
+Initial queue chunks and each page observation lane are limited to 20,000 items
+and 8 MiB of JSON; the page record is limited to 8 MiB and the complete commit
+input to 64 MiB. Oversized input is refused atomically. The collector adapter must
+record any deliberately retained prefix as partial evidence; this core does not
+silently truncate observations. A WAL above 64 MiB triggers a bounded checkpoint
+before accepting more work; a blocking reader causes explicit backpressure.
+Do not actively write in a network filesystem or cloud-synchronized directory.
+
+`snapshot()` admits space for the logical database, observed WAL/SHM, a temporary
+margin, and a 1 GiB reserve. It uses a bounded Backup API operation, validates the
+copy, closes it in DELETE journal mode, fsyncs it, and publishes with a no-clobber
+hard link. Existing destinations and symlinks are refused. Only the operation's
+own temporary output is cleaned on failure. A snapshot of an unfinished scan
+remains unfinished and has no audit, even though it is a portable single file.
+The default backup deadline is 60 seconds. Finalization has a separate 10-second
+deadline; a reader that blocks checkpointing leaves `lifecycle=interrupted` and
+`finish_reason=finalization_blocked`, preserving collection completeness separately.
+After the reader closes, `resume_or_finalize()` with an empty frontier only
+finalizes the file. WAL/SHM files are never manually deleted.
+
+The native core currently permits these versioned context rows only:
+
+| Kind / key | Exact `scan_context.v1` payload |
+|---|---|
+| `robots_blocked_url` / `url:<url_id>` | `{"url_id":positive_integer,"token":string,"policy":"respect or report_only"}` |
+| `native_commit` / queue ordinal as decimal text | `{"digest":lowercase_sha256}` |
+
+Unknown context kinds/keys and extra payload fields are refused. A robots context
+references this scan's URL and measured policy; `native_commit` belongs to a done
+frontier row. Exclusion counts derive from decision occurrences. Raw start-page
+HTML is not hidden in a context row: it requires the later document/body lane.
+No response, document, body, resource capture, rendering update, collector memory
+claim, or offline replay is delivered by this storage core.
