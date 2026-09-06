@@ -355,3 +355,44 @@ def test_retained_start_gate_rebuilds_static_html_when_page_selection_is_rendere
         gate = retained_start_gate(scan, settings)
 
     assert gate == {"html": static_html, "outlinks": 2, "external_outlinks": 1}
+
+
+def test_effective_store_budget_can_disable_new_body_storage(tmp_path):
+    with NativeScan.create(
+        tmp_path / "scan.sqlite", **_metadata(**{"storage.max_body_store_bytes": 0})
+    ) as scan:
+        lease = _claim(scan)
+        scan.commit_page(
+            lease, _record(lease.url), captures=[_event(lease.url)], runtime=_runtime()
+        )
+        assert tuple(
+            scan.con.execute("SELECT body_state,body_reason FROM documents").fetchone()
+        ) == ("omitted", "body_budget_exhausted")
+        assert scan.con.execute("SELECT COUNT(*) FROM bodies").fetchone()[0] == 0
+
+
+def test_effective_free_space_reserve_is_checked_before_dispatch(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    with NativeScan.create(
+        tmp_path / "scan.sqlite", **_metadata(**{"storage.min_free_bytes": 2 * 1024 * 1024})
+    ) as scan:
+        monkeypatch.setattr(
+            "seohead.storage.native_scan.shutil.disk_usage",
+            lambda _path: SimpleNamespace(free=9 * 1024 * 1024),
+        )
+        with pytest.raises(ScanError, match="insufficient free disk"):
+            scan.preflight_capture()
+        assert scan.con.execute("SELECT COUNT(*) FROM responses").fetchone()[0] == 0
+
+
+def test_history_policy_is_recorded_without_deleting_other_files(tmp_path):
+    older = tmp_path / "older.sqlite"
+    older.write_bytes(b"retained history fixture")
+    with NativeScan.create(
+        tmp_path / "scan.sqlite", **_metadata(**{"storage.history_warning_bytes": 1})
+    ) as scan:
+        retention = json.loads(scan.con.execute("SELECT retention_json FROM scan").fetchone()[0])
+        assert retention["history_warning_bytes"] == 1
+        assert retention["automatic_delete"] is False
+    assert older.read_bytes() == b"retained history fixture"
