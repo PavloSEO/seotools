@@ -67,10 +67,14 @@ def test_minified_css_is_recognized():
     assert looks_minified(_minify(_repeat_readable_css()))
 
 
-def test_tiny_files_are_never_flagged_as_unminified():
-    # Too small to carry a meaningful whitespace-ratio signal either way.
+def test_tiny_files_are_classified_by_shape_not_size_alone():
+    # Too small for the line-length heuristic, but a single unbroken line
+    # with little whitespace still reads as minified.
     assert looks_minified(".a{color:red}")
-    assert looks_minified("body { color: red; }")
+    # A short file with normal formatting-style spacing is not minified just
+    # because it is small (issue #479): the whitespace ratio here (0.2) is
+    # above the minified threshold, same as it would be at any other size.
+    assert not looks_minified("body { color: red; }")
 
 
 def test_content_hash_ignores_whitespace_reformatting():
@@ -276,6 +280,20 @@ def test_debug_code_in_unminified_source_produces_nothing():
 def test_debug_code_absent_from_clean_minified_bundle():
     minified = _minify("function f(){return 1;}" * 20)
     assert find_debug_code(minified) == []
+
+
+def test_debug_code_absent_from_short_hand_authored_script():
+    # Issue #479: a short, multi-line, indented script must not be
+    # misclassified as minified just because it is under the size floor.
+    js = '\nfunction greet(name) {\n    console.log("hello", name);\n}\n'
+    assert find_debug_code(js) == []
+
+
+def test_debug_code_flagged_in_short_genuinely_minified_script():
+    # Negative control for #479: a genuinely minified short snippet (single
+    # line, no indentation) must still be flagged.
+    js = 'function greet(n){console.log("hello",n)}'
+    assert find_debug_code(js) == ["console.log("]
 
 
 def test_document_write_detected():
