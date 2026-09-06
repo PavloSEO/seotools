@@ -170,6 +170,54 @@ def test_pinned_fulfiller_combines_duplicate_ordinary_headers(monkeypatch):
     client.close()
 
 
+def test_pinned_fulfiller_keeps_multiple_set_cookie_headers_as_newline_values(monkeypatch):
+    def transport(_request):
+        return httpx.Response(
+            200,
+            headers=[
+                ("set-cookie", "session=one; Path=/; HttpOnly"),
+                ("set-cookie", "csrf=two; Path=/; SameSite=Lax"),
+            ],
+            stream=_RawStream(),
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(transport))
+    monkeypatch.setattr(render, "validate_url", lambda url: url)
+    route = _Route()
+    handler, _limitations = render._pinned_browser_route(client)
+
+    handler(route)
+
+    assert route.fulfilled[0]["headers"]["set-cookie"] == (
+        "session=one; Path=/; HttpOnly\ncsrf=two; Path=/; SameSite=Lax"
+    )
+    client.close()
+
+
+def test_pinned_fulfiller_uses_empty_cors_sentinel_for_an_unapproved_cross_origin_request(
+    monkeypatch,
+):
+    client = httpx.Client(
+        transport=httpx.MockTransport(lambda _request: httpx.Response(200, stream=_RawStream()))
+    )
+    monkeypatch.setattr(render, "validate_url", lambda url: url)
+    route = _Route(
+        _Request(
+            headers={
+                "accept": "*/*",
+                "host": "public.example.test",
+                "origin": "https://other.example.test",
+            }
+        )
+    )
+    handler, _limitations = render._pinned_browser_route(client)
+
+    handler(route)
+
+    assert route.fulfilled[0]["headers"]["access-control-allow-origin"] == ""
+    client.close()
+
+
 def test_pinned_fulfiller_fails_closed_for_private_url_method_and_cookie_response(monkeypatch):
     client = _Client()
     handler, limitations = render._pinned_browser_route(client)

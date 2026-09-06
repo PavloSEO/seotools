@@ -466,7 +466,12 @@ def compare(
 
 
 def render_check(
-    url: str, timeout: float = 30.0, wait: str = "load", viewport: str = "desktop"
+    url: str,
+    timeout: float = 30.0,
+    wait: str = "load",
+    viewport: str = "desktop",
+    *,
+    request_gate: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     """Compare a server response with the DOM produced after JavaScript executes.
 
@@ -501,7 +506,10 @@ def render_check(
         return {"ok": False, "url": target, "error": str(exc)}
 
     # Fetch raw HTML with the regular client: this is what a non-rendering crawler receives.
-    client, _ = http_client(timeout)
+    if request_gate is None:
+        client, _ = http_client(timeout)
+    else:
+        client, _ = http_client(timeout, event_hooks={"request": [lambda _request: request_gate()]})
     try:
         resp = client.get(target)
         raw_html = resp.text
@@ -541,7 +549,9 @@ def render_check(
                     user_agent=UA,
                 )
                 context.add_init_script(_CLS_INIT_JS)
-                route_handler, limitations = _pinned_browser_route(browser_client)
+                route_handler, limitations = _pinned_browser_route(
+                    browser_client, request_gate=request_gate
+                )
                 context.route("**/*", route_handler)
                 # WebSockets are not HTTP requests and page.route() never sees
                 # them either; route_web_socket is the separate interception
@@ -613,7 +623,13 @@ def render_check(
     }
 
 
-def rendered_html(url: str, timeout: float = 30.0, wait: str = "load") -> dict[str, Any]:
+def rendered_html(
+    url: str,
+    timeout: float = 30.0,
+    wait: str = "load",
+    *,
+    request_gate: Callable[[], None] | None = None,
+) -> dict[str, Any]:
     """Return rendered HTML for tools that require the final DOM.
 
     A separate narrow function lets regional and similar audits request one HTML
@@ -638,16 +654,25 @@ def rendered_html(url: str, timeout: float = 30.0, wait: str = "load") -> dict[s
         _refuse_if_root()
     except RuntimeError as exc:
         return {"ok": False, "url": target, "error": str(exc)}
+    browser_client = None
     try:
+        browser_client, _http2 = http_client(
+            timeout, follow_redirects=False, headers={"User-Agent": UA}
+        )
         with sync_playwright() as pw:
             browser = pw.chromium.launch()
             try:
-                context = browser.new_context(service_workers="block")
+                context = browser.new_context(service_workers="block", user_agent=UA)
                 try:
-                    context.route("**/*", _guard_browser_route)
+                    route_handler, limitations = _pinned_browser_route(
+                        browser_client, request_gate=request_gate
+                    )
+                    context.route("**/*", route_handler)
                     context.route_web_socket("**/*", _guard_websocket_route)
                     page = context.new_page()
                     page.goto(target, wait_until=wait, timeout=timeout * 1000)
+                    if limitations:
+                        raise RuntimeError("; ".join(limitations))
                     return {"ok": True, "url": page.url, "html": page.content()}
                 finally:
                     context.close()
@@ -655,6 +680,9 @@ def rendered_html(url: str, timeout: float = 30.0, wait: str = "load") -> dict[s
                 browser.close()
     except Exception as exc:
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}", "url": target}
+    finally:
+        if browser_client is not None:
+            browser_client.close()
 
 
 # Merges every open shadow root's light-DOM-visible children into its host

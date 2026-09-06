@@ -14,6 +14,7 @@ from __future__ import annotations
 import sys
 import types
 
+import httpx
 import pytest
 
 from seohead.recon.net import UA
@@ -177,3 +178,117 @@ def test_each_render_entry_registers_the_pinned_route_before_new_page(fake_stack
     )
     assert [pattern for pattern, _handler in fake_stack["context"].routes] == ["**/*", "**/*"]
     assert fake_stack["page"].routes == []
+
+
+class _PinnedRequest:
+    url = "https://example.com/"
+    method = "GET"
+
+    def all_headers(self):
+        return {"accept": "text/html", "host": "example.com"}
+
+
+class _PinnedRoute:
+    request = _PinnedRequest()
+
+    def __init__(self):
+        self.fulfilled = []
+        self.aborted = []
+
+    def fulfill(self, **kwargs):
+        self.fulfilled.append(kwargs)
+
+    def abort(self, reason):
+        self.aborted.append(reason)
+
+
+class _PinnedStream(httpx.SyncByteStream):
+    def __init__(self, body):
+        self.body = body
+
+    def __iter__(self):
+        yield self.body
+
+    def close(self):
+        pass
+
+
+def _deliver_route_during_navigation(monkeypatch, fake_stack, route):
+    original_goto = fake_stack["page"].goto
+
+    def goto(url, **kwargs):
+        original_goto(url, **kwargs)
+        fake_stack["context"].routes[-1][1](route)
+
+    monkeypatch.setattr(fake_stack["page"], "goto", goto)
+
+
+def test_rendered_html_fulfils_its_registered_pinned_route(monkeypatch, fake_stack):
+    expected_html = "<html><body>pinned response</body></html>"
+
+    client = httpx.Client(
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(200, stream=_PinnedStream(expected_html.encode()))
+        )
+    )
+    monkeypatch.setattr(render_module, "http_client", lambda *_args, **_kwargs: (client, False))
+    fake_stack["page"].html = expected_html
+    route = _PinnedRoute()
+    gate_calls = []
+    _deliver_route_during_navigation(monkeypatch, fake_stack, route)
+
+    result = render_module.rendered_html(
+        "https://example.com/", request_gate=lambda: gate_calls.append("called")
+    )
+
+    assert result == {
+        "ok": True,
+        "url": "https://example.com/",
+        "html": expected_html,
+    }
+    assert route.fulfilled[0]["body"] == expected_html.encode()
+    assert route.aborted == []
+    assert gate_calls == ["called"]
+    assert client.is_closed
+
+
+def test_render_check_gates_each_raw_redirect_and_pinned_browser_request(monkeypatch, fake_stack):
+    clients = []
+    raw_requests = []
+
+    def raw_transport(request):
+        raw_requests.append(str(request.url))
+        if len(raw_requests) == 1:
+            return httpx.Response(302, headers={"location": "/redirected"}, request=request)
+        return httpx.Response(200, text=fake_stack["page"].html, request=request)
+
+    def http_client(_timeout, **kwargs):
+        if "event_hooks" in kwargs:
+            client = httpx.Client(
+                transport=httpx.MockTransport(raw_transport),
+                follow_redirects=True,
+                event_hooks=kwargs["event_hooks"],
+            )
+        else:
+            client = httpx.Client(
+                transport=httpx.MockTransport(
+                    lambda _request: httpx.Response(
+                        200, stream=_PinnedStream(b"<html><body>pinned response</body></html>")
+                    )
+                )
+            )
+        clients.append(client)
+        return client, False
+
+    monkeypatch.setattr(render_module, "http_client", http_client)
+    route = _PinnedRoute()
+    gate_calls = []
+    _deliver_route_during_navigation(monkeypatch, fake_stack, route)
+
+    result = render_check("https://example.com/", request_gate=lambda: gate_calls.append("called"))
+
+    assert result["ok"] is True
+    assert len(raw_requests) == 2
+    assert len(gate_calls) == 3
+    assert route.fulfilled[0]["body"] == b"<html><body>pinned response</body></html>"
+    assert all(client.is_closed for client in clients)
