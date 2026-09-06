@@ -73,16 +73,18 @@ class CrawlState:
 
 
 def ensure_safe_dir(directory: str) -> None:
-    """Refuse a world-writable state directory.
+    """Refuse a group- or world-writable state directory.
 
     A state directory only stays trustworthy if nothing else on the machine can
-    write to it. World-writable turns "resume my crawl" into "load whatever the
-    next process to touch this directory left behind".
+    write to it. Group- or world-writable turns "resume my crawl" into "load
+    whatever the next process to touch this directory left behind".
     """
     os.makedirs(directory, exist_ok=True)
     mode = os.stat(directory).st_mode
-    if mode & stat.S_IWOTH:
-        raise PermissionError(f"refusing a world-writable crawl state directory: {directory}")
+    if mode & (stat.S_IWGRP | stat.S_IWOTH):
+        raise PermissionError(
+            f"refusing a group- or world-writable crawl state directory: {directory}"
+        )
 
 
 def load(path: str, start_url: str, config_fingerprint: str = "") -> tuple[CrawlState | None, str]:

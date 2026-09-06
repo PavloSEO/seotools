@@ -115,10 +115,24 @@ def test_a_world_writable_state_directory_is_refused(tmp_path):
         crawl_state.ensure_safe_dir(str(directory))
 
 
+def test_a_group_writable_state_directory_is_refused(tmp_path):
+    directory = tmp_path / "state"
+    directory.mkdir()
+    os.chmod(directory, 0o775)
+    with pytest.raises(PermissionError):
+        crawl_state.ensure_safe_dir(str(directory))
+
+
 def test_a_private_state_directory_is_accepted(tmp_path):
     directory = tmp_path / "state"
     directory.mkdir(mode=0o700)
     crawl_state.ensure_safe_dir(str(directory))  # must not raise
+
+
+def test_an_owner_only_writable_state_directory_is_accepted(tmp_path):
+    directory = tmp_path / "state755"
+    directory.mkdir(mode=0o755)
+    crawl_state.ensure_safe_dir(str(directory))  # must not raise: group/other read-only is fine
 
 
 def test_clear_removes_a_checkpoint_and_is_idempotent(tmp_path):
