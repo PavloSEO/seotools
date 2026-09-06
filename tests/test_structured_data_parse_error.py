@@ -36,6 +36,18 @@ _VALID_JSONLD_PAGE = (
     f"</head><body>{_page('')}</body></html>"
 )
 
+_EMPTY_JSONLD_PAGE = (
+    "<html><head><title>Empty schema</title>"
+    '<script type="application/ld+json"> </script>'
+    f"</head><body>{_page('')}</body></html>"
+)
+
+_TEMPLATE_ONLY_JSONLD_PAGE = (
+    "<html><head><title>Template schema</title></head>"
+    '<body><template><script type="application/ld+json">{"@type": "Article"}</script></template>'
+    f"{_page('')}</body></html>"
+)
+
 _NO_JSONLD_PAGE = f"<html><head><title>No schema</title></head><body>{_page('')}</body></html>"
 
 
@@ -66,7 +78,7 @@ def _fired(ctx) -> dict[str, set[str]]:
     return out
 
 
-def test_structured_data_parse_error_fires_only_for_the_malformed_block():
+def test_structured_data_parse_error_fires_for_live_invalid_blocks_only():
     mapping = {
         "https://example.com/broken": _FakeResponse(
             _MALFORMED_JSONLD_PAGE, {"content-type": "text/html"}
@@ -74,10 +86,19 @@ def test_structured_data_parse_error_fires_only_for_the_malformed_block():
         "https://example.com/valid": _FakeResponse(
             _VALID_JSONLD_PAGE, {"content-type": "text/html"}
         ),
+        "https://example.com/empty": _FakeResponse(
+            _EMPTY_JSONLD_PAGE, {"content-type": "text/html"}
+        ),
+        "https://example.com/template": _FakeResponse(
+            _TEMPLATE_ONLY_JSONLD_PAGE, {"content-type": "text/html"}
+        ),
         "https://example.com/none": _FakeResponse(_NO_JSONLD_PAGE, {"content-type": "text/html"}),
     }
     fired = _fired(_run_crawl(mapping))
-    assert fired.get("STRUCTURED_DATA_PARSE_ERROR", set()) == {"https://example.com/broken"}
+    assert fired.get("STRUCTURED_DATA_PARSE_ERROR", set()) == {
+        "https://example.com/broken",
+        "https://example.com/empty",
+    }
 
 
 def test_structured_data_parse_error_details_carry_both_counts():

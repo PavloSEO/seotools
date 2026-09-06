@@ -330,6 +330,8 @@ def check_content_duplication(ctx: AuditContext) -> None:
         for cluster in result["clusters"]:
             members = sorted(cluster["members"])
             group = ctx.add_group("NEAR_DUPLICATE", None, members)
+            if group is None:
+                continue
             for url in members:
                 details = {
                     "cluster_min_similarity": cluster["min_similarity"],
@@ -349,6 +351,8 @@ def check_content_duplication(ctx: AuditContext) -> None:
         for exact in result["exact_duplicates"]:
             members = sorted(exact["members"])
             group = ctx.add_group("DUPLICATE_BY_HASH", None, members)
+            if group is None:
+                continue
             for url in members:
                 details = {"duplicate_count": len(members)}
                 if coverage_note:
