@@ -672,7 +672,9 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
     if cmd == "spend-report":
         sub.add_argument("--since", help="include charges on or after YYYY-MM-DD")
     if cmd == "report-build":
-        _source_flag(sub, "--audit", help="path to an audit JSON document")
+        _source_flag(
+            sub, "--audit", help="path to an audit JSON document or scan.v1 SQLite artifact"
+        )
         sub.add_argument(
             "--format",
             choices=("xlsx", "docx", "csv", "md", "json"),
@@ -693,8 +695,10 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
         # See the log-scan comment above: `required=True` here would reject a JSON-only
         # `--input '{"before": ..., "after": ...}'` call the same way (#218). compare_crawls
         # already raises a clear error when either side is missing.
-        _source_flag(sub, "--before", help="path to the earlier audit.json")
-        _source_flag(sub, "--after", help="path to the later audit.json")
+        _source_flag(
+            sub, "--before", help="path to the earlier audit.json or scan.v1 SQLite artifact"
+        )
+        _source_flag(sub, "--after", help="path to the later audit.json or scan.v1 SQLite artifact")
     if cmd == "regions-check":
         _source_flag(sub, "--url", help="any site page, usually the home page")
         sub.add_argument(

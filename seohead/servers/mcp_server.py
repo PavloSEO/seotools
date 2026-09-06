@@ -515,7 +515,8 @@ def build_server():  # -> FastMCP
     ) -> dict[str, Any]:
         """Turn an audit document into a file: xlsx, docx, csv, md or json. Pass the dict
         returned by seo_site_audit, an SF Analyzer audit.json from sf_audit_run (or a
-        path to either one's JSON) — both schemas are recognized and normalized before
+        path to either one's JSON, or a validated scan.v1 SQLite artifact) — both audit
+        schemas are recognized and normalized before
         rendering. xlsx has four sheets with filters and a live Excel chart — for work;
         docx is prose with headings — for the client; csv is flat data for a tracker (two
         files: findings and pages); md is for reading and for git. The generators compute
@@ -526,7 +527,7 @@ def build_server():  # -> FastMCP
 
     @mcp.tool(annotations=pure, structured_output=True)
     def seo_compare_crawls(before: Any, after: Any) -> dict[str, Any]:
-        """Diff two audit documents (dict or path to their JSON) into four disjoint
+        """Diff two audit documents (dict, JSON path, or scan.v1 SQLite path) into four disjoint
         sets per finding: entered (new problem on a page that existed before),
         left (the page is still crawled and no longer matches — a real fix),
         appeared (a genuinely new page with a finding), disappeared (the page is

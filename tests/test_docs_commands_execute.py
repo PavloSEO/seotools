@@ -128,6 +128,33 @@ def _seed_workdir(tmp_path: Path, base_url: str) -> None:
     shutil.copy(ROOT / "tests" / "doc_fixtures" / "site" / "image.png", original_dir / "image.png")
 
 
+def _seed_scan_inputs(tmp_path: Path) -> None:
+    from dataclasses import asdict
+
+    from seohead.crawl.collect import PageRecord
+    from seohead.storage import import_run
+
+    source = tmp_path / "scan-inputs"
+    source.mkdir()
+    audit = json.loads((tmp_path / "audit.json").read_text(encoding="utf-8"))
+    (source / "audit.json").write_bytes((tmp_path / "audit.json").read_bytes())
+    (source / "pages.jsonl").write_text(
+        "".join(
+            json.dumps(asdict(PageRecord(url=page["url"], status_code=page.get("status_code"))))
+            + "\n"
+            for page in audit["pages"]
+        ),
+        encoding="utf-8",
+    )
+    (source / "links.jsonl").write_text("", encoding="utf-8")
+    original_config = audit["run"].get("crawl_config") or {"limits.max_urls": len(audit["pages"])}
+    scan = import_run(
+        source, tmp_path / "scan.sqlite", producer_build="1" * 40, effective_config=original_config
+    )
+    for name in ("before.sqlite", "after.sqlite"):
+        shutil.copyfile(scan, tmp_path / name)
+
+
 @pytest.fixture(scope="module")
 def fixture_site():
     with run_fixture_site() as base_url:
@@ -165,6 +192,8 @@ def test_documented_command_executes_or_at_least_still_parses(
     from seohead.cli import main as cli_main
 
     _seed_workdir(tmp_path, fixture_site)
+    if any(".sqlite" in value for value in argv):
+        _seed_scan_inputs(tmp_path)
     if command.source.name == "robots-blocked.md":
         (tmp_path / "config.json").write_text(
             json.dumps({"robots": {"user_agent_token": "Googlebot"}}), encoding="utf-8"

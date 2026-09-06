@@ -18,6 +18,35 @@ seohead report-build --audit audit.json --format docx --out client.docx
 `--limit` caps the pages parsed (default 25); URLs come from the sitemap
 unless `--urls` is given. Any format: `xlsx`, `docx`, `csv`, `md`, `json`.
 
+## Saved scan artifact
+
+```bash
+# import a finished legacy directory; SHA is the original crawler build
+python -m seohead.storage import-run RUN_DIR --out scan.sqlite --producer-build SHA
+python -m seohead.storage inspect scan.sqlite
+
+# restore the compatible three-file legacy export into a new directory
+python -m seohead.storage export-run scan.sqlite --out-dir NEW_DIR
+
+# use the stored audit through existing report, comparison, and task routes
+seohead report-build --audit scan.sqlite --format md --out report.md
+seohead compare-crawls --before before.sqlite --after after.sqlite
+seohead sf tasks --json scan.sqlite --out tasks
+```
+
+The scan supplies its internal saved audit to these routes. An adjacent
+`audit.json` that differs or cannot be read is not substituted for it; supported
+structured responses carry an `input_diagnostics` notice. The MCP report and
+compare tools, plus SF summary, issues, and tasks, also accept a scan path. The
+issues tool retains its list response and emits a `RuntimeWarning` for that input
+notice instead of adding a synthetic issue.
+
+The export has deterministic UTF-8 `pages.jsonl` and `links.jsonl`, plus the exact
+saved `audit.json`. It does not recreate bodies, raw HTML, forms, robots,
+start-page evidence, sitemap responses, or a resume checkpoint. See
+[STORAGE.md](STORAGE.md) for safe read-only access, version rules, and the export
+contract.
+
 ## Screaming Frog crawl audit
 
 ```bash

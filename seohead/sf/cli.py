@@ -128,7 +128,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     # `tasks` builds a backlog from an existing audit.json without rerunning the audit.
     tasks = sub.add_parser("tasks", help="Build a prioritized task backlog from audit.json")
-    tasks.add_argument("--json", dest="audit_json", required=True, help="Path to audit.json")
+    tasks.add_argument(
+        "--json",
+        dest="audit_json",
+        required=True,
+        help="Path to audit.json or a validated scan.v1 SQLite artifact",
+    )
     tasks.add_argument(
         "--out", default="report", help="Output directory for tasks.json and tasks.md"
     )
@@ -352,14 +357,15 @@ def _resolve_input(args: argparse.Namespace) -> tuple[str, str | None, str | Non
 
 
 def _run_tasks(args) -> int:
-    import json
+    from seohead.storage.inputs import resolve_audit_input
 
     try:
-        with open(args.audit_json, encoding="utf-8") as fh:
-            audit = json.load(fh)
+        audit, diagnostics = resolve_audit_input(args.audit_json)
     except (OSError, ValueError) as err:
         print(f"error: cannot read audit json: {err}", file=sys.stderr)
         return 1
+    for notice in diagnostics:
+        print(f"[{notice['code']}] {notice['message']}", file=sys.stderr)
     cfg = load_config(args.config)
     backlog = build_tasks(audit, cfg)
     os.makedirs(args.out, exist_ok=True)

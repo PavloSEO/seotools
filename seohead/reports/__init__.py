@@ -116,14 +116,19 @@ def checks_completed_display(summary: dict[str, Any]) -> int | str:
     return len(tools_run)
 
 
-def _load(data: Any) -> dict[str, Any]:
-    """Load an audit document from a mapping or a JSON file path."""
+def _load(data: Any, diagnostics: list[dict[str, str]] | None = None) -> dict[str, Any]:
+    """Load a mapping, JSON file, or validated scan; keep diagnostics outside the audit."""
     if isinstance(data, dict):
         return data
     path = pathlib.Path(str(data))
     if not path.exists():
         raise FileNotFoundError(f"audit file not found: {path}")
-    return json.loads(path.read_text(encoding="utf-8"))
+    from seohead.storage.inputs import resolve_audit_input
+
+    document, notices = resolve_audit_input(path)
+    if diagnostics is not None:
+        diagnostics.extend(notices)
+    return document
 
 
 def _detect_kind(document: dict[str, Any]) -> tuple[str | None, str | None]:
@@ -342,8 +347,9 @@ def build_report(data: Any, fmt: str = "xlsx", path: str | None = None) -> dict[
             "error": f"report format {fmt!r} is not supported; "
             f"available formats: {', '.join(FORMATS)}",
         }
+    input_diagnostics: list[dict[str, str]] = []
     try:
-        document = _load(data)
+        document = _load(data, input_diagnostics)
     except (FileNotFoundError, ValueError) as exc:
         return {"ok": False, "error": str(exc)}
     if not isinstance(document, dict):
@@ -368,6 +374,11 @@ def build_report(data: Any, fmt: str = "xlsx", path: str | None = None) -> dict[
     rendered = document if kind == "site-audit" else _normalize_sf_audit(document)
 
     target = pathlib.Path(path or f"audit-{rendered.get('domain', 'site')}.{fmt}")
+    from seohead.storage.inputs import protects_scan_input
+
+    targets = [target, target.with_suffix(".pages.csv")] if fmt == "csv" else [target]
+    if protects_scan_input(data, targets):
+        return {"ok": False, "error": "report output must not overwrite its source scan"}
     target.parent.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -400,7 +411,7 @@ def build_report(data: Any, fmt: str = "xlsx", path: str | None = None) -> dict[
     except Exception as exc:
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
-    return {
+    result = {
         "ok": True,
         "format": fmt,
         "path": str(target),
@@ -408,3 +419,6 @@ def build_report(data: Any, fmt: str = "xlsx", path: str | None = None) -> dict[
         "findings": len(rendered.get("findings") or []),
         "pages": len(rendered.get("pages") or []),
     }
+    if input_diagnostics:
+        result["input_diagnostics"] = input_diagnostics
+    return result

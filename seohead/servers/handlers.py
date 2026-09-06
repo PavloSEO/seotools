@@ -1060,15 +1060,19 @@ def report_build(audit: Any = None, fmt: str = "xlsx", out: str | None = None) -
     return build_report(audit, fmt=fmt, path=out)
 
 
-def _load_audit(value: Any, label: str) -> dict[str, Any]:
-    """Accept an audit document, or a path to its JSON file."""
+def _load_audit(
+    value: Any, label: str, diagnostics: list[dict[str, str]] | None = None
+) -> dict[str, Any]:
+    """Accept a document, JSON path or validated scan without changing its contents."""
     if isinstance(value, dict):
         return value
     if isinstance(value, str):
-        import json
+        from seohead.storage.inputs import resolve_audit_input
 
-        with open(value, encoding="utf-8") as fh:
-            return json.load(fh)
+        document, notices = resolve_audit_input(value)
+        if diagnostics is not None:
+            diagnostics.extend({**notice, "input": label} for notice in notices)
+        return document
     raise ValueError(f"{label} required: an audit document or a path to its JSON file")
 
 
@@ -1078,9 +1082,13 @@ def compare_crawls(before: Any = None, after: Any = None) -> dict[str, Any]:
     "fixed" and "no longer crawled" are kept apart rather than merged."""
     from seohead.sf.core.compare import compare
 
-    before_doc = _load_audit(before, "before")
-    after_doc = _load_audit(after, "after")
-    return compare(before_doc, after_doc)
+    diagnostics: list[dict[str, str]] = []
+    before_doc = _load_audit(before, "before", diagnostics)
+    after_doc = _load_audit(after, "after", diagnostics)
+    result = compare(before_doc, after_doc)
+    if diagnostics:
+        result["input_diagnostics"] = diagnostics
+    return result
 
 
 def render_check(

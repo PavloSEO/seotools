@@ -527,7 +527,7 @@ Run the whole live toolkit over one site and return a single audit document (sch
 
 MCP name: `seo_report_build`
 
-Turn an audit document into a file: xlsx, docx, csv, md or json. Pass the dict returned by seo_site_audit, an SF Analyzer audit.json from sf_audit_run (or a path to either one's JSON) — both schemas are recognized and normalized before rendering. xlsx has four sheets with filters and a live Excel chart — for work; docx is prose with headings — for the client; csv is flat data for a tracker (two files: findings and pages); md is for reading and for git. The generators compute nothing and reach no network: what is not in the JSON does not appear in the report. A document matching neither schema is refused with ok: false naming the mismatch, never rendered as an empty report.
+Turn an audit document into a file: xlsx, docx, csv, md or json. Pass the dict returned by seo_site_audit, an SF Analyzer audit.json from sf_audit_run (or a path to either one's JSON, or a validated scan.v1 SQLite artifact) — both audit schemas are recognized and normalized before rendering. xlsx has four sheets with filters and a live Excel chart — for work; docx is prose with headings — for the client; csv is flat data for a tracker (two files: findings and pages); md is for reading and for git. The generators compute nothing and reach no network: what is not in the JSON does not appear in the report. A document matching neither schema is refused with ok: false naming the mismatch, never rendered as an empty report.
 
 | Argument | Type | Default |
 |---|---|---|
@@ -541,7 +541,7 @@ Turn an audit document into a file: xlsx, docx, csv, md or json. Pass the dict r
 
 MCP name: `seo_compare_crawls`
 
-Diff two audit documents (dict or path to their JSON) into four disjoint sets per finding: entered (new problem on a page that existed before), left (the page is still crawled and no longer matches — a real fix), appeared (a genuinely new page with a finding), disappeared (the page is not in this crawl at all, so a missing finding proves nothing). "left" and "disappeared" look identical in a naive diff and mean opposite things. Warns when the two runs used different results-affecting settings, since part of the difference may be the configuration rather than the site.
+Diff two audit documents (dict, JSON path, or scan.v1 SQLite path) into four disjoint sets per finding: entered (new problem on a page that existed before), left (the page is still crawled and no longer matches — a real fix), appeared (a genuinely new page with a finding), disappeared (the page is not in this crawl at all, so a missing finding proves nothing). "left" and "disappeared" look identical in a naive diff and mean opposite things. Warns when the two runs used different results-affecting settings, since part of the difference may be the configuration rather than the site.
 
 | Argument | Type | Default |
 |---|---|---|
@@ -855,7 +855,7 @@ same ``out`` path.
 
 ### `sf_audit_summary`
 
-Read a compact health summary from an existing audit.json.
+Read a compact health summary from audit.json or a scan.v1 SQLite artifact.
 
 | Argument | Type | Default |
 |---|---|---|
@@ -871,7 +871,7 @@ into the agent context.
 
 ### `sf_audit_issues`
 
-Return issues filtered by check ID and/or severity from audit.json.
+Return filtered issues from audit.json or a validated scan.v1 SQLite artifact.
 
 | Argument | Type | Default |
 |---|---|---|
@@ -905,7 +905,7 @@ before running the audit.
 
 ### `sf_audit_tasks`
 
-Build tasks.json and tasks.md from an existing audit.json.
+Build tasks.json and tasks.md from audit.json or a scan.v1 SQLite artifact.
 
 | Argument | Type | Default |
 |---|---|---|
