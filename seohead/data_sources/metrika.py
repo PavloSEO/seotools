@@ -110,27 +110,38 @@ class MetrikaClient:
 
     def counters(self) -> list[dict]:
         """Return all counters visible to the token."""
-        spend.record(SOURCE, "management.counters", cost=1, unit="requests", items=1)
-        return (self._request(self._url(f"{API_MANAGEMENT}/counters")) or {}).get("counters", [])
+        counters = (self._request(self._url(f"{API_MANAGEMENT}/counters")) or {}).get(
+            "counters", []
+        )
+        spend.record(SOURCE, "management.counters", cost=1, unit="requests", items=len(counters))
+        return counters
 
     def counter(self, counter_id: str | int) -> dict:
+        body = self._request(self._url(f"{API_MANAGEMENT}/counter/{counter_id}"))
         spend.record(SOURCE, "management.counter", cost=1, unit="requests", items=1)
-        return self._request(self._url(f"{API_MANAGEMENT}/counter/{counter_id}"))
+        return body
 
     def goals(self, counter_id: str | int) -> list[dict]:
         """Return configured goals; an empty list means "no goals", not a failed request."""
-        spend.record(SOURCE, "management.goals", cost=1, unit="requests", items=1)
         body = self._request(self._url(f"{API_MANAGEMENT}/counter/{counter_id}/goals"))
-        return (body or {}).get("goals", [])
+        goals = (body or {}).get("goals", [])
+        spend.record(SOURCE, "management.goals", cost=1, unit="requests", items=len(goals))
+        return goals
 
     def filters(self, counter_id: str | int) -> dict:
-        spend.record(SOURCE, "management.filters", cost=1, unit="requests", items=1)
-        return self._request(self._url(f"{API_MANAGEMENT}/counter/{counter_id}/filters"))
+        body = self._request(self._url(f"{API_MANAGEMENT}/counter/{counter_id}/filters"))
+        filters = (body or {}).get("filters", [])
+        spend.record(SOURCE, "management.filters", cost=1, unit="requests", items=len(filters))
+        return body
 
     def operations(self, counter_id: str | int) -> dict:
         """Return data operations, such as URL-parameter removal, which can alter reports silently."""
-        spend.record(SOURCE, "management.operations", cost=1, unit="requests", items=1)
-        return self._request(self._url(f"{API_MANAGEMENT}/counter/{counter_id}/operations"))
+        body = self._request(self._url(f"{API_MANAGEMENT}/counter/{counter_id}/operations"))
+        operations = (body or {}).get("operations", [])
+        spend.record(
+            SOURCE, "management.operations", cost=1, unit="requests", items=len(operations)
+        )
+        return body
 
     # --- reports (Reporting API) -------------------------------------------
 
@@ -144,15 +155,16 @@ class MetrikaClient:
         """
         base = dict(params, accuracy="full")
         if not paginate:
+            body = self._request(self._url(API_REPORTS, dict(base, limit=limit, offset=offset)))
             spend.record(
                 SOURCE,
                 "report",
                 cost=1,
                 unit="requests",
-                items=1,
+                items=len((body or {}).get("data") or []),
                 extra={"metrics": params.get("metrics")},
             )
-            return self._request(self._url(API_REPORTS, dict(base, limit=limit, offset=offset)))
+            return body
 
         page_size = min(max(limit, 100), 1000)
         first: dict | None = None
@@ -211,12 +223,19 @@ class MetrikaClient:
 
     def by_time(self, params: dict[str, Any], *, limit: int = 100, offset: int = 0) -> dict:
         """Return a time trend from ``stat/v1/data/bytime`` rather than a point-in-time slice."""
-        spend.record(SOURCE, "report.bytime", cost=1, unit="requests", items=1)
-        return self._request(
+        body = self._request(
             self._url(
                 f"{API_REPORTS}/bytime", dict(params, accuracy="full", limit=limit, offset=offset)
             )
         )
+        spend.record(
+            SOURCE,
+            "report.bytime",
+            cost=1,
+            unit="requests",
+            items=len((body or {}).get("data") or []),
+        )
+        return body
 
     # --- raw logs (Logs API) -----------------------------------------------
 

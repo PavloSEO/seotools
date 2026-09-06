@@ -255,9 +255,20 @@ def task_errors(body: dict) -> list[str]:
     return errors
 
 
+def tasks_all_failed(body: dict) -> bool:
+    """True when every task in the response failed (no task reached ``status_code == 20000``).
+
+    An empty ``tasks`` list is not a failure by this definition — it has nothing to report on.
+    """
+    tasks = body.get("tasks") or []
+    if not tasks:
+        return False
+    return all(int(t.get("status_code") or 0) != 20000 for t in tasks)
+
+
 def _run(
     client: DataForSEOClient, kind: str, payload: list[dict], items_count: int
-) -> tuple[list[dict], list[str], float]:
+) -> tuple[list[dict], list[str], float, bool]:
     body = client.post(ENDPOINTS[kind], payload, operation=f"{kind}.{client.env}")
     cost = float(body.get("cost") or 0)
     spend.record(
@@ -268,7 +279,7 @@ def _run(
         items=items_count,
         extra={"env": client.env},
     )
-    return task_items(body), task_errors(body), cost
+    return task_items(body), task_errors(body), cost, tasks_all_failed(body)
 
 
 # --- operations -------------------------------------------------------------
@@ -288,7 +299,7 @@ def search_volume(
         return blocked
     try:
         client = DataForSEOClient(env=env)
-        items, errors, cost = _run(
+        items, errors, cost, failed = _run(
             client,
             "search_volume",
             [
@@ -305,7 +316,7 @@ def search_volume(
     except DataForSEOError as exc:
         return {"ok": False, "error": exc.message, "status": exc.status}
     return {
-        "ok": True,
+        "ok": not failed,
         "env": client.env,
         "cost_usd": cost,
         "errors": errors,
@@ -336,7 +347,7 @@ def keyword_ideas(
         return blocked
     try:
         client = DataForSEOClient(env=env)
-        items, errors, cost = _run(
+        items, errors, cost, failed = _run(
             client,
             "keyword_ideas",
             [
@@ -354,7 +365,7 @@ def keyword_ideas(
     except DataForSEOError as exc:
         return {"ok": False, "error": exc.message, "status": exc.status}
     return {
-        "ok": True,
+        "ok": not failed,
         "env": client.env,
         "seed": seed,
         "cost_usd": cost,
@@ -385,7 +396,7 @@ def keyword_difficulty(
         return blocked
     try:
         client = DataForSEOClient(env=env)
-        items, errors, cost = _run(
+        items, errors, cost, failed = _run(
             client,
             "keyword_difficulty",
             [
@@ -402,7 +413,7 @@ def keyword_difficulty(
     except DataForSEOError as exc:
         return {"ok": False, "error": exc.message, "status": exc.status}
     return {
-        "ok": True,
+        "ok": not failed,
         "env": client.env,
         "cost_usd": cost,
         "errors": errors,
@@ -427,7 +438,7 @@ def serp(
         return blocked
     try:
         client = DataForSEOClient(env=env)
-        items, errors, cost = _run(
+        items, errors, cost, failed = _run(
             client,
             "serp",
             [
@@ -446,7 +457,7 @@ def serp(
         return {"ok": False, "error": exc.message, "status": exc.status}
     organic = [i for i in items if i.get("type") == "organic"] or items
     return {
-        "ok": True,
+        "ok": not failed,
         "env": client.env,
         "query": query,
         "cost_usd": cost,
