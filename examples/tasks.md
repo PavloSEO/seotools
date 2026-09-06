@@ -2,7 +2,7 @@
 
 > 75 of 152 checks could run; the score is not comparable to a run with full evidence
 
-- Source: audit generated at 2026-09-06T11:50:01Z (health n/a)
+- Source: audit generated at 2026-09-06T10:04:05Z (health n/a)
 - Tasks: **16** (P1: 3, P2: 8, P3: 5)
 
 ## P1 (3)

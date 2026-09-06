@@ -112,6 +112,22 @@ def build_server():  # -> FastMCP
         """Follow a live redirect chain for a URL and report each hop (status, location)."""
         return _checked(handlers.redirects_check(url=url, options=options))
 
+    @mcp.tool(annotations=create_files, structured_output=True)
+    def seo_scan_reanalyze(
+        input_path: str, out: str, producer_build: str | None = None
+    ) -> dict[str, Any]:
+        """Reparse retained HTML/DOM and rerun existing checks without network.
+
+        Reads a native or derived SQLite scan and creates a new artifact with
+        parent UUID and current analyzer provenance. The source is unchanged;
+        an existing output is refused. Missing required bodies produce named
+        unavailable errors. Missing live-only context remains skipped. No HTTP,
+        DNS, browser, provider, or cache-miss fallback is permitted.
+        """
+        return _checked(
+            handlers.scan_reanalyze(input_path=input_path, out=out, producer_build=producer_build)
+        )
+
     @mcp.tool(annotations=create_files_from_web, structured_output=True)
     def seo_crawl_site(
         url: str = "",

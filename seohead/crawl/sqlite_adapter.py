@@ -370,7 +370,7 @@ def crawl_to_scan(
     robots_delay = None
     partial = False
     finish_reason = "finished"
-    limitations = ["offline reanalysis and browser-network response capture are unavailable"]
+    limitations = ["browser-network response capture is unavailable"]
     start_page_gate: dict[str, Any] | None = None
 
     existing = Path(scan_out).exists()

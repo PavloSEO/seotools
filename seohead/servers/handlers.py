@@ -653,6 +653,8 @@ def _audit_crawl_result(
     pages_resume_path=None,
     stored_scan=None,
     stored_sitemap=None,
+    offline: bool = False,
+    captured_render_summary: dict[str, Any] | None = None,
 ):
     """Run the existing native analysis over a complete, admitted population."""
     import json
@@ -672,6 +674,11 @@ def _audit_crawl_result(
     from seohead.sf.core.rules import run_rules
     from seohead.sf.core.sitemap_coverage import run_sitemap
 
+    if type(offline) is not bool:
+        raise ValueError("offline must be a boolean")
+    if captured_render_summary is not None and not isinstance(captured_render_summary, dict):
+        raise ValueError("captured_render_summary must be an object when supplied")
+
     requires_rendering = False
     requires_rendering_reason = ""
     render_summary: dict[str, Any] = {}
@@ -682,7 +689,17 @@ def _audit_crawl_result(
         start_norm = normalize_url(url)
         rendering_config = settings["rendering"]
         escalation = None
-        if rendering_config["mode"] != "raw" and result.pages:
+        if offline and rendering_config["mode"] != "raw":
+            render_summary = (
+                dict(captured_render_summary)
+                if captured_render_summary is not None
+                else {
+                    "mode": rendering_config["mode"],
+                    "state": "unavailable",
+                    "reason": "offline reanalysis has no captured render summary",
+                }
+            )
+        elif rendering_config["mode"] != "raw" and result.pages:
             if stored_scan is None:
                 escalation = _run_render_escalation(result, rendering_config, settings)
                 render_escalation.apply_rendered_evidence(result.pages, result.links, escalation)
@@ -701,9 +718,10 @@ def _audit_crawl_result(
                 # leaves HTML out of ``EscalationResult`` so a large scan never
                 # accumulates every serialized DOM in memory.
                 escalation = run_render_escalation(stored_scan, result, settings)
-                from seohead.crawl.sqlite_resources import capture_resources
+                if not offline:
+                    from seohead.crawl.sqlite_resources import capture_resources
 
-                capture_resources(stored_scan, settings)
+                    capture_resources(stored_scan, settings)
                 coverage = stored_scan.con.execute(
                     "SELECT crawl_partial,limitations_json FROM scan"
                 ).fetchone()
@@ -821,13 +839,27 @@ def _audit_crawl_result(
     # (SITEMAP_DESYNC and the "in_sitemap_and_linked"-shaped summary keys) is cruder
     # than the dedicated reconciliation below, so those three summary keys are
     # overwritten by it further down rather than the other way around.
-    measured = run_sitemap(
-        ctx,
-        sitemap_url=sitemap_seed["sitemap_url"],
-        sitemap_urls=sitemap_seed["sitemap_urls"],
-        compare_with_crawl=stored_scan is None and not sitemap_seed["declared"],
-        crawl_partial=bool(getattr(result, "partial", False)),
-    )
+    if offline:
+        reason = "offline reanalysis has no retained sitemap XML, robots.txt, or lastmod evidence"
+        for check in (
+            "SITEMAP_NOT_IN_ROBOTS",
+            "ROBOTS_BLOCKS_RESOURCES",
+            "SITEMAP_FETCH_INCOMPLETE",
+            "SITEMAP_TOO_MANY_URLS",
+            "SITEMAP_TOO_LARGE",
+            "SITEMAP_URL_DUPLICATED",
+            "SITEMAP_STALE_LASTMOD",
+        ):
+            ctx.skip(check, reason)
+        measured: dict[str, Any] = {}
+    else:
+        measured = run_sitemap(
+            ctx,
+            sitemap_url=sitemap_seed["sitemap_url"],
+            sitemap_urls=sitemap_seed["sitemap_urls"],
+            compare_with_crawl=stored_scan is None and not sitemap_seed["declared"],
+            crawl_partial=bool(getattr(result, "partial", False)),
+        )
     # Only surfaced when something was actually measured. run_sitemap always
     # returns its keys, and a run with no sitemap at all would otherwise report
     # urls_in_sitemap: 0 -- which reads as "the sitemap is empty" when the truth
@@ -2129,6 +2161,13 @@ def sources_doctor() -> dict[str, Any]:
     return {"ok": True, "sources": sources, "spend_log": str(spend_core.log_path())}
 
 
+def scan_reanalyze(input_path: str, out: str, producer_build: str | None = None) -> dict[str, Any]:
+    """Derive a fresh SQLite scan by parsing retained evidence without network access."""
+    from seohead.servers.reanalysis_handlers import reanalyze_scan
+
+    return reanalyze_scan(input_path=input_path, out=out, producer_build=producer_build)
+
+
 _RAW_HANDLERS = {
     "parse": parse,
     "redirects_generate": redirects_generate,
@@ -2186,6 +2225,7 @@ _RAW_HANDLERS = {
     "gsc_query": gsc_query,
     "crux_report": crux_report,
     "indexnow_submit": indexnow_submit,
+    "scan_reanalyze": scan_reanalyze,
 }
 
 # Journaling sits here rather than in each interface: the CLI and the MCP server

@@ -159,6 +159,15 @@ def _seed_scan_inputs(tmp_path: Path) -> None:
         shutil.copyfile(scan, tmp_path / name)
 
 
+def _seed_reanalysis_input(tmp_path: Path) -> None:
+    # A legacy JSONL import cannot stand in for a retained corpus. This fixture
+    # uses the real native collector with an injected owned HTML response and
+    # saves a complete source audit, without any external request.
+    from tests.test_scan_reanalysis_integration import _source
+
+    _source(tmp_path / "old.sqlite")
+
+
 @pytest.fixture(scope="module")
 def fixture_site():
     with run_fixture_site() as base_url:
@@ -198,6 +207,8 @@ def test_documented_command_executes_or_at_least_still_parses(
     _seed_workdir(tmp_path, fixture_site)
     if any(".sqlite" in value for value in argv) and "--scan-out" not in argv:
         _seed_scan_inputs(tmp_path)
+    if argv[:2] == ["scan", "reanalyze"] or argv[:1] == ["scan-reanalyze"]:
+        _seed_reanalysis_input(tmp_path)
     if command.source.name == "robots-blocked.md":
         (tmp_path / "config.json").write_text(
             json.dumps({"robots": {"user_agent_token": "Googlebot"}}), encoding="utf-8"
