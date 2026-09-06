@@ -232,8 +232,9 @@ class StoredGraph:
         as an unclassified source is one unclassified inlink, not many.
         """
         cursor = self.con.execute(
-            "SELECT dst.url AS url, COUNT(DISTINCT l.source_url_id) AS count "
-            "FROM links AS l "
+            selected_links_cte("l")
+            + "SELECT dst.url AS url, COUNT(DISTINCT l.source_url_id) AS count "
+            "FROM l "
             "JOIN e_graph_destination_ids AS p ON p.url_id=l.destination_url_id "
             "JOIN urls AS dst ON dst.url_id=l.destination_url_id "
             "WHERE l.position='' "
