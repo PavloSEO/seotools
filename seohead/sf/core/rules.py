@@ -1529,12 +1529,12 @@ def check_ajax_crawling_scheme(ctx: AuditContext) -> None:
                     details={"own_url_uses_scheme": self_uses, "outlinks_using_scheme": declared},
                 )
         if has_meta:
-            fragment = rec.get("meta_fragment")
-            if fragment:
+            fragment = str(rec.get("meta_fragment") or "").strip()
+            if fragment == "!":
                 ctx.add(
                     "AJAX_CRAWLING_SCHEME_META_FRAGMENT",
                     target_url=page.url,
-                    details={"meta_fragment": str(fragment)},
+                    details={"meta_fragment": fragment},
                 )
     if not has_outlinks:
         ctx.skip("AJAX_CRAWLING_SCHEME_URL", "no AJAX-scheme URL evidence (native crawl only)")

@@ -138,6 +138,16 @@ def test_a_target_outside_the_crawl_is_left_alone(tmp_path):
     assert _fired(_audit(tmp_path, [EN], rows)) == {}
 
 
+def test_a_self_confirmation_outside_the_crawl_is_left_alone(tmp_path):
+    """An exported counterpart row is not evidence that the counterpart was crawled."""
+    rows = [
+        [EN, EN, "en"],
+        [EN, DE, "de"],
+        [DE, DE, "fr"],
+    ]
+    assert _fired(_audit(tmp_path, [EN], rows)) == {}
+
+
 def test_every_disagreeing_pair_on_one_page_is_reported_once_with_its_counterparts(
     tmp_path,
 ):

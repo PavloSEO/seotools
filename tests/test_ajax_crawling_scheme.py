@@ -156,6 +156,18 @@ def test_the_meta_fragment_opt_in_fires_only_on_the_page_that_declares_it():
     assert issue.details["meta_fragment"] == "!"
 
 
+def test_a_non_scheme_meta_fragment_value_stays_silent():
+    ctx = _run_crawl(
+        {
+            "https://example.com/ordinary": _FakeResponse(_ORDINARY),
+            "https://example.com/custom": _FakeResponse(
+                _page(head='<meta name="fragment" content="legacy">')
+            ),
+        }
+    )
+    assert "AJAX_CRAWLING_SCHEME_META_FRAGMENT" not in _fired(ctx)
+
+
 def test_both_checks_are_informational_rather_than_a_warning():
     """The issue asks for this explicitly: the scheme is deprecated, not broken, and a
     site may have kept it on purpose for a legacy client."""

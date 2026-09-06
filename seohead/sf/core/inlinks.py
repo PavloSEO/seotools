@@ -583,7 +583,7 @@ def check_hreflang_confirmation_consistency(ctx: AuditContext) -> None:
     # What each page declares about itself, and what every other page declares
     # about it, keyed the same way so the two are comparable at all.
     self_codes: dict[str, set[str]] = {}
-    claims: OrderedDict[str, list[tuple[str, str, str]]] = OrderedDict()
+    claims: OrderedDict[str, list[tuple[str, str]]] = OrderedDict()
     # The URL as the export wrote it, for the case where neither end is in the
     # crawl's own page table: a normalised key is a comparison aid, not an address
     # a reader can open.
@@ -599,20 +599,22 @@ def check_hreflang_confirmation_consistency(ctx: AuditContext) -> None:
         if src_norm == dest_norm:
             self_codes.setdefault(src_norm, set()).add(code)
         else:
-            claims.setdefault(src_norm, []).append((dest_norm, code, str(dest)))
+            claims.setdefault(src_norm, []).append((dest_norm, code))
 
     evidence = {"export": ctx.exports.files.get("all_hreflang")}
     for src_norm, declared in claims.items():
         source_page = ctx.page_by_norm.get(src_norm)
         mismatched = []
-        for dest_norm, code, dest_display in declared:
+        for dest_norm, code in declared:
             confirmed = self_codes.get(dest_norm)
             if not confirmed or code in confirmed:
                 continue  # no self-statement to contradict, or the two agree
             target = ctx.page_by_norm.get(dest_norm)
+            if target is None:
+                continue  # counterpart was not crawled, so its self-row is not usable evidence
             mismatched.append(
                 {
-                    "counterpart": target.url if target is not None else dest_display,
+                    "counterpart": target.url,
                     "declared_here": code,
                     "confirmed_there": sorted(confirmed),
                 }
