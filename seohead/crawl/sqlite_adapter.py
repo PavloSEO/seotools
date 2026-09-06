@@ -364,6 +364,7 @@ def crawl_to_scan(
         max_concurrency=settings["speed"]["concurrency"],
         adaptive=settings["speed"]["adaptive"],
     )
+    dispatch_gate = _DispatchGate(throttle, sleeper, clock)
     started = clock()
     timeouts = server_errors = max_depth = 0
     elapsed_before = 0.0
@@ -446,7 +447,9 @@ def crawl_to_scan(
             )
             robots_state = "not_fetched"
         else:
-            robots, robots_note, robots_unavailable = _fetch_robots(start, fetcher, client)
+            robots, robots_note, robots_unavailable = _fetch_robots(
+                start, fetcher, client, wait=dispatch_gate.wait_turn
+            )
             robots_state = "unavailable" if robots_unavailable else "fetched"
         if saved_robots is None:
             scan.write_context(
@@ -556,7 +559,6 @@ def crawl_to_scan(
         if frontier_state.get("queued", 0) or frontier_state.get("inflight", 0):
             scan.begin_collection()
 
-        dispatch_gate = _DispatchGate(throttle, sleeper, clock)
         while True:
             snapshot = scan.resume_snapshot()
             counts = snapshot["counts"]

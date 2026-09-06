@@ -528,7 +528,11 @@ class Scope:
 
 
 def _fetch_robots(
-    start: str, fetcher: Callable[[str], Any] | None, client: Any
+    start: str,
+    fetcher: Callable[[str], Any] | None,
+    client: Any,
+    *,
+    wait: Callable[[], None] | None = None,
 ) -> tuple[dict, str, bool]:
     """Read robots.txt. Returns ``(parsed_or_empty, note, unavailable)``.
 
@@ -581,6 +585,8 @@ def _fetch_robots(
     redirected = False
     while True:
         try:
+            if wait is not None:
+                wait()
             response = fetcher(url) if fetcher else client.get(url)
         except Exception as exc:
             return dict(EMPTY_ROBOTS), f"robots.txt unreachable: {exc}", True
@@ -770,6 +776,7 @@ def crawl_site(
         max_concurrency=max_concurrency,
         adaptive=adaptive,
     )
+    dispatch_gate = _DispatchGate(throttle, sleeper, clock)
     excluded: dict[str, int] = {}
     # Distinct query strings already enqueued for a given path, so the Nth+1
     # facet/filter variant on the same path is excluded rather than fetched.
@@ -834,7 +841,9 @@ def crawl_site(
             robots = dict(EMPTY_ROBOTS)
             note, unavailable = "robots.txt not fetched (policy: ignore)", False
         else:
-            robots, note, unavailable = _fetch_robots(start, fetcher, client)
+            robots, note, unavailable = _fetch_robots(
+                start, fetcher, client, wait=dispatch_gate.wait_turn
+            )
         result.robots_note = note
         if enforce and unavailable and unavailable_means_stop:
             result.partial = True
@@ -1133,7 +1142,7 @@ def crawl_site(
                     break
                 stopped = after_fetch(url, depth, record, parsed)
         else:
-            gate = _DispatchGate(throttle, sleeper, clock)
+            gate = dispatch_gate
 
             def dispatch(item: tuple[str, int]) -> tuple[str, int, PageRecord, dict | None]:
                 url, depth = item

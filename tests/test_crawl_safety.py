@@ -1,11 +1,64 @@
 """Guardrails: which addresses are reachable, and how directives are obeyed."""
 
+import httpx
 import pytest
 
 from seohead.crawl.collect import collect_urls, fetch_one
 from seohead.crawl.spider import crawl_site
 from seohead.recon.net import _is_public_address
 from seohead.tools.robots import _rules_for, crawl_delay, is_allowed, parse_robots
+
+
+def test_aggregate_dispatch_gate_paces_robots_redirects_before_the_first_page(monkeypatch):
+    """Robots bootstrap hops are HTTP attempts, not free pre-crawl setup (#14)."""
+    import seohead.crawl.collect as collect
+    import seohead.crawl.spider as spider
+
+    now = [0.0]
+    calls = []
+
+    def handler(request):
+        calls.append((now[0], request.url.path))
+        if request.url.path == "/robots.txt":
+            return httpx.Response(302, headers={"location": "/robots-1.txt"}, request=request)
+        if request.url.path == "/robots-1.txt":
+            return httpx.Response(302, headers={"location": "/robots-2.txt"}, request=request)
+        if request.url.path == "/robots-2.txt":
+            return httpx.Response(
+                200,
+                text="User-agent: *\nAllow: /\n",
+                headers={"content-type": "text/plain"},
+                request=request,
+            )
+        return httpx.Response(200, text="<html><title>page</title></html>", request=request)
+
+    transport = httpx.MockTransport(handler)
+    monkeypatch.setattr(
+        spider,
+        "http_client",
+        lambda timeout, **kwargs: (
+            httpx.Client(
+                timeout=timeout, transport=transport, follow_redirects=kwargs["follow_redirects"]
+            ),
+            True,
+        ),
+    )
+    monkeypatch.setattr(collect, "validate_url", lambda _url: None)
+    monkeypatch.setattr(collect, "pinned_target", lambda url: (url, {}, {}))
+    result = crawl_site(
+        "https://example.test/",
+        max_urls=1,
+        min_delay=1.0,
+        sleeper=lambda seconds: now.__setitem__(0, now[0] + seconds),
+        clock=lambda: now[0],
+    )
+    assert len(result.pages) == 1
+    assert calls == [
+        (0.0, "/robots.txt"),
+        (1.0, "/robots-1.txt"),
+        (2.0, "/robots-2.txt"),
+        (3.0, "/"),
+    ]
 
 
 class FakeResponse:
