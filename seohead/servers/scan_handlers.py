@@ -258,14 +258,15 @@ def crawl_site_scan(
 
         from seohead.storage.native_audit import AuditSizeError
 
-        current = scan.resume_snapshot(include_edges=True)
-        run = replace(
-            run,
-            partial=bool(current["scan"]["crawl_partial"]),
-            links=current["counts"]["links"],
-            forms=current["counts"]["forms"],
-            limitations=tuple(json.loads(current["scan"]["limitations_json"])),
-        )
+        if settings.get("rendering", {}).get("mode", "raw") != "raw":
+            current = scan.resume_snapshot(include_edges=True)
+            run = replace(
+                run,
+                partial=bool(current["scan"]["crawl_partial"]),
+                links=current["counts"]["links"],
+                forms=current["counts"]["forms"],
+                limitations=tuple(json.loads(current["scan"]["limitations_json"])),
+            )
 
         try:
             scan.save_audit(audit)
