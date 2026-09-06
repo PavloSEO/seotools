@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from seohead.storage import ScanError
 from seohead.storage.native_scan import NativeScan
 from tests.test_native_capture import _claim, _renderer
 from tests.test_scan_native import _link, _metadata, _record, _runtime
@@ -167,7 +168,7 @@ def test_render_preflight_refuses_before_creating_document_or_replacing_page(tmp
         monkeypatch.setattr(
             "seohead.storage.native_scan.shutil.disk_usage", lambda _path: SimpleNamespace(free=0)
         )
-        with pytest.raises(Exception, match="insufficient free disk"):
+        with pytest.raises(ScanError, match="insufficient free disk"):
             scan.commit_render(
                 lease.url,
                 _rendered_record(lease.url),
@@ -176,6 +177,40 @@ def test_render_preflight_refuses_before_creating_document_or_replacing_page(tmp
                 captured_at="2026-09-06T11:00:00Z",
             )
         assert scan.con.execute("SELECT COUNT(*) FROM documents").fetchone()[0] == 0
+        assert tuple(scan.con.execute("SELECT representation,title FROM pages").fetchone()) == (
+            "static",
+            "Home",
+        )
+
+
+def test_render_refuses_large_dom_before_writing_under_low_disk(tmp_path, monkeypatch):
+    path = tmp_path / "low-disk-render.sqlite"
+    with NativeScan.create(
+        path,
+        **_metadata(
+            **{
+                "storage.max_body_bytes": 20 * 1024 * 1024,
+                "storage.min_free_bytes": 0,
+            }
+        ),
+    ) as scan:
+        lease = _static_page(scan)
+        monkeypatch.setattr(
+            "seohead.storage.native_scan.shutil.disk_usage",
+            lambda _path: SimpleNamespace(free=9 * 1024 * 1024),
+        )
+
+        with pytest.raises(ScanError, match="insufficient free disk"):
+            scan.commit_render(
+                lease.url,
+                _rendered_record(lease.url),
+                html=b"x" * (15 * 1024 * 1024),
+                renderer=_renderer(lease.url),
+                captured_at="2026-09-06T11:00:00Z",
+            )
+
+        assert scan.con.execute("SELECT COUNT(*) FROM documents").fetchone()[0] == 0
+        assert scan.con.execute("SELECT COUNT(*) FROM bodies").fetchone()[0] == 0
         assert tuple(scan.con.execute("SELECT representation,title FROM pages").fetchone()) == (
             "static",
             "Home",

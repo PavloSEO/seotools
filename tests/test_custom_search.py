@@ -282,3 +282,24 @@ def test_empty_corpus_reports_zero_not_a_division_error():
     assert result["pages_considered"] == 0
     assert result["fraction"] == 0.0
     assert result["matching_pages"] == []
+
+
+def test_text_scope_ignores_svg_labels():
+    """Issue #544: a phrase drawn inside <svg> is not text the page states.
+
+    ``_visible_text`` kept a shorter tag list than
+    ``content_area.TEXT_EXCLUDED_TAGS`` and so left SVG labels in, which made a
+    "contains" rule match on markup and, worse, silenced the ``not_contains``
+    absence finding an operator asked for.
+    """
+    documents = [
+        _doc(
+            "https://example.com/a",
+            html="<html><body><svg><text>consent-banner</text></svg><p>Hello</p></body></html>",
+        )
+    ]
+    rule = {"kind": "text", "scope": "text", "query": "consent-banner"}
+    present = run_filter(documents, {**rule, "mode": "contains"})
+    absent = run_filter(documents, {**rule, "mode": "not_contains"})
+    assert present["count"] == 0  # the phrase is an SVG label, not page copy
+    assert absent["count"] == 1  # so the absence finding is still made

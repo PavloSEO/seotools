@@ -1,6 +1,6 @@
 # Tool reference
 
-57 + 5 tools, reachable identically from the CLI and from MCP. One
+63 + 5 tools, reachable identically from the CLI and from MCP. One
 implementation, two faces: `seohead <command>` in the terminal and
 `seo_<command>` on the MCP server (`seohead mcp`). Five more `sf_*` tools cover
 the Screaming Frog crawl audit workflow specifically — see that section below
@@ -140,6 +140,62 @@ seohead crawl-describe-settings
 
 ---
 
+## Saved scan history (`seohead/storage/`)
+
+These local operations work only on validated `scan.v1` SQLite artifacts. They
+do not create a background catalog, migrate an older schema, or delete a body
+without deleting its scan. The exact arguments and defaults are in the generated
+[TOOL_REFERENCE.md](TOOL_REFERENCE.md).
+
+| Command | What it does | Side effects |
+|---|---|---|
+| `scan-list` | Validates and lists metadata for `*.sqlite` files in one existing directory without reading retained body BLOBs. It stops at 10,000 files and 64 MiB of metadata, and reports unreadable candidates under `errors` rather than treating them as scans. | — |
+| `scan-inspect` | Reads one allowed table (`pages`, `links`, `forms`, `decisions`, `frontier`, `query_variants`, `context_items`, `responses`, `documents`, `resource_refs`, or `audit`) as a paginated view. At most 1,000 rows and 8 MiB of row payload are returned; `has_more`/`truncated` says when the caller must narrow or continue. | — |
+| `scan-snapshot` | Makes a validated, portable single-file SQLite copy. `--out` may name a new file or an existing directory; a directory receives a UTC timestamp, host, and short scan UUID filename. Existing destinations are never overwritten. | writes a new file |
+| `scan-pin` | Explicitly pins a scan, or unpins it with `--unpin`, so retention will not select it. | changes scan metadata |
+| `scan-prune` | Produces a retention plan by default. Deletion needs `--apply` and the exact reviewed plan. | deletes only with `--apply` |
+| `scan-body-diff` | Compares matching retained body hashes from two validated scans; optional text output is bounded and only applies to compatible textual evidence. A changed body is not an SEO score or verdict. | — |
+
+```bash
+# metadata-only directory view; no retained body BLOBs are read
+seohead scan-list --directory . --limit 100
+
+# inspect a whitelisted table with a smaller total row-payload budget
+seohead scan-inspect --input native.sqlite --table documents --limit 100 --max-bytes 1048576
+
+# no-clobber snapshot: either a new filename or an existing directory
+seohead scan-snapshot --input native.sqlite --out snapshot.sqlite
+seohead scan-snapshot --input native.sqlite --out .
+
+# pin before retaining a comparison baseline; use --unpin to reverse only the pin
+seohead scan-pin --input native.sqlite
+seohead scan-pin --input native.sqlite --unpin
+
+# inspect the JSON preview, then retain its stdout envelope for explicit review
+seohead scan-prune --directory . > plan.json
+
+# hash-first comparison; text materialization is explicit and bounded
+seohead scan-body-diff --left before.sqlite --right after.sqlite --url https://example.com/ --text --max-bytes 5242880 --max-lines 10000
+```
+
+The default retention plan selects only scans that are finished, unpinned,
+complete in both crawl and corpus state, older than 30 days, outside the five
+newest scans for the same host and configuration, and free of a live writer
+lock. Before any unlink it revalidates every reviewed candidate and recomputes
+the current retention rank. `crawl_partial` and `corpus_partial` scans are
+always protected by automatic selection. The preview's stdout envelope is an
+accepted `--plan` JSON file; a changed directory, identity, metadata, or rank
+invalidates it. After reviewing `plan.json`, run `seohead scan-prune --directory .
+--plan plan.json --apply` to perform that exact deletion plan. The flat commands
+also have the nested `scan list`, `scan inspect`, `scan snapshot`, `scan pin`,
+`scan prune`, and `scan body-diff` forms.
+
+Pinning acquires the writer lock and writes the artifact in SQLite DELETE journal
+mode. It changes only the `pinned` field, so the SQLite container hash changes,
+while the audit, body records, and evidence revision stay intact.
+
+---
+
 ## External data sources (`seohead/data_sources/`)
 
 Technical checks describe what a site exposes; **demand** and traffic evidence lives behind
@@ -269,7 +325,7 @@ echo '{"url":"https://example.com"}' | seohead parse
 tool must not knock where it was not asked to.
 
 **MCP.** The same set under the `seo_*` names plus the `sf_*` audit tools
-(49 + 5):
+(60 + 5):
 
 ```bash
 seohead mcp        # stdio

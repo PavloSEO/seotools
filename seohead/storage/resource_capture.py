@@ -92,6 +92,7 @@ def commit_resource(
         ):
             raise ScanError("resource HTTP attempts exceed the recorded request budget")
         policy = json.loads(scan.con.execute("SELECT retention_json FROM scan").fetchone()[0])
+        scan._check_capture_disk_space(policy, byte_count)
         response_id = existing_response_id
         for event in outcome.captures:
             observed_id, _ = store_response(scan.con, event, purpose=kind, policy=policy)

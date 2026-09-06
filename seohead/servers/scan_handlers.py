@@ -323,13 +323,11 @@ def reanalyze_scan(
 ) -> dict[str, Any]:
     """Re-run today's parser/check registry over a scan.v1 already on disk.
 
-    Offline by construction, not by configuration: ``url`` is never passed
-    to the shared audit assembly, so its render-escalation branch (gated on
-    ``if url:``) never runs, and the sitemap stage is given no sitemap URL,
-    so its own network gate (``want_network``) stays false and it answers
-    the seven sitemap/robots checks it cannot measure with a named
-    ``ctx.skip`` instead of a fetch. No HTTP client module is imported
-    anywhere on this path.
+    Offline by construction: the shared audit assembly receives the retained
+    start URL so it can replay graph and form checks, but ``offline=True``
+    prevents render escalation and names the sitemap/robots checks that have
+    no retained source document. No HTTP, DNS, or browser request is
+    dispatched on this path.
 
     ``scan_in`` is opened only through a private working copy -- the
     original file is hashed up front and never reopened for writing, so its
@@ -392,7 +390,7 @@ def reanalyze_scan(
                 _response_data, audit = _audit_crawl_result(
                     result,
                     settings=config,
-                    url=None,
+                    url=start_url,
                     sitemap_seed={"sitemap_url": None, "sitemap_urls": [], "declared": []},
                     discovery={
                         "mode": "spider",
@@ -401,6 +399,10 @@ def reanalyze_scan(
                     },
                     stored_scan=scan,
                     stored_sitemap=reconciliation,
+                    offline=True,
+                    captured_render_summary=(original_audit or {})
+                    .get("run", {})
+                    .get("render_escalation"),
                 )
 
     audit["run"]["input_mode"] = "reanalysis"
