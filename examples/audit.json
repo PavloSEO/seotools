@@ -99,12 +99,24 @@
         "reason": "missing export: sitemap_non_indexable"
       },
       {
+        "id": "DESC_MULTIPLE",
+        "reason": "no meta description count evidence (native crawl only)"
+      },
+      {
+        "id": "H1_ALT_TEXT_ONLY",
+        "reason": "no H1 alt-text evidence (native crawl only)"
+      },
+      {
         "id": "CONTENT_IN_IFRAME",
         "reason": "no iframe inventory in this evidence"
       },
       {
         "id": "SCHEMA_VALIDATION_ERROR",
         "reason": "no Structured Data validation columns in Internal:All"
+      },
+      {
+        "id": "STRUCTURED_DATA_PARSE_ERROR",
+        "reason": "no JSON-LD found/parsed block counts (native crawl only)"
       },
       {
         "id": "READABILITY_DIFFICULT",
@@ -123,12 +135,32 @@
         "reason": "no Grammar Errors column (enable grammar-check in SF)"
       },
       {
+        "id": "HTTP_REFRESH_REDIRECT",
+        "reason": "no Refresh response header evidence (native crawl only)"
+      },
+      {
         "id": "PAGINATION_LOOP",
         "reason": "no rel=\"next\" column in Internal:All"
       },
       {
         "id": "UNLINKED_PAGINATION_SERIES",
         "reason": "no rel=\"next\" column in Internal:All"
+      },
+      {
+        "id": "LOREM_IPSUM_PLACEHOLDER",
+        "reason": "no Lorem Ipsum evidence (native crawl only)"
+      },
+      {
+        "id": "UNSUPPORTED_PLUGIN",
+        "reason": "no plugin-element evidence (native crawl only)"
+      },
+      {
+        "id": "IMG_MISSING_ALT_ATTRIBUTE",
+        "reason": "no per-image evidence (native crawl only)"
+      },
+      {
+        "id": "IMG_ALT_TOO_LONG",
+        "reason": "no per-image evidence (native crawl only)"
       },
       {
         "id": "MISSING_CHARSET",
@@ -326,8 +358,8 @@
       "urls_crawled": 6,
       "html_pages": 4,
       "html_indexable": 4,
-      "issues_total": 18,
-      "groups_total": 2,
+      "issues_total": 21,
+      "groups_total": 3,
       "pages_by_representation": {
         "static": 6
       }
@@ -335,9 +367,10 @@
     "by_severity": {
       "critical": 3,
       "warning": 10,
-      "notice": 5
+      "notice": 8
     },
     "by_check": {
+      "H2_DUPLICATE": 3,
       "DESC_DUPLICATE": 2,
       "TITLE_DUPLICATE": 2,
       "TITLE_TOO_SHORT": 2,
@@ -354,15 +387,21 @@
       "THIN_CONTENT": 1,
       "TITLE_MISSING": 1
     },
-    "implausible_checks": [],
-    "health_score": 6,
+    "implausible_checks": [
+      {
+        "check": "H2_DUPLICATE",
+        "pages": 3,
+        "share": 0.75
+      }
+    ],
+    "health_score": 2,
     "check_coverage": {
-      "checks_total": 139,
-      "checks_fired": 15,
-      "checks_skipped": 66,
+      "checks_total": 149,
+      "checks_fired": 16,
+      "checks_skipped": 74,
       "checks_disabled": 0,
       "checks_disabled_ids": [],
-      "checks_silent": 58,
+      "checks_silent": 59,
       "checks_silent_ids": [
         "AMPHTML_PRESENT",
         "BAD_REDIRECT_TYPE",
@@ -384,6 +423,7 @@
         "H1_MISSING",
         "H1_TOO_LONG",
         "H2_MISSING",
+        "H2_TOO_LONG",
         "HIGH_EXTERNAL_OUTLINKS",
         "HIGH_OUTLINKS",
         "HTTP1_ONLY",
@@ -423,9 +463,9 @@
         "URL_UNDERSCORES",
         "URL_UPPERCASE"
       ],
-      "coverage": 0.525
+      "coverage": 0.503
     },
-    "health_score_basis": "73 of 139 checks could run; the score is not comparable to a run with full evidence",
+    "health_score_basis": "75 of 149 checks could run; the score is not comparable to a run with full evidence",
     "size_stats_bytes": {
       "count": 4,
       "median": 77500,
@@ -699,6 +739,57 @@
     },
     {
       "id": "ISSUE-000015",
+      "fingerprint": "c5917484ead8",
+      "check": "H2_DUPLICATE",
+      "severity": "notice",
+      "source": "SF-derived",
+      "message": "H2 is duplicated across multiple URLs",
+      "target_url": "https://example.com/",
+      "status_code": null,
+      "occurrences_count": 1,
+      "details": {
+        "value": "Section",
+        "duplicate_count": 3
+      },
+      "group_id": "GRP-H2-0003",
+      "fix_hint": "Use a unique, page-specific H2 on each URL, or accept it for a shared boilerplate subheading that is genuinely meant to repeat."
+    },
+    {
+      "id": "ISSUE-000016",
+      "fingerprint": "03f3b4241eca",
+      "check": "H2_DUPLICATE",
+      "severity": "notice",
+      "source": "SF-derived",
+      "message": "H2 is duplicated across multiple URLs",
+      "target_url": "https://example.com/no-title",
+      "status_code": null,
+      "occurrences_count": 1,
+      "details": {
+        "value": "Section",
+        "duplicate_count": 3
+      },
+      "group_id": "GRP-H2-0003",
+      "fix_hint": "Use a unique, page-specific H2 on each URL, or accept it for a shared boilerplate subheading that is genuinely meant to repeat."
+    },
+    {
+      "id": "ISSUE-000017",
+      "fingerprint": "b6ff54581d45",
+      "check": "H2_DUPLICATE",
+      "severity": "notice",
+      "source": "SF-derived",
+      "message": "H2 is duplicated across multiple URLs",
+      "target_url": "https://example.com/page-a",
+      "status_code": null,
+      "occurrences_count": 1,
+      "details": {
+        "value": "Section",
+        "duplicate_count": 3
+      },
+      "group_id": "GRP-H2-0003",
+      "fix_hint": "Use a unique, page-specific H2 on each URL, or accept it for a shared boilerplate subheading that is genuinely meant to repeat."
+    },
+    {
+      "id": "ISSUE-000018",
       "fingerprint": "ef94d463d9b4",
       "check": "HTML_BLOAT",
       "severity": "notice",
@@ -716,7 +807,7 @@
       "fix_hint": "Reduce bytes per word by extracting styles and scripts, removing embedded base64 assets, and simplifying markup."
     },
     {
-      "id": "ISSUE-000016",
+      "id": "ISSUE-000019",
       "fingerprint": "1bc99908d6ea",
       "check": "LOW_TEXT_RATIO",
       "severity": "notice",
@@ -732,7 +823,7 @@
       "fix_hint": "Increase the proportion of meaningful visible content or reduce unnecessary markup."
     },
     {
-      "id": "ISSUE-000017",
+      "id": "ISSUE-000020",
       "fingerprint": "75ca47c35a36",
       "check": "TITLE_TOO_SHORT",
       "severity": "notice",
@@ -749,7 +840,7 @@
       "fix_hint": "Expand the title to an informative length without padding it with boilerplate."
     },
     {
-      "id": "ISSUE-000018",
+      "id": "ISSUE-000021",
       "fingerprint": "c84ae1ebeb61",
       "check": "TITLE_TOO_SHORT",
       "severity": "notice",
@@ -805,10 +896,12 @@
         "representation": "static"
       },
       "issues": [
-        "DESC_DUPLICATE"
+        "DESC_DUPLICATE",
+        "H2_DUPLICATE"
       ],
       "issue_ids": [
-        "ISSUE-000005"
+        "ISSUE-000005",
+        "ISSUE-000015"
       ]
     },
     {
@@ -853,13 +946,15 @@
         "H1_MULTIPLE",
         "TITLE_DUPLICATE",
         "DESC_TOO_SHORT",
+        "H2_DUPLICATE",
         "TITLE_TOO_SHORT"
       ],
       "issue_ids": [
         "ISSUE-000008",
         "ISSUE-000012",
         "ISSUE-000014",
-        "ISSUE-000017"
+        "ISSUE-000017",
+        "ISSUE-000020"
       ]
     },
     {
@@ -911,9 +1006,9 @@
         "ISSUE-000006",
         "ISSUE-000011",
         "ISSUE-000013",
-        "ISSUE-000015",
-        "ISSUE-000016",
-        "ISSUE-000018"
+        "ISSUE-000018",
+        "ISSUE-000019",
+        "ISSUE-000021"
       ]
     },
     {
@@ -958,14 +1053,16 @@
         "CANONICAL_MISSING",
         "DESC_MISSING",
         "LARGE_HTML",
-        "SLOW_RESPONSE"
+        "SLOW_RESPONSE",
+        "H2_DUPLICATE"
       ],
       "issue_ids": [
         "ISSUE-000003",
         "ISSUE-000004",
         "ISSUE-000007",
         "ISSUE-000009",
-        "ISSUE-000010"
+        "ISSUE-000010",
+        "ISSUE-000016"
       ]
     },
     {
@@ -1071,6 +1168,17 @@
         "https://example.com/page-b"
       ],
       "count": 2
+    },
+    {
+      "group_id": "GRP-H2-0003",
+      "check": "H2_DUPLICATE",
+      "value": "Section",
+      "urls": [
+        "https://example.com/",
+        "https://example.com/no-title",
+        "https://example.com/page-a"
+      ],
+      "count": 3
     }
   ]
 }

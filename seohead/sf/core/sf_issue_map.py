@@ -77,10 +77,7 @@ CATEGORIES: dict[str, list[Entry]] = {
         ),
         _c("Internal Redirection (3XX)", "INTERNAL_LINK_TO_REDIRECT", "BAD_REDIRECT_TYPE"),
         _c("Internal Redirection (Meta Refresh)", "META_REFRESH_REDIRECT"),
-        _g(
-            "Internal Redirection (HTTP Refresh)",
-            "the Refresh response header is not read; only the meta element is",
-        ),
+        _c("Internal Redirection (HTTP Refresh)", "HTTP_REFRESH_REDIRECT"),
         _g(
             "Internal Redirection (JavaScript)",
             "needs rendering plus navigation tracking; render mode reports the DOM, not "
@@ -142,7 +139,13 @@ CATEGORIES: dict[str, list[Entry]] = {
         _c("Same as H1", "TITLE_EQUALS_H1"),
     ],
     "Meta Description": [
-        _g("Multiple", "only the first meta description is kept during parsing"),
+        _c(
+            "Multiple",
+            "DESC_MULTIPLE",
+            note="the first occurrence stays the authoritative value every existing length "
+            "and duplication check reads; this check only counts how many live occurrences "
+            "there are",
+        ),
         _c("Outside <head>", "DESC_OUTSIDE_HEAD"),
         _c("Missing", "DESC_MISSING"),
         _c("Duplicate", "DESC_DUPLICATE"),
@@ -154,7 +157,12 @@ CATEGORIES: dict[str, list[Entry]] = {
     "H1": [
         _c("Missing", "H1_MISSING"),
         _c("Multiple", "H1_MULTIPLE"),
-        _g("Alt Text in h1", "an H1 whose only text comes from an image alt is not detected"),
+        _c(
+            "Alt Text in h1",
+            "H1_ALT_TEXT_ONLY",
+            note="fires only when the H1 has no text of its own; a logo image beside real "
+            "heading text is normal and is never flagged",
+        ),
         _t(
             "Non-sequential",
             "heading-outline",
@@ -166,17 +174,28 @@ CATEGORIES: dict[str, list[Entry]] = {
     ],
     "H2": [
         _c("Missing", "H2_MISSING"),
-        _p("Multiple", "multiple H2s are normal; we record them without judging the count"),
+        _p(
+            "Multiple",
+            "multiple H2s are normal, and the issue that asked for this row supplied no "
+            "defensible count past which they stop being normal; we record them without "
+            "judging the count",
+        ),
         _t("Non-sequential", "heading-outline"),
-        _g("Duplicate", "H2 duplication across the site is not aggregated"),
-        _g("Over 70 Characters", "no length threshold is applied to H2"),
+        _c("Duplicate", "H2_DUPLICATE"),
+        _c("Over 70 Characters", "H2_TOO_LONG"),
     ],
     "Content": [
         _c("Exact Duplicates", "DUPLICATE_BY_HASH"),
         _c("Spelling Errors", "SPELLING_ERRORS", note="from an SF export column; not computed"),
         _c("Grammar Errors", "GRAMMAR_ERRORS", note="from an SF export column; not computed"),
         _t("Soft 404 Pages", "soft404-check"),
-        _g("Lorem Ipsum Placeholder", "no placeholder-text detection"),
+        _c(
+            "Lorem Ipsum Placeholder",
+            "LOREM_IPSUM_PLACEHOLDER",
+            note="matched as the full multi-word passage within the resolved content area, "
+            "never a substring of the whole document, so a page merely mentioning it once "
+            "outside the content area is not flagged",
+        ),
         _p(
             "Near Duplicates",
             'an SF export\'s native "No. Near Duplicates" column is read directly and answers '
@@ -196,11 +215,13 @@ CATEGORIES: dict[str, list[Entry]] = {
     ],
     "Images": [
         _c("Missing Alt Text", "IMG_MISSING_ALT"),
-        _p(
+        _c(
             "Missing Alt Attribute",
-            "an absent attribute and an empty one are reported together; a decorative image "
-            'with alt="" is correct and is not distinguished',
-            "IMG_MISSING_ALT",
+            "IMG_MISSING_ALT_ATTRIBUTE",
+            note="a native crawl's own per-image inventory distinguishes the attribute being "
+            'absent from a decorative alt="" -- only the former fires; IMG_MISSING_ALT (an '
+            "SF export column) still reports the two together, since that export's own shape "
+            "has not changed",
         ),
         _t(
             "Background Images",
@@ -209,7 +230,7 @@ CATEGORIES: dict[str, list[Entry]] = {
             "how four images invisible to the HTML were found on a live site",
         ),
         _c("Over 100 kb", "IMG_OVER_KB"),
-        _g("Alt Text Over 100 Characters", "alt length is not thresholded"),
+        _c("Alt Text Over 100 Characters", "IMG_ALT_TOO_LONG"),
         _g(
             "Incorrectly Sized Images",
             "needs the rendered layout box to compare against the intrinsic size",
@@ -219,7 +240,16 @@ CATEGORIES: dict[str, list[Entry]] = {
     "Canonicals": [
         _c("Multiple Conflicting", "CANONICAL_MULTIPLE"),
         _c("Non-Indexable Canonical", "CANONICAL_NON_INDEXABLE"),
-        _g("Invalid Attribute In Annotation", "rel attribute values are not validated"),
+        _g(
+            "Invalid Attribute In Annotation",
+            "a matched canonical <link> already has a well-formed 'canonical' token by "
+            "construction (BeautifulSoup only yields whitespace-free tokens, and the match "
+            "itself requires one); every other token a real document could add is either a "
+            "known link-relation keyword or an unrecognised-but-well-formed one, which the "
+            "issue's own acceptance criteria say must stay unknown, not invalid -- leaving no "
+            "reachable case that is actually malformed without a raw-attribute-text signal "
+            "this parser does not keep",
+        ),
         _c("Contains Fragment URL", "CANONICAL_FRAGMENT"),
         _c("Outside <head>", "CANONICAL_OUTSIDE_HEAD"),
         _c("Canonicalised", "CANONICALISED"),
@@ -335,10 +365,11 @@ CATEGORIES: dict[str, list[Entry]] = {
     "Structured Data": [
         _c("Validation Errors", "SCHEMA_VALIDATION_ERROR"),
         _t("Rich Result Validation Errors", "schema-check"),
-        _p(
+        _c(
             "Parse Errors",
-            "found and parsed block counts are recorded per page, so a malformed block is "
-            "visible; it is not raised as its own registry finding",
+            "STRUCTURED_DATA_PARSE_ERROR",
+            note="found and parsed block counts were already recorded per page; this reads "
+            "the two together and fires when found exceeds parsed",
         ),
         _c("Missing", "STRUCTURED_DATA_MISSING"),
         _t("Validation Warnings", "schema-check"),
@@ -396,7 +427,12 @@ CATEGORIES: dict[str, list[Entry]] = {
         _c("Viewport Not Set", "VIEWPORT_MISSING"),
         _o("Content Not Sized Correctly", "needs a rendered mobile layout to measure overflow"),
         _o("Illegible Font Size", "needs computed styles from a rendered page"),
-        _g("Contains Unsupported Plugins", "object/embed elements are not extracted"),
+        _c(
+            "Contains Unsupported Plugins",
+            "UNSUPPORTED_PLUGIN",
+            note="<object>/<embed>/<applet> are counted, excluding an <object> whose type "
+            "declares an image (an SVG or raster fallback, not plugin content)",
+        ),
         _o("Target Size", "needs rendered hit-box geometry"),
         _g("Mobile Alternate Link", "rel=alternate media annotations are not read"),
     ],

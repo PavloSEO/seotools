@@ -151,6 +151,13 @@ CHECKS: dict[str, dict[str, Any]] = {
         "message": "Meta description is missing",
         "fix": "Add a useful meta description, typically up to about 160 characters.",
     },
+    "DESC_MULTIPLE": {
+        "severity": "warning",
+        "source": "crawl:meta_description_count",
+        "message": 'More than one <meta name="description"> element is present',
+        "fix": "Keep exactly one meta description element; a search engine reads only the "
+        "first, so the rest are dead weight that hides which value is actually live.",
+    },
     "DESC_DUPLICATE": {
         "severity": "warning",
         "source": "SF-derived",
@@ -194,11 +201,31 @@ CHECKS: dict[str, dict[str, Any]] = {
         "message": "H1 exceeds the configured length threshold",
         "fix": "Shorten the H1 while retaining the page's main topic.",
     },
+    "H1_ALT_TEXT_ONLY": {
+        "severity": "notice",
+        "source": "crawl:h1_alt_text",
+        "message": "The H1 has no text of its own; its only content is an image's alt attribute",
+        "fix": "Add real, visible text to the H1 -- alt text describes an image to assistive "
+        "technology, it is not a substitute for a heading a search engine reads as text.",
+    },
     "H2_MISSING": {
         "severity": "notice",
         "source": "SF-derived",
         "message": "Page has an H1 but no H2 headings",
         "fix": "Add meaningful H2 subheadings where needed to structure the content.",
+    },
+    "H2_DUPLICATE": {
+        "severity": "notice",
+        "source": "SF-derived",
+        "message": "H2 is duplicated across multiple URLs",
+        "fix": "Use a unique, page-specific H2 on each URL, or accept it for a shared "
+        "boilerplate subheading that is genuinely meant to repeat.",
+    },
+    "H2_TOO_LONG": {
+        "severity": "notice",
+        "source": "SF-derived",
+        "message": "H2 exceeds the configured length threshold",
+        "fix": "Shorten the H2 while retaining what it introduces.",
     },
     # 7.E — canonical & directives
     "CANONICAL_MISSING": {
@@ -268,6 +295,13 @@ CHECKS: dict[str, dict[str, Any]] = {
         "message": "Near-duplicate content",
         "fix": "Differentiate the pages with substantive content or consolidate them into one canonical page.",
     },
+    "LOREM_IPSUM_PLACEHOLDER": {
+        "severity": "warning",
+        "source": "crawl:lorem_ipsum_count",
+        "message": "The Lorem Ipsum placeholder passage appears in the page's own content area",
+        "fix": "Replace the placeholder passage with real, reviewed copy before the page goes "
+        "live or stays indexed.",
+    },
     # 7.G — images
     "IMG_MISSING_ALT": {
         "severity": "warning",
@@ -275,12 +309,35 @@ CHECKS: dict[str, dict[str, Any]] = {
         "message": "Image is missing alt text",
         "fix": "Add concise, descriptive alt text when the image conveys content; use an empty alt attribute for decorative images.",
     },
+    "IMG_MISSING_ALT_ATTRIBUTE": {
+        "severity": "warning",
+        "source": "crawl:images",
+        "message": 'An <img> has no alt attribute at all (not even alt="")',
+        "fix": "Add an alt attribute: descriptive text when the image conveys content, or "
+        'alt="" when it is purely decorative -- an image with no alt attribute at all is '
+        'read out as its filename by assistive technology, which alt="" correctly avoids.',
+    },
+    "IMG_ALT_TOO_LONG": {
+        "severity": "notice",
+        "source": "crawl:images",
+        "message": "An image's alt text exceeds the configured length threshold",
+        "fix": "Shorten the alt text to a concise description; screen readers read the whole "
+        "string aloud, and a search engine treats an overlong alt as a weaker signal.",
+    },
     # 7.H — schema, hreflang, viewport
     "SCHEMA_VALIDATION_ERROR": {
         "severity": "warning",
         "source": "SF:Structured Data:Validation Errors",
         "message": "Structured data validation errors",
         "fix": "Correct invalid JSON-LD or Microdata markup and retest it against the applicable vocabulary and rich-result requirements.",
+    },
+    "STRUCTURED_DATA_PARSE_ERROR": {
+        "severity": "warning",
+        "source": "crawl:jsonld_blocks",
+        "message": "A JSON-LD block is present but did not parse as valid JSON",
+        "fix": "Fix the malformed JSON-LD block (a stray comma, an unescaped quote, or an "
+        "unclosed brace commonly voids the whole block); a search engine ignores structured "
+        "data it cannot parse the same as if none were present.",
     },
     "HREFLANG_ERROR": {
         "severity": "warning",
@@ -537,6 +594,14 @@ CHECKS: dict[str, dict[str, Any]] = {
         "message": "Redirect is implemented with meta refresh",
         "fix": "Replace meta refresh with a server-side 301 redirect when the move is permanent.",
     },
+    "HTTP_REFRESH_REDIRECT": {
+        "severity": "warning",
+        "source": "crawl:http_refresh",
+        "message": "Redirect is implemented with an HTTP Refresh response header",
+        "fix": "Replace it with a server-side 301/302 redirect (Location header); a search "
+        "engine treats Refresh the same as a meta refresh -- an unreliable, delayed signal "
+        "compared to a real HTTP redirect status code.",
+    },
     "NOTRANSLATE": {
         "severity": "notice",
         "source": "SF-derived",
@@ -738,6 +803,15 @@ CHECKS: dict[str, dict[str, Any]] = {
         "source": "SF-derived",
         "message": "No <meta name=viewport> tag with width or an initial-scale of at least 1",
         "fix": 'Add `<meta name="viewport" content="width=device-width, initial-scale=1">` to the document head.',
+    },
+    "UNSUPPORTED_PLUGIN": {
+        "severity": "warning",
+        "source": "crawl:plugin_elements",
+        "message": "Page contains a legacy plugin-dependent element (<object>/<embed>/<applet>)",
+        "fix": "Replace the plugin-dependent element with a native equivalent (HTML5 "
+        "<video>/<audio>, an <img>/<svg>, or a JavaScript-driven alternative) -- mobile "
+        "browsers, and modern desktop ones, do not run plugins, so this content is simply "
+        "invisible there.",
     },
     "NO_COMPRESSION": {
         "severity": "notice",

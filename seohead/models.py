@@ -108,6 +108,20 @@ class FrameInfo(TypedDict):
     sandbox: str
 
 
+class ImageInfo(TypedDict):
+    """One `<img>` as the coverage checks need it (issues #385, #386).
+
+    ``has_alt`` is whether the attribute is present at all, which is a different
+    fact from its length: ``alt=""`` is a deliberate mark on a decorative image
+    and must stay silent, while a missing attribute is the finding. Collapsing
+    the two into one truthy value is how a correctly marked-up site gets told to
+    add alt text it already declined on purpose.
+    """
+
+    has_alt: bool
+    alt_length: int
+
+
 class FormInfo(TypedDict):
     """One `<form>` extracted from a page (issue #125)."""
 
@@ -187,6 +201,21 @@ class ParsedPage(_ParsedPageOptional):
     # Every <iframe> the document declares -- see FrameInfo. Empty when the
     # text option is off, because in_content_area needs the resolved root.
     frames: list[FrameInfo]
+    # How many <applet>/<embed>/<object> elements the page carries, for the
+    # unsupported-plugin check. Always computed: it is one tree lookup, and a
+    # key the parser returns but this model does not declare is a contract
+    # the typed-handler gate refuses.
+    plugin_elements_count: int
+    # Per-image alt facts -- see ImageInfo. Empty when the page has no images.
+    images: list[ImageInfo]
+    # Runs of boilerplate placeholder prose found in the content area.
+    lorem_ipsum_count: int
+    # The first H1's text when it comes only from an image's alt attribute,
+    # None when the heading carries text of its own. A logo inside a text H1
+    # is not an image-only heading, which is why this is a value and not a flag.
+    h1_alt_only_text: str | None
+    # How many live <meta name="description"> tags the document declares.
+    meta_description_count: int
 
 
 class ParseFetched(ParsedPage):

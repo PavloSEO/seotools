@@ -44,9 +44,15 @@ INTERNAL_FIELD_MAP: dict[str, list[str]] = {
     "desc_length": ["Meta Description 1 Length"],
     "desc_px": ["Meta Description 1 Pixel Width"],
     "meta_keywords": ["Meta Keywords 1", "Meta Keywords"],
+    # Native-crawl only (#385): how many live <meta name="description"> tags the
+    # document carries. "meta_description" above stays the first occurrence.
+    "meta_description_count": ["Meta Description Count"],
     "h1": ["H1-1"],
     "h1_length": ["H1-1 Length"],
     "h1_2": ["H1-2"],
+    # Native-crawl only (#385): the alt text of an H1 whose own text is empty
+    # when an image supplies it instead.
+    "h1_alt_text": ["H1 Alt Text Only"],
     "h2": ["H2-1"],
     "h2_2": ["H2-2"],
     "meta_robots": ["Meta Robots 1"],
@@ -88,6 +94,9 @@ INTERNAL_FIELD_MAP: dict[str, list[str]] = {
     "redirect_type": ["Redirect Type"],
     "hreflang": ["Hreflang"],
     "structured_data": ["Structured Data"],
+    # Native-crawl only (#386): blocks that actually parsed, alongside
+    # "structured_data" (blocks found) -- found > parsed names a malformed block.
+    "structured_data_parsed": ["Structured Data Parsed"],
     "validation_errors": ["Validation Errors"],
     "og_title": ["OG:Title"],
     "og_description": ["OG:Description"],
@@ -126,6 +135,17 @@ INTERNAL_FIELD_MAP: dict[str, list[str]] = {
     "body_count": ["Body Count"],
     "head_not_first": ["Head Not First"],
     "invalid_head_elements": ["Invalid Head Elements"],
+    # Native-crawl only (#385): the raw HTTP "Refresh" response header.
+    "http_refresh": ["Refresh"],
+    # Native-crawl only (#385, #386): <img> alt-attribute inventory.
+    "images_total": ["Images Total"],
+    "images_missing_alt_attr": ["Images Missing Alt Attribute"],
+    "images_max_alt_length": ["Images Max Alt Length"],
+    # Native-crawl only (#385): Lorem Ipsum placeholder occurrences in the
+    # resolved content area.
+    "lorem_ipsum_count": ["Lorem Ipsum Occurrences"],
+    # Native-crawl only (#385): legacy plugin-dependent elements.
+    "plugin_elements": ["Unsupported Plugin Elements"],
 }
 
 # Canonical field -> headers for a ``*:Inlinks`` bulk export.
@@ -236,6 +256,13 @@ INT_FIELDS = frozenset(
         "grammar_errors",
         "head_count",
         "body_count",
+        "meta_description_count",
+        "structured_data_parsed",
+        "images_total",
+        "images_missing_alt_attr",
+        "images_max_alt_length",
+        "lorem_ipsum_count",
+        "plugin_elements",
     }
 )
 FLOAT_FIELDS = frozenset(

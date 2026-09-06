@@ -29,7 +29,11 @@ seohead crawl-site --url https://example.com --out-dir ./run
 ```
 
 "Found 3, parsed 2" on one page is a malformed block. Reporting "no structured data" for that
-page would describe a different page — which is why both numbers are kept.
+page would describe a different page — which is why both numbers are kept, and why
+`STRUCTURED_DATA_PARSE_ERROR` fires from exactly this comparison: found greater than parsed. A
+page with none at all reads 0 and 0 — equal, so it never fires this check (that page is
+`STRUCTURED_DATA_MISSING`'s concern instead). Native-crawl only: an SF export never carries a
+parsed-block count, so the check skips by name there rather than reading it as clean.
 
 **3. Generate the graph that is missing.**
 
