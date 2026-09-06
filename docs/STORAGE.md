@@ -300,13 +300,20 @@ reservations retain legacy ordering, including the different seen/query order
 for sitemap seeds and ordinary links. Interrupted work can be fetched again;
 committed pages are not issued again.
 
-Before the SQL graph/analyzer children land, the existing analyzer runs only for
-at most 5,000 pages, 100,000 links and 20,000 forms. Those counts are checked before
-materializing its temporary compatibility input. Above them, the scan is retained
-with `audit_available=false` and a recorded reason. This is a compatibility guard,
-not a claim about analyzer memory at arbitrary field sizes. The existing sitemap
-expansion is outside the collector memory profile; a 50,000-URL admission check
-runs after that existing expansion, not before its allocation.
+The existing analyzer now consumes SQL graph projections without rebuilding
+`all_inlinks` or a complete Python edge list. Pages and final audit/report data
+still materialize: the native audit admits at most 10,000 pages and 20,000 forms.
+Above those output-population limits, the scan is retained with
+`audit_available=false` and a recorded reason. There is no separate 100,000-link
+admission limit. These are finite operating bounds, not a memory guarantee for
+arbitrary field lengths or finding populations. Sitemap capture streams membership
+in chunks of 256, with the existing per-root expansion limits; it no longer
+allocates the full declared-URL list before an admission check.
+
+The complete serialized audit also has the existing 64 MiB reader limit.
+The writer checks that exact size before replacing an audit. If it cannot fit,
+the result explicitly says `audit_available=false`; all captured observations
+remain intact. No findings are truncated and the reader limit is not raised.
 
 A resumed scan without retained static start-page HTML has a named no-audit guard
 until body retention is available; it cannot invent a clean rendering verdict.
@@ -360,11 +367,15 @@ with a complete expansion and zero members is a measured empty sitemap. A scan
 with no saved selected roots is `unavailable` rather than a zero-sized sitemap;
 partial root expansion is also unavailable for a reconciliation conclusion.
 
-The SQL graph layer is complete for its own native composition, existing
-per-edge findings, and sitemap-membership populations. It does **not** make the
-existing SF-style analyzer unbounded: the `all_inlinks` analyzer bridge remains
-the next finite, separately bounded child. Native SQLite collection currently
-retains no response body, raw HTML, rendered DOM, JavaScript, or CSS body.
+The same SF analyzer checks now consume a narrow graph access contract for
+generic anchors, inlink composition, PageRank, and discovery paths. SQL keeps
+the edge inventory, uncrawled internal graph nodes, scores and BFS predecessors
+in file-backed temporary tables. Existing check eligibility, thresholds,
+messages and output ordering remain shared with the SF export path. Only
+requested score lookups, bounded location examples and emitted paths enter
+Python. Native links still have no measured resource Type, so the resource
+inventory check retains its existing named skip. Response bodies, raw HTML,
+rendered DOM, JavaScript and CSS bodies remain unavailable.
 
 #### SQL graph profile
 
@@ -390,6 +401,36 @@ matched a one-row-at-a-time expected digest; each sitemap run had exactly 10,000
 The graph-reader peak increased 0.25 MiB over the fixed-page edge-density
 change. This is a cursor-projection measurement, not an end-to-end crawler,
 analyzer, report, body, or arbitrary-site capacity claim.
+
+### Saved-scan analysis and report capacity
+
+Run `python scripts/profile_scan_analysis.py --pages 10000` for the full F
+profile. It uses complete synthetic PageRecords and a balanced graph at
+300,000 and 1,500,000 links. Only collection and the sitemap protocol request
+are injected: the whole stage runs CLI dispatch, saves the native audit,
+reopens the file, and creates a Markdown report. Separate subprocesses measure
+page projection, graph calculations, audit plus task derivation, and all five
+report formats. Every run contains 10,000 pages, 10,000 score/composition
+results, and 20,011 audit findings; counts and outcome digests are recorded.
+
+Observed on macOS 26.6.2 arm64, Python 3.14.6 and SQLite 3.53.3:
+
+| Stored links | Pages RSS | Graph RSS | Audit/tasks RSS | Five report formats RSS | CLI + saved scan + Markdown RSS |
+|---:|---:|---:|---:|---:|---:|
+| 300,000 | 273.61 MiB | 525.98 MiB | 453.44 MiB | 459.44 MiB | 551.39 MiB |
+| 1,500,000 | 273.69 MiB | 469.06 MiB | 453.62 MiB | 419.39 MiB | 505.06 MiB |
+
+The audit/task increase was 0.18 MiB; graph and whole-route peaks decreased in
+this pair. Each is below the 128 MiB edge-growth budget, and both whole-route
+peaks are below 1 GiB. Process peaks vary with allocation and garbage collection;
+these measurements are evidence for this fixture, not arbitrary-site guarantees.
+The whole CLI stages took 19.163 and 69.425 seconds respectively.
+
+Output volume remains a separate bound. The earlier blank-field ring fixture
+generated 129,874 findings and 116,868,817 bytes of audit JSON before pretty
+printing, beyond the 64 MiB saved-audit limit. It is an output-stress case, not
+a passing saved-scan CLI example. Narrow the capture scope when the full audit
+cannot fit; the oversized-audit result must never be mistaken for a clean report.
 
 ## Native transactions and recovery
 

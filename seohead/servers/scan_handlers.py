@@ -1,4 +1,4 @@
-"""Finite handler bridge from a native SQLite scan to the existing audit path."""
+"""Native SQLite analysis with bounded page and report materialization."""
 
 from __future__ import annotations
 
@@ -13,8 +13,7 @@ from typing import Any
 
 from seohead import __version__
 
-MAX_AUDIT_PAGES = 5_000
-MAX_AUDIT_LINKS = 100_000
+MAX_AUDIT_PAGES = 10_000
 MAX_AUDIT_FORMS = 20_000
 _SHA = re.compile(r"[0-9a-f]{40}\Z")
 
@@ -87,29 +86,14 @@ def _producer_provenance(producer_build: str | None) -> tuple[str, str, dict[str
     )
 
 
-def _rebuild_spider_result(scan) -> Any:
-    """Materialize only an already-admitted compatibility population."""
+def _rebuild_page_result(scan) -> Any:
+    """Materialize admitted pages and run context; the graph stays in SQLite."""
     from seohead.crawl.collect import PageRecord
-    from seohead.crawl.spider import FormEdge, LinkEdge, SpiderResult
-    from seohead.storage.exports import _link_rows, _page_rows
+    from seohead.crawl.spider import SpiderResult
+    from seohead.storage.exports import _page_rows
 
     result = SpiderResult()
     result.pages = [PageRecord(**page) for page in _page_rows(scan.con)]
-    result.links = [
-        LinkEdge(**(link | {"rel": tuple(link["rel"])})) for link in _link_rows(scan.con)
-    ]
-    result.forms = [
-        FormEdge(
-            page=row["page"],
-            method=row["method"],
-            action=row["action"],
-            has_password=bool(row["has_password"]),
-        )
-        for row in scan.con.execute(
-            "SELECT f.*, u.url AS page FROM forms AS f JOIN urls AS u ON u.url_id=f.page_url_id "
-            "ORDER BY f.form_id"
-        )
-    ]
     context = [
         (row["kind"], json.loads(row["payload_json"]))
         for row in scan.con.execute(
@@ -156,16 +140,11 @@ def _response(run, *, audit_available: bool, audit_reason: str, finalized: bool)
 
 
 def _bridge_reason(counts: dict[str, int], start_page_gate: dict[str, Any] | None) -> str | None:
-    if (
-        counts["pages"] > MAX_AUDIT_PAGES
-        or counts["links"] > MAX_AUDIT_LINKS
-        or counts["forms"] > MAX_AUDIT_FORMS
-    ):
+    if counts["pages"] > MAX_AUDIT_PAGES or counts["forms"] > MAX_AUDIT_FORMS:
         return (
-            "compatibility audit limit exceeded "
+            "materialized audit population limit exceeded "
             f"(pages={counts['pages']}/{MAX_AUDIT_PAGES}, "
-            f"links={counts['links']}/{MAX_AUDIT_LINKS}, "
-            f"forms={counts['forms']}/{MAX_AUDIT_FORMS}); SQL graph/analyzer bridge is E/F"
+            f"forms={counts['forms']}/{MAX_AUDIT_FORMS})"
         )
     if start_page_gate is None:
         return "start-page transient raw evidence is unavailable after resume; audit waits for G"
@@ -189,7 +168,7 @@ def crawl_site_scan(
     sitemap: str | None = None,
     producer_build: str | None = None,
 ) -> dict[str, Any]:
-    """Collect a native scan, then audit it only within the finite compatibility bounds."""
+    """Collect a native scan, then audit its SQL graph with finite page/output bounds."""
     if not isinstance(url, str) or not url:
         raise ValueError("url is required for a SQLite scan crawl")
     if not isinstance(scan_out, str) or not scan_out:
@@ -241,7 +220,7 @@ def crawl_site_scan(
             scan.note_audit_unavailable(reason)
             finalized = scan.finish_capture(reason=run.finish_reason)
             return _response(run, audit_available=False, audit_reason=reason, finalized=finalized)
-        result = _rebuild_spider_result(scan)
+        result = _rebuild_page_result(scan)
         result.start_page_evidence = dict(run.start_page_gate)
         result.resumed = getattr(run, "resumed", False)
         result.finish_reason = run.finish_reason
@@ -270,11 +249,18 @@ def crawl_site_scan(
                 discovery=discovery,
                 out_dir=None,
                 pages_resume_path=None,
-                finite_json=True,
                 stored_scan=scan,
                 stored_sitemap=reconciliation,
             )
-        scan.save_audit(audit)
+        from seohead.storage.native_audit import AuditSizeError
+
+        try:
+            scan.save_audit(audit)
+        except AuditSizeError as exc:
+            reason = str(exc)
+            scan.note_audit_unavailable(reason)
+            finalized = scan.finish_capture(reason=run.finish_reason)
+            return _response(run, audit_available=False, audit_reason=reason, finalized=finalized)
         finalized = scan.finish_capture(reason=run.finish_reason)
     _response_data.update(
         _response(run, audit_available=True, audit_reason="", finalized=finalized)

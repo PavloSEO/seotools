@@ -60,7 +60,7 @@ class ScanRun:
     partial: bool
     resumed: bool = False
     audit_available: bool = False
-    audit_reason: str = "SQL graph/analyzer bridge is not delivered until E/F"
+    audit_reason: str = "collection has not run the analyzer"
     limitations: tuple[str, ...] = ()
     start_page_gate: dict[str, Any] | None = None
 

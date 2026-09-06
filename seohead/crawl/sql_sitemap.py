@@ -111,15 +111,21 @@ class SqlSitemapReconciliation:
         """
         if type(max_items) is not int or max_items < 1:
             raise ValueError("max_items must be a positive integer")
-        data = self.summary()
+        data: dict[str, Any] = {"available": self.available, "reason": self.reason}
         if not self.available:
             return data
-        data.update(self.counts)
+        # Keep the legacy reconciliation's key order as well as its values:
+        # the existing JSON report writer deliberately preserves input order.
+        for name in ("urls_in_sitemap", "urls_reached_by_links"):
+            data[name] = self.counts[name]
         for name in _BUCKETS:
             items = list(itertools.islice(self.iter_bucket(name), max_items + 1))
             if len(items) > max_items:
                 raise ValueError(f"{name} exceeds materialize limit {max_items}")
             data[name] = items
+        for name in ("in_sitemap_not_in_crawl", "in_crawl_not_in_sitemap"):
+            data[name] = self.counts[name]
+        data["crawl_partial"] = self.crawl_partial
         return data
 
     def close(self) -> None:
