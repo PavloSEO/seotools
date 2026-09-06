@@ -95,3 +95,128 @@ def test_occurrences_count_is_unique_sources(tmp_path):
     issue = next(i for i in res.issues if i.check == "BROKEN_INTERNAL_LINK")
     assert issue.occurrences_count == 2  # unique sources
     assert len(issue.locations) == 3  # but all link instances kept
+
+
+def _write_inlinks_csv(path, rows):
+    with open(path, "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(
+            [
+                "Source",
+                "Destination",
+                "Anchor Text",
+                "Status Code",
+                "Follow",
+                "Link Position",
+                "Link Path",
+            ]
+        )
+        for row in rows:
+            w.writerow(row)
+
+
+def test_broken_link_destinations_grouped_by_norm_url(tmp_path):
+    """Two spellings of the same destination merge into one finding (#448)."""
+    shutil.copy(os.path.join(FIXTURES, "internal_all.csv"), tmp_path / "internal_all.csv")
+    inl = tmp_path / "response_codes_client_error_(4xx)_inlinks.csv"
+    _write_inlinks_csv(
+        inl,
+        [
+            [
+                "https://example.com/a",
+                "https://Example.com/broken",
+                "a",
+                "404",
+                "true",
+                "Content",
+                "/a",
+            ],
+            [
+                "https://example.com/b",
+                "https://example.com/broken",
+                "b",
+                "404",
+                "true",
+                "Content",
+                "/b",
+            ],
+        ],
+    )
+    res = run_audit(input_mode="parse-exports", exports_dir=str(tmp_path), log=lambda m: None)
+    issues = [i for i in res.issues if i.check == "BROKEN_INTERNAL_LINK"]
+    assert len(issues) == 1
+    issue = issues[0]
+    assert issue.occurrences_count == 2
+    sources = {loc["source_url"] for loc in issue.locations}
+    assert sources == {"https://example.com/a", "https://example.com/b"}
+    # both raw spellings stay visible in evidence
+    assert set(issue.evidence["raw_destinations"]) == {
+        "https://Example.com/broken",
+        "https://example.com/broken",
+    }
+
+
+def test_broken_link_trailing_slash_variant_merges(tmp_path):
+    shutil.copy(os.path.join(FIXTURES, "internal_all.csv"), tmp_path / "internal_all.csv")
+    inl = tmp_path / "response_codes_client_error_(4xx)_inlinks.csv"
+    _write_inlinks_csv(
+        inl,
+        [
+            [
+                "https://example.com/a",
+                "https://example.com/broken",
+                "a",
+                "404",
+                "true",
+                "Content",
+                "/a",
+            ],
+            [
+                "https://example.com/b",
+                "https://example.com/broken/",
+                "b",
+                "404",
+                "true",
+                "Content",
+                "/b",
+            ],
+        ],
+    )
+    res = run_audit(input_mode="parse-exports", exports_dir=str(tmp_path), log=lambda m: None)
+    issues = [i for i in res.issues if i.check == "BROKEN_INTERNAL_LINK"]
+    assert len(issues) == 1
+    assert issues[0].occurrences_count == 2
+
+
+def test_broken_link_distinct_destinations_stay_separate(tmp_path):
+    """Negative control: genuinely different destinations must not over-merge."""
+    shutil.copy(os.path.join(FIXTURES, "internal_all.csv"), tmp_path / "internal_all.csv")
+    inl = tmp_path / "response_codes_client_error_(4xx)_inlinks.csv"
+    _write_inlinks_csv(
+        inl,
+        [
+            [
+                "https://example.com/a",
+                "https://example.com/broken-a",
+                "a",
+                "404",
+                "true",
+                "Content",
+                "/a",
+            ],
+            [
+                "https://example.com/b",
+                "https://example.com/broken-b",
+                "b",
+                "404",
+                "true",
+                "Content",
+                "/b",
+            ],
+        ],
+    )
+    res = run_audit(input_mode="parse-exports", exports_dir=str(tmp_path), log=lambda m: None)
+    issues = [i for i in res.issues if i.check == "BROKEN_INTERNAL_LINK"]
+    assert len(issues) == 2
+    targets = {i.target_url for i in issues}
+    assert targets == {"https://example.com/broken-a", "https://example.com/broken-b"}

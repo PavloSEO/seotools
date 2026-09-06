@@ -527,7 +527,10 @@
       },
       "fix_hint": "Update the link to the current URL or add an appropriate 301 redirect; if it appears in the footer or navigation, fix the shared template.",
       "evidence": {
-        "export": "examples/exports/response_codes_client_error_(4xx)_inlinks.csv"
+        "export": "examples/exports/response_codes_client_error_(4xx)_inlinks.csv",
+        "raw_destinations": [
+          "https://example.com/old-page"
+        ]
       }
     },
     {
