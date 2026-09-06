@@ -2,7 +2,7 @@
   "schema_version": "2.0",
   "tool": {
     "name": "SF Analyzer",
-    "version": "2.0.0",
+    "version": "3.0.0",
     "generated_by": "SEOHead"
   },
   "run": {
@@ -11,7 +11,7 @@
     "source": null,
     "exports_dir": "examples/exports",
     "sf_version_detected": null,
-    "generated_at": "2026-06-21T17:39:00Z",
+    "generated_at": "2026-09-06T07:34:14Z",
     "profile": "full",
     "exports_used": [
       "internal_all",
@@ -36,13 +36,72 @@
       "images_over_kb",
       "images_missing_size",
       "titles_duplicate",
+      "titles_multiple",
+      "hreflang",
+      "all_hreflang",
       "desc_duplicate",
       "redirect_chains",
       "security_mixed",
       "security_hsts",
       "structured_data_missing"
     ],
+    "exports_encodings": {
+      "internal_all": "utf-8-sig",
+      "inlinks_4xx": "utf-8-sig"
+    },
+    "crawl_valid": true,
+    "crawl_invalid_reason": null,
+    "requires_rendering": false,
+    "crawl_partial": false,
     "checks_skipped": [
+      {
+        "id": "IMG_MISSING_ALT",
+        "reason": "missing export: images_missing_alt"
+      },
+      {
+        "id": "IMG_OVER_KB",
+        "reason": "missing export: images_over_kb"
+      },
+      {
+        "id": "IMG_MISSING_DIMENSIONS",
+        "reason": "missing export: images_missing_size"
+      },
+      {
+        "id": "MIXED_CONTENT",
+        "reason": "missing export: security_mixed"
+      },
+      {
+        "id": "MISSING_HSTS",
+        "reason": "missing export: security_hsts"
+      },
+      {
+        "id": "STRUCTURED_DATA_MISSING",
+        "reason": "missing export: structured_data_missing"
+      },
+      {
+        "id": "HREFLANG_ERROR",
+        "reason": "missing export: hreflang"
+      },
+      {
+        "id": "HREFLANG_BROKEN_TARGET",
+        "reason": "missing export: all_hreflang"
+      },
+      {
+        "id": "SITEMAP_URL_4XX_5XX",
+        "reason": "missing export: sitemap_non_200"
+      },
+      {
+        "id": "SITEMAP_URL_3XX",
+        "reason": "missing export: sitemap_redirects"
+      },
+      {
+        "id": "SITEMAP_URL_NON_INDEXABLE",
+        "reason": "missing export: sitemap_non_indexable"
+      },
+      {
+        "id": "CONTENT_IN_IFRAME",
+        "reason": "no iframe inventory in this evidence"
+      },
       {
         "id": "SCHEMA_VALIDATION_ERROR",
         "reason": "no Structured Data validation columns in Internal:All"
@@ -64,32 +123,148 @@
         "reason": "no Grammar Errors column (enable grammar-check in SF)"
       },
       {
-        "id": "MIXED_CONTENT",
-        "reason": "no security_mixed export (export this SF filter to enable)"
+        "id": "PAGINATION_LOOP",
+        "reason": "no rel=\"next\" column in Internal:All"
       },
       {
-        "id": "MISSING_HSTS",
-        "reason": "no security_hsts export (export this SF filter to enable)"
+        "id": "UNLINKED_PAGINATION_SERIES",
+        "reason": "no rel=\"next\" column in Internal:All"
       },
       {
-        "id": "STRUCTURED_DATA_MISSING",
-        "reason": "no structured_data_missing export (export this SF filter to enable)"
+        "id": "MISSING_CHARSET",
+        "reason": "no Meta Charset column, so a page without a header charset cannot be distinguished from one declaring <meta charset> (needs a native seohead crawl or Custom Extraction in SF)"
       },
       {
-        "id": "IMG_OVER_KB",
-        "reason": "no images_over_kb export (export this SF filter to enable)"
+        "id": "MISSING_DOCTYPE",
+        "reason": "no Doctype column (needs a native seohead crawl or Custom Extraction in SF)"
       },
       {
-        "id": "IMG_MISSING_DIMENSIONS",
-        "reason": "no images_missing_size export (export this SF filter to enable)"
+        "id": "VIEWPORT_MISSING",
+        "reason": "no Viewport column (needs a native seohead crawl or Custom Extraction in SF)"
+      },
+      {
+        "id": "NO_COMPRESSION",
+        "reason": "no Content-Encoding column (needs a native seohead crawl or Custom Extraction in SF)"
+      },
+      {
+        "id": "TITLE_OUTSIDE_HEAD",
+        "reason": "no element-position evidence (needs a native seohead crawl; Screaming Frog has no notion of this on its own)"
+      },
+      {
+        "id": "DESC_OUTSIDE_HEAD",
+        "reason": "no element-position evidence (needs a native seohead crawl; Screaming Frog has no notion of this on its own)"
+      },
+      {
+        "id": "CANONICAL_OUTSIDE_HEAD",
+        "reason": "no element-position evidence (needs a native seohead crawl; Screaming Frog has no notion of this on its own)"
+      },
+      {
+        "id": "DIRECTIVES_OUTSIDE_HEAD",
+        "reason": "no element-position evidence (needs a native seohead crawl; Screaming Frog has no notion of this on its own)"
+      },
+      {
+        "id": "HREFLANG_OUTSIDE_HEAD",
+        "reason": "no element-position evidence (needs a native seohead crawl; Screaming Frog has no notion of this on its own)"
+      },
+      {
+        "id": "HEAD_MISSING",
+        "reason": "no element-position evidence (needs a native seohead crawl; Screaming Frog has no notion of this on its own)"
+      },
+      {
+        "id": "HEAD_MULTIPLE",
+        "reason": "no element-position evidence (needs a native seohead crawl; Screaming Frog has no notion of this on its own)"
+      },
+      {
+        "id": "BODY_MISSING",
+        "reason": "no element-position evidence (needs a native seohead crawl; Screaming Frog has no notion of this on its own)"
+      },
+      {
+        "id": "BODY_MULTIPLE",
+        "reason": "no element-position evidence (needs a native seohead crawl; Screaming Frog has no notion of this on its own)"
+      },
+      {
+        "id": "INVALID_HEAD_ELEMENT",
+        "reason": "no element-position evidence (needs a native seohead crawl; Screaming Frog has no notion of this on its own)"
+      },
+      {
+        "id": "HEAD_NOT_FIRST",
+        "reason": "no element-position evidence (needs a native seohead crawl; Screaming Frog has no notion of this on its own)"
+      },
+      {
+        "id": "OG_MISSING",
+        "reason": "no Open Graph columns in Internal:All (enable OG extraction in SF)"
+      },
+      {
+        "id": "REDIRECT_CHAIN",
+        "reason": "no redirect data (Internal:All has no Redirect URL column)"
+      },
+      {
+        "id": "REDIRECT_LOOP",
+        "reason": "no redirect data (Internal:All has no Redirect URL column)"
+      },
+      {
+        "id": "TITLE_MULTIPLE",
+        "reason": "no titles_multiple export (export this SF filter to enable)"
       },
       {
         "id": "LINK_TO_5XX",
         "reason": "export inlinks_5xx not available"
       },
       {
+        "id": "BROKEN_EXTERNAL_LINK",
+        "reason": "export inlinks_5xx not available"
+      },
+      {
         "id": "INTERNAL_LINK_TO_REDIRECT",
         "reason": "export inlinks_3xx not available"
+      },
+      {
+        "id": "EXTERNAL_LINK_TO_REDIRECT",
+        "reason": "export inlinks_3xx not available"
+      },
+      {
+        "id": "HREFLANG_INVALID_CODE",
+        "reason": "no all_hreflang export (export Bulk Export -> Links -> All Hreflang)"
+      },
+      {
+        "id": "HREFLANG_MULTIPLE_ENTRIES",
+        "reason": "no all_hreflang export (export Bulk Export -> Links -> All Hreflang)"
+      },
+      {
+        "id": "HREFLANG_MISSING_SELF_REFERENCE",
+        "reason": "no all_hreflang export (export Bulk Export -> Links -> All Hreflang)"
+      },
+      {
+        "id": "HREFLANG_MISSING_XDEFAULT",
+        "reason": "no all_hreflang export (export Bulk Export -> Links -> All Hreflang)"
+      },
+      {
+        "id": "HREFLANG_NOT_CANONICAL",
+        "reason": "no all_hreflang export (export Bulk Export -> Links -> All Hreflang)"
+      },
+      {
+        "id": "HREFLANG_MISSING_RETURN_LINK",
+        "reason": "no all_hreflang export (export Bulk Export -> Links -> All Hreflang)"
+      },
+      {
+        "id": "LOW_LINK_SCORE",
+        "reason": "no all_inlinks export (needed for the complete internal edge list)"
+      },
+      {
+        "id": "ONLY_NOFOLLOW_INLINKS",
+        "reason": "no all_inlinks export (needed for the complete inlink list)"
+      },
+      {
+        "id": "ONLY_NONINDEXABLE_SOURCE_INLINKS",
+        "reason": "no all_inlinks export (needed for the complete inlink list)"
+      },
+      {
+        "id": "DEEP_DISCOVERY_PATH",
+        "reason": "no all_inlinks export (needed for the complete internal edge list)"
+      },
+      {
+        "id": "INSECURE_SUBRESOURCE",
+        "reason": "no all_inlinks export (needed for the resource inventory)"
       },
       {
         "id": "DOM_TOO_DEEP",
@@ -100,22 +275,62 @@
         "reason": "no stored HTML (input.html_store_dir not set)"
       },
       {
+        "id": "DUPLICATE_BY_HASH",
+        "reason": "SF native Hash column already covers this"
+      },
+      {
+        "id": "NEAR_DUPLICATE",
+        "reason": "no stored HTML (input.html_store_dir not set)"
+      },
+      {
         "id": "TITLE_TEMPLATED",
         "reason": "too few titles to assess templating"
+      },
+      {
+        "id": "SITEMAP_NOT_IN_ROBOTS",
+        "reason": "no sitemap URL to check (no export, no --sitemap, and live_recheck disabled)"
+      },
+      {
+        "id": "ROBOTS_BLOCKS_RESOURCES",
+        "reason": "no sitemap URL to check (no export, no --sitemap, and live_recheck disabled)"
+      },
+      {
+        "id": "SITEMAP_FETCH_INCOMPLETE",
+        "reason": "no sitemap URL to check (no export, no --sitemap, and live_recheck disabled)"
+      },
+      {
+        "id": "SITEMAP_TOO_MANY_URLS",
+        "reason": "no sitemap document was fetched to measure"
+      },
+      {
+        "id": "SITEMAP_TOO_LARGE",
+        "reason": "no sitemap document was fetched to measure"
+      },
+      {
+        "id": "SITEMAP_URL_DUPLICATED",
+        "reason": "no sitemap entries were fetched to compare"
+      },
+      {
+        "id": "SITEMAP_STALE_LASTMOD",
+        "reason": "no sitemap entries were fetched to compare"
       },
       {
         "id": "SITEMAP_DESYNC",
         "reason": "no sitemap URL set (no export and network disabled)"
       }
-    ]
+    ],
+    "checks_disabled": []
   },
   "summary": {
     "totals": {
       "urls_crawled": 6,
-      "html_pages": 5,
+      "html_pages": 4,
       "html_indexable": 4,
       "issues_total": 18,
-      "groups_total": 2
+      "groups_total": 2,
+      "pages_by_representation": {
+        "static": 6
+      }
     },
     "by_severity": {
       "critical": 3,
@@ -139,7 +354,78 @@
       "THIN_CONTENT": 1,
       "TITLE_MISSING": 1
     },
-    "health_score": 25,
+    "implausible_checks": [],
+    "health_score": 6,
+    "check_coverage": {
+      "checks_total": 139,
+      "checks_fired": 15,
+      "checks_skipped": 66,
+      "checks_disabled": 0,
+      "checks_disabled_ids": [],
+      "checks_silent": 58,
+      "checks_silent_ids": [
+        "AMPHTML_PRESENT",
+        "BAD_REDIRECT_TYPE",
+        "BLOCKED_BY_ROBOTS",
+        "CANONICALISED",
+        "CANONICAL_CHAIN",
+        "CANONICAL_FRAGMENT",
+        "CANONICAL_MULTIPLE",
+        "CANONICAL_NON_INDEXABLE",
+        "CANONICAL_RELATIVE",
+        "CANONICAL_TO_REDIRECT",
+        "DEEP_CRAWL_DEPTH",
+        "DESC_TOO_LONG",
+        "FOLLOW_AND_NOFOLLOW_INLINKS",
+        "FORM_ON_HTTP_URL",
+        "FORM_URL_INSECURE",
+        "GENERIC_ANCHOR_TEXT",
+        "H1_DUPLICATE",
+        "H1_MISSING",
+        "H1_TOO_LONG",
+        "H2_MISSING",
+        "HIGH_EXTERNAL_OUTLINKS",
+        "HIGH_OUTLINKS",
+        "HTTP1_ONLY",
+        "HTTP_URL",
+        "IMPORTANT_URL_BLOCKED_BY_ROBOTS",
+        "INLINK_BOILERPLATE_ONLY",
+        "META_KEYWORDS_PRESENT",
+        "META_REFRESH_REDIRECT",
+        "NOARCHIVE",
+        "NOFOLLOW_PAGE",
+        "NOIMAGEINDEX",
+        "NOINDEX",
+        "NON_INDEXABLE_LINKED",
+        "NOSNIPPET",
+        "NOTRANSLATE",
+        "NO_INTERNAL_OUTLINKS",
+        "NO_RESPONSE",
+        "ORPHAN_PAGE",
+        "OUTLINK_TO_LOCALHOST",
+        "PAGINATION_NONINDEXABLE",
+        "PROTOCOL_RELATIVE_LINK",
+        "SERVER_ERROR_5XX",
+        "SITEMAP_ORPHAN",
+        "TITLE_EQUALS_H1",
+        "TITLE_TOO_LONG",
+        "UNAVAILABLE_AFTER",
+        "UNLINKED_CANONICAL",
+        "UNSAFE_CROSS_ORIGIN_LINK",
+        "URL_CONTAINS_SPACE",
+        "URL_HAS_PARAMS",
+        "URL_MULTIPLE_SLASHES",
+        "URL_NON_ASCII",
+        "URL_NOT_IN_SITEMAP",
+        "URL_REPETITIVE_PATH",
+        "URL_TOO_LONG",
+        "URL_TRACKING_PARAMS",
+        "URL_UNDERSCORES",
+        "URL_UPPERCASE"
+      ],
+      "coverage": 0.525
+    },
+    "health_score_basis": "73 of 139 checks could run; the score is not comparable to a run with full evidence",
     "size_stats_bytes": {
       "count": 4,
       "median": 77500,
@@ -162,7 +448,7 @@
   "issues": [
     {
       "id": "ISSUE-000001",
-      "fingerprint": "8964182d8cf6",
+      "fingerprint": "ef1b0e1cd75c",
       "check": "BROKEN_INTERNAL_LINK",
       "severity": "critical",
       "source": "inlinks:Client Error (4xx) Inlinks",
@@ -196,20 +482,21 @@
         "link_position_breakdown": {
           "Content": 1,
           "Footer": 1
-        }
+        },
+        "destination_scope": "internal"
       },
-      "fix_hint": "Replace the link with the current URL or add a 301 redirect. If the link appears in the footer or navigation, update the shared template.",
+      "fix_hint": "Update the link to the current URL or add an appropriate 301 redirect; if it appears in the footer or navigation, fix the shared template.",
       "evidence": {
-        "export": "examples/exports\\response_codes_client_error_(4xx)_inlinks.csv"
+        "export": "examples/exports/response_codes_client_error_(4xx)_inlinks.csv"
       }
     },
     {
       "id": "ISSUE-000002",
-      "fingerprint": "bada00941803",
+      "fingerprint": "b252c084350a",
       "check": "BROKEN_PAGE_4XX",
       "severity": "critical",
       "source": "SF:Response Codes:4xx",
-      "message": "Page returns a 4xx status",
+      "message": "Page returns a 4xx response (broken page)",
       "target_url": "https://example.com/old-page",
       "status_code": 404,
       "occurrences_count": 1,
@@ -217,23 +504,23 @@
         "status": "Not Found",
         "inlinks": 4
       },
-      "fix_hint": "Restore the page or redirect it to a relevant URL with a 301 response; remove links that still point to the broken URL."
+      "fix_hint": "Restore the page or redirect it with a 301 to a relevant URL; remove or update links that point to it."
     },
     {
       "id": "ISSUE-000003",
-      "fingerprint": "a219354adab4",
+      "fingerprint": "a0284ace6541",
       "check": "TITLE_MISSING",
       "severity": "critical",
       "source": "SF-derived",
-      "message": "Title is missing",
+      "message": "Title element is missing",
       "target_url": "https://example.com/no-title",
       "status_code": null,
       "occurrences_count": 1,
-      "fix_hint": "Add a unique, descriptive title."
+      "fix_hint": "Add a unique, descriptive title element."
     },
     {
       "id": "ISSUE-000004",
-      "fingerprint": "86fe437f992c",
+      "fingerprint": "becac9d57362",
       "check": "CANONICAL_MISSING",
       "severity": "warning",
       "source": "SF-derived",
@@ -241,11 +528,11 @@
       "target_url": "https://example.com/no-title",
       "status_code": null,
       "occurrences_count": 1,
-      "fix_hint": "Add a <link rel=\"canonical\"> element."
+      "fix_hint": "Add a valid <link rel=\"canonical\"> element."
     },
     {
       "id": "ISSUE-000005",
-      "fingerprint": "40f3c9859bad",
+      "fingerprint": "76e1d90d5339",
       "check": "DESC_DUPLICATE",
       "severity": "warning",
       "source": "SF-derived",
@@ -258,11 +545,11 @@
         "duplicate_count": 2
       },
       "group_id": "GRP-DESC-0002",
-      "fix_hint": "Write a unique description for each page."
+      "fix_hint": "Write a unique meta description for each page."
     },
     {
       "id": "ISSUE-000006",
-      "fingerprint": "19122cea6310",
+      "fingerprint": "b638a8d13f43",
       "check": "DESC_DUPLICATE",
       "severity": "warning",
       "source": "SF-derived",
@@ -275,11 +562,11 @@
         "duplicate_count": 2
       },
       "group_id": "GRP-DESC-0002",
-      "fix_hint": "Write a unique description for each page."
+      "fix_hint": "Write a unique meta description for each page."
     },
     {
       "id": "ISSUE-000007",
-      "fingerprint": "2282ab05008d",
+      "fingerprint": "93b6f5b5597e",
       "check": "DESC_MISSING",
       "severity": "warning",
       "source": "SF-derived",
@@ -287,15 +574,15 @@
       "target_url": "https://example.com/no-title",
       "status_code": null,
       "occurrences_count": 1,
-      "fix_hint": "Add a description of up to approximately 160 characters."
+      "fix_hint": "Add a useful meta description, typically up to about 160 characters."
     },
     {
       "id": "ISSUE-000008",
-      "fingerprint": "c4ba2cfaf58e",
+      "fingerprint": "becb56598e97",
       "check": "H1_MULTIPLE",
       "severity": "warning",
       "source": "SF:H1:Multiple",
-      "message": "Multiple H1 elements on one page",
+      "message": "Multiple H1 headings on the page",
       "target_url": "https://example.com/page-a",
       "status_code": null,
       "occurrences_count": 1,
@@ -306,15 +593,15 @@
           "Second H1 Heading"
         ]
       },
-      "fix_hint": "Keep one H1 and change the remaining top-level headings to H2 or H3."
+      "fix_hint": "Keep one primary H1 and demote the remaining headings to H2 or H3 as appropriate."
     },
     {
       "id": "ISSUE-000009",
-      "fingerprint": "41f61a2ba022",
+      "fingerprint": "75d91e75d8f6",
       "check": "LARGE_HTML",
       "severity": "warning",
       "source": "SF-derived+heuristic",
-      "message": "Oversized HTML in absolute or relative terms",
+      "message": "HTML document is large in absolute terms or relative to the site",
       "target_url": "https://example.com/no-title",
       "status_code": null,
       "occurrences_count": 1,
@@ -326,11 +613,11 @@
         "abs_threshold_kb": 200,
         "outlier": true
       },
-      "fix_hint": "Reduce HTML size by moving inline styles and scripts, removing base64 payloads, and simplifying redundant markup."
+      "fix_hint": "Reduce HTML size by removing unnecessary markup, extracting inline styles or scripts, and avoiding embedded base64 assets."
     },
     {
       "id": "ISSUE-000010",
-      "fingerprint": "9cb304658c17",
+      "fingerprint": "6b57f4e4a3e4",
       "check": "SLOW_RESPONSE",
       "severity": "warning",
       "source": "SF-derived",
@@ -342,11 +629,11 @@
         "response_time": 2.0,
         "max_s": 1.5
       },
-      "fix_hint": "Improve TTFB by optimizing the server and cache configuration."
+      "fix_hint": "Improve TTFB by profiling the application and origin, then optimizing caching and infrastructure."
     },
     {
       "id": "ISSUE-000011",
-      "fingerprint": "388dcedd10f8",
+      "fingerprint": "81d9b9c52922",
       "check": "THIN_CONTENT",
       "severity": "warning",
       "source": "SF-derived",
@@ -358,15 +645,15 @@
         "word_count": 50,
         "threshold": 200
       },
-      "fix_hint": "Expand the content or exclude the page from indexing."
+      "fix_hint": "Add substantial, useful content or exclude the page from indexing when it has no standalone search value."
     },
     {
       "id": "ISSUE-000012",
-      "fingerprint": "c02a37ad1123",
+      "fingerprint": "52e703ed8928",
       "check": "TITLE_DUPLICATE",
       "severity": "warning",
       "source": "SF-derived",
-      "message": "Duplicate title",
+      "message": "Duplicate title element",
       "target_url": "https://example.com/page-a",
       "status_code": null,
       "occurrences_count": 1,
@@ -375,15 +662,15 @@
         "duplicate_count": 2
       },
       "group_id": "GRP-TITLE-0001",
-      "fix_hint": "Write a unique title for each page."
+      "fix_hint": "Give each page a unique title element."
     },
     {
       "id": "ISSUE-000013",
-      "fingerprint": "8bb1eb7164aa",
+      "fingerprint": "814495b2931d",
       "check": "TITLE_DUPLICATE",
       "severity": "warning",
       "source": "SF-derived",
-      "message": "Duplicate title",
+      "message": "Duplicate title element",
       "target_url": "https://example.com/page-b",
       "status_code": null,
       "occurrences_count": 1,
@@ -392,15 +679,15 @@
         "duplicate_count": 2
       },
       "group_id": "GRP-TITLE-0001",
-      "fix_hint": "Write a unique title for each page."
+      "fix_hint": "Give each page a unique title element."
     },
     {
       "id": "ISSUE-000014",
-      "fingerprint": "dc5b9e61c269",
+      "fingerprint": "a1b3bee720f8",
       "check": "DESC_TOO_SHORT",
       "severity": "notice",
       "source": "SF-derived",
-      "message": "Meta description is below the length threshold",
+      "message": "Meta description falls below the configured length threshold",
       "target_url": "https://example.com/page-a",
       "status_code": null,
       "occurrences_count": 1,
@@ -408,15 +695,15 @@
         "length": 7,
         "min_chars": 70
       },
-      "fix_hint": "Expand the description."
+      "fix_hint": "Expand the description with specific, useful page information."
     },
     {
       "id": "ISSUE-000015",
-      "fingerprint": "849c64497f32",
+      "fingerprint": "ef94d463d9b4",
       "check": "HTML_BLOAT",
       "severity": "notice",
       "source": "heuristic",
-      "message": "Bloated HTML: high byte count with little text",
+      "message": "HTML bloat: high document size relative to text content",
       "target_url": "https://example.com/page-b",
       "status_code": null,
       "occurrences_count": 1,
@@ -426,11 +713,11 @@
         "word_count": 50,
         "size_bytes": 80000
       },
-      "fix_hint": "Reduce bytes per word by moving styles and scripts out of the HTML and removing base64 payloads."
+      "fix_hint": "Reduce bytes per word by extracting styles and scripts, removing embedded base64 assets, and simplifying markup."
     },
     {
       "id": "ISSUE-000016",
-      "fingerprint": "165e4fa8a3fb",
+      "fingerprint": "1bc99908d6ea",
       "check": "LOW_TEXT_RATIO",
       "severity": "notice",
       "source": "SF-derived",
@@ -442,15 +729,15 @@
         "text_ratio": 8.0,
         "threshold": 10
       },
-      "fix_hint": "Increase the proportion of meaningful text content."
+      "fix_hint": "Increase the proportion of meaningful visible content or reduce unnecessary markup."
     },
     {
       "id": "ISSUE-000017",
-      "fingerprint": "bb31b44a2144",
+      "fingerprint": "75ca47c35a36",
       "check": "TITLE_TOO_SHORT",
       "severity": "notice",
       "source": "SF-derived",
-      "message": "Title is below the length threshold",
+      "message": "Title falls below the configured length threshold",
       "target_url": "https://example.com/page-a",
       "status_code": null,
       "occurrences_count": 1,
@@ -459,15 +746,15 @@
         "length": 26,
         "min_chars": 30
       },
-      "fix_hint": "Expand the title to an informative length."
+      "fix_hint": "Expand the title to an informative length without padding it with boilerplate."
     },
     {
       "id": "ISSUE-000018",
-      "fingerprint": "dd6ebcc10e3f",
+      "fingerprint": "c84ae1ebeb61",
       "check": "TITLE_TOO_SHORT",
       "severity": "notice",
       "source": "SF-derived",
-      "message": "Title is below the length threshold",
+      "message": "Title falls below the configured length threshold",
       "target_url": "https://example.com/page-b",
       "status_code": null,
       "occurrences_count": 1,
@@ -476,7 +763,7 @@
         "length": 26,
         "min_chars": 30
       },
-      "fix_hint": "Expand the title to an informative length."
+      "fix_hint": "Expand the title to an informative length without padding it with boilerplate."
     }
   ],
   "pages": [
@@ -514,7 +801,8 @@
         "meta_robots": "index,follow",
         "link_score": null,
         "is_in_sitemap": null,
-        "sitemap_lastmod": null
+        "sitemap_lastmod": null,
+        "representation": "static"
       },
       "issues": [
         "DESC_DUPLICATE"
@@ -558,7 +846,8 @@
         "meta_robots": "index,follow",
         "link_score": null,
         "is_in_sitemap": null,
-        "sitemap_lastmod": null
+        "sitemap_lastmod": null,
+        "representation": "static"
       },
       "issues": [
         "H1_MULTIPLE",
@@ -607,7 +896,8 @@
         "meta_robots": "index,follow",
         "link_score": null,
         "is_in_sitemap": null,
-        "sitemap_lastmod": null
+        "sitemap_lastmod": null,
+        "representation": "static"
       },
       "issues": [
         "DESC_DUPLICATE",
@@ -660,7 +950,8 @@
         "meta_robots": "index,follow",
         "link_score": null,
         "is_in_sitemap": null,
-        "sitemap_lastmod": null
+        "sitemap_lastmod": null,
+        "representation": "static"
       },
       "issues": [
         "TITLE_MISSING",
@@ -709,7 +1000,8 @@
         "meta_robots": null,
         "link_score": null,
         "is_in_sitemap": null,
-        "sitemap_lastmod": null
+        "sitemap_lastmod": null,
+        "representation": "static"
       },
       "issues": [
         "BROKEN_INTERNAL_LINK",
@@ -752,7 +1044,8 @@
         "meta_robots": null,
         "link_score": null,
         "is_in_sitemap": null,
-        "sitemap_lastmod": null
+        "sitemap_lastmod": null,
+        "representation": "static"
       },
       "issues": [],
       "issue_ids": []
