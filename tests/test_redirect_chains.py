@@ -166,8 +166,16 @@ def test_a_threshold_change_costs_no_requests_and_changes_the_result(tmp_path):
         )
     )
     chain_urls = {i["target_url"] for i in result["issues"] if i["check"] == "REDIRECT_CHAIN"}
-    # the walk from "a" needs 2 hops to resolve; a cap of 1 cannot prove it
-    assert chain_urls == set()
+    # the walk from "a" needs 2 hops to resolve; a cap of 1 cannot prove either a clean
+    # terminus or a loop -- but that is not "no chain here" (#447): it must still surface
+    # as evidence, flagged unresolved rather than silently dropped.
+    assert chain_urls == {"https://example.com/a", "https://example.com/b"}
+    unresolved = {
+        i["target_url"]
+        for i in result["issues"]
+        if i["check"] == "REDIRECT_CHAIN" and i["details"].get("unresolved")
+    }
+    assert unresolved == {"https://example.com/a", "https://example.com/b"}
 
 
 # -- wired into a native seohead crawl (list mode), no Screaming Frog at all --

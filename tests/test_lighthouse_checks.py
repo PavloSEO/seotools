@@ -212,6 +212,25 @@ def test_compression_accepts_a_stacked_content_encoding(tmp_path):
     assert "https://example.com/still-plain" in fired["NO_COMPRESSION"]
 
 
+def test_compression_fires_when_content_encoding_present_but_size_bytes_absent(tmp_path):
+    """#445: a missing Size (bytes) column must not default every page's size to 0
+    (always under the ignore threshold) and let a genuinely uncompressed page pass
+    as clean -- the column simply wasn't measured, so the ignore threshold cannot
+    apply."""
+    cols = [c for c in COLS if c != "Size (bytes)"]
+    d = tmp_path / "exports"
+    d.mkdir()
+    with open(d / "internal_all.csv", "w", encoding="utf-8-sig", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(cols)
+        w.writerow(_row("https://example.com/plain-large", encoding="")[:-1])
+        w.writerow(_row("https://example.com/gzip", encoding="gzip")[:-1])
+    res = run_audit(input_mode="parse-exports", exports_dir=str(d), log=lambda m: None)
+    fired = _fired(res)
+    assert "https://example.com/plain-large" in fired["NO_COMPRESSION"]
+    assert "https://example.com/gzip" not in fired.get("NO_COMPRESSION", set())
+
+
 # -- end-to-end through a native seohead crawl, not a hand-typed CSV ---------
 # The issue's whole premise is that a crawl already fetches every page and can
 # evaluate these audits at no extra request cost; this exercises exactly that
