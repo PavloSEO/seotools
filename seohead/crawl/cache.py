@@ -478,6 +478,18 @@ class ResponseCache:
         # actually recorded for matching also cover the crawler's own always-keyed headers, so
         # a later _match() sees User-Agent even when the origin never mentioned it.
         key_headers = {h.lower() for h in vary_headers} | set(CRAWLER_IDENTITY_HEADERS)
+        new_vary_set = {h.lower() for h in vary_headers}
+        # A sibling stored under a narrower Vary policy than the one now being declared (in
+        # particular, a pre-Vary entry with vary_headers == []) was never validated against the
+        # header(s) the origin has now started varying on. Left on disk, it would keep matching
+        # any request whose only checked keys are its own narrower set -- serving a stale,
+        # wrong representation for header values it was never fetched for (#465). Evicting it
+        # here, at the moment the broader Vary declaration is learned, is the same "a cache
+        # miss is always a safe fallback" posture ``refresh`` already applies on a Vary change.
+        for sibling in self._variants(url):
+            sibling_vary_set = {h.lower() for h in sibling.vary_headers}
+            if sibling_vary_set != new_vary_set and sibling_vary_set < new_vary_set:
+                self._forget(sibling)
         receipt_time = time.time()
         entry = CacheEntry(
             url=url,

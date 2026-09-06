@@ -357,6 +357,70 @@ def test_vary_star_is_never_cached(tmp_path):
     assert cache.decide("https://example.com/", {"User-Agent": "x"}).status == "miss"
 
 
+def test_a_new_vary_declaration_evicts_a_stale_pre_vary_entry(tmp_path):
+    """#465: a URL first cached before the origin ever sent Vary must not go on answering a
+    later, Vary-selected request with that pre-Vary body once the origin starts varying."""
+    cache = ResponseCache(tmp_path)
+    url = "https://example.com/page"
+    ua = {"User-Agent": "seohead-crawler/1.0"}
+    cache.store(
+        url,
+        ua,
+        200,
+        {"cache-control": "max-age=3600", "content-type": "text/html"},
+        "DEFAULT/ENGLISH BODY",
+        size_bytes=20,
+    )
+    req_fr = dict(ua, **{"Accept-Language": "fr"})
+    cache.store(
+        url,
+        req_fr,
+        200,
+        {
+            "cache-control": "max-age=3600",
+            "vary": "Accept-Language",
+            "content-type": "text/html",
+        },
+        "FRENCH BODY",
+        size_bytes=12,
+    )
+    req_en = dict(ua, **{"Accept-Language": "en"})
+    outcome = cache.decide(url, req_en)
+    assert outcome.status == "miss", (
+        "an en request never fetched must not replay the stale pre-Vary body"
+    )
+
+    # Negative control: a repeated identical request for the value that was actually stored
+    # under the new Vary policy must still hit — the fix must not turn every lookup into a miss.
+    repeat = cache.decide(url, req_fr)
+    assert repeat.status == "hit"
+    assert repeat.entry.body == "FRENCH BODY"
+
+
+def test_a_url_with_one_consistent_vary_policy_still_hits_on_repeat(tmp_path):
+    """Negative control: a URL that has only ever declared one Vary policy (non-empty from the
+    start) must keep hitting for a repeated identical request — no new miss introduced."""
+    cache = ResponseCache(tmp_path)
+    url = "https://example.com/page2"
+    ua = {"User-Agent": "seohead-crawler/1.0"}
+    req_fr = dict(ua, **{"Accept-Language": "fr"})
+    cache.store(
+        url,
+        req_fr,
+        200,
+        {
+            "cache-control": "max-age=3600",
+            "vary": "Accept-Language",
+            "content-type": "text/html",
+        },
+        "FRENCH BODY",
+        size_bytes=12,
+    )
+    outcome = cache.decide(url, req_fr)
+    assert outcome.status == "hit"
+    assert outcome.entry.body == "FRENCH BODY"
+
+
 def test_two_variants_of_the_same_url_can_both_be_stored(tmp_path):
     cache = ResponseCache(tmp_path)
     for ua, body in (("desktop-ua", "desktop"), ("mobile-ua", "mobile")):

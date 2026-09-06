@@ -133,10 +133,13 @@ class PageRecord:
     # that branch — it counts as the healthy response it is, like any other 3xx.
     error_kind: str = ""
     # "" when no cache was configured for this run at all. Otherwise one of "hit" (served from
-    # disk, no request sent), "revalidated" (a conditional request came back 304, body reused)
-    # or "miss" (a real, full fetch — the first time, or because nothing on disk was usable).
-    # This is the per-URL half of "a report built partly from cache must say so"; cache_stats on
-    # the run as a whole is the aggregate half.
+    # disk, no request sent), "revalidated" (a conditional request came back 304, body reused),
+    # "miss" (a real, full fetch — the first time, or because nothing on disk was usable) or
+    # "bypass" (a cache was configured, but its own lookup for this URL was unusable — e.g. an
+    # unsafe cache directory — so the page was fetched live without ever consulting the cache;
+    # distinct from "" so a report can tell "no cache at all" from "cache configured, but this
+    # URL's lookup was bypassed"). This is the per-URL half of "a report built partly from cache
+    # must say so"; cache_stats on the run as a whole is the aggregate half.
     cache_status: str = ""
     # "" when the body was parsed normally (or the page is non-HTML, or non-2xx, which are
     # already governed by content_type/status_code). "oversized" means a 2xx HTML response
@@ -537,7 +540,12 @@ def fetch_one(
     wire_size = len(raw) if isinstance(raw, (bytes, bytearray)) else None
     # "bypass" means the cache itself is unusable (e.g. an unsafe directory) rather than merely
     # empty for this URL; the page is still fetched normally, but it never touched the cache, so
-    # it must not be stamped "miss" as if a lookup had actually happened.
+    # it must not be stamped "miss" as if a lookup had actually happened -- and it must not be
+    # left at "" either, since that value is reserved for "no cache was configured for this run
+    # at all" (see the PageRecord.cache_status docstring). "bypass" is its own distinct value,
+    # reusing CacheOutcome's own vocabulary for the status.
+    if cache_eligible and outcome is not None and outcome.status == "bypass":
+        record.cache_status = "bypass"
     if (
         cache_eligible
         and outcome is not None
