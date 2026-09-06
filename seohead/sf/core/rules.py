@@ -326,6 +326,8 @@ def check_headings(ctx: AuditContext) -> None:
                 },
             )
         h1_len = rec.get("h1_length")
+        if h1_len is None and h1:  # 0 is a valid length; only fall back when truly absent
+            h1_len = len(str(h1))
         if h1 and h1_len and h1_len > t["h1_max_chars"]:
             ctx.add(
                 "H1_TOO_LONG",
@@ -412,6 +414,7 @@ def check_content(ctx: AuditContext) -> None:
     )
     if not frames_known:
         ctx.skip("CONTENT_IN_IFRAME", "no iframe inventory in this evidence")
+    has_text_ratio = False
     for page in ctx.indexable_html_pages():
         rec = _rec(page)
         wc = rec.get("word_count")
@@ -448,12 +451,14 @@ def check_content(ctx: AuditContext) -> None:
                     details={"word_count": wc, "threshold": t["thin_content_words"]},
                 )
         ratio = rec.get("text_ratio")
-        if ratio is not None and ratio < t["low_text_ratio_pct"]:
-            ctx.add(
-                "LOW_TEXT_RATIO",
-                target_url=page.url,
-                details={"text_ratio": ratio, "threshold": t["low_text_ratio_pct"]},
-            )
+        if ratio is not None:
+            has_text_ratio = True
+            if ratio < t["low_text_ratio_pct"]:
+                ctx.add(
+                    "LOW_TEXT_RATIO",
+                    target_url=page.url,
+                    details={"text_ratio": ratio, "threshold": t["low_text_ratio_pct"]},
+                )
         near = rec.get("near_duplicates")
         sim = rec.get("closest_similarity")
         if near is not None and near > 0:
@@ -462,6 +467,8 @@ def check_content(ctx: AuditContext) -> None:
                 target_url=page.url,
                 details={"near_duplicates": near, "closest_similarity": sim},
             )
+    if not has_text_ratio:
+        ctx.skip("LOW_TEXT_RATIO", "no Text Ratio column in Internal:All")
 
 
 # --------------------------------------------------------------------------
@@ -469,6 +476,7 @@ def check_content(ctx: AuditContext) -> None:
 # --------------------------------------------------------------------------
 def check_url_and_perf(ctx: AuditContext) -> None:
     t = ctx.thresholds
+    has_depth = has_inlinks = has_response_time = False
     for page in ctx.html_pages():
         rec = _rec(page)
         url = page.url
@@ -488,28 +496,35 @@ def check_url_and_perf(ctx: AuditContext) -> None:
         if url.startswith("http://"):
             ctx.add("HTTP_URL", target_url=url)
         depth = rec.get("crawl_depth")
-        if depth is not None and depth > t["crawl_depth_max"]:
-            ctx.add(
-                "DEEP_CRAWL_DEPTH",
-                target_url=url,
-                details={"crawl_depth": depth, "max": t["crawl_depth_max"]},
-            )
+        if depth is not None:
+            has_depth = True
+            if depth > t["crawl_depth_max"]:
+                ctx.add(
+                    "DEEP_CRAWL_DEPTH",
+                    target_url=url,
+                    details={"crawl_depth": depth, "max": t["crawl_depth_max"]},
+                )
         inlinks = rec.get("inlinks")
         # depth != 0 excludes the homepage; missing depth (None) still counts
-        if (
-            inlinks is not None
-            and inlinks < t["orphan_inlinks_min"]
-            and page.is_indexable
-            and depth != 0
-        ):
-            ctx.add("ORPHAN_PAGE", target_url=url, details={"inlinks": inlinks})
+        if inlinks is not None:
+            has_inlinks = True
+            if inlinks < t["orphan_inlinks_min"] and page.is_indexable and depth != 0:
+                ctx.add("ORPHAN_PAGE", target_url=url, details={"inlinks": inlinks})
         rt = rec.get("response_time")
-        if rt is not None and rt > t["response_time_max_s"]:
-            ctx.add(
-                "SLOW_RESPONSE",
-                target_url=url,
-                details={"response_time": rt, "max_s": t["response_time_max_s"]},
-            )
+        if rt is not None:
+            has_response_time = True
+            if rt > t["response_time_max_s"]:
+                ctx.add(
+                    "SLOW_RESPONSE",
+                    target_url=url,
+                    details={"response_time": rt, "max_s": t["response_time_max_s"]},
+                )
+    if not has_depth:
+        ctx.skip("DEEP_CRAWL_DEPTH", "no Crawl Depth column in Internal:All")
+    if not has_inlinks:
+        ctx.skip("ORPHAN_PAGE", "no Inlinks column in Internal:All")
+    if not has_response_time:
+        ctx.skip("SLOW_RESPONSE", "no Response Time column in Internal:All")
 
 
 def check_schema(ctx: AuditContext) -> None:
@@ -1243,8 +1258,14 @@ def check_compression(ctx: AuditContext) -> None:
         # uncompressed even though each listed token is a real compression coding (#269).
         tokens = [t.strip().lower() for t in str(rec.get("content_encoding") or "").split(",")]
         tokens = [t for t in tokens if t]
-        size = rec.get("size_bytes") or 0
-        if any(t in _COMPRESSED_ENCODINGS for t in tokens) or size < _COMPRESSION_IGNORE_BYTES:
+        if any(t in _COMPRESSED_ENCODINGS for t in tokens):
+            continue
+        # A missing Size (bytes) column is not "0 bytes, too small to matter" -- it is
+        # unmeasured evidence, and applying the ignore threshold to it would let an
+        # uncompressed page hide behind a size nobody actually observed (#445). Only
+        # apply the threshold when size was genuinely measured.
+        size = rec.get("size_bytes")
+        if size is not None and size < _COMPRESSION_IGNORE_BYTES:
             continue
         ctx.add(
             "NO_COMPRESSION",
@@ -1426,6 +1447,20 @@ def check_redirect_chains(ctx: AuditContext) -> None:
                     "REDIRECT_CHAIN",
                     target_url=start,
                     details={"hops": outcome["hops"], "final_url": outcome["final_url"]},
+                )
+            elif outcome["kind"] == "unresolved":
+                # The walk hit hop_cap without proving either a clean terminus or a
+                # loop back into its own chain -- a chain of at least hop_cap hops
+                # that could not be fully classified. That is not "no chain here":
+                # it must surface as evidence, not fall through silently (#447).
+                ctx.add(
+                    "REDIRECT_CHAIN",
+                    target_url=start,
+                    details={
+                        "hops": outcome["hops"],
+                        "final_url": outcome["final_url"],
+                        "unresolved": True,
+                    },
                 )
         return
     addr = find_column(df, ["Address", "URL"])

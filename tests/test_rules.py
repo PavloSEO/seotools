@@ -191,3 +191,97 @@ def test_url_underscores_catches_percent_encoded_underscore(tmp_path):
     res = run_audit(input_mode="parse-exports", exports_dir=str(d), log=lambda m: None)
     flagged = {i.target_url for i in issues_of(res, "URL_UNDERSCORES")}
     assert flagged == {literal, encoded}
+
+
+# --------------------------------------------------------------------------
+# #436 — H1_TOO_LONG must fall back to len(H1-1) when H1-1 Length is absent,
+# the same way check_titles/check_descriptions fall back for their own length
+# columns, instead of reading a missing column as "not too long".
+# --------------------------------------------------------------------------
+def test_h1_too_long_falls_back_when_length_column_is_absent(tmp_path):
+    headers = [*_BASE_COLS, "H1-1"]  # deliberately no "H1-1 Length" column
+    row = [_URL, "text/html", "200", "Indexable", _URL, "X" * 200]
+    res = _audit_with(tmp_path, headers, row)
+    assert _URL in {i.target_url for i in issues_of(res, "H1_TOO_LONG")}
+
+
+def test_h1_too_long_stays_silent_when_length_column_present_and_within_limit(tmp_path):
+    headers = [*_BASE_COLS, "H1-1", "H1-1 Length"]
+    row = [_URL, "text/html", "200", "Indexable", _URL, "Short Heading", "13"]
+    res = _audit_with(tmp_path, headers, row)
+    assert "H1_TOO_LONG" not in checks_in(res)
+    assert "H1_TOO_LONG" not in {s.id for s in res.skipped}
+
+
+# --------------------------------------------------------------------------
+# #443 — check_url_and_perf must skip DEEP_CRAWL_DEPTH/ORPHAN_PAGE/SLOW_RESPONSE
+# by name when their source columns are entirely absent, not read that as clean.
+# --------------------------------------------------------------------------
+def test_depth_inlinks_response_time_skip_when_columns_absent(tmp_path):
+    headers = [*_BASE_COLS, "Title 1", "Meta Description 1", "H1-1"]
+    row = [_URL, "text/html", "200", "Indexable", _URL, "x" * 30, "d" * 80, "Heading"]
+    res = _audit_with(tmp_path, headers, row)
+    relevant = {"DEEP_CRAWL_DEPTH", "ORPHAN_PAGE", "SLOW_RESPONSE"}
+    fired = {i.check for i in res.issues if i.check in relevant}
+    skipped = {s.id for s in res.skipped if s.id in relevant}
+    assert fired == set()
+    assert skipped == relevant
+
+
+def test_depth_inlinks_response_time_stay_silent_when_columns_present_and_clean(tmp_path):
+    headers = [
+        *_BASE_COLS,
+        "Title 1",
+        "Meta Description 1",
+        "H1-1",
+        "Crawl Depth",
+        "Inlinks",
+        "Response Time",
+    ]
+    row = [
+        _URL,
+        "text/html",
+        "200",
+        "Indexable",
+        _URL,
+        "x" * 30,
+        "d" * 80,
+        "Heading",
+        "1",
+        "5",
+        "0.3",
+    ]
+    res = _audit_with(tmp_path, headers, row)
+    relevant = {"DEEP_CRAWL_DEPTH", "ORPHAN_PAGE", "SLOW_RESPONSE"}
+    fired = {i.check for i in res.issues if i.check in relevant}
+    skipped = {s.id for s in res.skipped if s.id in relevant}
+    assert fired == set()
+    assert skipped == set(), "measured and genuinely clean, this must not be reported as skipped"
+
+
+# --------------------------------------------------------------------------
+# #446 — LOW_TEXT_RATIO must skip by name when Text Ratio is entirely absent,
+# not fall silently into the "measured and clean" bucket.
+# --------------------------------------------------------------------------
+def test_low_text_ratio_skips_when_column_absent(tmp_path):
+    headers = [*_BASE_COLS, "Title 1", "Meta Description 1", "H1-1", "Word Count"]
+    row = [_URL, "text/html", "200", "Indexable", _URL, "x" * 30, "d" * 80, "Heading", "500"]
+    res = _audit_with(tmp_path, headers, row)
+    assert "LOW_TEXT_RATIO" not in checks_in(res)
+    assert "LOW_TEXT_RATIO" in {s.id for s in res.skipped}
+
+
+def test_low_text_ratio_stays_silent_when_column_present_and_above_threshold(tmp_path):
+    headers = [*_BASE_COLS, "Title 1", "Meta Description 1", "H1-1", "Word Count", "Text Ratio"]
+    row = [_URL, "text/html", "200", "Indexable", _URL, "x" * 30, "d" * 80, "Heading", "500", "50"]
+    res = _audit_with(tmp_path, headers, row)
+    assert "LOW_TEXT_RATIO" not in checks_in(res)
+    assert "LOW_TEXT_RATIO" not in {s.id for s in res.skipped}
+
+
+def test_low_text_ratio_still_fires_when_column_present_and_below_threshold(tmp_path):
+    headers = [*_BASE_COLS, "Title 1", "Meta Description 1", "H1-1", "Word Count", "Text Ratio"]
+    row = [_URL, "text/html", "200", "Indexable", _URL, "x" * 30, "d" * 80, "Heading", "500", "5"]
+    res = _audit_with(tmp_path, headers, row)
+    assert _URL in {i.target_url for i in issues_of(res, "LOW_TEXT_RATIO")}
+    assert "LOW_TEXT_RATIO" not in {s.id for s in res.skipped}
