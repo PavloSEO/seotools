@@ -35,17 +35,21 @@ The graph checks read Screaming Frog's `Bulk Export -> Links -> All Hreflang` re
 per source page, destination and language. Without it, `run.checks_skipped` names each of them
 with the export they need, rather than reporting a clean multilingual site nobody examined.
 
-**3. Read the three findings as three different jobs.**
+**3. Read the four findings as four different jobs.**
 
 | Finding | What broke |
 |---|---|
 | `HREFLANG_MISSING_RETURN_LINK` | A names B; B never names A |
+| `HREFLANG_INCONSISTENT_CONFIRMATION` | A calls B "fr"; B calls itself "de" |
 | `HREFLANG_NOT_CANONICAL` | the annotation points at a duplicate that canonicalises elsewhere |
 | `HREFLANG_BROKEN_TARGET` | the target answers 3xx, 4xx or 5xx |
 
 The first is a content-management problem, usually one language being published on a different
-schedule from the others. The second is an architecture problem. The third is a link that has
-simply rotted, and it is the cheapest of the three to fix.
+schedule from the others. The second is the same pair being reciprocal and still discarded,
+because Google reads a pair as valid only when both sides name the same code — a counterpart's
+own self-referencing annotation is what it calls itself, and a counterpart that declares nothing
+about itself is passed over rather than guessed at. The third is an architecture problem. The
+fourth is a link that has simply rotted, and it is the cheapest of the four to fix.
 
 **4. Confirm the targets are really what the audit thinks they are.**
 
@@ -88,10 +92,11 @@ seohead report-build --audit ./run/audit.json --format xlsx --out ./hreflang.xls
 
 ## What it cannot answer
 
-- **Whether the return link declares the same locale back.** `HREFLANG_MISSING_RETURN_LINK`
-  tests that a return annotation exists, not that it names the same language and region. A pair
-  where the German page points back at the English one under `hreflang="fr"` is reciprocal and
-  wrong, and this chain will call it reciprocal. That is a stated partial, not a clean result.
+- **Whether a counterpart that never self-references is in the right locale.**
+  `HREFLANG_INCONSISTENT_CONFIRMATION` measures an incoming claim against what the counterpart
+  declares about itself, so a counterpart carrying no self-referencing annotation has nothing to
+  disagree with and is passed over here. `HREFLANG_MISSING_SELF_REFERENCE` names that page
+  instead — see the [hreflang codes scenario](hreflang-codes.md).
 - **Whether an hreflang target is indexable.** The target's status is checked; its `noindex` is
   not cross-referenced. A reciprocal, canonical, 200-answering annotation pointing at a page
   nobody may index still reads clean here.

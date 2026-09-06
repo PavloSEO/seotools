@@ -6,7 +6,7 @@ Generated from `seohead/sf/core/registry.py` — do not edit by hand. Regenerate
 python scripts/generate_checks_reference.py
 ```
 
-**149 checks.** Severity, evidence and fix all come from the same `CHECKS` dict the rule engine reads, so this table cannot say something the engine disagrees with.
+**152 checks.** Severity, evidence and fix all come from the same `CHECKS` dict the rule engine reads, so this table cannot say something the engine disagrees with.
 
 - **Fires on** — what the check id means, in the registry's own words.
 - **Evidence** — the `source` tag: which export or module has to be present for the check to run at all; its absence is why a check comes back `skipped` instead of a silent pass.
@@ -202,6 +202,7 @@ python scripts/generate_checks_reference.py
 | `HREFLANG_MISSING_XDEFAULT` | notice | inlinks:All Hreflang | Hreflang set has no x-default fallback | Add an x-default annotation to catch users whose language/region does not match any declared alternate. |
 | `HREFLANG_NOT_CANONICAL` | warning | inlinks:All Hreflang | Hreflang points to a URL that is not itself the canonical version | Point hreflang annotations at each target's canonical URL, not at a duplicate that canonicalizes elsewhere. |
 | `HREFLANG_MISSING_RETURN_LINK` | warning | inlinks:All Hreflang | Another page's hreflang points here, but this page does not point back | Add a reciprocal hreflang annotation back to every page that names this one. |
+| `HREFLANG_INCONSISTENT_CONFIRMATION` | warning | inlinks:All Hreflang | This page declares a counterpart under a language and region code the counterpart does not confirm for itself | Make the two declarations agree: either correct this page's hreflang value for that URL, or correct the counterpart's own self-referencing hreflang. Google reads a pair as valid only when both sides name the same code, so a mismatched pair is discarded exactly as a missing return link is. |
 
 ## --- extension: pagination ---
 
@@ -240,6 +241,8 @@ python scripts/generate_checks_reference.py
 | `MISSING_DOCTYPE` | notice | SF-derived | Document lacks a modern <!DOCTYPE html> declaration, triggering quirks mode | Add `<!DOCTYPE html>` as the very first line of the document, with no PUBLIC or SYSTEM identifier. |
 | `VIEWPORT_MISSING` | warning | SF-derived | No <meta name=viewport> tag with width or an initial-scale of at least 1 | Add `<meta name="viewport" content="width=device-width, initial-scale=1">` to the document head. |
 | `UNSUPPORTED_PLUGIN` | warning | crawl:plugin_elements | Page contains a legacy plugin-dependent element (<object>/<embed>/<applet>) | Replace the plugin-dependent element with a native equivalent (HTML5 <video>/<audio>, an <img>/<svg>, or a JavaScript-driven alternative) -- mobile browsers, and modern desktop ones, do not run plugins, so this content is simply invisible there. |
+| `AJAX_CRAWLING_SCHEME_URL` | notice | crawl:ajax_scheme_outlinks | The deprecated AJAX crawling scheme (#! / _escaped_fragment_) is still used by this page's URL or by URLs it links to | Serve the same content at ordinary URLs and link to those instead. Google deprecated the scheme in 2015 and stopped supporting it in 2018, so an _escaped_fragment_ companion URL is no longer requested by anything -- informational rather than broken, because a site may still keep it for a legacy client of its own. |
+| `AJAX_CRAWLING_SCHEME_META_FRAGMENT` | notice | crawl:meta_fragment | Page declares <meta name="fragment"> -- the page-wide opt-in to the deprecated AJAX crawling scheme | Remove the tag once the page is served as ordinary HTML (server-rendered or crawlable client-rendered). Nothing requests the _escaped_fragment_ companion URL it advertises any more, so the declaration is inert -- informational rather than broken. |
 | `NO_COMPRESSION` | notice | SF-derived | HTML response is served uncompressed above the size where gzip/br would help | Enable gzip, Brotli, or deflate compression for text responses on the origin server or CDN. |
 
 ## --- extension: element position & document skeleton (issue #123) ---

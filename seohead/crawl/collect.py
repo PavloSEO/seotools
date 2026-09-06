@@ -30,7 +30,7 @@ from seohead.crawl.cache import ResponseCache
 from seohead.crawl.settings import checked_url_budget, resolve_credential_headers
 from seohead.crawl.throttle import MAX_DELAY_S, Throttle
 from seohead.recon.net import UA, BlockedRedirectError, http_client, pinned_target, validate_url
-from seohead.tools.parser import parse_html
+from seohead.tools.parser import parse_html, uses_ajax_crawling_scheme
 from seohead.tools.robots import is_allowed, match_path, parse_robots
 
 SCHEMA_VERSION = "crawl.v1"
@@ -92,6 +92,17 @@ class PageRecord:
     # Legacy plugin-dependent elements (<object>/<embed>/<applet>) that are not
     # a benign image fallback (#385).
     plugin_elements: int = 0
+    # The page's own <meta name="fragment"> content attribute, as written (#386):
+    # the page-wide opt-in to Google's deprecated AJAX crawling scheme. "" when
+    # the page declares none. seohead.tools.render already read this tag to pick a
+    # fetch mode; recording it is what lets the audit report that the site still
+    # carries it.
+    meta_fragment: str = ""
+    # How many of this page's own outlink hrefs are written in that same
+    # deprecated scheme -- a "#!" fragment or an "?_escaped_fragment_=" query
+    # (#386). Counted over every link the parser retained, internal or external,
+    # because "this page still publishes hash-bang URLs" is the finding either way.
+    ajax_scheme_outlinks: int = 0
     crawl_depth: int = 0
     # Response-header/markup evidence for the static Lighthouse checks in
     # seohead.sf.core.rules (charset/doctype/viewport/uses-text-compression) —
@@ -253,6 +264,12 @@ def _record_from_parsed(parsed: dict) -> dict[str, Any]:
         "images_missing_alt_attr": len(images) - len(images_with_alt),
         "images_max_alt_length": max((i.get("alt_length", 0) for i in images_with_alt), default=0),
         "plugin_elements": int(parsed.get("plugin_elements_count") or 0),
+        "meta_fragment": _text_of(parsed.get("meta_fragment")),
+        # Read off the resolved hrefs the parser already produced, not re-parsed
+        # from markup: an href is only a scheme URL once it is a URL (#386).
+        "ajax_scheme_outlinks": sum(
+            1 for link in links if uses_ajax_crawling_scheme(_text_of(link.get("href")))
+        ),
         # Every crawler-addressed robots tag, agent scope preserved (see
         # parser.robots_meta_scoped): a page can be noindex for Googlebot alone,
         # and a directive named for Bingbot or Yandex must not read as global.

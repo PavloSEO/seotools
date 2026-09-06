@@ -25,7 +25,7 @@ import re
 from collections.abc import Callable
 from html.parser import HTMLParser
 from typing import Any, Literal, cast
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qsl, urljoin, urlparse
 
 from bs4 import BeautifulSoup, Tag
 
@@ -154,6 +154,40 @@ def is_external(href_abs: str, base_url: str) -> bool:
     if not target:
         return False
     return target.lower() != base.lower()
+
+
+# The two forms Google's now-deprecated AJAX crawling scheme uses to announce a
+# rendered snapshot: a "#!" hash-bang in the URL's own fragment, and the
+# "?_escaped_fragment_=" query the crawler was told to request instead.
+# ``seohead.tools.render.legacy_fragment_target`` builds the second from the
+# first; this only recognises either shape, and never fetches anything.
+_ESCAPED_FRAGMENT_PARAM = "_escaped_fragment_"
+
+
+def uses_ajax_crawling_scheme(url: str) -> bool:
+    """True when ``url`` is written in the deprecated AJAX crawling scheme (#386).
+
+    Recognises both halves of the scheme: the ``#!`` fragment a site publishes and
+    the ``?_escaped_fragment_=`` companion URL a crawler was expected to request in
+    its place. Google retired the scheme in 2015 and stopped supporting it in 2018,
+    so a URL still written this way is a legacy signal, not a defect on its own --
+    which is why the check that reads this is registered at notice severity.
+
+    An ordinary in-page anchor (``#section``) is not the scheme: only a fragment
+    that *starts* with ``!`` is. A URL that cannot be parsed is not the scheme
+    either -- an unparseable URL is its own problem, not this one.
+    """
+    if not url:
+        return False
+    try:
+        parts = urlparse(url)
+    except ValueError:
+        return False
+    if parts.fragment.startswith("!"):
+        return True
+    return any(
+        key == _ESCAPED_FRAGMENT_PARAM for key, _ in parse_qsl(parts.query, keep_blank_values=True)
+    )
 
 
 def _resolve_options(options: dict[str, Any] | None) -> dict[str, bool]:
@@ -453,6 +487,28 @@ def meta_refresh_content(soup: BeautifulSoup) -> str:
         if equiv.lower().strip() == "refresh":
             return collapse_whitespace(cast("str | None", meta.get("content")) or "")
     return ""
+
+
+def meta_fragment_content(soup: BeautifulSoup) -> str:
+    """The first live ``<meta name="fragment">``'s content attribute, as written (#386).
+
+    This tag is the page-wide half of Google's deprecated AJAX crawling scheme: it
+    declares that the whole document has a rendered snapshot at a
+    ``?_escaped_fragment_=`` companion URL. ``seohead.tools.render`` already reads
+    it, but only to decide how to fetch the page -- the declaration itself was
+    never recorded, so nothing downstream could report that the site still carries
+    it.
+
+    The raw content is kept rather than a boolean because the scheme's own opt-in
+    value is ``"!"`` and anything else is a different (or mistaken) declaration; a
+    report that says what the page wrote is one an operator can act on. A tag
+    inside a ``<template>`` is inert and is not a declaration, the same rule
+    ``_first_meta_tag`` applies.
+    """
+    tag = _first_meta_tag(soup, name="fragment")
+    if tag is None:
+        return ""
+    return collapse_whitespace(cast("str | None", tag.get("content")) or "")
 
 
 def robots_directives(*values: str | None) -> set[str]:
@@ -1590,6 +1646,9 @@ def parse_html(html: str, final_url: str, options: dict[str, Any] | None = None)
     # elements are both handful-of-lookups on the already-built tree (#385, #386).
     result["images"] = extract_images(soup)
     result["plugin_elements_count"] = unsupported_plugin_count(soup)
+    # Same reasoning once more: one <meta> lookup on the already-built tree, and
+    # the page-wide opt-in to the deprecated AJAX crawling scheme (#386).
+    result["meta_fragment"] = meta_fragment_content(soup)
 
     # Built imperatively above (one assignment per option branch) rather than as
     # one literal, so a plain dict is the natural builder; cast once at the
