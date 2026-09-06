@@ -595,6 +595,8 @@ def _audit_crawl_result(
     out_dir=None,
     pages_resume_path=None,
     finite_json=False,
+    stored_scan=None,
+    stored_sitemap=None,
 ):
     """Run the existing native analysis over a complete, admitted population."""
     import json
@@ -671,7 +673,21 @@ def _audit_crawl_result(
             )
             requires_rendering, requires_rendering_reason = gate.requires_rendering, gate.reason
 
-    evidence = build_evidence(result)
+    if stored_scan is None:
+        evidence = build_evidence(result)
+    else:
+        from seohead.crawl.sql_graph import StoredGraph
+
+        with StoredGraph(stored_scan.con) as graph:
+            counts = (
+                {
+                    item["url"]: (item["inlinks"], item["unique_inlinks"])
+                    for item in graph.iter_inlink_counts()
+                }
+                if result.links
+                else None
+            )
+        evidence = build_evidence(result, inlink_counts=counts)
     exports = LoadedExports()
     exports.frames.update(evidence["frames"])
     exports.found = list(evidence["found"])
@@ -712,7 +728,7 @@ def _audit_crawl_result(
         ctx,
         sitemap_url=sitemap_seed["sitemap_url"],
         sitemap_urls=sitemap_seed["sitemap_urls"],
-        compare_with_crawl=not sitemap_seed["declared"],
+        compare_with_crawl=stored_scan is None and not sitemap_seed["declared"],
         crawl_partial=bool(getattr(result, "partial", False)),
     )
     # Only surfaced when something was actually measured. run_sitemap always
@@ -725,16 +741,30 @@ def _audit_crawl_result(
         if (measured.get("sitemaps") or measured.get("declared_in_robots") is not None)
         else {}
     )
-    if sitemap_seed["declared"]:
+    if stored_scan is not None and (stored_sitemap is None or not stored_sitemap.available):
+        reason = (
+            stored_sitemap.reason if stored_sitemap is not None else "no saved sitemap declarations"
+        )
+        for check in ("SITEMAP_ORPHAN", "URL_NOT_IN_SITEMAP", "SITEMAP_DESYNC"):
+            ctx.skip(check, reason)
+        sitemap_summary.update(reconciliation_available=False, reconciliation_reason=reason)
+    if sitemap_seed["declared"] or (stored_sitemap is not None and stored_sitemap.available):
         # "Reached by following links" — not merely fetched, since a seeded
         # URL is fetched regardless of whether anything links to it. Three
         # disjoint facts, reported under the check ids the Screaming Frog
         # pipeline already uses for the same distinction (SITEMAP_ORPHAN,
         # URL_NOT_IN_SITEMAP), so audit.json has one schema either way.
-        observed = [edge.destination for edge in result.links]
-        reconciled = reconcile_sitemap(
-            sitemap_seed["declared"], observed, _sitemap_comparable_pages(result, url)
-        )
+        if stored_sitemap is None:
+            observed = [edge.destination for edge in result.links]
+            reconciled = reconcile_sitemap(
+                sitemap_seed["declared"], observed, _sitemap_comparable_pages(result, url)
+            )
+        else:
+            reconciled = stored_sitemap.materialize(100_000)
+            reconciled.pop("available", None)
+            reconciled.pop("reason", None)
+            reconciled.pop("crawl_partial", None)
+            reconciled["reconciliation_available"] = True
         reconciled["sitemap_url"] = sitemap_seed["sitemap_url"]
         reconciled["sitemap_urls"] = sitemap_seed["sitemap_urls"]
         for orphan_url in reconciled["in_sitemap_not_linked"]:
@@ -752,7 +782,14 @@ def _audit_crawl_result(
         )
         crawl_only_pct = round(100 * len(reconciled["linked_not_in_sitemap"]) / comparable_total, 1)
         sitemap_only_pct = round(
-            100 * len(reconciled["in_sitemap_not_linked"]) / max(len(sitemap_seed["declared"]), 1),
+            100
+            * len(reconciled["in_sitemap_not_linked"])
+            / max(
+                len(sitemap_seed["declared"])
+                if stored_sitemap is None
+                else stored_sitemap.declared_raw_count,
+                1,
+            ),
             1,
         )
         threshold = ctx.thresholds["sitemap_desync_pct_warn"]
@@ -791,7 +828,14 @@ def _audit_crawl_result(
     if url and settings["link_position"]["classify"]:
         from seohead.crawl.linkgraph import inlink_composition
 
-        link_position = inlink_composition(result.links)
+        if stored_scan is None:
+            link_position = inlink_composition(result.links)
+        else:
+            from seohead.crawl.sql_graph import StoredGraph
+            from seohead.crawl.sql_graph_output import composition
+
+            with StoredGraph(stored_scan.con) as graph:
+                link_position = composition(graph, max_pages=100_000)
         # "Never linked from body content" is a claim about every inlink a page
         # has -- exactly the shape #246 asks graph-wide claims to withhold on a
         # partial crawl: the missing frontier could still hold the one content
@@ -821,22 +865,50 @@ def _audit_crawl_result(
     # records; the cross-origin and protocol-relative checks additionally need
     # link_attributes.capture (off by default -- see its own docstring).
     if url:
-        from seohead.crawl import link_findings
+        from contextlib import nullcontext
 
-        crawl_host = urlsplit(start_norm).hostname or ""
-        for item in link_findings.outlinks_to_localhost(result.links):
-            ctx.add("OUTLINK_TO_LOCALHOST", target_url=item["target_url"], details=item)
-        for dest in link_findings.follow_and_nofollow_inlinks(result.links, crawl_host):
-            ctx.add("FOLLOW_AND_NOFOLLOW_INLINKS", target_url=dest)
-        for item in link_findings.form_url_insecure(result.forms):
-            ctx.add("FORM_URL_INSECURE", target_url=item["target_url"], details=item)
-        for item in link_findings.forms_on_http_pages_with_password(result.forms):
-            ctx.add("FORM_ON_HTTP_URL", target_url=item["target_url"], details=item)
-        if settings["link_attributes"]["capture"]:
-            for item in link_findings.unsafe_cross_origin_links(result.links):
-                ctx.add("UNSAFE_CROSS_ORIGIN_LINK", target_url=item["target_url"], details=item)
-            for item in link_findings.protocol_relative_links(result.links):
-                ctx.add("PROTOCOL_RELATIVE_LINK", target_url=item["target_url"], details=item)
+        from seohead.crawl import link_findings
+        from seohead.crawl.sql_graph import StoredGraph
+
+        with StoredGraph(stored_scan.con) if stored_scan else nullcontext(None) as graph:
+            crawl_host = urlsplit(start_norm).hostname or ""
+            for item in (
+                graph.iter_localhost_findings()
+                if graph
+                else link_findings.outlinks_to_localhost(result.links)
+            ):
+                ctx.add("OUTLINK_TO_LOCALHOST", target_url=item["target_url"], details=item)
+            for dest in (
+                graph.iter_follow_and_nofollow(crawl_host)
+                if graph
+                else link_findings.follow_and_nofollow_inlinks(result.links, crawl_host)
+            ):
+                ctx.add("FOLLOW_AND_NOFOLLOW_INLINKS", target_url=dest)
+            for item in (
+                graph.iter_insecure_forms()
+                if graph
+                else link_findings.form_url_insecure(result.forms)
+            ):
+                ctx.add("FORM_URL_INSECURE", target_url=item["target_url"], details=item)
+            for item in (
+                graph.iter_password_forms_on_http()
+                if graph
+                else link_findings.forms_on_http_pages_with_password(result.forms)
+            ):
+                ctx.add("FORM_ON_HTTP_URL", target_url=item["target_url"], details=item)
+            if settings["link_attributes"]["capture"]:
+                for item in (
+                    graph.iter_unsafe_cross_origin()
+                    if graph
+                    else link_findings.unsafe_cross_origin_links(result.links)
+                ):
+                    ctx.add("UNSAFE_CROSS_ORIGIN_LINK", target_url=item["target_url"], details=item)
+                for item in (
+                    graph.iter_protocol_relative()
+                    if graph
+                    else link_findings.protocol_relative_links(result.links)
+                ):
+                    ctx.add("PROTOCOL_RELATIVE_LINK", target_url=item["target_url"], details=item)
 
     audit = aggregate(
         ctx,

@@ -16,7 +16,6 @@ from seohead import __version__
 MAX_AUDIT_PAGES = 5_000
 MAX_AUDIT_LINKS = 100_000
 MAX_AUDIT_FORMS = 20_000
-MAX_SITEMAP_SEEDS = 50_000
 _SHA = re.compile(r"[0-9a-f]{40}\Z")
 
 
@@ -86,17 +85,6 @@ def _producer_provenance(producer_build: str | None) -> tuple[str, str, dict[str
             "beautifulsoup4": _installed_version("beautifulsoup4"),
         },
     )
-
-
-def _seed_urls(url: str, sitemap: str | None, settings: dict[str, Any]) -> dict[str, Any]:
-    from seohead.servers.handlers import _seed_urls_from_sitemap
-
-    seeded = _seed_urls_from_sitemap(url, sitemap, settings["sitemaps"]["auto_discover"])
-    if len(seeded["declared"]) > MAX_SITEMAP_SEEDS:
-        raise ValueError(
-            f"sitemap seed expansion exceeds the finite {MAX_SITEMAP_SEEDS}-URL bridge limit"
-        )
-    return seeded
 
 
 def _rebuild_spider_result(scan) -> Any:
@@ -213,11 +201,10 @@ def crawl_site_scan(
         "declared": [],
     }
 
-    def seed_urls():
-        # Validate/create the scan and its mode before any sitemap requests.
-        # The existing expansion remains outside the bounded collector profile.
-        sitemap_seed.update(_seed_urls(url, sitemap, settings))
-        yield from sitemap_seed["declared"]
+    from seohead.servers.scan_sitemaps import initial_sitemaps, load_sitemaps
+
+    def seed_loader(scan, emit_seeds):
+        load_sitemaps(scan, emit_seeds, settings=settings, result=sitemap_seed)
 
     from seohead.crawl.sqlite_adapter import crawl_to_scan
     from seohead.storage.native_scan import NativeScan
@@ -229,10 +216,17 @@ def crawl_site_scan(
         producer_version=producer_version,
         producer_revision=producer_revision,
         runtime_versions=runtime_versions,
-        seed_urls=seed_urls(),
+        initial_sitemaps=initial_sitemaps(sitemap),
+        seed_loader=seed_loader,
     )
     with NativeScan.open(run.path) as scan:
         snapshot = scan.resume_snapshot(include_edges=True)
+        roots = scan.sitemap_roots()
+        sitemap_seed.update(
+            sitemap_url=roots[0]["url"] if roots else None,
+            sitemap_urls=[root["url"] for root in roots],
+            declared=[],
+        )
         counts = {table: snapshot["counts"][table] for table in ("pages", "links", "forms")}
         reason = _bridge_reason(counts, run.start_page_gate)
         if reason is not None and run.start_page_gate is None and _has_saved_audit(scan):
@@ -264,18 +258,22 @@ def crawl_site_scan(
             "sitemap_urls": sitemap_seed["sitemap_urls"],
             "sitemap_seeded": len(result.seed_urls),
         }
+        from seohead.crawl.sql_sitemap import prepare_sitemap_reconciliation
         from seohead.servers.handlers import _audit_crawl_result
 
-        _response_data, audit = _audit_crawl_result(
-            result,
-            settings=settings,
-            url=url,
-            sitemap_seed=sitemap_seed,
-            discovery=discovery,
-            out_dir=None,
-            pages_resume_path=None,
-            finite_json=True,
-        )
+        with prepare_sitemap_reconciliation(scan.con, start_url=url) as reconciliation:
+            _response_data, audit = _audit_crawl_result(
+                result,
+                settings=settings,
+                url=url,
+                sitemap_seed=sitemap_seed,
+                discovery=discovery,
+                out_dir=None,
+                pages_resume_path=None,
+                finite_json=True,
+                stored_scan=scan,
+                stored_sitemap=reconciliation,
+            )
         scan.save_audit(audit)
         finalized = scan.finish_capture(reason=run.finish_reason)
     _response_data.update(

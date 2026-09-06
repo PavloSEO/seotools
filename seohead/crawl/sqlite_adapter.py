@@ -307,6 +307,8 @@ def crawl_to_scan(
     producer_revision: str,
     runtime_versions: dict[str, str],
     seed_urls: Iterable[str] = (),
+    initial_sitemaps: tuple[tuple[str, str], ...] = (),
+    seed_loader: Callable[[NativeScan, Callable[[Iterable[str]], None]], None] | None = None,
     content_area_config: dict[str, Any] | None = None,
     fetcher: Callable[[str], Any] | None = None,
     sleeper: Callable[[float], None] = time.sleep,
@@ -370,13 +372,35 @@ def crawl_to_scan(
             writer_revision=producer_revision,
             runtime_versions=runtime_versions,
             limitations=limitations,
+            initial_sitemaps=initial_sitemaps,
         )
     )
     with _client_context(settings, fetcher) as client, scan_context as scan:
+        snapshot = scan.resume_snapshot()
+        seeded = (
+            existing
+            and json.loads(snapshot["scan"]["capabilities_json"])["resume"]["state"] == "complete"
+        )
+        selected_roots = scan.sitemap_roots() if seed_loader is not None else []
+        if any(
+            not (
+                scan.read_context("sitemap_fetch_summary", f"url:{root['sitemap_url_id']}") or {}
+            ).get("complete")
+            for root in selected_roots
+        ):
+            seeded = False
+        if existing and initial_sitemaps:
+            expected = [url for url, _source in initial_sitemaps]
+            selected = [root["url"] for root in selected_roots if root["source"] == "explicit"]
+            if expected != selected:
+                raise ScanError("selected sitemap inputs changed; refusing unsafe resume")
+        discovery_needs_robots = (
+            seed_loader is not None and settings["sitemaps"]["auto_discover"] and not selected_roots
+        )
         robots_policy = settings["robots"]["policy"]
         robots_token = settings["robots"]["user_agent_token"]
-        if existing:
-            saved_robots = scan.read_context("robots_summary")
+        saved_robots = scan.read_context("robots_summary") if existing else None
+        if saved_robots is not None:
             if not isinstance(saved_robots, dict):
                 raise ScanError("resumable native scan is missing its robots summary")
             if (
@@ -392,7 +416,9 @@ def crawl_to_scan(
             if not isinstance(robots, dict) or not isinstance(robots_note, str):
                 raise ScanError("resumable native scan robots context is invalid")
             robots_unavailable = robots_state == "unavailable"
-        elif robots_policy == "ignore":
+        elif seeded:
+            raise ScanError("resumable native scan is missing its robots summary")
+        elif robots_policy == "ignore" and not discovery_needs_robots:
             robots, robots_note, robots_unavailable = (
                 {"groups": [], "sitemaps": []},
                 "robots.txt not fetched (policy: ignore)",
@@ -402,7 +428,7 @@ def crawl_to_scan(
         else:
             robots, robots_note, robots_unavailable = _fetch_robots(start, fetcher, client)
             robots_state = "unavailable" if robots_unavailable else "fetched"
-        if not existing:
+        if saved_robots is None:
             scan.write_context(
                 [
                     {
@@ -454,7 +480,8 @@ def crawl_to_scan(
                 throttle, snapshot
             )
             scan.recover_inflight()
-        else:
+        if not seeded:
+            # Initial input chunks are replayed until the durable phase is complete.
             # D depends on C's atomic seed API: supply in chunks so sitemap expansion
             # never becomes a second Python frontier.  Until that API is integrated,
             # this intentionally fails instead of falling back to a deque/set.
@@ -493,9 +520,15 @@ def crawl_to_scan(
                     "seed": True,
                 }
 
-            seed_iter = (seed_entry(url) for url in seed_urls if url and url.strip())
-            while chunk := list(itertools.islice(seed_iter, 256)):
-                scan.seed_frontier(chunk)
+            def emit_seeds(urls: Iterable[str]) -> None:
+                seed_iter = (seed_entry(url) for url in urls if url and url.strip())
+                while chunk := list(itertools.islice(seed_iter, 256)):
+                    scan.seed_frontier(chunk)
+
+            if seed_loader is None:
+                emit_seeds(seed_urls)
+            else:
+                seed_loader(scan, emit_seeds)
 
         frontier_state = scan.resume_snapshot()["counts"]
         if frontier_state.get("queued", 0) or frontier_state.get("inflight", 0):

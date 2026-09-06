@@ -246,7 +246,9 @@ def _hreflang_frame(pages: list[Any]) -> Any:
     )
 
 
-def build_evidence(result: CrawlResult) -> dict[str, Any]:
+def build_evidence(
+    result: CrawlResult, *, inlink_counts: dict[str, tuple[int, int]] | None = None
+) -> dict[str, Any]:
     """Project a crawl into analyzer-shaped frames with its gaps declared.
 
     Returns plain data — frames, found, missing — rather than an analyzer type.
@@ -261,7 +263,8 @@ def build_evidence(result: CrawlResult) -> dict[str, Any]:
     # keeps declaring "all_inlinks" (and per-page Inlinks/Unique Inlinks,
     # which come from the same graph) absent exactly as before.
     links = getattr(result, "links", None)
-    inlink_counts = _inlink_counts(links) if links else None
+    if inlink_counts is None:
+        inlink_counts = _inlink_counts(links) if links else None
     # Populated even under ``robots_policy="report_only"``, where a disallowed
     # URL is still fetched and gets an ordinary page row (#154) -- that row
     # must not read as indexable just because the fetch happened to succeed.

@@ -337,6 +337,60 @@ The profiler emits progress and JSON with platform/runtime versions and source
 file hashes. It keeps no full edge graph in Python. See
 [the profiler](../scripts/profile_scan_collector.py) for the exact fixture.
 
+### SQL graph and sitemap projections
+
+Native scan graph projections now read a validated `scan.v1` artifact through a
+read-only SQLite snapshot. They use bounded cursors and connection-local,
+file-backed temporary tables; they do not rebuild the stored graph as a Python
+edge list, set, or DataFrame. The recorded destination text remains an edge
+fact. A destination enters the composition population only when its existing
+crawler canonical identity belongs to a recorded crawled page; repeated DOM
+occurrences remain stored, while composition alone counts one distinct
+`(destination, source, position)` triple. Unclassified occurrences remain
+unmeasured rather than becoming content links. Destinations outside the
+crawled-page population are disclosed separately and do not create an internal
+linking conclusion.
+
+Sitemap membership records the selected **expanded root** after the existing
+sitemap tool follows a root and its nested indexes. It does not claim that a
+member came directly from one XML document line. Member order is the run-wide
+post-expansion normalization/deduplication order across selected roots, while
+the original retained URL spelling remains the report value. A selected root
+with a complete expansion and zero members is a measured empty sitemap. A scan
+with no saved selected roots is `unavailable` rather than a zero-sized sitemap;
+partial root expansion is also unavailable for a reconciliation conclusion.
+
+The SQL graph layer is complete for its own native composition, existing
+per-edge findings, and sitemap-membership populations. It does **not** make the
+existing SF-style analyzer unbounded: the `all_inlinks` analyzer bridge remains
+the next finite, separately bounded child. Native SQLite collection currently
+retains no response body, raw HTML, rendered DOM, JavaScript, or CSS body.
+
+#### SQL graph profile
+
+The E profiler constructs a deterministic 10,000-page native-writer fixture
+with classified `content`/`footer` links and a complete 10,000-member selected
+expanded root. Build, graph, and sitemap readers run in separate
+subprocesses, so graph/sitemap RSS does not inherit fixture-construction RSS.
+It measures no `all_inlinks` DataFrame, report rendering, or body lane. Run
+`python scripts/profile_scan_graph.py --profile` to reproduce the JSON and
+incremental progress output.
+
+On macOS 26.6.2 arm64 with Python 3.14.6 and SQLite 3.53.3, the separate
+reader subprocesses produced these results. macOS `ru_maxrss` is bytes; the
+script normalizes it to MiB and records Linux KiB separately. Each graph digest
+matched a one-row-at-a-time expected digest; each sitemap run had exactly 10,000
+`in_sitemap_and_linked` members and no other bucket.
+
+| Stored links | Graph reader peak RSS | Graph seconds | Composition rows / distinct triples | 10,000-member sitemap reader peak RSS / seconds |
+|---:|---:|---:|---:|---:|
+| 300,000 | 247.97 MiB | 1.819 | 10,000 / 300,000 | 248.28 MiB / 2.680 |
+| 1,500,000 | 248.22 MiB | 6.608 | 10,000 / 1,500,000 | 248.30 MiB / 14.068 |
+
+The graph-reader peak increased 0.25 MiB over the fixed-page edge-density
+change. This is a cursor-projection measurement, not an end-to-end crawler,
+analyzer, report, body, or arbitrary-site capacity claim.
+
 ## Native transactions and recovery
 
 `seohead.storage.native_scan.NativeScan` is an internal Python storage API for a
@@ -408,10 +462,16 @@ The current native lanes use these versioned context rows:
 | `seed_url` / `url:<url_id>` | `{"url_id":positive_integer,"depth":0,"source":"sitemap"}` |
 | `robots_summary` / `run` | Policy/token, fetch state, nullable response ID, note, and parsed groups/sitemaps; the exact closed payload is in [the format contract](https://github.com/PavloSEO/seotools/issues/372). |
 | `native_commit` / queue ordinal as decimal text | `{"digest":lowercase_sha256}` |
+| `sitemap_declaration` / `ordinal:<root_ordinal>` | `{"sitemap_url_id":positive_integer,"source":"explicit or robots","ordinal":nonnegative_integer}`. This names one selected expanded root, including its nested sitemap indexes. |
+| `sitemap_declared_url` / `sitemap:<sitemap_url_id>:ordinal:<global_ordinal>` | `{"sitemap_url_id":positive_integer,"url_id":positive_integer,"ordinal":nonnegative_integer}`. `ordinal` is run-wide post-expansion normalization/deduplication order across roots, never a direct XML-line claim. |
+| `sitemap_fetch_summary` / `url:<sitemap_url_id>` | `{"sitemap_url_id":positive_integer,"response_ids":[positive_integer],"complete":boolean,"reason":string}`. Current E capture has `response_ids: []`; response provenance belongs to the later response/body lane. |
 
 Unknown context kinds/keys and extra payload fields are refused. A robots context
 references this scan's URL and measured policy; `native_commit` belongs to a done
-frontier row. Exclusion counts derive from decision occurrences. Raw start-page
-HTML is not hidden in a context row: it requires the later document/body lane.
+frontier row. Sitemap reconciliation stops at the first selected root whose
+summary is partial or failed: it returns an unavailable state rather than a
+shortened replay that could label absent membership as an orphan or a clean empty
+sitemap. Exclusion counts derive from decision occurrences. Raw start-page HTML
+is not hidden in a context row: it requires the later document/body lane.
 Response, document, body, and resource retention, rendering updates, and offline
 replay remain unavailable.

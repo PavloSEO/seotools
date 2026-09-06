@@ -633,6 +633,7 @@ def open_scan(path: str | Path, *, require_audit: bool = True):
         con.execute("PRAGMA query_only=ON")
         con.execute("PRAGMA foreign_keys=ON")
         con.execute("PRAGMA cache_size=-8192")
+        con.execute("PRAGMA temp_store=FILE")
         deadline = time.monotonic() + READ_TIMEOUT_SECONDS
         con.set_progress_handler(lambda: int(time.monotonic() > deadline), 10000)
         con.execute("BEGIN")
