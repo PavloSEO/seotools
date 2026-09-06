@@ -2,21 +2,21 @@
   "schema_version": "1.0",
   "source": {
     "project": "example.com",
-    "generated_at": "2026-09-06T07:34:14Z",
-    "health_score": 6,
+    "generated_at": "2026-09-06T09:23:41Z",
+    "health_score": 2,
     "crawl_valid": true,
     "crawl_invalid_reason": null,
     "crawl_partial": false,
     "crawl_finish_reason": null,
     "health_score_scope": null,
-    "health_score_basis": "73 of 139 checks could run; the score is not comparable to a run with full evidence",
+    "health_score_basis": "75 of 149 checks could run; the score is not comparable to a run with full evidence",
     "check_coverage": {
-      "checks_total": 139,
-      "checks_fired": 15,
-      "checks_skipped": 66,
+      "checks_total": 149,
+      "checks_fired": 16,
+      "checks_skipped": 74,
       "checks_disabled": 0,
       "checks_disabled_ids": [],
-      "checks_silent": 58,
+      "checks_silent": 59,
       "checks_silent_ids": [
         "AMPHTML_PRESENT",
         "BAD_REDIRECT_TYPE",
@@ -38,6 +38,7 @@
         "H1_MISSING",
         "H1_TOO_LONG",
         "H2_MISSING",
+        "H2_TOO_LONG",
         "HIGH_EXTERNAL_OUTLINKS",
         "HIGH_OUTLINKS",
         "HTTP1_ONLY",
@@ -77,7 +78,7 @@
         "URL_UNDERSCORES",
         "URL_UPPERCASE"
       ],
-      "coverage": 0.525
+      "coverage": 0.503
     }
   },
   "pipeline": {
@@ -103,11 +104,11 @@
     "exclude_checks": []
   },
   "summary": {
-    "tasks_total": 15,
+    "tasks_total": 16,
     "by_priority": {
       "P1": 3,
       "P2": 8,
-      "P3": 4
+      "P3": 5
     }
   },
   "tasks": [
@@ -306,6 +307,24 @@
       "occurrences": 1,
       "urls": [
         "https://example.com/page-b"
+      ],
+      "urls_truncated": 0
+    },
+    {
+      "id": "TASK-9ea5b337",
+      "check": "H2_DUPLICATE",
+      "priority": "P3",
+      "severity": "notice",
+      "effort": "low",
+      "title": "H2 is duplicated across multiple URLs — 3 pages",
+      "fix_hint": "Use a unique, page-specific H2 on each URL, or accept it for a shared boilerplate subheading that is genuinely meant to repeat.",
+      "source": "SF-derived",
+      "affected_count": 3,
+      "occurrences": 3,
+      "urls": [
+        "https://example.com/",
+        "https://example.com/no-title",
+        "https://example.com/page-a"
       ],
       "urls_truncated": 0
     },
