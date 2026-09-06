@@ -39,6 +39,11 @@ from typing import Any
 # added for the AJAX-crawling-scheme checks (#386), are empty strings and zeros by
 # default and measure no further allocation either -- the 56-field and 58-field
 # records were measured side by side with one instrument and came back identical.
+# List mode's canonical walk (#21) then added two more: final_canonical is another
+# empty string and costs nothing, but canonical_chain is a list, and an empty list
+# per record is not free. Measured the same way, 8 000 records with distinct URLs:
+# 2 116 bytes at 58 fields, 2 172 at 60 -- one more 56-byte empty-list increment,
+# the same figure the hreflang list cost. The totals below carry it.
 # Field lengths affect absolute memory,
 # so 2 456 bytes is an approximate combined PageRecord estimate; the rounded totals are
 #

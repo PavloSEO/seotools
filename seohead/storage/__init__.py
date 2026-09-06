@@ -73,6 +73,8 @@ _LATE_PAGE_FIELDS = {
     "content_frames": "content_frames",
     "content_frames_same_origin": "content_frames_same_origin",
     "hreflang": "hreflang_json",
+    "canonical_chain": "canonical_chain_json",
+    "final_canonical": "final_canonical",
     "body_unavailable": "body_unavailable",
     "meta_refresh": "meta_refresh",
     "http_refresh": "http_refresh",
@@ -363,10 +365,11 @@ def _url(con, url: str) -> int:
 
 def _import_pages(con, source: Path, limitations: list[str], inputs: list[dict]) -> None:
     names = {c[1] for c in _expected()[1]["pages"]} - {"url_id", "page_ordinal", "document_id"}
-    names = (names - {"redirect_chain_json", "hreflang_json"}) | {
+    names = (names - {"redirect_chain_json", "hreflang_json", "canonical_chain_json"}) | {
         "url",
         "redirect_chain",
         "hreflang",
+        "canonical_chain",
     }
     for ordinal, record in enumerate(_jsonl(source / "pages.jsonl", limitations, inputs)):
         if (names - set(_LATE_PAGE_FIELDS)) - set(record) or set(record) - names:
@@ -382,6 +385,15 @@ def _import_pages(con, source: Path, limitations: list[str], inputs: list[dict])
         if alternates is not None:
             _hreflang(alternates)
         row["hreflang_json"] = None if alternates is None else _dump(alternates)
+        canonical_chain = row.pop("canonical_chain", None)
+        if canonical_chain is not None and (
+            not isinstance(canonical_chain, list)
+            or any(not isinstance(hop, dict) for hop in canonical_chain)
+        ):
+            raise ScanError("pages.canonical_chain must be a list of objects")
+        row["canonical_chain_json"] = (
+            None if canonical_chain is None else _dump(canonical_chain)
+        )
         row["url_id"] = _url(con, row.pop("url"))
         row["page_ordinal"] = ordinal
         chain = row.pop("redirect_chain")
