@@ -43,6 +43,8 @@ from urllib.parse import urlsplit, urlunsplit
 
 from seohead.tools.parser import robots_directives
 
+from .normalize import norm_url
+
 SCHEMA_VERSION = "segment_diff.v1"
 
 # Below this share of declared pairs whose paths actually match, path
@@ -178,7 +180,7 @@ def _measure_mirror_rate(
         if alt is None:
             continue
         total += 1
-        if _mirror(page.get("url", ""), source_def, target_def) == alt:
+        if norm_url(_mirror(page.get("url", ""), source_def, target_def)) == norm_url(alt):
             matching += 1
     if total == 0:
         return None, 0
@@ -222,7 +224,7 @@ def diff_segments(
             "on #357's declared alternates and cannot classify anything without them"
         )
 
-    by_url = {p["url"]: p for p in all_pages if p.get("url")}
+    crawled_urls = {norm_url(p["url"]) for p in all_pages if p.get("url")}
     source_pages = [p for p in all_pages if segment_for(p.get("url", "")) == source]
     source_eligible = [p for p in source_pages if _is_eligible(p)]
 
@@ -267,7 +269,7 @@ def diff_segments(
         url = page.get("url", "")
         alt = _declared_alternate(page, target, segment_for)
         if alt is not None:
-            if alt in by_url:
+            if norm_url(alt) in crawled_urls:
                 cls, method, counterpart, reason = "declared", "hreflang", alt, None
             else:
                 cls, method, counterpart = "declared_not_crawled", "hreflang", alt
@@ -290,7 +292,7 @@ def diff_segments(
                     f"cannot construct a mirrored-path candidate between {source!r} and "
                     f"{target!r} (at least one is defined only by a regex)"
                 )
-            elif candidate in by_url and segment_for(candidate) == target:
+            elif norm_url(candidate) in crawled_urls and segment_for(candidate) == target:
                 cls, method, counterpart, reason = "inferred", "mirrored_path", candidate, None
             elif target_unreachable_reason:
                 cls, method, counterpart = "undetermined", "target_unreachable", candidate
