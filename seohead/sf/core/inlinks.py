@@ -105,7 +105,16 @@ def _process_export(
             raws.append(link.destination_url)
 
     for dest_key, links in by_dest.items():
-        dest = raw_dests[dest_key][0]
+        # Group occurrences by normalized identity, but report the actual
+        # crawled spelling whenever it is known. redirect_map is keyed by the
+        # Internal:All Address spelling, so first-seen raw inlink text would
+        # make both target_url and final_url depend on CSV row order.
+        crawled = ctx.page_by_norm.get(dest_key)
+        dest = (
+            crawled.url
+            if crawled is not None
+            else sorted(raw_dests[dest_key], key=lambda value: (value.casefold(), value))[0]
+        )
         dest_host = urllib.parse.urlparse(dest).netloc.lower()
         is_internal = (not dest_host) or (dest_host == site_host)
         check_id = internal_check if is_internal else external_check
@@ -376,7 +385,7 @@ def check_hreflang_quality(ctx: AuditContext) -> None:
     by_source: OrderedDict[str, list[dict[str, Any]]] = OrderedDict()
     for rec in records_from_df(df, HREFLANG_FIELD_MAP):
         src = rec.get("source_url")
-        if not src or not rec.get("destination_url"):
+        if not src:
             continue
         by_source.setdefault(src, []).append(rec)
 
@@ -384,9 +393,10 @@ def check_hreflang_quality(ctx: AuditContext) -> None:
     for source, entries in by_source.items():
         _check_invalid_codes(ctx, source, entries, evidence)
         _check_duplicate_entries(ctx, source, entries, evidence)
-        _check_self_reference(ctx, source, entries, evidence)
-        _check_xdefault(ctx, source, entries, evidence)
-        _check_not_canonical(ctx, source, entries, evidence)
+        target_entries = [rec for rec in entries if rec.get("destination_url")]
+        _check_self_reference(ctx, source, target_entries, evidence)
+        _check_xdefault(ctx, source, target_entries, evidence)
+        _check_not_canonical(ctx, source, target_entries, evidence)
 
 
 def _check_invalid_codes(
