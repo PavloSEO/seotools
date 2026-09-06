@@ -178,3 +178,22 @@ def test_analysis_timeout_terminates_its_child_process_group_and_keeps_progress(
     assert "started" in (tmp_path / "timeout.stderr.log").read_text()
     result = subprocess.run(["ps", "-p", str(child), "-o", "stat="], capture_output=True, text=True)
     assert not result.stdout.strip() or result.stdout.strip().startswith("Z")
+
+
+def test_tiny_profile_runs_every_stage_for_both_densities():
+    completed = subprocess.run(
+        [sys.executable, str(release.ANALYSIS), "--pages", "3"],
+        cwd=release.ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
+        timeout=120,
+    )
+    result = json.loads(completed.stdout)
+    assert [row["links"] for row in result["results"]] == [90, 450]
+    for row in result["results"]:
+        assert "blocking" not in row
+        assert {"build", "pages", "graph", "audit", "report", "whole"} <= row.keys()
+        assert row["whole"]["collection"]["fetched_pages"] == 3
+        assert row["whole"]["saved_audit"] is True
+    assert "collector" in result["rss_delta_mib"]

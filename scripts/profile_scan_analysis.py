@@ -107,7 +107,7 @@ def _settings(pages: int) -> dict:
     )
 
 
-def _fixture_build(pages: int, edges: int, database: Path) -> dict[str, object]:
+def _fixture_build(pages: int, edges: int, database: Path, provenance: dict) -> dict[str, object]:
     """Balanced graph with complete page fields; output size is a separate axis.
 
     The E blank-field ring remains an output-stress case: it generates over
@@ -116,7 +116,7 @@ def _fixture_build(pages: int, edges: int, database: Path) -> dict[str, object]:
     """
     fixture.PAGES = pages
     started = time.perf_counter()
-    metadata = fixture._metadata()
+    metadata = fixture._metadata(provenance)
     metadata["writer_version"] = __version__
     sitemap = f"https://{fixture.HOST}/sitemap.xml"
     with NativeScan.create(database, initial_sitemaps=[(sitemap, "explicit")], **metadata) as scan:
@@ -471,7 +471,7 @@ def _child(
     fixture.PAGES = pages
     environment = _load_environment(source_manifest)
     if stage == "build":
-        result = _fixture_build(pages, edges, database)
+        result = _fixture_build(pages, edges, database, environment)
     elif stage == "pages":
         result = _page_stage(database)
     elif stage == "graph":
