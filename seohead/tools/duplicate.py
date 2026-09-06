@@ -273,6 +273,7 @@ def find_duplicates(
             "clusters": [],
             "exact_duplicates": [],
             "excluded_non_indexable": excluded_non_indexable,
+            "excluded_no_id": 0,
         }
         if with_fingerprints:
             out["fingerprints"] = {}
@@ -280,6 +281,7 @@ def find_duplicates(
 
     texts: dict[str, str] = {}
     doc_shingles: dict[str, list[tuple[str, ...]]] = {}
+    excluded_no_id = 0
     for it in items:
         doc_id = it.get("id") or it.get("url") or ""
         text = it.get("text") or ""
@@ -287,6 +289,8 @@ def find_duplicates(
             doc_id = str(doc_id)
             texts[doc_id] = text
             doc_shingles[doc_id] = shingles(_tokenize(text), k)
+        else:
+            excluded_no_id += 1
 
     # A shingle in nearly every document is the site's template, not distinguishing
     # content; damping it before hashing is what keeps a templated corpus's
@@ -390,6 +394,7 @@ def find_duplicates(
         "exact_duplicates": exact_duplicates,
         "candidate_pairs_checked": len(candidate_pairs),
         "excluded_non_indexable": excluded_non_indexable,
+        "excluded_no_id": excluded_no_id,
     }
     if with_fingerprints:
         result["fingerprints"] = fingerprints

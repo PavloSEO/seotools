@@ -219,3 +219,30 @@ def test_signals_are_always_shown():
     )
     assert r["signals"], "A decision without supporting signals cannot be audited"
     assert all("reason" in s and "weight" in s for s in r["signals"])
+
+
+def test_high_confidence_with_close_alternative_is_flagged():
+    """A best_score at/above _HIGH must not hide a close, real alternative.
+
+    Issue #476: the confidence branch short-circuited before the
+    alternatives-note branch could ever fire when best_score >= _HIGH,
+    silently contradicting the alternatives list in the same result.
+    """
+    r = classify(
+        "https://example.com/uslugi/remont",
+        {"existing_types": ["Product"], "h1": "Наши услуги по ремонту"},
+    )
+    assert r["alternatives"] == ["Service"]
+    assert r["confidence"] != "high" or (r.get("note") and "Service" in r["note"])
+
+
+def test_single_decisive_signal_stays_high_with_no_note():
+    """Negative control: one decisive signal and nothing else is genuinely
+    unambiguous and must not be downgraded or annotated."""
+    r = classify(
+        "https://example.com/product/widget",
+        {"existing_types": ["Product"]},
+    )
+    assert r["confidence"] == "high"
+    assert r["alternatives"] == []
+    assert "note" not in r

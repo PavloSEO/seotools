@@ -231,7 +231,7 @@ def classify(url: str, facts: dict[str, Any]) -> dict[str, Any]:
             + ", ".join([best_type, *alternatives])
             + ". Review manually or pass --type."
         )
-    elif alternatives and best_score < _HIGH:
+    elif alternatives:
         note = (
             f"Ambiguous between {best_type} and {', '.join(alternatives)}; review the page context"
         )
