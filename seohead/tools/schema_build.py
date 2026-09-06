@@ -103,7 +103,7 @@ def build_breadcrumb(facts: dict[str, Any]) -> dict[str, Any] | None:
 
 def _offer(facts: dict[str, Any]) -> dict[str, Any] | None:
     price = facts.get("price")
-    if not price or not price.get("value"):
+    if price is None or price.get("value") is None:
         return None
     # A whole amount belongs in the markup as 19900, not 19900.0.
     value = price["value"]
@@ -117,7 +117,7 @@ def _offer(facts: dict[str, Any]) -> dict[str, Any] | None:
 
 def _aggregate_rating(facts: dict[str, Any]) -> dict[str, Any] | None:
     rating = facts.get("rating")
-    if not rating or not rating.get("value"):
+    if rating is None or rating.get("value") is None:
         return None
     node: dict[str, Any] = {"@type": "AggregateRating", "ratingValue": rating["value"]}
     if rating.get("count"):

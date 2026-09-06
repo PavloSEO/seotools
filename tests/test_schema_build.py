@@ -64,6 +64,68 @@ def test_product_graph_has_offers_rating_and_brand():
     assert ent["brand"]["name"] == "Shop"
 
 
+def test_offer_keeps_a_genuine_zero_price():
+    # A price of exactly 0 (free product) is a measured fact and must survive.
+    assert schema_build._offer({"price": {"value": 0.0, "currency": "USD"}}) == {
+        "@type": "Offer",
+        "price": 0,
+        "priceCurrency": "USD",
+    }
+
+
+def test_offer_stays_silent_with_no_price_fact():
+    # Absence of evidence must not become a fabricated Offer.
+    assert schema_build._offer({"price": None}) is None
+    assert schema_build._offer({}) is None
+
+
+def test_offer_unaffected_for_a_normal_price():
+    assert schema_build._offer({"price": {"value": 19900.0, "currency": "USD"}}) == {
+        "@type": "Offer",
+        "price": 19900,
+        "priceCurrency": "USD",
+    }
+
+
+def test_free_product_page_still_gets_an_offer_in_the_graph():
+    html = """
+<html><head><title>Free Widget</title></head>
+<body>
+<div itemscope itemtype="https://schema.org/Product">
+<h1 itemprop="name">Free Widget</h1>
+<div itemprop="offers" itemscope itemtype="https://schema.org/Offer">
+<span itemprop="price">0</span>
+<span itemprop="priceCurrency">USD</span>
+</div>
+</div>
+</body></html>
+"""
+    from seohead.tools import page_facts
+
+    facts = page_facts.extract(html, "https://example.com/free-widget")
+    graph = schema_build.build_graph(
+        "https://example.com/free-widget",
+        facts,
+        {"inferred_type": "Product", "confidence": "high", "signals": []},
+    )
+    ent = _entity(graph)
+    assert ent["@type"] == "Product"
+    assert ent["offers"] == {"@type": "Offer", "price": 0, "priceCurrency": "USD"}
+
+
+def test_aggregate_rating_keeps_a_genuine_zero_rating():
+    assert schema_build._aggregate_rating({"rating": {"value": 0, "count": 5}}) == {
+        "@type": "AggregateRating",
+        "ratingValue": 0,
+        "ratingCount": 5,
+    }
+
+
+def test_aggregate_rating_stays_silent_with_no_rating_fact():
+    assert schema_build._aggregate_rating({"rating": None}) is None
+    assert schema_build._aggregate_rating({}) is None
+
+
 def test_graph_is_linked_via_ids():
     r = schema_build.build_schema(url="https://shop.example.com/p/widget", html=PRODUCT_HTML)
     ids = {n.get("@id") for n in r["suggested_graph"]["@graph"]}
