@@ -6,7 +6,7 @@
 
 **The local evidence and audit-automation layer for SEO specialists and tool-calling AI agents.**
 
-62 callable tools · 149 checks · 29 workflow skills · 56 scenarios · 2 400+ offline tests · CLI · local MCP · Docker
+68 callable tools · 149 checks · 29 workflow skills · 56 scenarios · 2 400+ offline tests · CLI · local MCP · Docker
 
 [Website](https://seohead.tech) · [Documentation](docs/README.md)
 
@@ -68,7 +68,7 @@ No client data is included.
 | **Existing Screaming Frog exports** | `seohead sf run --exports-dir ./exports --out ./report --tasks` | Evaluates crawl evidence you already have against the 149-check registry and builds an audit plus a prioritized backlog |
 | **Screaming Frog installed and licensed** | `seohead sf run --crawl https://example.com --out ./report` | Drives your local Screaming Frog CLI, then audits its exports — one command instead of crawl, export, import |
 | A bounded current-state pass | `seohead site-audit --url https://example.com --limit 25` | Sitemap-based live, page and infrastructure checks. Not a link-graph crawl, and it says so |
-| A tool-calling AI agent | `seohead mcp` | 57 shared `seo_*` handlers plus five `sf_*` crawl-workflow tools over local stdio |
+| A tool-calling AI agent | `seohead mcp` | 63 shared `seo_*` handlers plus five `sf_*` crawl-workflow tools over local stdio |
 | Two crawls, and the question "did they fix it" | `seohead compare-crawls --before a.json --after b.json` | Per check: entered, appeared, left, disappeared — a fix and a deletion are different answers |
 
 ## Why an agent should reach for this
@@ -135,7 +135,7 @@ against [docs/COVERAGE_SF_ISSUES.md](docs/COVERAGE_SF_ISSUES.md). Start there if
 evaluating what this repository is for; every command shown in those files is executed against
 a fixture site on every CI run.
 
-### 57 core CLI commands and MCP tools
+### 63 core CLI commands and MCP tools
 
 | Layer | Tools | What it covers |
 |---|---:|---|
@@ -144,6 +144,7 @@ a fixture site on every CI run.
 | Structured data, content, rendering, and logs | 12 | Schema.org validation and graph generation, near-duplicates, llms.txt, citability, content-area Markdown extraction, boilerplate consistency, social previews, soft 404s, raw-vs-rendered DOM, access-log analysis, run-artifact contradiction scanning |
 | Audit orchestration and reporting | 6 | bounded sitemap-based site evidence, the crawler's own configuration surface, XLSX/DOCX/CSV/Markdown/JSON output, a no-network multi-site facts export, offline SQLite reanalysis, and a cross-segment counterpart diff that answers what one language version has and another does not |
 | Demand, SERP, and traffic sources | 17 | Yandex Wordstat and async SERP, Arsenkin exact frequency, Yandex Metrika, DataForSEO Google data, region tree, credential and spend diagnostics, Wayback snapshot history, certificate-log subdomains, Search Console, CrUX field vitals, IndexNow submission |
+| Saved scan history | 6 | metadata cataloguing, bounded table inspection, portable snapshots, retention pins, reviewed pruning, and retained-body comparison |
 
 Run `seohead --help` for the authoritative command list. Every core command goes through the
 same handler used by its `seo_*` MCP counterpart; a test gate fails if the interfaces drift — and
@@ -151,7 +152,7 @@ another fails if the CLI can name an argument the MCP tool cannot, which is how 
 mode once stayed unreachable for agents.
 
 <details>
-<summary><b>All 57 commands, by what they answer</b></summary>
+<summary><b>All 63 commands, by what they answer</b></summary>
 
 **Crawl a site yourself** — `crawl-site` · `crawl-describe-settings` · `compare-crawls` ·
 `log-scan`
@@ -177,6 +178,9 @@ mode once stayed unreachable for agents.
 **Analytics** — `metrika-counters` · `metrika-setup` · `metrika-report`
 
 **Housekeeping** — `sources-doctor` · `spend-report`
+
+**Saved scan history** — `scan-list` · `scan-inspect` · `scan-snapshot` · `scan-pin` ·
+`scan-prune` · `scan-body-diff`
 
 Each has the same MCP counterpart named `seo_<command>` with dashes replaced by underscores.
 [docs/TOOL_REFERENCE.md](docs/TOOL_REFERENCE.md) is generated from the code and carries every
@@ -351,7 +355,7 @@ Install the `mcp` extra, then register one stdio process in any compatible clien
 }
 ```
 
-The server exposes **57 `seo_*` tools plus five `sf_*` tools**. The 57 core tools share the tested
+The server exposes **63 `seo_*` tools plus five `sf_*` tools**. The 63 core tools share the tested
 handler layer used by the CLI; the five SF tools expose the crawl workflow separately. The process
 opens no port, hosts no dashboard, stores no account, and sends no telemetry. File-producing tools
 return paths instead of dumping large reports into an agent context.

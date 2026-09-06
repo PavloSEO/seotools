@@ -2168,6 +2168,78 @@ def scan_reanalyze(input_path: str, out: str, producer_build: str | None = None)
     return reanalyze_scan(input_path=input_path, out=out, producer_build=producer_build)
 
 
+def scan_list(directory: str, offset: int = 0, limit: int = 100) -> dict[str, Any]:
+    from seohead.servers.history_handlers import scan_list as core
+
+    return core(directory, offset=offset, limit=limit)
+
+
+def scan_inspect(
+    input_path: str,
+    table: str = "pages",
+    offset: int = 0,
+    limit: int = 100,
+    max_bytes: int = 1_048_576,
+) -> dict[str, Any]:
+    from seohead.servers.history_handlers import scan_inspect as core
+
+    return core(input_path, table=table, offset=offset, limit=limit, max_bytes=max_bytes)
+
+
+def scan_snapshot(input_path: str, out: str) -> dict[str, Any]:
+    from seohead.servers.history_handlers import scan_snapshot as core
+
+    return core(input_path, out)
+
+
+def scan_pin(input_path: str, pinned: bool = True) -> dict[str, Any]:
+    from seohead.servers.history_handlers import scan_pin as core
+
+    return core(input_path, pinned=pinned)
+
+
+def scan_prune(
+    directory: str,
+    older_than_days: int = 30,
+    keep_newest: int = 5,
+    plan: dict[str, Any] | str | None = None,
+    apply: bool = False,
+) -> dict[str, Any]:
+    from seohead.servers.history_handlers import scan_prune as core
+
+    return core(
+        directory,
+        older_than_days=older_than_days,
+        keep_newest=keep_newest,
+        plan=plan,
+        apply=apply,
+    )
+
+
+def scan_body_diff(
+    left: str,
+    right: str,
+    url: str,
+    variant_key: str | None = None,
+    representation: str = "static",
+    text: bool = False,
+    max_bytes: int = 5 * 1024 * 1024,
+    max_lines: int = 10_000,
+) -> dict[str, Any]:
+    from seohead.servers.history_handlers import scan_body_diff as core
+
+    return core(
+        left,
+        right,
+        url,
+        variant_key=variant_key,
+        representation=representation,
+        text=text,
+        max_bytes=max_bytes,
+        max_lines=max_lines,
+    )
+
+
 _RAW_HANDLERS = {
     "parse": parse,
     "redirects_generate": redirects_generate,
@@ -2226,6 +2298,12 @@ _RAW_HANDLERS = {
     "crux_report": crux_report,
     "indexnow_submit": indexnow_submit,
     "scan_reanalyze": scan_reanalyze,
+    "scan_list": scan_list,
+    "scan_inspect": scan_inspect,
+    "scan_snapshot": scan_snapshot,
+    "scan_pin": scan_pin,
+    "scan_prune": scan_prune,
+    "scan_body_diff": scan_body_diff,
 }
 
 # Journaling sits here rather than in each interface: the CLI and the MCP server
