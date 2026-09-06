@@ -7,8 +7,11 @@ directly. Markdown with structure preserved (headings, lists, links) is.
 Two renderings answer different questions:
   - ``content_markdown`` -- boilerplate stripped, via ``content_area.py``.
     This is the representation worth diffing, scoring, or feeding to a model.
-  - ``full_markdown`` -- the whole document, header and footer included. Not a
-    debug artefact: it is the input to ``boilerplate_report.py``'s hashing.
+  - ``full_markdown`` -- the whole document, header and footer included, for
+    reading. It is *not* an input to ``boilerplate_report.py``: that module
+    hashes the tag structure of a template (see ``boilerplate_hash``), and this
+    rendering has already discarded it. Pass it the original HTML, or a hash
+    precomputed from that HTML, instead.
 
 The converter below is intentionally small and handles only the tags visible
 body text realistically uses (headings, paragraphs, lists, links, emphasis).
