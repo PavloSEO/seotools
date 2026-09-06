@@ -67,6 +67,40 @@ cryptographic attestation. The effective configuration comes from the exact
 import is refused; if both exist they must agree. The importer records no separate
 importer-version field because `scan.v1` has no such column.
 
+## Offline reanalysis
+
+```bash
+seohead scan reanalyze --input old.sqlite --out derived.sqlite --producer-build SOURCE_SHA
+```
+
+Here `SOURCE_SHA` is the full lowercase Git SHA of the **current analyzer build**.
+The source artifact already records the original capture build. Reanalysis needs
+retained inputs; a legacy import with no response bodies cannot supply them.
+
+The `scan reanalyze` CLI subcommand creates a new
+derived scan from a Backup API copy of retained evidence. It never overwrites the
+input: the output has a new scan UUID, records its parent UUID, and records the
+current analyzer build. It preserves the capture configuration; there is no
+configuration override because mixing parser results from a different capture
+scope would make the derived audit incomparable.
+
+Reanalysis uses only retained static HTML and rendered DOM with the existing
+parser and check registry. It makes no HTTP, DNS, browser, provider, or resource
+fetch request. Missing required retained bodies fail clearly before publishing an
+output. Missing live-protocol context becomes a named skip, not a network
+fallback. The small MIT fixture bridge supports this route; it does not replace
+the broader real-corpus coverage work tracked by #98.
+
+The closed `reanalysis_provenance/run` context records the immediate parent and
+original capture UUID, their builds/runtime versions and configuration digests,
+the source audit hash, and the source/derived evidence revisions. Its
+`capture_run` object preserves the original lifecycle, stop reason, collection
+partialness, and creation/finish timestamps across repeated analyses. Each
+derivation advances the evidence revision once. Unfinished source frontier work
+remains historical and marks the derived collection scope partial; reanalysis
+does not resume collection. Previously recorded unavailable capability states
+remain unchanged when an older file is opened read-only.
+
 ## What is in the file
 
 `scan` is the single run header: format, producer provenance, effective
@@ -113,7 +147,8 @@ cache, which remains part of the directory workflow.
 `scan_decoder.v1` records entity decoding. A static document's logical URL stays
 separate from the effective navigation URL; legacy-fragment navigation is recorded
 as its explicit transform. Direct script and stylesheet fetching requires the explicit resource setting below.
-Offline replay and reanalysis remain unavailable until child I.
+Offline network replay remains unavailable. Reanalysis is the retained-evidence
+operation described above and never falls back to the network.
 
 ## Direct script and stylesheet capture
 
@@ -144,7 +179,7 @@ bodies are complete only when every declaration in the measured scope has a
 successful complete response; declaration coverage is independent of whether
 bodies were fetched. CSS `@import`, JavaScript modules, third-party resources,
 and browser-network response capture are outside this slice. Resource inventory
-and capture add no SEO findings, and they do not enable I's offline replay.
+and capture add no SEO findings, and they do not enable network replay.
 
 The writer records `resource_commit` with
 `{"digest": <64 lowercase hex>, "requests_used": <n>}` alongside inventory
@@ -157,10 +192,10 @@ environment references and profile paths are redacted. A changed explicit verifi
 refuses resume. Changed implicit cookie or browser-profile state cannot be resumed
 safely and is refused conservatively.
 
-Legacy import's only populated `context_items` lane is
+For legacy imports, the only populated `context_items` lane is
 `legacy_import_provenance`; it exports no restore checkpoint or equivalent resume
-state. Native collection and resume use their own validated lanes; body access,
-retained-resource access, and offline reanalysis remain unavailable.
+state. These historical imported files have no retained bodies or resources and
+cannot be reanalyzed; native captures use their own validated lanes.
 
 The `pages` projection follows the prerelease `crawl.v1` `PageRecord`, including
 `content_frames`, `content_frames_same_origin`, ordered `hreflang_json`,
@@ -315,24 +350,21 @@ creation/ZIP timestamps are held equal in both test branches. Normal independent
 Office builds can differ in timestamps even for the same original audit.
 
 These are opt-in storage entry points and artifact inputs for the additive
-foundation. Existing `seohead crawl-site` keeps its directory workflow. The legacy importer provides no native resume state. Migration, body retention,
-resource fetch, replay, reanalysis, pruning, and SQL-backed analyzer work remain
-unavailable. Audit-level findings and context already saved in the exact audit
-remain available; the missing raw crawl corpus cannot be reconstructed from the
-three exported files.
+foundation. Existing `seohead crawl-site` keeps its directory workflow. For a
+legacy imported three-file directory, native resume, retained bodies/resources,
+and reanalysis remain unavailable because that source never retained the needed
+corpus. Audit-level findings and context already saved in the exact audit remain
+available; the missing raw crawl corpus cannot be reconstructed from the three
+exported files.
 
 ## Native collection (opt-in)
 
 ```bash
-# SOURCE_SHA is the full commit SHA of the crawler build producing this run
-seohead crawl-site --url https://example.com --max-urls 50 --scan-out native.sqlite --producer-build SOURCE_SHA
+seohead crawl-site --url https://example.com --max-urls 50 --scan-out native.sqlite
 seohead report-build --audit native.sqlite --format md --out native-report.md
 ```
 
-Replace `SOURCE_SHA` with the actual 40-character lowercase source SHA. A clean
-source checkout can determine its own revision when `--producer-build` is omitted;
-a wheel without source-revision metadata needs it explicitly. A dirty checkout
-is not described as a clean build. The producing version/revision, runtime
+The collector derives provenance from its current source build. The producing version/revision, runtime
 versions, full effective configuration and result-affecting fingerprint are stored
 in the scan. A different configuration or producing build refuses resume.
 
@@ -570,5 +602,5 @@ summary is partial or failed: it returns an unavailable state rather than a
 shortened replay that could label absent membership as an orphan or a clean empty
 sitemap. Exclusion counts derive from decision occurrences. Raw start-page HTML
 is not hidden in a context row: it requires the later document/body lane.
-Response, document, body, and resource retention, rendering updates, and offline
-replay remain unavailable.
+This native-core context table predates the later body/resource lanes. Network
+replay remains unavailable; retained-evidence reanalysis is documented above.
