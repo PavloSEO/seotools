@@ -1,6 +1,6 @@
 """UNSUPPORTED_PLUGIN (#385): legacy plugin-dependent elements (<object>/<embed>/<applet>).
 
-An <object> whose type declares an image (an inline SVG or PDF fallback) is a benign,
+An <object> whose type declares an image or a PDF is a benign,
 universally-supported use and must stay silent -- only genuine plugin content fires.
 """
 
@@ -33,6 +33,12 @@ def test_object_with_image_type_is_excluded():
     """An SVG/raster fallback via <object type="image/..."> renders in every browser,
     mobile included -- it must not be counted as plugin content."""
     html = '<html><body><object type="image/svg+xml" data="icon.svg"></object></body></html>'
+    soup = BeautifulSoup(html, features="lxml")
+    assert unsupported_plugin_count(soup) == 0
+
+
+def test_object_with_pdf_type_is_excluded():
+    html = '<html><body><object type="application/pdf" data="brochure.pdf"></object></body></html>'
     soup = BeautifulSoup(html, features="lxml")
     assert unsupported_plugin_count(soup) == 0
 
@@ -72,6 +78,9 @@ _FLASH_PAGE = f"""<html><head><title>Flash page</title></head>
 _SVG_PAGE = f"""<html><head><title>SVG page</title></head>
 <body><object type="image/svg+xml" data="icon.svg"></object>{_page("")}</body></html>"""
 
+_PDF_PAGE = f"""<html><head><title>PDF page</title></head>
+<body><object type="application/pdf" data="brochure.pdf"></object>{_page("")}</body></html>"""
+
 
 def _fetcher(mapping):
     def fetch(url):
@@ -104,6 +113,7 @@ def test_unsupported_plugin_fires_only_for_the_flash_page():
     mapping = {
         "https://example.com/flash": _FakeResponse(_FLASH_PAGE, {"content-type": "text/html"}),
         "https://example.com/svg": _FakeResponse(_SVG_PAGE, {"content-type": "text/html"}),
+        "https://example.com/pdf": _FakeResponse(_PDF_PAGE, {"content-type": "text/html"}),
     }
     fired = _fired(_run_crawl(mapping))
     assert fired.get("UNSUPPORTED_PLUGIN", set()) == {"https://example.com/flash"}

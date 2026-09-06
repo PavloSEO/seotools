@@ -608,10 +608,10 @@ def extract_images(soup: BeautifulSoup) -> list[dict[str, Any]]:
 
 
 # Deprecated, plugin-dependent embedding elements. <object>/<embed> also carry
-# entirely ordinary, non-plugin uses today -- an inline SVG or PDF fallback via
-# <object type="image/..."> renders natively in every browser and a mobile
-# device handles it exactly as well as desktop -- so only the tags whose type
-# does not declare an image are counted (#385). <applet> has no legitimate
+# entirely ordinary, non-plugin uses today -- an inline SVG/raster image or PDF
+# via <object> renders natively in every browser and a mobile device handles it
+# exactly as well as desktop -- so only other object types are counted (#385).
+# <applet> has no legitimate
 # non-plugin use left; it is always counted.
 _PLUGIN_TAGS = ("object", "embed", "applet")
 
@@ -630,8 +630,8 @@ def unsupported_plugin_count(soup: BeautifulSoup) -> int:
                 continue
             if name == "object":
                 type_attr = (cast("str | None", tag.get("type")) or "").strip().lower()
-                if type_attr.startswith("image/"):
-                    continue  # an SVG/raster fallback, not plugin content
+                if type_attr.startswith("image/") or type_attr == "application/pdf":
+                    continue  # an SVG/raster/PDF fallback, not plugin content
             count += 1
     return count
 
