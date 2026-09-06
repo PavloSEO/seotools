@@ -11,6 +11,8 @@ from __future__ import annotations
 import csv
 import os
 
+import pytest
+
 from seohead.sf.config import load_config
 from seohead.sf.core.audit import run_audit
 
@@ -27,6 +29,7 @@ _PARAGRAPH = (
 URL_A = "https://example.com/a.html"
 URL_B = "https://example.com/b.html"
 URL_C = "https://example.com/c.html"
+URL_D = "https://example.com/d.html"
 
 
 def _page_html(paragraph: str) -> str:
@@ -85,6 +88,52 @@ def test_exact_duplicate_pages_report_under_duplicate_by_hash_not_near(tmp_path)
     # find_duplicates excludes a cluster fully explained by exact duplication
     # from the near-duplicate output, so it must not also fire NEAR_DUPLICATE.
     assert _fired(res, "NEAR_DUPLICATE") == {}
+
+
+@pytest.mark.parametrize(
+    ("disabled", "expected"),
+    [
+        ({}, {"NEAR_DUPLICATE", "DUPLICATE_BY_HASH"}),
+        ({"NEAR_DUPLICATE": {"enabled": False}}, {"DUPLICATE_BY_HASH"}),
+        ({"DUPLICATE_BY_HASH": {"enabled": False}}, {"NEAR_DUPLICATE"}),
+        ({"NEAR_DUPLICATE": {"enabled": False}, "DUPLICATE_BY_HASH": {"enabled": False}}, set()),
+    ],
+)
+def test_disabled_duplicate_checks_do_not_crash_or_leave_group_evidence(
+    tmp_path, disabled, expected
+):
+    """#565: disabled stored-HTML duplicate checks must remain inert after clustering."""
+    html_files = {
+        URL_A: _page_html(_PARAGRAPH),
+        URL_B: _page_html(_PARAGRAPH.replace("website", "site", 1)),
+        URL_C: _page_html("An exactly duplicated product page with its own distinctive content."),
+        URL_D: _page_html("An exactly duplicated product page with its own distinctive content."),
+    }
+    exports_dir, cfg = _write(tmp_path, list(html_files), html_files)
+    cfg["checks"] = disabled
+
+    res = run_audit(
+        input_mode="parse-exports", exports_dir=exports_dir, config=cfg, log=lambda m: None
+    )
+
+    fired = {check: _fired(res, check) for check in ("NEAR_DUPLICATE", "DUPLICATE_BY_HASH")}
+    groups = {group.check: group for group in res.groups if group.check in fired}
+    assert {check for check, issues in fired.items() if issues} == expected
+    assert set(groups) == expected
+    assert {check.id for check in res.disabled} == set(disabled)
+
+    if "NEAR_DUPLICATE" in expected:
+        near = fired["NEAR_DUPLICATE"]
+        assert set(near) == {URL_A, URL_B}
+        assert {issue.group_id for issue in near.values()} == {groups["NEAR_DUPLICATE"].group_id}
+        assert all("cluster_min_similarity" in issue.details for issue in near.values())
+    if "DUPLICATE_BY_HASH" in expected:
+        exact = fired["DUPLICATE_BY_HASH"]
+        assert set(exact) == {URL_C, URL_D}
+        assert {issue.group_id for issue in exact.values()} == {
+            groups["DUPLICATE_BY_HASH"].group_id
+        }
+        assert {issue.details["duplicate_count"] for issue in exact.values()} == {2}
 
 
 def test_skips_without_a_stored_html_directory(tmp_path):
