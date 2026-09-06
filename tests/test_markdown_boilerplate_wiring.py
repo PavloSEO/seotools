@@ -375,3 +375,61 @@ def test_mcp_duplicate_check_exposes_only_indexable():
     props = by_name["seo_duplicate_check"].inputSchema["properties"]
     assert "only_indexable" in props
     assert {"seo_markdown_extract", "seo_boilerplate_report"} <= set(by_name)
+
+
+# ── #340: full_markdown is not an input to boilerplate_report ─────────────────
+
+_WITH_FOOTER = (
+    "<html><body><header><nav><a href='/'>Home</a><a href='/a'>A</a></nav></header>"
+    "<main><h1>Alpha</h1><p>one</p></main>"
+    "<footer><p>(c) Example</p></footer></body></html>"
+)
+# The same template with its footer block gone -- a real, reportable difference.
+_WITHOUT_FOOTER = (
+    "<html><body><header><nav><a href='/'>Home</a><a href='/a'>A</a></nav></header>"
+    "<main><h1>Beta</h1><p>two</p></main></body></html>"
+)
+
+
+def test_boilerplate_report_separates_the_two_templates_from_raw_html():
+    """The positive control: given what the hasher is built for, it answers."""
+    from seohead.tools.boilerplate_report import boilerplate_consistency_report
+
+    report = boilerplate_consistency_report(
+        [{"url": "/a", "html": _WITH_FOOTER}, {"url": "/b", "html": _WITHOUT_FOOTER}]
+    )
+    assert len(report["groups"]) == 2
+
+
+def test_the_same_pages_as_markdown_collapse_into_one_false_group():
+    """Why the old documentation was worse than merely wrong.
+
+    ``boilerplate_hash`` walks the tag structure of a template. Markdown has
+    already discarded it, so two pages whose templates genuinely differ hash
+    identically and the report says one group -- a real difference rendered as
+    no difference, which is the one outcome this toolkit exists to prevent.
+    Pinned here so nobody re-documents the handoff as workable on the grounds
+    that it "runs without error".
+    """
+    from seohead.tools.boilerplate_report import boilerplate_consistency_report
+    from seohead.tools.markdown_extract import extract_markdown
+
+    as_markdown = [
+        {"url": "/a", "html": extract_markdown(_WITH_FOOTER)["full_markdown"]},
+        {"url": "/b", "html": extract_markdown(_WITHOUT_FOOTER)["full_markdown"]},
+    ]
+    report = boilerplate_consistency_report(as_markdown)
+    assert len(report["groups"]) == 1  # the false clean
+
+
+def test_the_module_docstring_does_not_promise_the_markdown_handoff():
+    """The claim lived in prose for long enough to be acted on twice. A reader
+    reaches for the module docstring before the MCP description, so it is pinned
+    too rather than left to be corrected again later."""
+    from seohead.tools import markdown_extract as module
+
+    doc = module.__doc__ or ""
+    assert "full_markdown" in doc, "the docstring should still describe both renderings"
+    # The exact sentence that misdirected two callers.
+    assert "it is the input to ``boilerplate_report.py``'s hashing" not in doc
+    assert "*not* an input to ``boilerplate_report.py``" in doc

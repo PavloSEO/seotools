@@ -130,6 +130,9 @@ def _row(
         "Content-Encoding": record.content_encoding,
         "Doctype": record.doctype,
         "Viewport": record.viewport,
+        # Named for SF's own column so normalize.INTERNAL_FIELD_MAP picks it up
+        # unchanged: this is the same fact, not a native-only variant of it.
+        "Meta Refresh 1": record.meta_refresh,
         "Meta Charset": record.charset,
         # Element-position evidence (issue #123): same story as the four
         # columns above — an SF export never carries this, so it stays blank

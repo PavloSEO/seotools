@@ -22,62 +22,42 @@ def _graph(tmp_path):
         con.execute("INSERT OR IGNORE INTO urls(url) VALUES(?)", (value,))
         return con.execute("SELECT url_id FROM urls WHERE url=?", (value,)).fetchone()[0]
 
-    def page(value, content_type="text/html"):
+    def page(value, content_type="text/html", **fields):
+        """Insert a pages row, taking its column list from the schema itself.
+
+        The previous shape spelled out forty-two columns and their placeholders by
+        hand, so every new PageRecord field broke this fixture -- and did, the
+        moment meta_refresh landed (a NOT NULL column added by one branch while
+        this file was added by another; both were green alone and main was not).
+        Reading PRAGMA table_info means a column added tomorrow arrives with an
+        empty default here and the test keeps testing what it is about.
+        """
         url_id = url(value)
         ordinal = con.execute("SELECT COUNT(*) FROM pages").fetchone()[0]
+        given = {
+            "url_id": url_id,
+            "page_ordinal": ordinal,
+            "status_code": 200,
+            "content_type": content_type,
+            "representation": "static",
+            "redirect_chain_json": "[]",
+            "final_url": value,
+            **fields,
+        }
+        row = {}
+        for column in con.execute("PRAGMA table_info(pages)"):
+            name = column["name"]
+            if name in given:
+                row[name] = given[name]
+            elif not column["notnull"]:
+                row[name] = None
+            else:
+                # A NOT NULL column this test does not care about: the empty value
+                # of its declared type, never a guess at a meaningful one.
+                row[name] = 0 if column["type"].upper() in ("INTEGER", "REAL") else ""
         con.execute(
-            "INSERT INTO pages("
-            "url_id,page_ordinal,status_code,content_type,size_bytes,response_time,redirect_url,"
-            "title,meta_description,h1,h1_2,h2,canonical,meta_robots,x_robots,og_title,"
-            "og_description,og_image,word_count,text_ratio,content_frames,content_frames_same_origin,"
-            "crawl_depth,content_encoding,charset,doctype,viewport,head_count,body_count,head_not_first,"
-            "invalid_head_elements,outlinks,external_outlinks,jsonld_blocks_found,jsonld_blocks_parsed,"
-            "error,error_kind,cache_status,body_unavailable,representation,redirect_chain_json,final_url) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (
-                url_id,
-                ordinal,
-                200,
-                content_type,
-                0,
-                None,
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                0,
-                None,
-                0,
-                0,
-                0,
-                "",
-                "",
-                "",
-                "",
-                0,
-                0,
-                0,
-                "",
-                0,
-                0,
-                0,
-                0,
-                "",
-                "",
-                "",
-                "",
-                "static",
-                "[]",
-                value,
-            ),
+            f"INSERT INTO pages({','.join(row)}) VALUES({','.join('?' * len(row))})",
+            tuple(row.values()),
         )
         ids[value] = url_id
 
