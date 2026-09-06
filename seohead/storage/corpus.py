@@ -163,6 +163,8 @@ def _state(
 ) -> tuple[str, str]:
     if event.body_state == "truncated" or event.body_reason == "truncated":
         return "truncated", "truncated"
+    if event.body_state == "omitted" and event.body_reason in _OMITTED:
+        return "omitted", event.body_reason
     if event.body_state != "complete" or event.entity_bytes is None:
         reason = event.body_reason if event.body_reason in _UNAVAILABLE else "fetch_failed"
         return "unavailable", reason
@@ -174,6 +176,11 @@ def _state(
         return "omitted", "not_enabled"
     if purpose == "page" and "html" not in event.content_type.lower():
         return "omitted", "unsupported_media"
+    if purpose in {"script", "stylesheet"}:
+        from .resources import media_matches
+
+        if not media_matches(purpose, event.content_type):
+            return "omitted", "unsupported_media"
     if len(event.entity_bytes) > policy["max_body_bytes"]:
         return "omitted", "body_budget_exhausted"
     return "complete", "none"
@@ -649,10 +656,23 @@ def corpus_summary(con: sqlite3.Connection, policy: dict[str, Any]) -> dict[str,
         is not None
     )
     retained = con.execute("SELECT 1 FROM bodies LIMIT 1").fetchone() is not None
-    return {
+    summary = {
         "capabilities": {"responses": responses, "html_bodies": html, "rendered_bodies": rendered},
         "corpus_partial": policy["body_mode"] == "off"
         or not retained
         or bool(missing_pages)
         or missing_body,
     }
+    config_row = con.execute("SELECT config_json FROM scan").fetchone()
+    config = json.loads(config_row[0]) if config_row else {}
+    if "resources" in config:
+        from .resources import resource_capabilities
+
+        resource_states = resource_capabilities(con, fetch_enabled=config["resources"]["fetch"])
+        summary["capabilities"].update(resource_states)
+        if (
+            config["resources"]["fetch"]
+            and resource_states["resource_bodies"]["state"] != "complete"
+        ):
+            summary["corpus_partial"] = True
+    return summary

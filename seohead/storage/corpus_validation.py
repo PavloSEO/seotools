@@ -125,8 +125,15 @@ def validate_corpus(
         raise ScanError("corpus validator requires a sqlite3 connection")
     if not isinstance(scan, Mapping) or not isinstance(policy, Mapping):
         raise ScanError("corpus validator requires scan and policy metadata")
-    if con.execute("SELECT 1 FROM resource_refs LIMIT 1").fetchone() is not None:
-        raise ScanError("resource references are unavailable until H")
+    if (
+        con.execute("SELECT 1 FROM resource_refs LIMIT 1").fetchone() is not None
+        or con.execute(
+            "SELECT 1 FROM context_items WHERE kind='resource_inventory' LIMIT 1"
+        ).fetchone()
+    ):
+        from .resources import validate_resources
+
+        validate_resources(con)
     mode = policy.get("body_mode")
     cap = policy.get("max_body_bytes", 0)
     if mode not in {"off", "captured_entity_bytes"} or type(cap) is not int or cap < 0:

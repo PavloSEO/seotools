@@ -70,6 +70,8 @@ class ScanRun:
     audit_reason: str = "collection has not run the analyzer"
     limitations: tuple[str, ...] = ()
     start_page_gate: dict[str, Any] | None = None
+    corpus_partial: bool = True
+    capabilities: dict[str, Any] | None = None
 
 
 @dataclass
@@ -116,13 +118,32 @@ def _parse_options(
     settings: dict[str, Any], content_area_config: dict[str, Any] | None
 ) -> dict[str, Any]:
     """The current spider's parser options plus scan-only bounded observations."""
-    return {
+    options = {
         "classify_links": settings["link_position"]["classify"],
         "link_position_rules": settings["link_position"]["rules"],
         "content_area": content_area_config,
         "max_link_observations": MAX_LINK_OBSERVATIONS,
         "max_form_observations": MAX_FORM_OBSERVATIONS,
     }
+    if "resources" in settings:
+        options.update(resource_declarations=True, max_resource_declarations=MAX_LINK_OBSERVATIONS)
+    return options
+
+
+def _resource_observations(record, parsed, captures, settings):
+    """Describe measured-empty, bounded or unavailable declaration extraction."""
+    if "resources" not in settings or not record.is_html:
+        return {}
+    values, omitted = [], 0
+    if parsed is not None and "resource_declarations" in parsed:
+        values = parsed["resource_declarations"]
+        omitted = parsed["resource_declarations_omitted"]
+        state = "partial" if omitted else "complete"
+    elif any(event.requested_url == record.url and event.entity_bytes == b"" for event in captures):
+        state = "complete"
+    else:
+        state = "unavailable"
+    return {"resources": values, "resource_inventory_state": state, "resources_omitted": omitted}
 
 
 @contextmanager
@@ -349,7 +370,7 @@ def crawl_to_scan(
     robots_delay = None
     partial = False
     finish_reason = "finished"
-    limitations = ["resource capture and offline reanalysis are unavailable"]
+    limitations = ["offline reanalysis and browser-network response capture are unavailable"]
     start_page_gate: dict[str, Any] | None = None
 
     existing = Path(scan_out).exists()
@@ -467,6 +488,8 @@ def crawl_to_scan(
                 True,
                 resumed=existing,
                 limitations=tuple(json.loads(outcome["scan"]["limitations_json"])),
+                corpus_partial=bool(outcome["scan"]["corpus_partial"]),
+                capabilities=json.loads(outcome["scan"]["capabilities_json"]),
             )
         asked_delay = robots_crawl_delay(cast(ParsedRobots, robots), robots_token)
         if asked_delay and asked_delay > throttle.min_delay:
@@ -753,6 +776,11 @@ def crawl_to_scan(
                             batch.partial_reasons.append(
                                 "response_body_unavailable: HTML could not be decoded completely"
                             )
+                        resource_observations = _resource_observations(
+                            record, parsed, captures, settings
+                        )
+                        if resource_observations.get("resources_omitted"):
+                            batch.partial_reasons.append("resource_declarations_omitted")
                         scan.commit_page(
                             lease,
                             dataclasses.asdict(record),
@@ -771,6 +799,7 @@ def crawl_to_scan(
                             partial_reasons=tuple(batch.partial_reasons),
                             context=robots_context.get(lease.queue_ordinal, ()),
                             captures=captures,
+                            **resource_observations,
                         )
                     except (ScanError, sqlite3.Error) as exc:
                         _storage_failure(scan, exc)
@@ -782,6 +811,12 @@ def crawl_to_scan(
                 if partial:
                     break
 
+        if finish_reason != "errors":
+            from .sqlite_resources import capture_resources
+
+            capture_resources(
+                scan, settings, client=client, fetcher=fetcher, clock=clock, sleeper=sleeper
+            )
         if start_page_gate is None:
             start_page_gate = retained_start_gate(scan, settings, content_area_config)
         outcome = scan.resume_snapshot(include_edges=True)
@@ -796,6 +831,8 @@ def crawl_to_scan(
             resumed=existing,
             limitations=tuple(json.loads(outcome["scan"]["limitations_json"])),
             start_page_gate=start_page_gate,
+            corpus_partial=bool(outcome["scan"]["corpus_partial"]),
+            capabilities=json.loads(outcome["scan"]["capabilities_json"]),
         )
 
 

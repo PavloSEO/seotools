@@ -34,6 +34,28 @@ def validate_context(
     if item["kind"] in sitemaps.KINDS:
         sitemaps.validate_context(con, item, payload, sitemap_roots)
         return
+    if item["kind"] == "resource_inventory":
+        from .resources import validate_inventory_context
+
+        validate_inventory_context(con, item)
+        return
+    if item["kind"] == "resource_commit":
+        if (
+            not isinstance(payload, dict)
+            or set(payload) != {"digest", "requests_used"}
+            or type(payload["digest"]) is not str
+            or len(payload["digest"]) != 64
+            or any(ch not in "0123456789abcdef" for ch in payload["digest"])
+            or type(payload["requests_used"]) is not int
+            or payload["requests_used"] < 0
+            or item["completeness"] != "complete"
+            or item["reason"]
+            or not item["item_key"].startswith("resource:")
+            or not item["item_key"][9:].isascii()
+            or not item["item_key"][9:].isdigit()
+        ):
+            raise ScanError("native resource commit context is invalid")
+        return
     if item["kind"] == "credential_context":
         verifier = payload.get("verifier") if isinstance(payload, dict) else object()
         if (

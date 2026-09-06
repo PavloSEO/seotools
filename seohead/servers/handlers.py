@@ -458,6 +458,8 @@ def crawl_site(
         if value is not None:
             resolved_overrides[path] = value
     settings = crawl_config.load(config, overrides=resolved_overrides)
+    if settings.get("resources", {}).get("fetch") and not scan_out:
+        raise ValueError("resources.fetch requires a SQLite scan_out artifact")
     if scan_out:
         if not url or urls:
             raise ValueError(
@@ -699,6 +701,9 @@ def _audit_crawl_result(
                 # leaves HTML out of ``EscalationResult`` so a large scan never
                 # accumulates every serialized DOM in memory.
                 escalation = run_render_escalation(stored_scan, result, settings)
+                from seohead.crawl.sqlite_resources import capture_resources
+
+                capture_resources(stored_scan, settings)
                 coverage = stored_scan.con.execute(
                     "SELECT crawl_partial,limitations_json FROM scan"
                 ).fetchone()

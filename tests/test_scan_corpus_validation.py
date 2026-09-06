@@ -109,11 +109,11 @@ def test_corpus_rejects_document_response_and_page_selection_mismatches():
         validate_corpus(con, _scan(), _captured_policy())
 
 
-def test_corpus_rejects_unavailable_resource_refs_before_h():
+def test_corpus_rejects_resource_refs_without_document_provenance():
     con = _con()
     _corpus(con)
     con.execute(
         "INSERT INTO resource_refs(page_url_id,ordinal,resource_url_id,source_document_id,kind,representation,raw_url,capture_state,reason) VALUES(1,0,2,NULL,'script','static','/app.js','not_fetched','not fetched')"
     )
-    with pytest.raises(ScanError, match="until H"):
+    with pytest.raises(ScanError, match="provenance"):
         validate_corpus(con, _scan(), _captured_policy())

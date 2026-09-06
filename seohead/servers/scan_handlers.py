@@ -144,7 +144,7 @@ def _rebuild_page_result(scan) -> Any:
 
 
 def _response(run, *, audit_available: bool, audit_reason: str, finalized: bool) -> dict[str, Any]:
-    return {
+    response = {
         "scan": run.path,
         "urls_collected": run.pages,
         "links_collected": run.links,
@@ -156,6 +156,9 @@ def _response(run, *, audit_available: bool, audit_reason: str, finalized: bool)
         "finalized": finalized,
         "limitations": list(run.limitations),
     }
+    if run.capabilities is not None:
+        response.update(corpus_partial=run.corpus_partial, capabilities=run.capabilities)
+    return response
 
 
 def _bridge_reason(counts: dict[str, int], start_page_gate: dict[str, Any] | None) -> str | None:
@@ -285,6 +288,8 @@ def crawl_site_scan(
                 links=current["counts"]["links"],
                 forms=current["counts"]["forms"],
                 limitations=tuple(json.loads(current["scan"]["limitations_json"])),
+                corpus_partial=bool(current["scan"]["corpus_partial"]),
+                capabilities=json.loads(current["scan"]["capabilities_json"]),
             )
 
         try:
