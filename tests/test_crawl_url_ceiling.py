@@ -24,7 +24,10 @@ from seohead.crawl.spider import LinkEdge
 # invalidate the ceiling by itself, but it does invalidate the arithmetic that
 # justifies it, and nothing else in the suite would notice.
 # ``body_unavailable`` joins the already-integrated iframe and hreflang fields.
-FIELD_COUNTS_THE_CEILING_WAS_COMPUTED_AGAINST = {LinkEdge: 8, PageRecord: 56}
+# 56 -> 58 for ``meta_fragment`` and ``ajax_scheme_outlinks`` (#386), re-measured
+# rather than assumed: an empty string and a zero, and a paired tracemalloc run
+# over 8 000 records reports the same bytes per record at both widths.
+FIELD_COUNTS_THE_CEILING_WAS_COMPUTED_AGAINST = {LinkEdge: 8, PageRecord: 58}
 
 
 def test_both_crawlers_read_the_same_ceiling() -> None:

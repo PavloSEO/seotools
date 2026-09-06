@@ -12,7 +12,7 @@ import urllib.parse
 from collections import defaultdict
 from typing import Any
 
-from seohead.tools.parser import robots_directives
+from seohead.tools.parser import robots_directives, uses_ajax_crawling_scheme
 
 from .context import AuditContext
 from .models import Page
@@ -1495,6 +1495,56 @@ def check_native_page_evidence(ctx: AuditContext) -> None:
         ctx.skip("IMG_ALT_TOO_LONG", "no per-image evidence (native crawl only)")
 
 
+def check_ajax_crawling_scheme(ctx: AuditContext) -> None:
+    """AJAX_CRAWLING_SCHEME_URL, AJAX_CRAWLING_SCHEME_META_FRAGMENT (#386).
+
+    Google's AJAX crawling scheme -- a ``#!`` hash-bang URL, or a page-wide
+    ``<meta name="fragment" content="!">``, each promising a rendered snapshot at an
+    ``?_escaped_fragment_=`` companion URL -- was deprecated in 2015 and switched off
+    in 2018. ``seohead.tools.render`` already reads both shapes, but only to decide
+    how to fetch a page; neither was recorded, so nothing could report that a site
+    still carries them.
+
+    Registered at *notice*, deliberately: the scheme is inert rather than broken, and
+    a site may still serve it for a legacy client of its own, so a warning would be
+    telling an operator off for a decision that may well be theirs. Both checks read
+    evidence only a native crawl records and skip by name on a Screaming Frog export,
+    which carries neither column.
+    """
+    has_outlinks = _has_column(ctx, "ajax_scheme_outlinks")
+    has_meta = _has_column(ctx, "meta_fragment")
+    for page in ctx.html_pages():
+        rec = _rec(page)
+        if has_outlinks:
+            # The page's own address counts as well as the URLs it publishes: a
+            # crawl seeded with an _escaped_fragment_ URL, or one that followed a
+            # hash-bang link, holds a page that *is* a scheme URL and would
+            # otherwise be reported only against whatever happened to link it.
+            declared = rec.get("ajax_scheme_outlinks") or 0
+            self_uses = uses_ajax_crawling_scheme(page.url)
+            if declared or self_uses:
+                ctx.add(
+                    "AJAX_CRAWLING_SCHEME_URL",
+                    target_url=page.url,
+                    details={"own_url_uses_scheme": self_uses, "outlinks_using_scheme": declared},
+                )
+        if has_meta:
+            fragment = rec.get("meta_fragment")
+            if fragment:
+                ctx.add(
+                    "AJAX_CRAWLING_SCHEME_META_FRAGMENT",
+                    target_url=page.url,
+                    details={"meta_fragment": str(fragment)},
+                )
+    if not has_outlinks:
+        ctx.skip("AJAX_CRAWLING_SCHEME_URL", "no AJAX-scheme URL evidence (native crawl only)")
+    if not has_meta:
+        ctx.skip(
+            "AJAX_CRAWLING_SCHEME_META_FRAGMENT",
+            'no <meta name="fragment"> evidence (native crawl only)',
+        )
+
+
 def check_og(ctx: AuditContext) -> None:
     """Check Open Graph presence.
 
@@ -1661,6 +1711,7 @@ ALL_CHECKS = [
     check_links_extra,
     check_tech_extra,
     check_native_page_evidence,
+    check_ajax_crawling_scheme,
     check_charset,
     check_doctype,
     check_viewport,

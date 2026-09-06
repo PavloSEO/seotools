@@ -2,18 +2,18 @@
   "schema_version": "1.0",
   "source": {
     "project": "example.com",
-    "generated_at": "2026-09-06T10:04:05Z",
-    "health_score": 2,
+    "generated_at": "2026-09-06T11:50:01Z",
+    "health_score": null,
     "crawl_valid": true,
     "crawl_invalid_reason": null,
     "crawl_partial": false,
     "crawl_finish_reason": null,
     "health_score_scope": null,
-    "health_score_basis": "75 of 149 checks could run; the score is not comparable to a run with full evidence",
+    "health_score_basis": "75 of 152 checks could run; the score is not comparable to a run with full evidence",
     "check_coverage": {
-      "checks_total": 149,
+      "checks_total": 152,
       "checks_fired": 16,
-      "checks_skipped": 74,
+      "checks_skipped": 77,
       "checks_disabled": 0,
       "checks_disabled_ids": [],
       "checks_silent": 59,
@@ -78,7 +78,7 @@
         "URL_UNDERSCORES",
         "URL_UPPERCASE"
       ],
-      "coverage": 0.503
+      "coverage": 0.493
     }
   },
   "pipeline": {

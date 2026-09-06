@@ -11,7 +11,7 @@
     "source": null,
     "exports_dir": "examples/exports",
     "sf_version_detected": null,
-    "generated_at": "2026-09-06T10:04:05Z",
+    "generated_at": "2026-09-06T11:50:01Z",
     "profile": "full",
     "exports_used": [
       "internal_all",
@@ -163,6 +163,14 @@
         "reason": "no per-image evidence (native crawl only)"
       },
       {
+        "id": "AJAX_CRAWLING_SCHEME_URL",
+        "reason": "no AJAX-scheme URL evidence (native crawl only)"
+      },
+      {
+        "id": "AJAX_CRAWLING_SCHEME_META_FRAGMENT",
+        "reason": "no <meta name=\"fragment\"> evidence (native crawl only)"
+      },
+      {
         "id": "MISSING_CHARSET",
         "reason": "no Meta Charset column, so a page without a header charset cannot be distinguished from one declaring <meta charset> (needs a native seohead crawl or Custom Extraction in SF)"
       },
@@ -276,6 +284,10 @@
       },
       {
         "id": "HREFLANG_MISSING_RETURN_LINK",
+        "reason": "no all_hreflang export (export Bulk Export -> Links -> All Hreflang)"
+      },
+      {
+        "id": "HREFLANG_INCONSISTENT_CONFIRMATION",
         "reason": "no all_hreflang export (export Bulk Export -> Links -> All Hreflang)"
       },
       {
@@ -394,11 +406,11 @@
         "share": 0.75
       }
     ],
-    "health_score": 2,
+    "health_score": null,
     "check_coverage": {
-      "checks_total": 149,
+      "checks_total": 152,
       "checks_fired": 16,
-      "checks_skipped": 74,
+      "checks_skipped": 77,
       "checks_disabled": 0,
       "checks_disabled_ids": [],
       "checks_silent": 59,
@@ -463,9 +475,10 @@
         "URL_UNDERSCORES",
         "URL_UPPERCASE"
       ],
-      "coverage": 0.503
+      "coverage": 0.493
     },
-    "health_score_basis": "75 of 149 checks could run; the score is not comparable to a run with full evidence",
+    "health_score_reason": "only 75 of 152 checks could run (49% coverage); too little evidence to score",
+    "health_score_basis": "75 of 152 checks could run; the score is not comparable to a run with full evidence",
     "size_stats_bytes": {
       "count": 4,
       "median": 77500,
