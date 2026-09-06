@@ -67,6 +67,53 @@ def test_mixed_classified_and_unclassified_edges_report_both():
     assert result["measured"] is True
 
 
+def test_unclassified_inlinks_to_same_page_block_boilerplate_only_verdict():
+    """Issue #467: a page with one classified boilerplate inlink and nine
+    unclassified inlinks must not be reported as boilerplate-only — the
+    unclassified inlinks could be content links never looked at."""
+    links = [edge("https://example.com/", "https://example.com/page", "nav")]
+    for i in range(9):
+        links.append(edge(f"https://example.com/s{i}", "https://example.com/page", position=""))
+    result = inlink_composition(links)
+    assert "https://example.com/page" not in result["pages_boilerplate_only"]
+    page = next(p for p in result["pages"] if p["url"] == "https://example.com/page")
+    assert page["boilerplate_only"] is False
+    assert page["inlinks_unclassified"] == 9
+    assert not any(
+        "linked only from navigation, header, sidebar, or footer" in f for f in result["findings"]
+    )
+
+
+def test_fully_classified_boilerplate_only_page_still_flagged():
+    """Negative control: no unclassified inlinks at all must not be affected
+    by the fix — the page stays boilerplate-only."""
+    links = [
+        edge("https://example.com/a", "https://example.com/x", "nav"),
+        edge("https://example.com/b", "https://example.com/x", "footer"),
+        edge("https://example.com/c", "https://example.com/x", "sidebar"),
+    ]
+    # The host is what makes the population internal (#208); without it the
+    # verdict is withheld for a different reason than this test is about.
+    result = inlink_composition(links, "example.com")
+    assert "https://example.com/x" in result["pages_boilerplate_only"]
+    page = result["pages"][0]
+    assert page["boilerplate_only"] is True
+    assert page["inlinks_unclassified"] == 0
+
+
+def test_fully_classified_mixed_content_and_nav_stays_not_boilerplate():
+    """Negative control: a mix of content and nav classified edges, no
+    unclassified edges, must still report boilerplate_only False."""
+    links = [
+        edge("https://example.com/a", "https://example.com/x", "content"),
+        edge("https://example.com/b", "https://example.com/x", "nav"),
+    ]
+    result = inlink_composition(links)
+    page = result["pages"][0]
+    assert page["boilerplate_only"] is False
+    assert page["inlinks_unclassified"] == 0
+
+
 def test_empty_link_list_reports_cleanly():
     result = inlink_composition([])
     assert result["ok"] is True
