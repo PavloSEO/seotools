@@ -108,13 +108,13 @@ def _rules_for(parsed: ParsedRobots, user_agent: str) -> RobotsGroup:
     for group in parsed["groups"]:
         group_best = -1
         has_star = False
-        for token in (u.lower().strip() for u in group["user_agents"]):
-            # A blank User-agent line still begins a distinct malformed group:
-            # keep that group's following directives attached to it, but never
-            # let Python's ``name.startswith("")`` turn it into a universal
-            # named match that outranks the real wildcard group (#566).
-            if not token:
-                continue
+        # A blank value -- a bare "User-agent:", or a name that an inline comment
+        # swallowed -- names no crawler at all. Left in, it was a zero-length
+        # prefix of every agent, so it matched all of them and, counting as a
+        # named match, outranked the file's real "*" group for every crawler the
+        # file never mentions (#566). The group itself still exists and keeps its
+        # own directives; it simply names nobody.
+        for token in (t for t in (u.lower().strip() for u in group["user_agents"]) if t):
             if token == "*":
                 has_star = True
                 continue

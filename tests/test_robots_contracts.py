@@ -168,3 +168,54 @@ def test_spider_uses_its_selected_agent_crawl_delay():
 
     assert result.crawl_delay_applied == 10.0
     assert result.effective_delay >= 10.0
+
+
+def test_a_blank_user_agent_does_not_displace_the_wildcard_group():
+    """#566: a name lost to a comment must not void the site's default policy."""
+    parsed = robots.parse_robots(
+        "User-agent: # old bot rule, no longer needed\nDisallow: /old-secret/\n\n"
+        "User-agent: *\nDisallow: /\n"
+    )
+
+    # The blank group names nobody, so the wildcard group still rules GPTBot.
+    assert robots.is_allowed(parsed, "/", "GPTBot") is False
+    assert robots.is_allowed(parsed, "/anything", "GPTBot") is False
+
+
+def test_a_bare_user_agent_line_names_no_crawler():
+    parsed = robots.parse_robots(
+        "User-agent:\nDisallow: /old-secret/\n\nUser-agent: *\nAllow: /\nDisallow: /private/\n"
+    )
+
+    # Rules under the blank group apply to nobody; the wildcard group applies.
+    assert robots.is_allowed(parsed, "/old-secret/", "GPTBot") is True
+    assert robots.is_allowed(parsed, "/private/", "GPTBot") is False
+
+
+def test_a_blank_token_beside_a_real_name_leaves_that_name_matching():
+    parsed = robots.parse_robots(
+        "User-agent:\nUser-agent: GPTBot\nDisallow: /named/\n\nUser-agent: *\nDisallow: /\n"
+    )
+
+    assert robots.is_allowed(parsed, "/named/", "GPTBot") is False
+    # The named group is the specific match, so the wildcard Disallow: / is not applied.
+    assert robots.is_allowed(parsed, "/other/", "GPTBot") is True
+    assert robots.is_allowed(parsed, "/other/", "OtherBot") is False
+
+
+def test_the_most_specific_group_still_wins_over_the_wildcard():
+    parsed = robots.parse_robots(
+        "User-agent: *\nDisallow: /\n\nUser-agent: Googlebot\nAllow: /\n\n"
+        "User-agent: Googlebot-Image\nDisallow: /photos/\n"
+    )
+
+    assert robots.is_allowed(parsed, "/page", "Googlebot") is True
+    assert robots.is_allowed(parsed, "/photos/a.jpg", "Googlebot-Image") is False
+    # Googlebot-Image is the longer matching token, so the shorter Googlebot
+    # group does not also allow /photos/.
+    assert robots.is_allowed(parsed, "/page", "OtherBot") is False
+
+
+@pytest.mark.parametrize("text", ["", "\n\n", "# just a comment\n", "User-agent:\n"])
+def test_a_robots_file_naming_nobody_leaves_everything_allowed(text):
+    assert robots.is_allowed(robots.parse_robots(text), "/", "GPTBot") is True
