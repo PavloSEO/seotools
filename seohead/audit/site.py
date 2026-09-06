@@ -171,7 +171,10 @@ def _parse_results_unavailable(result: dict[str, Any]) -> bool:
         bool(rows)
         and isinstance(rows, list)
         and all(
-            isinstance(row, dict) and row.get("ok") is False and bool(row.get("error"))
+            isinstance(row, dict)
+            and row.get("ok") is False
+            and "error" in row
+            and "status_code" not in row
             for row in rows
         )
     )
@@ -209,7 +212,7 @@ def _page_row(url: str, results: dict[str, dict[str, Any]]) -> dict[str, Any]:
             issues.append(f"{tool}: {data['error']}")
         elif tool == "parse" and _parse_results_unavailable(data):
             rows = data["results"]
-            issues.append(f"{tool}: {rows[0]['error']}")
+            issues.append(f"{tool}: {rows[0]['error'] or 'no response received'}")
         for finding in (data.get("findings") or [])[:5]:
             issues.append(str(finding))
     return {

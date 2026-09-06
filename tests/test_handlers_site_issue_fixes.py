@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from unittest import mock
 
+import httpx
+
 from seohead.audit.site import audit_site
 from seohead.data_sources.arsenkin import ArsenkinError
 from seohead.reports import checks_completed_display
@@ -238,6 +240,31 @@ def test_parse_batch_transport_failure_is_unavailable_and_critical(monkeypatch):
     ]
     assert all(page["issues"] == ["parse: connection refused"] for page in result["pages"])
     assert result["summary"]["findings_by_severity"]["critical"] == 5
+
+
+def test_parse_batch_empty_transport_error_is_unavailable_and_critical(monkeypatch):
+    """An empty exception string is still the real ``ParseFailed`` shape."""
+
+    class TimeoutClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def get(self, _url):
+            raise httpx.ReadTimeout("")
+
+    monkeypatch.setattr(
+        "seohead.tools.parser.http_client", lambda *_args, **_kwargs: (TimeoutClient(), False)
+    )
+    result = audit_site("https://example.com", limit=1, tools=_site_tools(parse=handlers.parse))
+
+    assert result["summary"]["page_tools_failed"] == [
+        {"tool": "parse", "failed_pages": 1, "pages_checked": 1}
+    ]
+    assert result["pages"][0]["issues"] == ["parse: no response received"]
+    assert result["summary"]["findings_by_severity"]["critical"] == 1
 
 
 def test_parse_batch_completed_error_response_remains_measured(monkeypatch):
