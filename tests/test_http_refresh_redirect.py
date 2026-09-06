@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from seohead.crawl.collect import collect_urls
 from seohead.crawl.evidence import build_evidence
 from seohead.sf.config import load_config
@@ -61,8 +63,25 @@ def test_http_refresh_redirect_fires_only_for_the_header_page():
         ),
         "https://example.com/plain": _FakeResponse(_PLAIN_PAGE, {"content-type": "text/html"}),
     }
-    fired = _fired(_run_crawl(mapping))
+    ctx = _run_crawl(mapping)
+    fired = _fired(ctx)
     assert fired.get("HTTP_REFRESH_REDIRECT", set()) == {"https://example.com/refresh"}
+    issue = next(issue for issue in ctx.issues if issue.check == "HTTP_REFRESH_REDIRECT")
+    assert issue.details == {"refresh_header": "5; url=https://example.com/new"}
+
+
+@pytest.mark.parametrize("refresh", ["30", "30; url=", '30; url=""'])
+def test_http_refresh_delay_or_empty_target_is_not_a_redirect(refresh):
+    """The real collector/evidence/rules path must not turn a page reload into a redirect."""
+    mapping = {
+        "https://example.com/reload": _FakeResponse(
+            _PLAIN_PAGE,
+            {"content-type": "text/html", "refresh": refresh},
+        )
+    }
+
+    ctx = _run_crawl(mapping)
+    assert _fired(ctx).get("HTTP_REFRESH_REDIRECT", set()) == set()
 
 
 def test_http_refresh_redirect_is_distinct_from_a_meta_refresh_element():
