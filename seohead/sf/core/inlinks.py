@@ -93,13 +93,19 @@ def _process_export(
 
     max_locs = ctx.config.get("output", {}).get("max_locations_per_issue", 200)
     by_dest: OrderedDict[str, list[Link]] = OrderedDict()
+    raw_dests: dict[str, list[str]] = {}
     for rec in records_from_df(df, INLINKS_FIELD_MAP):
         link = _link_from_record(rec)
         if not link.destination_url:
             continue
-        by_dest.setdefault(link.destination_url, []).append(link)
+        dest_key = norm_url(link.destination_url)
+        by_dest.setdefault(dest_key, []).append(link)
+        raws = raw_dests.setdefault(dest_key, [])
+        if link.destination_url not in raws:
+            raws.append(link.destination_url)
 
-    for dest, links in by_dest.items():
+    for dest_key, links in by_dest.items():
+        dest = raw_dests[dest_key][0]
         dest_host = urllib.parse.urlparse(dest).netloc.lower()
         is_internal = (not dest_host) or (dest_host == site_host)
         check_id = internal_check if is_internal else external_check
@@ -123,7 +129,10 @@ def _process_export(
             occurrences_count=n_sources or len(links),
             locations=locations,
             details=details,
-            evidence={"export": ctx.exports.files.get(key)},
+            evidence={
+                "export": ctx.exports.files.get(key),
+                "raw_destinations": raw_dests[dest_key],
+            },
         )
 
 

@@ -11,7 +11,7 @@
     "source": null,
     "exports_dir": "examples/exports",
     "sf_version_detected": null,
-    "generated_at": "2026-09-06T07:34:14Z",
+    "generated_at": "2026-09-06T09:24:23Z",
     "profile": "full",
     "exports_used": [
       "internal_all",
@@ -487,7 +487,10 @@
       },
       "fix_hint": "Update the link to the current URL or add an appropriate 301 redirect; if it appears in the footer or navigation, fix the shared template.",
       "evidence": {
-        "export": "examples/exports/response_codes_client_error_(4xx)_inlinks.csv"
+        "export": "examples/exports/response_codes_client_error_(4xx)_inlinks.csv",
+        "raw_destinations": [
+          "https://example.com/old-page"
+        ]
       }
     },
     {
