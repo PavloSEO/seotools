@@ -227,6 +227,23 @@ def test_minify_svg_preserves_tspan_gap_and_xml_space_preserve():
     assert _svg_visible_text(optimizer.minify_svg(source)) == ["A B", "C  D"]
 
 
+def test_minify_svg_preserves_whitespace_significant_foreign_object():
+    # <foreignObject> embeds arbitrary XHTML; a <pre> inside it depends on the
+    # source whitespace to be preserved byte-for-byte (#480).
+    source = (
+        '<svg xmlns="http://www.w3.org/2000/svg"><foreignObject>'
+        '<body xmlns="http://www.w3.org/1999/xhtml"><pre>line one\n'
+        "line two\n   indented</pre></body></foreignObject></svg>"
+    )
+    assert optimizer.minify_svg(source) == source
+
+
+def test_minify_svg_still_collapses_whitespace_outside_protected_blocks():
+    # Negative control: ordinary inter-tag whitespace outside <text>/<foreignObject>
+    # must still collapse as before.
+    assert optimizer.minify_svg("<svg><rect/>   <rect/></svg>") == "<svg><rect/><rect/></svg>"
+
+
 def test_optimize_files_preserves_svg_visible_text(tmp_path):
     source_text = (
         '<svg xmlns="http://www.w3.org/2000/svg"><text><tspan>A</tspan> '

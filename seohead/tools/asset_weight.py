@@ -117,9 +117,14 @@ def looks_minified(text: str) -> bool:
     right on both fixtures the acceptance criteria describe.
     """
     stripped = text.strip()
-    if len(stripped) < 200:  # too small to carry a meaningful signal either way
-        return True
     lines = stripped.splitlines() or [stripped]
+    if len(stripped) < 200:
+        # Too small for the line-length heuristic below to carry a signal,
+        # but a single unbroken line with little whitespace still looks
+        # minified, while multiple hand-formatted lines never do — so fall
+        # back to shape rather than defaulting every short file to "minified"
+        # regardless of formatting.
+        return len(lines) <= 1 and whitespace_ratio(stripped) < 0.15
     avg_line_length = len(stripped) / len(lines)
     return whitespace_ratio(stripped) < 0.15 and avg_line_length > 200
 

@@ -90,16 +90,23 @@ def compute_resize(
 
 
 _SVG_TEXT_ELEMENT_RE = re.compile(r"<text\b[^>]*>.*?</text\s*>", re.DOTALL | re.IGNORECASE)
+# foreignObject embeds arbitrary XHTML (e.g. <pre>) where whitespace can be
+# semantically significant, exactly like <text>/<tspan> -- protected the same way.
+_SVG_FOREIGN_OBJECT_RE = re.compile(
+    r"<foreignObject\b[^>]*>.*?</foreignObject\s*>", re.DOTALL | re.IGNORECASE
+)
 
 
 def minify_svg(text: str) -> str:
     """Apply a conservative, text-preserving SVG whitespace pass.
 
     Whitespace between and inside tags is only ever collapsing noise outside of
-    <text> elements. Inside one, a run of spaces can be the only thing separating
-    two <tspan>s, and xml:space="preserve" can make repeated spaces significant --
-    so every <text>...</text> block is protected before the collapsing regexes run,
-    and restored byte-for-byte afterward.
+    <text> and <foreignObject> elements. Inside a <text>, a run of spaces can be
+    the only thing separating two <tspan>s, and xml:space="preserve" can make
+    repeated spaces significant. Inside a <foreignObject>, the embedded XHTML can
+    contain elements like <pre> where whitespace is part of the content. So every
+    <text>...</text> and <foreignObject>...</foreignObject> block is protected
+    before the collapsing regexes run, and restored byte-for-byte afterward.
     """
     output = re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
 
@@ -109,6 +116,7 @@ def minify_svg(text: str) -> str:
         protected.append(match.group(0))
         return f"\0{len(protected) - 1}\0"
 
+    output = _SVG_FOREIGN_OBJECT_RE.sub(_protect, output)
     output = _SVG_TEXT_ELEMENT_RE.sub(_protect, output)
     output = re.sub(r">\s+<", "><", output)
     output = re.sub(r"\s{2,}", " ", output)
