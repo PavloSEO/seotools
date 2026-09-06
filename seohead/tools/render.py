@@ -67,6 +67,7 @@ _SCRIPT_STYLE_RE = re.compile(
 _TAG_RE = re.compile(r"<[^>]+>")
 _BROWSER_RESPONSE_BYTES = 5 * 1024 * 1024
 _BROWSER_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+_BLOCKED_WEBSOCKET_LIMITATION = "browser WebSocket requests are unsupported by pinned rendering"
 _HOP_BY_HOP_HEADERS = frozenset(
     {
         "connection",
@@ -163,8 +164,10 @@ def _pinned_browser_route(
     return handler, limitations
 
 
-def _guard_websocket_route(ws_route: Any) -> None:
+def _guard_websocket_route(ws_route: Any, limitations: list[str] | None = None) -> None:
     """Fail closed because this renderer has no pinned WebSocket transport."""
+    if limitations is not None and _BLOCKED_WEBSOCKET_LIMITATION not in limitations:
+        limitations.append(_BLOCKED_WEBSOCKET_LIMITATION)
     ws_route.close()
 
 
@@ -556,7 +559,9 @@ def render_check(
                 # WebSockets are not HTTP requests and page.route() never sees
                 # them either; route_web_socket is the separate interception
                 # point that covers them.
-                context.route_web_socket("**/*", _guard_websocket_route)
+                context.route_web_socket(
+                    "**/*", lambda ws_route: _guard_websocket_route(ws_route, limitations)
+                )
                 page = context.new_page()
                 page.goto(target, wait_until=wait, timeout=timeout * 1000)
                 rendered_html = page.content()
@@ -668,7 +673,9 @@ def rendered_html(
                         browser_client, request_gate=request_gate
                     )
                     context.route("**/*", route_handler)
-                    context.route_web_socket("**/*", _guard_websocket_route)
+                    context.route_web_socket(
+                        "**/*", lambda ws_route: _guard_websocket_route(ws_route, limitations)
+                    )
                     page = context.new_page()
                     page.goto(target, wait_until=wait, timeout=timeout * 1000)
                     if limitations:
@@ -884,7 +891,10 @@ def render_document(
                     network_client, request_gate=request_gate
                 )
                 context.route("**/*", route_handler)
-                context.route_web_socket("**/*", _guard_websocket_route)
+                context.route_web_socket(
+                    "**/*",
+                    lambda ws_route: _guard_websocket_route(ws_route, browser_limitations),
+                )
                 page = context.new_page()
                 if max_html_bytes is not None:
                     page.on("request", _capture_request)

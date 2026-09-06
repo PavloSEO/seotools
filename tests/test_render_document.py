@@ -13,7 +13,6 @@ import types
 import pytest
 
 from seohead.crawl import settings as crawl_config
-from seohead.tools import render as render_module
 from seohead.tools.render import render_document
 
 
@@ -191,11 +190,29 @@ def test_service_workers_are_blocked_by_default(fake_stack):
     assert fake_stack["context"].options["service_workers"] == "block"
 
 
-def test_the_websocket_guard_is_installed_on_the_context(fake_stack):
-    render_document("https://example.com/", _rendering_config())
-    assert fake_stack["context"].ws_routes
-    _pattern, handler = fake_stack["context"].ws_routes[0]
-    assert handler is render_module._guard_websocket_route
+def test_a_blocked_websocket_marks_the_rendered_dom_unavailable(fake_stack, monkeypatch):
+    class WebSocket:
+        def __init__(self):
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    websocket = WebSocket()
+    original_goto = fake_stack["page"].goto
+
+    def goto(url, **kwargs):
+        original_goto(url, **kwargs)
+        _pattern, handler = fake_stack["context"].ws_routes[0]
+        handler(websocket)
+
+    monkeypatch.setattr(fake_stack["page"], "goto", goto)
+
+    result = render_document("https://example.com/", _rendering_config())
+
+    assert result["ok"] is False
+    assert "WebSocket" in result["error"]
+    assert websocket.closed
 
 
 def test_navigation_honours_the_configured_wait_until(fake_stack):
