@@ -360,3 +360,126 @@ def test_stale_lastmod_names_the_crawled_home_page_not_a_bare_origin(monkeypatch
     assert stale_issues[0].target_url == "https://example.com/", (
         "target_url must be the crawled home page, not a bare origin absent from pages.jsonl"
     )
+
+
+def test_explicit_sitemap_url_is_fetched_even_with_no_crawled_pages(monkeypatch, tmp_path):
+    """#452: an explicit --sitemap target carries its own host and needs no crawled page
+    to derive a base URL from. A crawl with no pages at all (empty/missing Internal:All)
+    must not make this fall through to a fetch-nothing, false-skip-reason path."""
+    ctx = _mini_ctx(tmp_path, [])
+    assert ctx.pages == []
+    called: list[str] = []
+
+    def fake_fetch(url, ua, timeout, retries=2):
+        called.append(url)
+        return None
+
+    monkeypatch.setattr(S, "_fetch", fake_fetch)
+    S.run_sitemap(ctx, sitemap_url="https://example.com/sitemap.xml", compare_with_crawl=True)
+
+    assert "https://example.com/sitemap.xml" in called, (
+        "an explicit sitemap_url must be fetched even when the crawl produced no pages"
+    )
+    skipped = {s.id: s.reason for s in ctx.skipped}
+    assert skipped.get("SITEMAP_DESYNC") != "no sitemap URL set (no export and network disabled)", (
+        "a sitemap_url was passed and network was not disabled -- this reason is false on both counts"
+    )
+
+
+def test_no_sitemap_url_and_no_pages_still_skips_cleanly(monkeypatch, tmp_path):
+    """Negative control for #452: with no sitemap_url/sitemap_urls and live_recheck off,
+    an empty-pages crawl must still skip every check with today's existing reasons --
+    the fix must not make the tool fetch anything when the caller gave it nothing to fetch."""
+    ctx = _mini_ctx(tmp_path, [])
+    assert ctx.pages == []
+    called: list[str] = []
+    monkeypatch.setattr(S, "_fetch", lambda url, ua, timeout, retries=2: called.append(url))
+
+    S.run_sitemap(ctx)
+
+    assert called == [], "no target was given -- nothing should be fetched"
+    skipped = {s.id: s.reason for s in ctx.skipped}
+    assert skipped["SITEMAP_DESYNC"] == "no sitemap URL set (no export and network disabled)"
+    assert "no sitemap URL to check" in skipped["SITEMAP_NOT_IN_ROBOTS"]
+
+
+def test_max_sitemap_urls_cap_records_truncation_of_remaining_children(monkeypatch):
+    """#454: hitting MAX_SITEMAP_URLS mid-<sitemapindex> must not silently drop the
+    remaining, never-fetched child sitemaps -- the same class of incomplete evidence the
+    depth cap (#312) already names via ``truncated``."""
+    monkeypatch.setattr(S, "MAX_SITEMAP_URLS", 5)
+
+    def _urlset3(prefix):
+        urls = "".join(f"<url><loc>https://example.com/{prefix}/{i}</loc></url>" for i in range(3))
+        return (
+            f'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{urls}</urlset>'.encode()
+        )
+
+    children = {
+        "https://example.com/s1.xml": _urlset3("a"),
+        "https://example.com/s2.xml": _urlset3("b"),
+        "https://example.com/s3.xml": _urlset3("c"),
+    }
+    monkeypatch.setattr(S, "_fetch", lambda u, ua, t, retries=2: children.get(u))
+    root = _index(
+        "https://example.com/s1.xml",
+        "https://example.com/s2.xml",
+        "https://example.com/s3.xml",
+    )
+    failures: list[str] = []
+    truncated: list[str] = []
+    out = S._parse_sitemap_bytes(
+        root,
+        "ua",
+        1,
+        set(),
+        {"example.com"},
+        failures=failures,
+        truncated=truncated,
+        source="https://example.com/sitemap_index.xml",
+    )
+    assert len(out) == 6, "the two fetched children's URLs are still returned"
+    assert failures == []
+    assert truncated == ["https://example.com/s3.xml"], (
+        "the child sitemap never fetched because of the URL cap must be named, not silently dropped"
+    )
+
+
+def test_max_sitemap_urls_cap_does_not_fire_on_a_genuinely_complete_parse(monkeypatch):
+    """Negative control for #454: an index whose children stay under MAX_SITEMAP_URLS
+    must report no truncation and no failures -- the fix must not fire on a genuinely
+    complete parse."""
+    monkeypatch.setattr(S, "MAX_SITEMAP_URLS", 100)
+
+    def _urlset3(prefix):
+        urls = "".join(f"<url><loc>https://example.com/{prefix}/{i}</loc></url>" for i in range(3))
+        return (
+            f'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{urls}</urlset>'.encode()
+        )
+
+    children = {
+        "https://example.com/s1.xml": _urlset3("a"),
+        "https://example.com/s2.xml": _urlset3("b"),
+        "https://example.com/s3.xml": _urlset3("c"),
+    }
+    monkeypatch.setattr(S, "_fetch", lambda u, ua, t, retries=2: children.get(u))
+    root = _index(
+        "https://example.com/s1.xml",
+        "https://example.com/s2.xml",
+        "https://example.com/s3.xml",
+    )
+    failures: list[str] = []
+    truncated: list[str] = []
+    out = S._parse_sitemap_bytes(
+        root,
+        "ua",
+        1,
+        set(),
+        {"example.com"},
+        failures=failures,
+        truncated=truncated,
+        source="https://example.com/sitemap_index.xml",
+    )
+    assert len(out) == 9
+    assert failures == []
+    assert truncated == []

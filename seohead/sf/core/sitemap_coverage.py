@@ -178,7 +178,8 @@ def _parse_sitemap_bytes(
             if truncated is not None and source:
                 truncated.append(source)
             return []
-        for sm in root.findall("sm:sitemap", _NS) or root.findall("sitemap"):
+        sitemap_elements = list(root.findall("sm:sitemap", _NS) or root.findall("sitemap"))
+        for idx, sm in enumerate(sitemap_elements):
             loc = sm.findtext("sm:loc", namespaces=_NS) or sm.findtext("loc")
             if not loc:
                 continue
@@ -206,6 +207,18 @@ def _parse_sitemap_bytes(
             elif failures is not None:
                 failures.append(loc)
             if len(out) >= MAX_SITEMAP_URLS:
+                # The URL cap was hit mid-index: every sibling after this one is never
+                # fetched. Left unrecorded, that reads identically to an index that simply
+                # had no more children (#454) -- the same false-complete-parse shape #312
+                # fixed for the depth cap right below. Name the dropped children in
+                # ``truncated`` so callers get the same honest "incomplete evidence" signal.
+                if truncated is not None:
+                    for remaining in sitemap_elements[idx + 1 :]:
+                        rloc = remaining.findtext("sm:loc", namespaces=_NS) or remaining.findtext(
+                            "loc"
+                        )
+                        if rloc:
+                            truncated.append(rloc.strip())
                 break
     else:  # urlset
         declared = 0
@@ -229,6 +242,22 @@ def _parse_sitemap_bytes(
         if documents is not None:
             documents.append({"url": source, "bytes": len(data), "declared": declared})
     return out
+
+
+def _origin(url: str) -> str | None:
+    """The scheme+host of an absolute URL, or ``None`` if it isn't one.
+
+    An explicit ``--sitemap`` target carries its own host and needs no crawled page
+    to derive an origin from -- unlike ``_base_url``, which only ever looks at
+    ``ctx.pages`` (#452).
+    """
+    try:
+        parsed = urllib.parse.urlparse(url)
+    except (ValueError, AttributeError):
+        return None
+    if parsed.scheme and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}"
+    return None
 
 
 def _base_url(ctx: AuditContext) -> str | None:
@@ -421,6 +450,16 @@ def run_sitemap(
     sitemaps_declared: list[str] = []
     want_network = bool(sitemap_url) or bool(sitemap_urls) or cfg_live.get("enabled", False)
     base = _base_url(ctx)
+    if base is None:
+        # No crawled pages to derive an origin from -- but an explicit --sitemap target
+        # names its own host and needs no crawl at all to be worth fetching (#452). Fall
+        # back to the first explicit target's origin so the sitemap fetch (and, as a
+        # bonus, the robots.txt check) can still run against it.
+        explicit_first = (
+            (sitemap_urls or [sitemap_url])[0] if (sitemap_urls or sitemap_url) else None
+        )
+        if explicit_first:
+            base = _origin(explicit_first)
     fetch_failures: list[str] = []
     depth_truncated: list[str] = []
     # Whether a sitemap was actually pursued over the network, as opposed to merely
