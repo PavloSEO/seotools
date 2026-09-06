@@ -11,7 +11,7 @@
     "source": null,
     "exports_dir": "examples/exports",
     "sf_version_detected": null,
-    "generated_at": "2026-09-06T10:04:05Z",
+    "generated_at": "2026-09-06T11:46:15Z",
     "profile": "full",
     "exports_used": [
       "internal_all",
@@ -144,6 +144,10 @@
       },
       {
         "id": "UNLINKED_PAGINATION_SERIES",
+        "reason": "no rel=\"next\" column in Internal:All"
+      },
+      {
+        "id": "PAGINATION_SEQUENCE_ERROR",
         "reason": "no rel=\"next\" column in Internal:All"
       },
       {
@@ -299,6 +303,14 @@
         "reason": "no all_inlinks export (needed for the resource inventory)"
       },
       {
+        "id": "PAGINATION_MULTIPLE",
+        "reason": "no all_inlinks export (needed for every rel=\"next\"/rel=\"prev\" declaration and the anchors beside them)"
+      },
+      {
+        "id": "PAGINATION_URL_NOT_IN_ANCHOR",
+        "reason": "no all_inlinks export (needed for every rel=\"next\"/rel=\"prev\" declaration and the anchors beside them)"
+      },
+      {
         "id": "DOM_TOO_DEEP",
         "reason": "no stored HTML (input.html_store_dir not set)"
       },
@@ -394,11 +406,11 @@
         "share": 0.75
       }
     ],
-    "health_score": 2,
+    "health_score": null,
     "check_coverage": {
-      "checks_total": 149,
+      "checks_total": 152,
       "checks_fired": 16,
-      "checks_skipped": 74,
+      "checks_skipped": 77,
       "checks_disabled": 0,
       "checks_disabled_ids": [],
       "checks_silent": 59,
@@ -463,9 +475,10 @@
         "URL_UNDERSCORES",
         "URL_UPPERCASE"
       ],
-      "coverage": 0.503
+      "coverage": 0.493
     },
-    "health_score_basis": "75 of 149 checks could run; the score is not comparable to a run with full evidence",
+    "health_score_reason": "only 75 of 152 checks could run (49% coverage); too little evidence to score",
+    "health_score_basis": "75 of 152 checks could run; the score is not comparable to a run with full evidence",
     "size_stats_bytes": {
       "count": 4,
       "median": 77500,

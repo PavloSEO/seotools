@@ -7,6 +7,7 @@ when a column the data would need is absent.
 
 from __future__ import annotations
 
+import itertools
 import re
 import urllib.parse
 from collections import defaultdict
@@ -1141,6 +1142,122 @@ def check_pagination_series(ctx: AuditContext) -> None:
         )
 
 
+# A page number is only read from a token that says it is one. A bare trailing
+# number in a path is a year, a product id or a date just as often as a page
+# index, and guessing wrong here does not produce a near-miss -- it produces a
+# sequence "error" on a series that is perfectly ordered. These three tokens
+# are the ones that mean "page N" and nothing else. WordPress's ``?p=`` is
+# deliberately absent: it carries a post id, not a page index.
+_PAGE_NUMBER_PARAMS = frozenset({"page", "paged", "pg"})
+_PAGE_NUMBER_PATH_RE = re.compile(r"/(?:page|paged|pg)/(\d{1,6})(?:/|$)", re.IGNORECASE)
+
+
+def pagination_page_number(url: str) -> int | None:
+    """The page number ``url`` states, or ``None`` when it does not state one.
+
+    Module-level and pure so the one thing that decides whether a series can be
+    judged at all is testable on its own. Two *disagreeing* numbers (``/page/2/``
+    that also carries ``?page=5``) return ``None`` for the same reason a missing
+    one does: the URL does not tell us which page it is, and a check that picks
+    one of them is inventing the evidence it then reports on.
+    """
+    parts = urllib.parse.urlsplit(url)
+    seen: set[int] = set()
+    for key, value in urllib.parse.parse_qsl(parts.query):
+        if key.strip().lower() in _PAGE_NUMBER_PARAMS and value.isdigit():
+            seen.add(int(value))
+    match = _PAGE_NUMBER_PATH_RE.search(parts.path)
+    if match:
+        seen.add(int(match.group(1)))
+    return seen.pop() if len(seen) == 1 else None
+
+
+def _display_url(ctx: AuditContext, norm: str) -> str:
+    """The crawled URL behind a normalized key, or the key itself when uncrawled."""
+    page = ctx.page_by_norm.get(norm)
+    return page.url if page is not None else norm
+
+
+def check_pagination_sequence(ctx: AuditContext) -> None:
+    """PAGINATION_SEQUENCE_ERROR — a break in an otherwise contiguous page-number run.
+
+    Walks the same ``rel="next"`` graph as ``check_pagination_series`` and reads
+    each URL's own page number. What it reports is narrow on purpose, because
+    "the numbers are not 1..n" is not an error and saying it is would fire on
+    most ordinary paginated sites:
+
+    * **A series may start anywhere.** ``/blog/page/4/`` onwards is what a crawl
+      of a subsection, or a series whose first page lives at an unnumbered URL,
+      looks like. Only the *steps* between consecutive pages are judged, never
+      the first number.
+    * **A series may have a stride.** ``?page=0,10,20`` is an offset, not a
+      broken sequence, so a run in which no step is ``+1`` is left unjudged
+      rather than reported: there is no contiguous run there to have broken.
+    * **Every URL in the series must state its number.** One unreadable URL and
+      the series is not evaluated at all, since a missing number is not evidence
+      of a gap.
+    * **A cycling series belongs to PAGINATION_LOOP**, which already reports it;
+      reporting the same series twice under two names is one finding, not two.
+
+    With those in place the finding is exactly the row's own words: a run that
+    increments by one somewhere and then does not — 1, 2, 3, 7 — where pages 4
+    to 6 are in nobody's chain.
+    """
+    next_map: dict[str, str] = {}
+    for page in ctx.html_pages():
+        nxt = _rec(page).get("rel_next")
+        if nxt:
+            next_map[norm_url(page.url)] = norm_url(nxt)
+    if not next_map:
+        ctx.skip("PAGINATION_SEQUENCE_ERROR", 'no rel="next" column in Internal:All')
+        return
+
+    has_predecessor = set(next_map.values())
+    evaluated = 0
+    for start in next_map:
+        if start in has_predecessor:
+            continue  # not the head of its series; the walk below covers it
+        path, loops_to = series_from(next_map, start)
+        if loops_to is not None:
+            continue  # PAGINATION_LOOP owns a cycling series
+        stated = [pagination_page_number(_display_url(ctx, n)) for n in path]
+        # Three numbered pages is the smallest series with two steps, and two
+        # steps is the smallest run in which one of them can be "the odd one".
+        if len(stated) < 3 or any(n is None for n in stated):
+            continue
+        numbers = [n for n in stated if n is not None]
+        steps = [b - a for a, b in itertools.pairwise(numbers)]
+        if 1 not in steps:
+            continue  # never increments by one: not a contiguous run to begin with
+        evaluated += 1
+        breaks = [
+            {
+                "from": _display_url(ctx, path[i]),
+                "to": _display_url(ctx, path[i + 1]),
+                "from_page": numbers[i],
+                "to_page": numbers[i + 1],
+            }
+            for i, step in enumerate(steps)
+            if step != 1
+        ]
+        if not breaks:
+            continue
+        ctx.add(
+            "PAGINATION_SEQUENCE_ERROR",
+            target_url=_display_url(ctx, path[0]),
+            details={
+                "series": [_display_url(ctx, n) for n in path],
+                "page_numbers": numbers,
+                "breaks": breaks,
+            },
+        )
+    if evaluated == 0:
+        ctx.skip(
+            "PAGINATION_SEQUENCE_ERROR",
+            'no rel="next" series states a page number in every one of its URLs',
+        )
+
+
 def check_links_extra(ctx: AuditContext) -> None:
     t = ctx.thresholds
     for page in ctx.indexable_html_pages():
@@ -1658,6 +1775,7 @@ ALL_CHECKS = [
     check_unlinked_canonical,
     check_pagination,
     check_pagination_series,
+    check_pagination_sequence,
     check_links_extra,
     check_tech_extra,
     check_native_page_evidence,

@@ -713,6 +713,30 @@ CHECKS: dict[str, dict[str, Any]] = {
         "message": 'A pagination series is reachable only by following rel="next", never by a hyperlink',
         "fix": 'Add an ordinary internal link to the first page of the series so it does not depend on rel="next" alone for discovery.',
     },
+    "PAGINATION_MULTIPLE": {
+        "severity": "warning",
+        "source": "inlinks:All Inlinks",
+        "message": 'The page declares more than one rel="next" (or more than one rel="prev") URL',
+        "fix": 'Declare exactly one rel="next" and one rel="prev" URL per page; two different '
+        "successors leave the series ambiguous, and a crawler picks one of them without "
+        "telling anybody which.",
+    },
+    "PAGINATION_URL_NOT_IN_ANCHOR": {
+        "severity": "notice",
+        "source": "inlinks:All Inlinks",
+        "message": 'A rel="next"/rel="prev" URL is not also linked from the same page with an anchor',
+        "fix": "Link the paginated URL from the page itself with an ordinary <a href> as well. "
+        'Google stopped using rel="next"/rel="prev" for indexing in 2019, so an annotation '
+        "with no anchor beside it is a route only some crawlers still take.",
+    },
+    "PAGINATION_SEQUENCE_ERROR": {
+        "severity": "warning",
+        "source": "SF-derived",
+        "message": 'A rel="next" series breaks a page-number run it otherwise follows',
+        "fix": 'Point each rel="next" at the page that actually follows this one. A run that '
+        "goes 1, 2, 3, 7 leaves pages 4 to 6 out of the chain entirely, so a crawler "
+        "following it never reaches them.",
+    },
     # --- extension: links ---
     "NO_INTERNAL_OUTLINKS": {
         "severity": "warning",

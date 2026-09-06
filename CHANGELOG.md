@@ -4,6 +4,16 @@ All notable public changes are documented here.
 
 ## Unreleased
 
+- Close the three pagination rows #385 left open, taking the registry from 149 to 152 checks.
+  `PAGINATION_MULTIPLE` and `PAGINATION_URL_NOT_IN_ANCHOR` read the All Inlinks export, which
+  is the only place a page's complete `rel="next"`/`rel="prev"` declaration list exists --
+  `Internal:All` keeps the first of each and drops the rest -- and report a page that declares
+  two different successors, or one whose declared URL is not also an anchor on the same page.
+  `PAGINATION_SEQUENCE_ERROR` reports a break in a page-number run the series otherwise
+  follows, per the issue's own caveat: a series may start at a number other than one, a stride
+  is not a break, and a series whose URLs do not state a page number is declared unevaluated
+  rather than judged against a numbering that would have had to be invented.
+
 - Fix four export-selection and run-validation defects that let an audit present a result it
   could not support (#209, #210, #215, #216). `internal_all`'s matcher required only the
   filename token `internal`, so a partial per-type Internal tab (e.g. `internal_html.csv`,
