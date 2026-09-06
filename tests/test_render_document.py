@@ -111,10 +111,12 @@ class _FakeChromium:
         self._browser = browser
         self._context = context
         self.launched = False
+        self.launch_calls = []
         self.launch_persistent_calls = []
 
-    def launch(self):
+    def launch(self, **options):
         self.launched = True
+        self.launch_calls.append(options)
         return self._browser
 
     def launch_persistent_context(self, user_data_dir, **options):
@@ -328,6 +330,7 @@ def test_persistent_profile_is_refused_until_pinned_cookie_continuity_is_proven(
 def test_without_a_persistent_profile_the_ordinary_launch_path_is_used(fake_stack):
     render_document("https://example.com/", _rendering_config())
     assert fake_stack["chromium"].launched is True
+    assert fake_stack["chromium"].launch_calls == [{"chromium_sandbox": True}]
     assert fake_stack["chromium"].launch_persistent_calls == []
 
 

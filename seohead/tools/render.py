@@ -534,7 +534,7 @@ def render_check(
             timeout, follow_redirects=False, headers={"User-Agent": UA}
         )
         with sync_playwright() as pw:
-            browser = pw.chromium.launch()
+            browser = pw.chromium.launch(chromium_sandbox=True)
             try:
                 # service_workers="block": a default-configuration service
                 # worker can serve requests the page.route() guard below never
@@ -665,7 +665,7 @@ def rendered_html(
             timeout, follow_redirects=False, headers={"User-Agent": UA}
         )
         with sync_playwright() as pw:
-            browser = pw.chromium.launch()
+            browser = pw.chromium.launch(chromium_sandbox=True)
             try:
                 context = browser.new_context(service_workers="block", user_agent=UA)
                 try:
@@ -882,7 +882,7 @@ def render_document(
                 # requests page.route() never sees.
                 "service_workers": "block",
             }
-            browser = pw.chromium.launch()
+            browser = pw.chromium.launch(chromium_sandbox=True)
             context = browser.new_context(**context_options)
             actual_browser = browser if browser is not None else getattr(context, "browser", None)
             engine_version = str(getattr(actual_browser, "version", "unknown"))
