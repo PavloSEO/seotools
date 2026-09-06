@@ -680,3 +680,34 @@ def test_resource_fan_out_is_bounded():
     )
     assert result["resources_truncated"] is True
     assert len(result["resources"]) == 10
+
+
+def test_discover_resources_dedupes_repeated_declarations_css_before_js():
+    """#530: _discover_resources reuses the shared occurrence-preserving parser
+    helper but keeps its own by-URL dedup and CSS-before-JS output order."""
+    from seohead.tools.asset_weight import _discover_resources
+
+    soup = BeautifulSoup(
+        '<script src="/app.js"></script>'
+        '<script src="/app.js"></script>'
+        '<link rel="stylesheet" href="/style.css">',
+        features="lxml",
+    )
+    out = _discover_resources(soup, "https://example.com/")
+    assert out == [
+        {"url": "https://example.com/style.css", "kind": "css"},
+        {"url": "https://example.com/app.js", "kind": "js"},
+    ]
+
+
+def test_discover_resources_skips_template_and_non_stylesheet_links():
+    from seohead.tools.asset_weight import _discover_resources
+
+    soup = BeautifulSoup(
+        '<template><script src="/never.js"></script></template>'
+        '<link rel="icon" href="/favicon.ico">'
+        '<script src="/real.js"></script>',
+        features="lxml",
+    )
+    out = _discover_resources(soup, "https://example.com/")
+    assert out == [{"url": "https://example.com/real.js", "kind": "js"}]

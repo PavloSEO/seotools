@@ -51,7 +51,11 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 
 from seohead.recon.net import UA, http_client
-from seohead.tools.parser import document_base_url, is_inert_template_content
+from seohead.tools.parser import (
+    document_base_url,
+    extract_script_stylesheet_declarations,
+    is_inert_template_content,
+)
 
 DEFAULT_TIMEOUT = 15.0
 # The issue's own suggested threshold for a single oversized file.
@@ -321,33 +325,29 @@ def flag_outlier_pages(
 def _discover_resources(soup: BeautifulSoup, base_url: str) -> list[dict[str, str]]:
     """External ``<link rel=stylesheet>`` and ``<script src>`` URLs, deduplicated.
 
+    Built on ``extract_script_stylesheet_declarations``, the shared
+    occurrence-preserving inventory (#530): this tool still wants its own
+    by-URL dedup, CSS-before-JS order, and ``{"url", "kind": "css"|"js"}``
+    shape, so it discards repeats itself rather than fetching the same
+    resource twice — but the occurrence detection, base-URL resolution, and
+    ``<template>`` exclusion now live in one place instead of two.
+
     Skips ``<template>`` descendants: a stylesheet or script held only in a
     DocumentFragment is never requested by a browser, so counting it would
     fabricate bytes, minification, cache, and duplicate-library findings for a
     resource nothing ever fetches (#236).
     """
+    declarations, _ = extract_script_stylesheet_declarations(soup, base_url)
     seen: set[str] = set()
     out: list[dict[str, str]] = []
-    for tag in soup.find_all("link"):
-        if is_inert_template_content(tag):
-            continue
-        rels = tag.get("rel") or []
-        rels = [rels] if isinstance(rels, str) else rels
-        href = tag.get("href")
-        if href and "stylesheet" in [r.lower() for r in rels]:
-            url = urljoin(base_url, href.strip())
-            if url not in seen:
+    for wanted_kind, out_kind in (("stylesheet", "css"), ("script", "js")):
+        for decl in declarations:
+            if decl["kind"] != wanted_kind:
+                continue
+            url = decl["url"]
+            if url and url not in seen:
                 seen.add(url)
-                out.append({"url": url, "kind": "css"})
-    for tag in soup.find_all("script"):
-        if is_inert_template_content(tag):
-            continue
-        src = tag.get("src")
-        if src:
-            url = urljoin(base_url, src.strip())
-            if url not in seen:
-                seen.add(url)
-                out.append({"url": url, "kind": "js"})
+                out.append({"url": url, "kind": out_kind})
     return out
 
 

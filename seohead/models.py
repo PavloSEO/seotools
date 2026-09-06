@@ -122,6 +122,11 @@ class _ParsedPageOptional(TypedDict, total=False):
     # Only present when the caller opts in via options["url_sources"]=True
     # (off by default) — see parser.parse_html.
     url_sources: list[dict[str, str]]
+    # Only present when the caller opts in via
+    # options["max_script_stylesheet_declarations"]=<int> (absent by default)
+    # — see parser.extract_script_stylesheet_declarations.
+    script_stylesheet_declarations: list[dict[str, str]]
+    script_stylesheet_declarations_omitted: int
 
 
 class DocumentPosition(TypedDict):

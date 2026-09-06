@@ -1165,6 +1165,66 @@ def extract_url_sources(soup: BeautifulSoup, base_url: str) -> list[dict[str, st
     return out
 
 
+def extract_script_stylesheet_declarations(
+    soup: BeautifulSoup, base_url: str, *, cap: int | None = None
+) -> tuple[list[dict[str, str]], int]:
+    """Every direct ``<script src>`` and ``<link rel~=stylesheet href>`` declaration,
+    in document order, one entry per occurrence (issue #530).
+
+    ``extract_url_sources`` and ``asset_weight._discover_resources`` each
+    deduplicate by resolved URL for their own purposes, so two identical
+    ``<script src="/app.js">`` declarations collapse into one entry through
+    either interface. This is the shared, occurrence-preserving inventory
+    #381/#372 need before any fetching happens: each occurrence keeps its
+    place in source order and its exact ``raw_url`` spelling, so a caller can
+    tell "declared twice" from "declared once".
+
+    Only tags carrying the attribute are a declaration at all -- a ``<script>``
+    with no ``src`` is inline code, not a reference -- but an attribute present
+    and empty (``src=""``) is itself an observed, if useless, declaration and
+    is kept rather than dropped, per the same rule ``extract_frames`` uses for
+    an absent frame ``src``. Stylesheet relation matching is case-insensitive
+    and token-based, matching the ``rel`` handling already used for hreflang
+    and asset-weight discovery. Skips ``<template>`` descendants -- see
+    ``_INERT_LINK_CONTAINERS`` -- a declaration only a script could clone into
+    the page is never requested by a browser.
+
+    ``cap`` bounds how many occurrences are returned (earliest-first); the
+    second return value is the number omitted by that cap, 0 when ``cap`` is
+    ``None`` or nothing was cut.
+    """
+    out: list[dict[str, str]] = []
+    total = 0
+    for tag in soup.find_all(("script", "link")):
+        if _has_ancestor(tag, _INERT_LINK_CONTAINERS):
+            continue  # a <template>-only declaration is never requested, see _INERT_LINK_CONTAINERS
+        if tag.name == "script":
+            if not tag.has_attr("src"):
+                continue  # inline script: not a declaration of an external resource
+            kind = "script"
+            raw_url = tag.get("src")
+        else:
+            rel_value: str | list[str] = tag.get("rel") or []
+            rel_list: list[str] = [rel_value] if isinstance(rel_value, str) else list(rel_value)
+            if "stylesheet" not in [r.lower() for r in rel_list]:
+                continue
+            if not tag.has_attr("href"):
+                continue
+            kind = "stylesheet"
+            raw_url = tag.get("href")
+        raw_url = raw_url if isinstance(raw_url, str) else " ".join(raw_url or [])
+        raw_url = raw_url.strip()
+        total += 1
+        if cap is not None and len(out) >= cap:
+            continue
+        try:
+            url = urljoin(base_url, raw_url) if raw_url else ""
+        except ValueError:
+            url = ""
+        out.append({"kind": kind, "url": url, "raw_url": raw_url})
+    return out, total - len(out)
+
+
 # extract_url_sources() also carries non-image carriers (script src, form
 # action, cite, itemtype, ...). "img"/"source" are always an image; any other
 # tag only qualifies via its "style" or "css" attr, i.e. a CSS url() -- which
@@ -1353,6 +1413,17 @@ def parse_html(html: str, final_url: str, options: dict[str, Any] | None = None)
     if opts["url_sources"]:
         result["url_sources"] = extract_url_sources(soup, base_url)
 
+    # Opt-in occurrence-preserving script/stylesheet inventory (#530): unlike
+    # url_sources above, this has no default-on state to preserve, so the cap
+    # itself is the opt-in -- omitted entirely unless a caller asks for it.
+    declaration_cap = _link_cap(options, "max_script_stylesheet_declarations")
+    if declaration_cap is not None:
+        declarations, omitted = extract_script_stylesheet_declarations(
+            soup, base_url, cap=declaration_cap
+        )
+        result["script_stylesheet_declarations"] = declarations
+        result["script_stylesheet_declarations_omitted"] = omitted
+
     if opts["text"]:
         text = _extract_text(soup)
         result["text"] = text
@@ -1472,7 +1543,12 @@ def parse_url(url: str, options: dict[str, Any] | None = None) -> ParseResult:
     region ``word_count`` is scoped to — see ``content_area.resolve_content_area``
     for its keys — and, when ``classify_links`` is on, ``link_position_rules``
     (a list of ``{"position", "selector"}`` dicts; see ``link_position.py``)
-    overrides the default nav/header/sidebar/footer rules.
+    overrides the default nav/header/sidebar/footer rules. ``max_script_stylesheet_declarations``
+    is an opt-in, occurrence-preserving inventory of ``<script src>``/
+    ``<link rel=stylesheet href>`` declarations (see
+    ``extract_script_stylesheet_declarations``): absent by default, it turns on
+    when given a non-negative int cap, adding ``script_stylesheet_declarations``
+    and ``script_stylesheet_declarations_omitted`` to the result.
 
     On success returns a dict with keys: ``url``, ``final_url``,
     ``status_code``, ``ok``, ``title``, ``meta_description``, ``canonical``,
