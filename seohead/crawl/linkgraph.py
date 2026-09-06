@@ -38,11 +38,17 @@ def inlink_composition(links: list[LinkEdge]) -> dict[str, Any]:
     "not measured", not as "no boilerplate links found".
     """
     dedup: set[tuple[str, str, str]] = set()
+    unclassified_dedup: set[tuple[str, str]] = set()
     by_dest: dict[str, Counter[str]] = {}
+    dest_unclassified: dict[str, int] = {}
     unclassified = 0
     for edge in links:
         if not edge.position:
             unclassified += 1
+            ukey = (edge.destination, edge.source)
+            if ukey not in unclassified_dedup:
+                unclassified_dedup.add(ukey)
+                dest_unclassified[edge.destination] = dest_unclassified.get(edge.destination, 0) + 1
             continue
         key = (edge.destination, edge.source, edge.position)
         if key in dedup:
@@ -52,18 +58,24 @@ def inlink_composition(links: list[LinkEdge]) -> dict[str, Any]:
 
     pages = []
     for dest, counts in by_dest.items():
+        dest_unclass = dest_unclassified.get(dest, 0)
         total = sum(counts.values())
         boilerplate = sum(counts.get(p, 0) for p in BOILERPLATE_POSITIONS)
         pages.append(
             {
                 "url": dest,
-                "inlinks_total": total,
+                "inlinks_total": total + dest_unclass,
                 "by_position": dict(sorted(counts.items())),
+                "inlinks_unclassified": dest_unclass,
                 # True only when every classified inlink is boilerplate (so
-                # neither "content" nor "other" appears) and at least one
-                # inlink was classified at all — a page with zero classified
-                # inlinks is "unmeasured", not "boilerplate only".
-                "boilerplate_only": bool(counts) and boilerplate == total,
+                # neither "content" nor "other" appears), at least one
+                # inlink was classified at all, and none of this page's own
+                # inlinks are unclassified — an unclassified inlink could be
+                # a content link the classifier simply never looked at, so a
+                # page with zero classified inlinks (unmeasured) or any
+                # unclassified inlinks (partially measured) must not read as
+                # a confident "boilerplate only" verdict.
+                "boilerplate_only": bool(counts) and boilerplate == total and dest_unclass == 0,
             }
         )
     pages.sort(key=lambda p: p["url"])
@@ -78,6 +90,24 @@ def inlink_composition(links: list[LinkEdge]) -> dict[str, Any]:
         findings.append(
             f"{len(boilerplate_only_urls)} page(s) are linked only from navigation, "
             f"header, sidebar, or footer — never from body content: {shown}{more}"
+        )
+
+    partial_urls = [
+        p["url"]
+        for p in pages
+        if not p["boilerplate_only"]
+        and p["inlinks_unclassified"] > 0
+        and bool(p["by_position"])
+        and sum(p["by_position"].get(pos, 0) for pos in BOILERPLATE_POSITIONS)
+        == sum(p["by_position"].values())
+    ]
+    if partial_urls:
+        shown = ", ".join(partial_urls[:5])
+        more = f" and {len(partial_urls) - 5} more" if len(partial_urls) > 5 else ""
+        findings.append(
+            f"{len(partial_urls)} page(s) have only boilerplate links among their classified "
+            f"inlinks, but also have unclassified inlinks that could be body content — "
+            f"not a confirmed boilerplate-only verdict: {shown}{more}"
         )
 
     total_edges = len(dedup) + unclassified
