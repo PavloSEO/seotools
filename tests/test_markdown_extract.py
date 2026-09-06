@@ -70,3 +70,44 @@ def test_nested_wrapper_two_levels_deep_still_preserves_structure():
     md = out["full_markdown"]
     assert "## Deep heading" in md
     assert "- Only item" in md
+
+
+def test_svg_glyph_text_is_excluded_like_content_area_excludes_it():
+    """Issue #470: to_markdown() had its own, third, unlisted notion of
+    "not body text" that never matched content_area.TEXT_EXCLUDED_TAGS, so an
+    <svg>'s <title>/<text> accessibility labels leaked into content_markdown
+    and full_markdown as page prose."""
+    html = (
+        "<main>"
+        "<p>Real content paragraph.</p>"
+        "<svg><title>Icon: home</title><text>Decorative label text</text></svg>"
+        "</main>"
+    )
+    out = M.extract_markdown(html)
+    assert out["content_markdown"] == "Real content paragraph."
+    assert out["full_markdown"] == "Real content paragraph."
+    assert "Icon: home" not in out["content_markdown"]
+    assert "Decorative label text" not in out["content_markdown"]
+
+
+def test_math_notation_text_is_excluded_too():
+    html = "<main><p>Real content paragraph.</p><math><mi>x</mi><mo>+</mo><mn>1</mn></math></main>"
+    out = M.extract_markdown(html)
+    assert out["content_markdown"] == "Real content paragraph."
+    assert out["full_markdown"] == "Real content paragraph."
+
+
+def test_markdown_unaffected_when_no_excluded_tags_present():
+    """Negative control: a page with none of svg/math/script/style/noscript/
+    template must render identically before and after the fix."""
+    html = (
+        "<main><h1>Title</h1><p>Para <b>bold</b> and <i>italic</i>.</p>"
+        "<ul><li>one</li><li>two</li></ul>"
+        '<p>A <a href="/x">link</a>.</p></main>'
+    )
+    out = M.extract_markdown(html)
+    md = out["content_markdown"]
+    assert "# Title" in md
+    assert "Para **bold** and *italic*." in md
+    assert "- one" in md and "- two" in md
+    assert "[link](/x)" in md
