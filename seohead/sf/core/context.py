@@ -11,6 +11,8 @@ from typing import Any
 
 import pandas as pd
 
+from seohead.graph import GraphAccess
+
 from .loader import LoadedExports
 from .models import Group, Issue, Page, SkippedCheck
 from .normalize import INTERNAL_FIELD_MAP, norm_url, records_from_df
@@ -35,9 +37,17 @@ def _representative(pages: list[Page]) -> Page:
 
 
 class AuditContext:
-    def __init__(self, exports: LoadedExports, config: dict[str, Any]):
+    def __init__(
+        self,
+        exports: LoadedExports,
+        config: dict[str, Any],
+        graph_access: GraphAccess | None = None,
+    ):
         self.exports = exports
         self.config = config
+        # Native scan callers may provide a cursor-backed graph reader.  Export
+        # callers leave this unset and retain the established DataFrame path.
+        self.graph_access = graph_access
         self.thresholds: dict[str, Any] = config.get("thresholds", {})
         self.requirements: dict[str, Any] = config.get("requirements", {})
         self.issues: list[Issue] = []

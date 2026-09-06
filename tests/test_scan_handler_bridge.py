@@ -98,12 +98,14 @@ def bridge(monkeypatch):
     return scan
 
 
-def test_small_scan_uses_transient_gate_and_existing_audit_path(bridge, monkeypatch):
+@pytest.mark.parametrize("stored_links", [1, 1_500_000])
+def test_stored_graph_size_does_not_block_page_audit(bridge, monkeypatch, stored_links):
     from seohead.crawl.spider import SpiderResult
 
     result = SpiderResult()
+    bridge.con.counts["links"] = stored_links
     captured = {}
-    monkeypatch.setattr(scan_handlers, "_rebuild_spider_result", lambda _scan: result)
+    monkeypatch.setattr(scan_handlers, "_rebuild_page_result", lambda _scan: result)
 
     def audit_bridge(actual, **kwargs):
         captured["result"] = actual
@@ -128,10 +130,10 @@ def test_small_scan_uses_transient_gate_and_existing_audit_path(bridge, monkeypa
     assert captured["kwargs"]["out_dir"] is None
 
 
-def test_large_scan_is_guarded_before_materialization_or_audit(bridge, monkeypatch):
-    bridge.con.counts["links"] = scan_handlers.MAX_AUDIT_LINKS + 1
+def test_page_limit_is_guarded_before_materialization_or_audit(bridge, monkeypatch):
+    bridge.con.counts["pages"] = scan_handlers.MAX_AUDIT_PAGES + 1
     monkeypatch.setattr(
-        scan_handlers, "_rebuild_spider_result", lambda _scan: pytest.fail("materialized")
+        scan_handlers, "_rebuild_page_result", lambda _scan: pytest.fail("materialized")
     )
     monkeypatch.setattr(
         "seohead.servers.handlers._audit_crawl_result",
@@ -144,7 +146,7 @@ def test_large_scan_is_guarded_before_materialization_or_audit(bridge, monkeypat
         producer_build="a" * 40,
     )
     assert response["audit_available"] is False
-    assert "links=" in response["audit_reason"]
+    assert "pages=" in response["audit_reason"]
     assert bridge.saved is None and bridge.finished
 
 
@@ -154,7 +156,7 @@ def test_resumed_scan_without_transient_html_is_named_no_audit(bridge, monkeypat
         lambda *_args, **_kwargs: _run(start_page_gate=None),
     )
     monkeypatch.setattr(
-        scan_handlers, "_rebuild_spider_result", lambda _scan: pytest.fail("materialized")
+        scan_handlers, "_rebuild_page_result", lambda _scan: pytest.fail("materialized")
     )
     response = scan_handlers.crawl_site_scan(
         "https://example.test/",
@@ -174,7 +176,7 @@ def test_interrupted_finalization_reuses_an_already_saved_audit(bridge, monkeypa
         lambda *_args, **_kwargs: _run(start_page_gate=None),
     )
     monkeypatch.setattr(
-        scan_handlers, "_rebuild_spider_result", lambda _scan: pytest.fail("materialized")
+        scan_handlers, "_rebuild_page_result", lambda _scan: pytest.fail("materialized")
     )
     response = scan_handlers.crawl_site_scan(
         "https://example.test/",

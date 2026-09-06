@@ -74,6 +74,7 @@ _LATE_PAGE_FIELDS = {
     "content_frames_same_origin": "content_frames_same_origin",
     "hreflang": "hreflang_json",
     "body_unavailable": "body_unavailable",
+    "meta_refresh": "meta_refresh",
 }
 
 

@@ -1693,10 +1693,22 @@ class NativeScan:
             self.con.execute(f"PRAGMA busy_timeout={prior_timeout}")
 
     def save_audit(self, document: dict[str, Any]) -> None:
-        from . import _audit, _sha
-        from .native_audit import validate_audit
+        from . import MAX_JSON_BYTES, _audit, _sha
+        from .native_audit import AuditSizeError, validate_audit
 
         self._assert_mutable()
+        # Check the exact serialized shape before allocating another complete
+        # audit string or opening the replacing transaction. Never truncate it.
+        encoded_bytes = 0
+        for part in json.JSONEncoder(ensure_ascii=False, allow_nan=False, indent=2).iterencode(
+            document
+        ):
+            encoded_bytes += len(part.encode("utf-8"))
+            if encoded_bytes > MAX_JSON_BYTES:
+                raise AuditSizeError(
+                    f"complete audit exceeds the saved JSON limit ({MAX_JSON_BYTES} bytes); "
+                    "capture evidence is retained, but this audit cannot be saved"
+                )
         raw = json.dumps(document, ensure_ascii=False, allow_nan=False, indent=2)
         _audit(raw)
         self._begin()

@@ -7,6 +7,10 @@ from seohead.crawl.settings import manifest
 from . import MAX_JSON_BYTES, ScanError, _audit, _dump, _sha
 
 
+class AuditSizeError(ScanError):
+    """The complete audit cannot fit the format reader's finite JSON budget."""
+
+
 def validate_audit(con, scan, *, required=False):
     rows = con.execute("SELECT * FROM audit WHERE singleton=1").fetchone()
     if rows is None:

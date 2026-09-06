@@ -250,7 +250,10 @@ def _hreflang_frame(pages: list[Any]) -> Any:
 
 
 def build_evidence(
-    result: CrawlResult, *, inlink_counts: dict[str, tuple[int, int]] | None = None
+    result: CrawlResult,
+    *,
+    inlink_counts: dict[str, tuple[int, int]] | None = None,
+    stored_graph_available: bool | None = None,
 ) -> dict[str, Any]:
     """Project a crawl into analyzer-shaped frames with its gaps declared.
 
@@ -265,7 +268,9 @@ def build_evidence(
     # graph; a fetched URL list (``CrawlResult``) never discovers links, so it
     # keeps declaring "all_inlinks" (and per-page Inlinks/Unique Inlinks,
     # which come from the same graph) absent exactly as before.
-    links = getattr(result, "links", None)
+    # A stored graph supplies counts and a separate analyzer access contract;
+    # it never travels through the full all_inlinks DataFrame.
+    links = getattr(result, "links", None) if stored_graph_available is None else None
     if inlink_counts is None:
         inlink_counts = _inlink_counts(links) if links else None
     # Populated even under ``robots_policy="report_only"``, where a disallowed
@@ -280,8 +285,9 @@ def build_evidence(
     found = ["internal_all"]
     missing = list(UNAVAILABLE_FRAMES)
 
-    if links:
-        frames["all_inlinks"] = _inlinks_frame(links)
+    if links or stored_graph_available:
+        if links:
+            frames["all_inlinks"] = _inlinks_frame(links)
         found.append("all_inlinks")
         missing.remove("all_inlinks")
 

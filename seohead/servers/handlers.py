@@ -649,7 +649,6 @@ def _audit_crawl_result(
     discovery,
     out_dir=None,
     pages_resume_path=None,
-    finite_json=False,
     stored_scan=None,
     stored_sitemap=None,
 ):
@@ -728,21 +727,27 @@ def _audit_crawl_result(
             )
             requires_rendering, requires_rendering_reason = gate.requires_rendering, gate.reason
 
+    stored_graph_available = False
     if stored_scan is None:
         evidence = build_evidence(result)
     else:
         from seohead.crawl.sql_graph import StoredGraph
 
+        stored_graph_available = (
+            stored_scan.con.execute("SELECT 1 FROM links LIMIT 1").fetchone() is not None
+        )
         with StoredGraph(stored_scan.con) as graph:
             counts = (
                 {
                     item["url"]: (item["inlinks"], item["unique_inlinks"])
                     for item in graph.iter_inlink_counts()
                 }
-                if result.links
+                if stored_graph_available
                 else None
             )
-        evidence = build_evidence(result, inlink_counts=counts)
+        evidence = build_evidence(
+            result, inlink_counts=counts, stored_graph_available=stored_graph_available
+        )
     exports = LoadedExports()
     exports.frames.update(evidence["frames"])
     exports.found = list(evidence["found"])
@@ -758,7 +763,17 @@ def _audit_crawl_result(
     # (issue #128). ``all_inlinks`` is populated above from the crawl's own
     # hyperlink graph when one exists (see crawl/evidence.py), so the checks it
     # feeds now answer for real instead of only reaching their skip branch.
-    run_inlinks(ctx)
+    if stored_graph_available:
+        from seohead.sf.core.inlinks import _site_host
+        from seohead.sf.core.normalize import norm_url
+        from seohead.storage.analysis_graph import AnalysisGraph
+
+        with AnalysisGraph(stored_scan.con, normalize=norm_url, site_host=_site_host(ctx)) as graph:
+            ctx.graph_access = graph
+            run_inlinks(ctx)
+        ctx.graph_access = None
+    else:
+        run_inlinks(ctx)
     # Same gap, two more modules (issue #165): DOM size, HTML weight, templated
     # titles and the near-duplicate/exact-duplicate heuristic fallback all live in
     # heuristics.py and were never reached from a crawl either. DOM depth/nodes and
@@ -819,7 +834,6 @@ def _audit_crawl_result(
             reconciled.pop("available", None)
             reconciled.pop("reason", None)
             reconciled.pop("crawl_partial", None)
-            reconciled["reconciliation_available"] = True
         reconciled["sitemap_url"] = sitemap_seed["sitemap_url"]
         reconciled["sitemap_urls"] = sitemap_seed["sitemap_urls"]
         for orphan_url in reconciled["in_sitemap_not_linked"]:
@@ -983,7 +997,7 @@ def _audit_crawl_result(
             "crawl_config": crawl_config.manifest(settings),
             "effective_max_requests_per_second": (
                 "unbounded"
-                if finite_json and settings["speed"]["min_delay_seconds"] == 0
+                if settings["speed"]["min_delay_seconds"] == 0
                 else crawl_config.effective_request_rate(settings)
             ),
             # "The site is fine" and "the site was fine when we last looked" are different

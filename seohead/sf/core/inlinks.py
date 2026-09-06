@@ -14,11 +14,17 @@ import urllib.parse
 from collections import Counter, OrderedDict
 from typing import Any
 
+from seohead.graph import InlinkCompositionRow
 from seohead.tools.hreflang import code_error
 
 from .context import AuditContext
 from .crawl_path import shortest_paths_from_seed
-from .link_score import compute_link_scores
+from .link_score import (
+    DEFAULT_DAMPING,
+    DEFAULT_MAX_ITERATIONS,
+    DEFAULT_TOLERANCE,
+    compute_link_scores,
+)
 from .models import Link
 from .normalize import HREFLANG_FIELD_MAP, INLINKS_FIELD_MAP, is_true, norm_url, records_from_df
 
@@ -53,6 +59,11 @@ def _all_inlink_records(ctx: AuditContext) -> list[dict[str, Any]] | None:
     if df is None or df.empty:
         return None
     return records_from_df(df, INLINKS_FIELD_MAP)
+
+
+def _graph_access(ctx: AuditContext):
+    """The optional native backend; export behavior remains the default."""
+    return getattr(ctx, "graph_access", None)
 
 
 def _link_from_record(rec: dict[str, Any]) -> Link:
@@ -193,6 +204,20 @@ def check_anchor_text(ctx: AuditContext) -> None:
         if ctx.exports.has(k) and not ctx.exports.get(k).empty
     ]
     if not export_keys:
+        graph = _graph_access(ctx)
+        if graph is not None:
+            for group in graph.iter_anchor_groups(
+                lambda anchor: _norm_anchor(anchor) in _GENERIC_ANCHORS, max_locs
+            ):
+                ctx.add(
+                    "GENERIC_ANCHOR_TEXT",
+                    target_url=group.source_url,
+                    occurrences_count=group.occurrences_count,
+                    locations=group.locations,
+                    details={"generic_links": group.generic_links},
+                    evidence={"exports": ["all_inlinks"], "files": [None]},
+                )
+            return
         ctx.skip(
             "GENERIC_ANCHOR_TEXT",
             "no *:Inlinks export available (export 'All Inlinks' or any *:Inlinks report)",
@@ -531,6 +556,32 @@ def _internal_hyperlink_edges(
     return edges
 
 
+def _emit_link_scores(ctx: AuditContext, count: int, median: float, score_for) -> None:
+    """Apply the one reviewed LOW_LINK_SCORE threshold/emission path."""
+    for page in ctx.pages:
+        score = score_for(norm_url(page.url))
+        if score is not None:
+            page.metrics["link_score_computed"] = round(score, 6)
+    if count < 5 or median <= 0:
+        return
+    ratio = ctx.thresholds.get("link_score_low_ratio", 0.25)
+    for page in ctx.indexable_html_pages():
+        if _rec(page).get("crawl_depth") == 0:
+            continue
+        score = score_for(norm_url(page.url))
+        if score is None or score >= median * ratio:
+            continue
+        ctx.add(
+            "LOW_LINK_SCORE",
+            target_url=page.url,
+            details={
+                "link_score": round(score, 6),
+                "site_median": round(median, 6),
+                "ratio_to_median": round(score / median, 3),
+            },
+        )
+
+
 def check_link_score(ctx: AuditContext) -> None:
     """LOW_LINK_SCORE — an iterative internal-PageRank pass (issue #15, item 1).
 
@@ -544,6 +595,18 @@ def check_link_score(ctx: AuditContext) -> None:
     """
     records = _all_inlink_records(ctx)
     if records is None:
+        graph = _graph_access(ctx)
+        if graph is not None:
+            stats = graph.link_score(
+                damping=DEFAULT_DAMPING,
+                max_iterations=DEFAULT_MAX_ITERATIONS,
+                tolerance=DEFAULT_TOLERANCE,
+            )
+            if stats is None:
+                ctx.skip("LOW_LINK_SCORE", "all_inlinks export has no internal followed hyperlinks")
+                return
+            _emit_link_scores(ctx, stats.count, stats.median, stats.score_for)
+            return
         ctx.skip(
             "LOW_LINK_SCORE", "no all_inlinks export (needed for the complete internal edge list)"
         )
@@ -556,33 +619,8 @@ def check_link_score(ctx: AuditContext) -> None:
 
     urls = {norm_url(p.url) for p in ctx.pages}
     scores = compute_link_scores(edges, urls)
-    for page in ctx.pages:
-        score = scores.get(norm_url(page.url))
-        if score is not None:
-            page.metrics["link_score_computed"] = round(score, 6)
-
     values = sorted(scores.values())
-    if len(values) < 5:
-        return  # too few scored pages for a median comparison to mean anything
-    median = statistics.median(values)
-    if median <= 0:
-        return
-    ratio = ctx.thresholds.get("link_score_low_ratio", 0.25)
-    for page in ctx.indexable_html_pages():
-        if _rec(page).get("crawl_depth") == 0:
-            continue  # the homepage's own score is not comparable to the rest
-        score = scores.get(norm_url(page.url))
-        if score is None or score >= median * ratio:
-            continue
-        ctx.add(
-            "LOW_LINK_SCORE",
-            target_url=page.url,
-            details={
-                "link_score": round(score, 6),
-                "site_median": round(median, 6),
-                "ratio_to_median": round(score / median, 3),
-            },
-        )
+    _emit_link_scores(ctx, len(values), statistics.median(values) if values else 0.0, scores.get)
 
 
 def check_inlink_composition(ctx: AuditContext) -> None:
@@ -598,6 +636,15 @@ def check_inlink_composition(ctx: AuditContext) -> None:
     """
     records = _all_inlink_records(ctx)
     if records is None:
+        graph = _graph_access(ctx)
+        if graph is not None:
+
+            def source_indexable(source: str) -> bool | None:
+                page = ctx.page_by_norm.get(norm_url(source))
+                return page.is_indexable if page is not None else None
+
+            _emit_inlink_composition(ctx, graph.iter_inlink_composition(source_indexable, 20))
+            return
         for check_id in ("ONLY_NOFOLLOW_INLINKS", "ONLY_NONINDEXABLE_SOURCE_INLINKS"):
             ctx.skip(check_id, "no all_inlinks export (needed for the complete inlink list)")
         return
@@ -625,47 +672,87 @@ def check_inlink_composition(ctx: AuditContext) -> None:
         dest_key = urllib.parse.urldefrag(norm_url(dest))[0]
         by_dest.setdefault(dest_key, []).append(rec)
 
-    for dest_key, links in by_dest.items():
+    def export_rows():
+        for dest_key, links in by_dest.items():
+            follows = [
+                is_true(link["follow"]) if link.get("follow") is not None else True
+                for link in links
+            ]
+            source_indexability = []
+            for link in links:
+                source_page = ctx.page_by_norm.get(norm_url(link.get("source_url")))
+                if source_page is not None:
+                    source_indexability.append(source_page.is_indexable)
+            yield InlinkCompositionRow(
+                destination_key=dest_key,
+                occurrences_count=len(links),
+                all_nofollow=not any(follows),
+                has_known_source=bool(source_indexability),
+                has_indexable_source=any(source_indexability),
+                source_examples=sorted({link["source_url"] for link in links})[:20],
+            )
+
+    _emit_inlink_composition(ctx, export_rows())
+
+
+def _emit_inlink_composition(ctx: AuditContext, rows) -> None:
+    """Apply the shared target eligibility, thresholds and issue payloads."""
+    for row in rows:
+        destination_key = row.destination_key
+        occurrences = row.occurrences_count
+        all_nofollow = row.all_nofollow
+        known_source = row.has_known_source
+        indexable_source = row.has_indexable_source
+        sources = row.source_examples
         # #176 audit: correct by construction, same reasoning as check_unlinked_canonical —
         # is_indexable is a property of the live page, so the 2xx-preferring representative
         # is the variant "is this destination's inlink composition worth flagging" means.
         # The per-source lookup at the bottom of this loop resolves each source individually,
         # not a shared-key group, so the same single-representative read is simply correct.
-        # dest_key is already norm_url() with the fragment stripped (#313), and
+        # destination_key is already norm_url() with the fragment stripped (#313), and
         # ctx.page_by_norm's keys are norm_url(page.url) for URLs that never carry
         # a fragment, so it is the correct lookup key as-is.
-        target = ctx.page_by_norm.get(dest_key)
+        target = ctx.page_by_norm.get(destination_key)
         if target is None or not target.is_indexable:
             continue
         if _rec(target).get("crawl_depth") == 0:
             continue  # the homepage's inlink composition is not the whole story
 
-        follows = [
-            is_true(link["follow"]) if link.get("follow") is not None else True for link in links
-        ]
-        if not any(follows):
+        if all_nofollow:
             ctx.add(
                 "ONLY_NOFOLLOW_INLINKS",
                 target_url=target.url,
-                occurrences_count=len(links),
-                details={"inlink_count": len(links)},
+                occurrences_count=occurrences,
+                details={"inlink_count": occurrences},
             )
 
-        source_indexability = []
-        for link in links:
-            source_page = ctx.page_by_norm.get(norm_url(link.get("source_url")))
-            if source_page is not None:
-                source_indexability.append(source_page.is_indexable)
-        if source_indexability and not any(source_indexability):
+        if known_source and not indexable_source:
             ctx.add(
                 "ONLY_NONINDEXABLE_SOURCE_INLINKS",
                 target_url=target.url,
-                occurrences_count=len(links),
+                occurrences_count=occurrences,
                 details={
-                    "inlink_count": len(links),
-                    "sources": sorted({link["source_url"] for link in links})[:20],
+                    "inlink_count": occurrences,
+                    "sources": sorted(sources)[:20],
                 },
             )
+
+
+def _emit_discovery_paths(ctx: AuditContext, path_for) -> None:
+    """Emit the one reviewed DEEP_DISCOVERY_PATH threshold and issue shape."""
+    max_depth = ctx.thresholds.get("crawl_depth_max", 4)
+    for page in ctx.indexable_html_pages():
+        path_norm = path_for(norm_url(page.url))
+        if path_norm is None or len(path_norm) - 1 <= max_depth:
+            continue
+        path_urls = [
+            ctx.page_by_norm[item].url if item in ctx.page_by_norm else item for item in path_norm
+        ]
+        ctx.add(
+            "DEEP_DISCOVERY_PATH",
+            target_url=page.url,
+            details={"path": path_urls, "hops": len(path_norm) - 1},
+        )
 
 
 def check_discovery_path(ctx: AuditContext) -> None:
@@ -680,6 +767,21 @@ def check_discovery_path(ctx: AuditContext) -> None:
     """
     records = _all_inlink_records(ctx)
     if records is None:
+        graph = _graph_access(ctx)
+        if graph is not None:
+            if not graph.has_internal_hyperlinks:
+                ctx.skip("DEEP_DISCOVERY_PATH", "all_inlinks export has no internal hyperlinks")
+                return
+            seed = next((page for page in ctx.pages if _rec(page).get("crawl_depth") == 0), None)
+            if seed is None:
+                ctx.skip("DEEP_DISCOVERY_PATH", "no page at Crawl Depth 0 to use as the seed")
+                return
+            paths = graph.begin_paths(norm_url(seed.url))
+            if paths is None:
+                ctx.skip("DEEP_DISCOVERY_PATH", "all_inlinks export has no internal hyperlinks")
+                return
+            _emit_discovery_paths(ctx, paths.path_to)
+            return
         ctx.skip(
             "DEEP_DISCOVERY_PATH",
             "no all_inlinks export (needed for the complete internal edge list)",
@@ -697,19 +799,7 @@ def check_discovery_path(ctx: AuditContext) -> None:
         return
 
     paths = shortest_paths_from_seed(edges, norm_url(seed.url))
-    max_depth = ctx.thresholds.get("crawl_depth_max", 4)
-    for page in ctx.indexable_html_pages():
-        path_norm = paths.get(norm_url(page.url))
-        if path_norm is None or len(path_norm) - 1 <= max_depth:
-            continue
-        # #176 audit: display only — the hop count and whether this fires both come from
-        # ``paths``/``max_depth`` above, computed over the edge graph, not over this label.
-        path_urls = [ctx.page_by_norm[n].url if n in ctx.page_by_norm else n for n in path_norm]
-        ctx.add(
-            "DEEP_DISCOVERY_PATH",
-            target_url=page.url,
-            details={"path": path_urls, "hops": len(path_norm) - 1},
-        )
+    _emit_discovery_paths(ctx, paths.get)
 
 
 # Rows Screaming Frog's All Inlinks export uses for a page's own directives
@@ -735,6 +825,30 @@ def check_insecure_subresources(ctx: AuditContext) -> None:
         return
     records = _all_inlink_records(ctx)
     if records is None:
+        graph = _graph_access(ctx)
+        if graph is not None:
+            if graph.has_resource_type:
+                by_source: OrderedDict[str, list[str]] = OrderedDict()
+                for source, dest, link_type in graph.iter_resources():
+                    if not source.lower().startswith("https://"):
+                        continue
+                    if str(link_type).strip().lower() in _NON_RESOURCE_LINK_TYPES:
+                        continue
+                    if dest.lower().startswith("http://"):
+                        by_source.setdefault(source, []).append(dest)
+                for source, resources in by_source.items():
+                    ctx.add(
+                        "INSECURE_SUBRESOURCE",
+                        target_url=source,
+                        occurrences_count=len(resources),
+                        details={"resources": sorted(set(resources))[:20]},
+                    )
+                return
+            ctx.skip(
+                "INSECURE_SUBRESOURCE",
+                "all_inlinks export has no Type column (needed to tell a resource from a hyperlink)",
+            )
+            return
         ctx.skip(
             "INSECURE_SUBRESOURCE", "no all_inlinks export (needed for the resource inventory)"
         )
