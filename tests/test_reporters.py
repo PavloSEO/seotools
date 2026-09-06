@@ -116,7 +116,15 @@ def test_markdown_has_broken_link_table(result, tmp_path):
         text = stream.read()
     assert "BROKEN_INTERNAL_LINK" in text
     assert "/html/body/footer/nav/a[2]" in text  # XPath location details are rendered.
-    assert "Sitemap & robots" not in text or "Health score" in text
+    score = result.summary["health_score"]
+    if score is None:
+        reason = result.summary["health_score_reason"]
+        assert reason
+        assert "**No health score.**" in text
+        assert _esc(reason) in text
+        assert "None / 100" not in text
+    else:
+        assert f"**Health score: {score} / 100**" in text
 
 
 def test_markdown_h1_multiple_texts(result, tmp_path):
