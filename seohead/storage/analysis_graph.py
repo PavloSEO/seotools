@@ -12,6 +12,25 @@ from .analysis_paths import PathSession
 from .analysis_score import ScoreView, compute_scores
 
 
+def selected_links_cte(name: str = "selected_links") -> str:
+    """The legacy static-plus-rendered occurrence union as a reusable SQL CTE."""
+    return (
+        f"WITH {name} AS ("
+        " SELECT l.* FROM links l WHERE l.evidence_representation IN ('static','legacy_unknown') "
+        " UNION ALL "
+        " SELECT r.* FROM links r JOIN pages p ON p.url_id=r.source_url_id "
+        " WHERE r.evidence_representation=p.representation "
+        " AND p.representation IN ('rendered','legacy_fragment') "
+        " AND NOT EXISTS (SELECT 1 FROM links s WHERE s.source_url_id=r.source_url_id "
+        "                 AND s.evidence_representation IN ('static','legacy_unknown') AND s.destination_url_id=r.destination_url_id) "
+        " AND NOT EXISTS (SELECT 1 FROM links later WHERE later.source_url_id=r.source_url_id "
+        "                 AND later.evidence_representation=r.evidence_representation "
+        "                 AND later.destination_url_id=r.destination_url_id "
+        "                 AND (later.ordinal>r.ordinal OR (later.ordinal=r.ordinal AND later.link_id>r.link_id)))"
+        ") "
+    )
+
+
 class AnalysisGraph:
     """Keep raw occurrences, calculation nodes and topology in TEMP SQLite."""
 
@@ -88,11 +107,13 @@ class AnalysisGraph:
                 f"INSERT OR IGNORE INTO {self._nodes} VALUES(?)", (self.normalize(raw.strip()),)
             )
         cursor = self.con.execute(
-            "SELECT src.url,dst.url,l.anchor,l.position,l.nofollow FROM links l "
-            "JOIN pages p ON p.url_id=l.source_url_id "
-            "JOIN urls src ON src.url_id=l.source_url_id "
-            "JOIN urls dst ON dst.url_id=l.destination_url_id "
-            "ORDER BY p.page_ordinal,l.ordinal,l.link_id"
+            selected_links_cte("selected")
+            + "SELECT src.url,dst.url,selected.anchor,selected.position,selected.nofollow "
+            "FROM selected JOIN pages p ON p.url_id=selected.source_url_id "
+            "JOIN urls src ON src.url_id=selected.source_url_id "
+            "JOIN urls dst ON dst.url_id=selected.destination_url_id "
+            "ORDER BY CASE WHEN selected.evidence_representation IN ('static','legacy_unknown') THEN 0 ELSE 1 END,"
+            "p.page_ordinal,selected.ordinal,selected.link_id"
         )
         for seq, (source, destination, anchor, position, nofollow) in enumerate(cursor):
             # records_from_df strips surrounding whitespace and maps blank

@@ -215,14 +215,18 @@ def _config(value: Any) -> dict[str, Any]:
             for key, child in item.items():
                 if not isinstance(key, str):
                     raise ScanError("configuration keys must be strings")
-                if key.lower() in {
-                    "authorization",
-                    "cookie",
-                    "set-cookie",
-                    "password",
-                    "token",
-                    "api_key",
-                }:
+                if (
+                    key.lower()
+                    in {
+                        "authorization",
+                        "cookie",
+                        "set-cookie",
+                        "password",
+                        "token",
+                        "api_key",
+                    }
+                    and child != "REDACTED"
+                ):
                     raise ScanError(
                         "configuration contains credential values; provide a redacted manifest"
                     )
@@ -393,7 +397,7 @@ def _validate_scalar_storage(con) -> None:
             conditions.append(f"typeof({value}) NOT IN ({types})")
             if kind == "REAL":
                 conditions.append(f"abs({value}) > 1.7976931348623157e308")
-            if kind in {"TEXT", "BLOB"}:
+            if kind == "TEXT":
                 limit = MAX_JSON_BYTES if name == "document_json" else MAX_RECORD_BYTES
                 conditions.append(f"length(CAST({value} AS BLOB)) > {limit}")
         if con.execute(

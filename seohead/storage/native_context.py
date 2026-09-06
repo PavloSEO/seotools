@@ -34,6 +34,26 @@ def validate_context(
     if item["kind"] in sitemaps.KINDS:
         sitemaps.validate_context(con, item, payload, sitemap_roots)
         return
+    if item["kind"] == "credential_context":
+        verifier = payload.get("verifier") if isinstance(payload, dict) else object()
+        if (
+            item["item_key"] != "run"
+            or item["completeness"] != "complete"
+            or item["reason"]
+            or not isinstance(payload, dict)
+            or set(payload) != {"verifier", "implicit_state"}
+            or (verifier is not None and not isinstance(verifier, str))
+            or (
+                isinstance(verifier, str)
+                and (
+                    len(verifier) != 64
+                    or any(character not in "0123456789abcdef" for character in verifier)
+                )
+            )
+            or type(payload["implicit_state"]) is not bool
+        ):
+            raise ScanError("native credential context is invalid")
+        return
     if item["kind"] == "native_commit":
         if (
             not item["item_key"].isascii()

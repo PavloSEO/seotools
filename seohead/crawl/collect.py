@@ -401,6 +401,8 @@ def fetch_one(
     parse_options: dict[str, Any] | None = None,
     cache: ResponseCache | None = None,
     wait: Callable[[], None] | None = None,
+    capture_observer: Callable[[Any], None] | None = None,
+    capture_max_bytes: int | None = None,
 ) -> tuple[PageRecord, dict[str, Any] | None]:
     """Fetch and parse one URL. Returns the record and the parsed document.
 
@@ -432,6 +434,94 @@ def fetch_one(
     than only once every attempt in this call has already failed (#196).
     """
     record = PageRecord(url=url)
+    capture_started = None
+    response = None
+    sent_headers = {"User-Agent": user_agent or UA, **(extra_headers or {})}
+    capture_limit = max_response_bytes if capture_max_bytes is None else capture_max_bytes
+    if capture_observer is not None and cache is not None:
+        raise ValueError("native response capture cannot use the legacy HTTP cache")
+
+    def emit(
+        entity: bytes | None = None,
+        reason: str = "not_fetched",
+        response_headers: dict[str, str] | None = None,
+    ) -> None:
+        if capture_observer is None:
+            return
+        from seohead.crawl.capture import CaptureEvent, header_pairs, now_utc, redact_headers
+
+        try:
+            request_object = getattr(response, "request", None)
+        except RuntimeError:
+            request_object = None
+        request_pairs = header_pairs(
+            request_object.headers if request_object is not None else sent_headers
+        )
+        sensitive = {"authorization", "proxy-authorization", "cookie", "x-api-key", "x-auth-token"}
+        credentials = any(name in sensitive and value for name, value in request_pairs)
+        for name, value in request_pairs:
+            if name in sensitive and value:
+                record.error = record.error.replace(value, "REDACTED")
+        final_headers = getattr(response, "headers", None) or response_headers or {}
+        history = list(getattr(response, "history", ()) or ())
+        original = history[0] if history else response
+        effective = (
+            str(getattr(response, "url", "") or record.final_url or url)
+            if record.status_code is not None
+            else ""
+        )
+        # The native no-follow client connects to a vetted IP with Host/SNI.
+        # That socket address is not a redirect or a second logical URL.
+        if fetcher is None and not history and record.status_code is not None:
+            effective = url
+        chain = tuple(
+            {
+                "request_url": str(hop.url),
+                "status_code": hop.status_code,
+                "location_raw": hop.headers.get("location", ""),
+                "next_url": str(history[index + 1].url) if index + 1 < len(history) else effective,
+                "blocked": False,
+            }
+            for index, hop in enumerate(history)
+        )
+        capture_observer(
+            CaptureEvent(
+                method=str(getattr(request_object, "method", "GET")),
+                requested_url=url,
+                effective_url=effective,
+                redirect_history=chain,
+                requested_at=capture_started or now_utc(),
+                received_at=now_utc(),
+                status_code=getattr(original, "status_code", None)
+                if history
+                else record.status_code,
+                request_headers=redact_headers(request_pairs),
+                credentials_used=bool(credentials),
+                response_headers=redact_headers(
+                    getattr(original, "headers", None) or final_headers
+                ),
+                content_type=record.content_type,
+                content_encoding=record.content_encoding,
+                entity_bytes=entity,
+                body_fidelity="entity_bytes" if entity is not None else "unavailable",
+                body_state="complete"
+                if entity is not None
+                else "truncated"
+                if reason == "truncated"
+                else "unavailable",
+                body_reason=reason,
+                error=record.error,
+                error_kind=record.error_kind,
+                effective_status_code=record.status_code,
+                effective_headers=redact_headers(final_headers),
+                response_time=record.response_time,
+                session_changed=any(
+                    name == "set-cookie" and value for name, value in header_pairs(final_headers)
+                )
+                or any(name == "cookie" and value for name, value in request_pairs),
+            )
+        )
+
     if fetcher is None:
         # Guard only the transport we open ourselves. validate_url resolves DNS,
         # so running it against an injected transport would make offline tests
@@ -440,6 +530,7 @@ def fetch_one(
             validate_url(url)
         except Exception as exc:  # blocked target, bad scheme, private network
             record.error = str(exc)
+            emit()
             return record, None
 
     cache_eligible = cache is not None and not extra_headers
@@ -466,7 +557,15 @@ def fetch_one(
     )
     started = time.monotonic()
     attempt = 0
+    captured_entity = None
+    captured_text = None
+    capture_failure = None
+    capture_failure_reason = "truncated"
     while True:
+        if capture_observer is not None:
+            from seohead.crawl.capture import now_utc
+
+            capture_started = now_utc()
         try:
             if fetcher:
                 response = fetcher(url)
@@ -475,16 +574,45 @@ def fetch_one(
                 # SNI and certificate verification. Resolving twice would leave a
                 # window between the check and the connection.
                 target, headers, extensions = pinned_target(url)
-                response = client.get(
-                    target,
-                    headers={
-                        **request_headers,
-                        **headers,
-                        **(extra_headers or {}),
-                        **conditional_headers,
-                    },
-                    extensions=extensions,
-                )
+                request = {
+                    **request_headers,
+                    **headers,
+                    **(extra_headers or {}),
+                    **conditional_headers,
+                }
+                sent_headers = request
+                if capture_observer is None:
+                    response = client.get(target, headers=request, extensions=extensions)
+                else:
+                    from seohead.crawl.capture import (
+                        EntityDecodeError,
+                        EntityLimitError,
+                        bounded_entity_chunks,
+                        decode_entity,
+                    )
+
+                    if not any(name.lower() == "accept-encoding" for name in request):
+                        request["Accept-Encoding"] = "gzip, deflate"
+
+                    with client.stream(
+                        "GET", target, headers=request, extensions=extensions
+                    ) as streamed:
+                        response = streamed
+                        streamed_headers = {k.lower(): v for k, v in dict(streamed.headers).items()}
+                        try:
+                            captured_entity = bounded_entity_chunks(
+                                streamed.iter_raw(chunk_size=64 * 1024),
+                                streamed_headers.get("content-encoding", ""),
+                                capture_limit,
+                            )
+                            captured_text = decode_entity(
+                                captured_entity, streamed_headers.get("content-type", "")
+                            )[0]
+                        except EntityLimitError as exc:
+                            capture_failure = str(exc)
+                            if isinstance(exc, EntityDecodeError):
+                                capture_failure_reason = "fetch_failed"
+                            captured_text = ""
             break
         except BlockedRedirectError as exc:
             # The origin answered in full — this is a redirect our own guard refused to
@@ -499,10 +627,16 @@ def fetch_one(
             if throttle is not None:
                 throttle.record_response(elapsed, False)
                 throttle.record_success()
+            emit(reason="fetch_failed")
             return record, None
         except Exception as exc:
             kind = _classify_fetch_error(exc)
             if kind == "timeout" and attempt < retry_on_timeout:
+                if capture_observer is not None:
+                    record.error, record.error_kind = str(exc), kind
+                    record.response_time = round(time.monotonic() - started, 3)
+                    emit(reason="fetch_failed")
+                    record.error, record.error_kind = "", ""
                 attempt += 1
                 if throttle is not None:
                     # Each failed attempt is real evidence the origin is struggling,
@@ -529,6 +663,7 @@ def fetch_one(
                 # so both feed the same back-off and the same consecutive-failure counter (#132)
                 # rather than leaving Throttle unable to see an entire class of dead host.
                 throttle.record_timeout()
+            emit(reason="fetch_failed")
             return record, None
 
     elapsed = time.monotonic() - started
@@ -550,6 +685,7 @@ def fetch_one(
         and outcome.status == "revalidate"
         and record.status_code == 304
     ):
+        emit(reason="not_fetched", response_headers=headers)
         # response_time above already reflects the real 304 round trip, not zero.
         cache.refresh(outcome.entry, headers)
         parsed = _from_cache_entry(
@@ -571,11 +707,34 @@ def fetch_one(
     location = headers.get("location", "")
     record.redirect_url = urljoin(url, location) if location else ""
 
-    body = getattr(response, "text", "") or ""
-    # The bytes as they arrived (httpx has already undone gzip/br/deflate), measured before the
-    # body is decoded — the only place the true size still exists. See _apply_body and #99.
-    raw = getattr(response, "content", None)
+    if capture_failure is not None:
+        record.error = "response too large or incomplete to parse: " + capture_failure
+        record.size_bytes = capture_limit + 1 if capture_failure_reason == "truncated" else 0
+        if record.is_html and capture_failure_reason == "truncated":
+            record.body_unavailable = "oversized"
+        if capture_failure_reason == "fetch_failed":
+            record.error_kind = "decoding"
+        emit(reason=capture_failure_reason, response_headers=headers)
+        return record, None
+
+    raw = captured_entity if captured_entity is not None else getattr(response, "content", None)
     wire_size = len(raw) if isinstance(raw, (bytes, bytearray)) else None
+    body = captured_text if captured_text is not None else getattr(response, "text", "") or ""
+    if capture_observer is not None:
+        from seohead.crawl.capture import decode_entity
+
+        entity = None
+        reason = "legacy_not_retained"
+        if record.status_code == 304:
+            reason = "not_in_corpus"
+        elif isinstance(raw, (bytes, bytearray)):
+            if len(raw) > capture_limit:
+                reason = "truncated"
+            else:
+                entity = bytes(raw)  # injected content is already content-decoded
+                body = decode_entity(entity, record.content_type)[0]
+                reason = "none"
+        emit(entity, reason, headers)
     # "bypass" means the cache itself is unusable (e.g. an unsafe directory) rather than merely
     # empty for this URL; the page is still fetched normally, but it never touched the cache, so
     # it must not be stamped "miss" as if a lookup had actually happened -- and it must not be
@@ -691,6 +850,9 @@ def _resolve_redirect_destination(
     parse_options: dict[str, Any] | None,
     cache: ResponseCache | None,
     sleeper: Callable[[float], None],
+    capture_observer: Callable[[Any], None] | None = None,
+    capture_max_bytes: int | None = None,
+    headers_for_url: Callable[[str], dict[str, str] | None] | None = None,
 ) -> None:
     """Follow ``record``'s redirect past its first hop to where it actually lands.
 
@@ -712,13 +874,18 @@ def _resolve_redirect_destination(
             client=client,
             fetcher=fetcher,
             throttle=throttle,
-            extra_headers=extra_headers,
+            extra_headers=headers_for_url(current) if headers_for_url else extra_headers,
             user_agent=user_agent,
             max_response_bytes=max_response_bytes,
             retry_on_timeout=retry_on_timeout,
             parse_options=parse_options,
             cache=cache,
             wait=(lambda: sleeper(throttle.delay)) if throttle.delay else None,
+            **(
+                {"capture_observer": capture_observer, "capture_max_bytes": capture_max_bytes}
+                if capture_observer is not None
+                else {}
+            ),
         )
         chain.append({"url": hop.url, "status_code": hop.status_code, "error": hop.error})
         if not hop.redirect_url:

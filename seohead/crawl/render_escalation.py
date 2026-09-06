@@ -189,6 +189,7 @@ def escalate(
     probe: Callable[[str], dict[str, Any]],
     render_fetch: Callable[[str], dict[str, Any]],
     representation_label: str,
+    render_consumer: Callable[[str, dict[str, Any], str], dict[str, Any] | None] | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> EscalationResult:
     """Sample, decide, and selectively re-fetch -- see the module docstring.
@@ -279,9 +280,25 @@ def escalate(
             result.render_requests += 1
             budget -= 1
             result.render_counts[pattern] = result.render_counts.get(pattern, 0) + 1
-            if fetched.get("ok"):
-                result.representations[target_url] = representation_label
-                result.rendered[target_url] = fetched
+            if render_consumer is None:
+                if fetched.get("ok"):
+                    result.representations[target_url] = representation_label
+                    result.rendered[target_url] = fetched
+            else:
+                consumed = render_consumer(target_url, fetched, representation_label) or {}
+                accepted = bool(fetched.get("ok")) and bool(consumed.get("accepted"))
+                if accepted:
+                    result.representations[target_url] = representation_label
+                result.rendered[target_url] = {
+                    "ok": bool(fetched.get("ok")),
+                    "final_url": fetched.get("final_url") or target_url,
+                    "renderer": fetched.get("renderer") or {},
+                    "capture": {
+                        "accepted": accepted,
+                        "state": str(consumed.get("state") or "unavailable"),
+                        "reason": str(consumed.get("reason") or ""),
+                    },
+                }
             if queues[pattern]:
                 next_active.append(pattern)
         active = next_active
@@ -339,6 +356,9 @@ def apply_rendered_evidence(
     pages: list[Any],
     raw_links: list[Any],
     escalation: EscalationResult,
+    *,
+    parse_options: dict[str, Any] | None = None,
+    max_response_bytes: int | None = None,
 ) -> None:
     """Fold each re-fetched page's fuller HTML back into its ``PageRecord``.
 
@@ -395,70 +415,90 @@ def apply_rendered_evidence(
     evidence about a link the page already carries, not new crawl work: it
     never enqueues a destination the static crawl had not already reached.
     """
+    by_url = {p.url: p for p in pages}
+    for target_url, fetched in escalation.rendered.items():
+        record = by_url.get(target_url)
+        if record is None:
+            continue
+        _parsed, degenerate = fold_rendered_evidence(
+            record,
+            raw_links,
+            target_url,
+            fetched,
+            escalation.representations.get(target_url, "static"),
+            parse_options=parse_options,
+            max_response_bytes=max_response_bytes,
+        )
+        if degenerate:
+            escalation.degenerate_render_urls.append(target_url)
+
+
+def fold_rendered_evidence(
+    record: Any,
+    raw_links: list[Any],
+    target_url: str,
+    fetched: dict[str, Any],
+    representation: str,
+    *,
+    parse_options: dict[str, Any] | None = None,
+    max_response_bytes: int | None = None,
+) -> tuple[dict[str, Any] | None, bool]:
+    """Apply one DOM under the established content-floor and union policy.
+
+    The native SQLite path calls this for one source at a time.  Keeping the
+    fold here prevents a separately implemented DOM parser from drifting from
+    the directory collector's raw-plus-rendered evidence rules.
+    """
     from dataclasses import replace
     from urllib.parse import urlsplit
 
     from seohead.crawl.collect import _apply_body
     from seohead.crawl.spider import LinkEdge
 
-    raw_links_by_page: dict[str, set[str]] = {}
-    for edge in raw_links:
-        raw_links_by_page.setdefault(edge.source, set()).add(edge.destination)
+    html = fetched.get("html")
+    if not html:
+        return None, False
+    final_url = fetched.get("final_url") or target_url
+    scratch = replace(record)
+    scratch.content_type = scratch.content_type or "text/html"
+    parsed = _apply_body(
+        scratch,
+        final_url,
+        html,
+        parse_options=parse_options,
+        **({"max_response_bytes": max_response_bytes} if max_response_bytes is not None else {}),
+    )
+    rendered_has_content = parsed is not None and _clears_content_floor(scratch)
+    if _clears_content_floor(record) and not rendered_has_content:
+        return parsed, True
+    if parsed is None:
+        return None, True
 
-    by_url = {p.url: p for p in pages}
-    for target_url, fetched in escalation.rendered.items():
-        record = by_url.get(target_url)
-        html = fetched.get("html")
-        if record is None or not html:
-            continue
-        final_url = fetched.get("final_url") or target_url
+    record.representation = representation
+    for f in fields(record):
+        if f.name not in _RENDER_UNTOUCHED_FIELDS:
+            setattr(record, f.name, getattr(scratch, f.name))
 
-        # Judge the render on a scratch copy first -- _apply_body mutates in
-        # place, and whether a render clears the floor can only be known
-        # after deriving it. The real record is touched only once accepted.
-        scratch = replace(record)
-        # render_fetch always hands back a rendered DOM, HTML by definition;
-        # a fresh PageRecord (as in a test fixture, or a page never given a
-        # content-type by its raw fetch) may still have content_type == "",
-        # which would make _apply_body's is_html guard reject it wrongly.
-        scratch.content_type = scratch.content_type or "text/html"
-
-        raw_had_content = _clears_content_floor(record)
-        parsed = _apply_body(scratch, final_url, html)
-        rendered_has_content = parsed is not None and _clears_content_floor(scratch)
-        if raw_had_content and not rendered_has_content:
-            escalation.degenerate_render_urls.append(target_url)
-            continue
-
-        record.representation = escalation.representations.get(target_url, "static")
-        for f in fields(record):
-            if f.name not in _RENDER_UNTOUCHED_FIELDS:
-                setattr(record, f.name, getattr(scratch, f.name))
-
-        rendered_hrefs = {link["href"] for link in parsed.get("links") or []}
-        raw_hrefs = raw_links_by_page.get(target_url, set())
-        merged = raw_hrefs | rendered_hrefs
-        host = (urlsplit(final_url).hostname or "").lower()
-        record.outlinks = len(merged)
-        record.external_outlinks = sum(
-            1 for href in merged if (urlsplit(href).hostname or "").lower() != host
-        )
-
-        # Exactly the hrefs that just widened outlinks above and are therefore
-        # missing from raw_links -- new evidence about this page's own rendered
-        # DOM, keyed by href the same way outlinks was computed, not a second,
-        # possibly-diverging notion of "new".
-        new_hrefs = rendered_hrefs - raw_hrefs
-        if new_hrefs:
-            by_href = {link["href"]: link for link in parsed.get("links") or []}
-            for href in new_hrefs:
-                link = by_href.get(href, {})
-                raw_links.append(
-                    LinkEdge(
-                        source=target_url,
-                        destination=href,
-                        anchor=(link.get("text") or "")[:200],
-                        nofollow=bool(link.get("nofollow")),
-                        position=link.get("position") or "",
-                    )
+    raw_hrefs = {edge.destination for edge in raw_links if edge.source == target_url}
+    rendered_hrefs = {link["href"] for link in parsed.get("links") or []}
+    merged = raw_hrefs | rendered_hrefs
+    host = (urlsplit(final_url).hostname or "").lower()
+    record.outlinks = len(merged)
+    record.external_outlinks = sum(
+        1 for href in merged if (urlsplit(href).hostname or "").lower() != host
+    )
+    new_hrefs = rendered_hrefs - raw_hrefs
+    if new_hrefs:
+        by_href = {link["href"]: link for link in parsed.get("links") or []}
+        for href in new_hrefs:
+            link = by_href.get(href, {})
+            raw_links.append(
+                LinkEdge(
+                    source=target_url,
+                    destination=href,
+                    anchor=(link.get("text") or "")[:200],
+                    nofollow=bool(link.get("nofollow")),
+                    position=link.get("position") or "",
                 )
+            )
+    return parsed, False

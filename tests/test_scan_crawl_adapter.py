@@ -43,9 +43,38 @@ def test_sqlite_adapter_refuses_cache_before_network(tmp_path):
         _call(tmp_path, **{"cache.mode": "live"})
 
 
-def test_sqlite_adapter_refuses_rendering_without_body_provenance(tmp_path):
-    with pytest.raises(ValueError, match="raw rendering"):
-        _call(tmp_path, **{"rendering.mode": "js"})
+def test_sqlite_adapter_accepts_js_config_and_collects_raw_html_with_an_offline_fetcher(tmp_path):
+    calls = []
+
+    def fetcher(url):
+        calls.append(url)
+        if url.endswith("/robots.txt"):
+            return _Response(200, "User-agent: SEOHEAD-Tools\nAllow: /\n")
+        return _Response(200, "<html><head><title>raw</title></head><body>raw</body></html>")
+
+    run = crawl_to_scan(
+        "https://example.test/",
+        scan_out=str(tmp_path / "scan.sqlite"),
+        settings=load(overrides={"speed.min_delay_seconds": 0, "rendering.mode": "js"}),
+        producer_version="3.0.0",
+        producer_revision="a" * 40,
+        runtime_versions={
+            "python": "test",
+            "sqlite": "test",
+            "httpx": "test",
+            "lxml": "test",
+            "beautifulsoup4": "test",
+        },
+        fetcher=fetcher,
+        sleeper=lambda _seconds: None,
+    )
+    assert calls == ["https://example.test/robots.txt", "https://example.test/"]
+    assert run.pages == 1
+    assert run.start_page_gate == {
+        "html": "<html><head><title>raw</title></head><body>raw</body></html>",
+        "outlinks": 0,
+        "external_outlinks": 0,
+    }
 
 
 class _Response:
@@ -66,6 +95,7 @@ class _Scan:
         self.links = []
         self.forms = []
         self.context = []
+        self.preflight_calls = 0
         self.lifecycle = "running"
         self.limitations = []
         self.counts = {"pages": 0, "links": 0, "forms": 0}
@@ -106,6 +136,9 @@ class _Scan:
 
     def begin_collection(self):
         return None
+
+    def preflight_capture(self):
+        self.preflight_calls += 1
 
     def resume_snapshot(self, *, include_edges=False):
         return {
@@ -177,6 +210,7 @@ def test_sqlite_adapter_uses_shared_parser_batch_and_injected_robots(monkeypatch
     assert _Scan.last.links[0]["destination"].endswith("#part")
     assert _Scan.last.links[0]["rel"] == ("nofollow",)
     assert _Scan.last.forms[0]["method"] == "post"
+    assert _Scan.last.preflight_calls >= 2
 
 
 def test_sqlite_adapter_persists_real_scan_page_link_and_form_fields(tmp_path):
@@ -267,7 +301,7 @@ def test_existing_scan_rejects_changed_effective_config_before_fetch(tmp_path):
         )
 
 
-def test_interrupted_real_scan_resumes_without_reconstructing_start_gate(tmp_path):
+def test_interrupted_scan_rebuilds_start_gate_after_the_start_page_is_fetched(tmp_path):
     scan_path = tmp_path / "interrupted.sqlite"
     settings = load(overrides={"speed.min_delay_seconds": 0})
     with NativeScan.create(
@@ -349,7 +383,11 @@ def test_interrupted_real_scan_resumes_without_reconstructing_start_gate(tmp_pat
     )
     assert run.pages == 1
     assert run.resumed is True
-    assert run.start_page_gate is None
+    assert run.start_page_gate == {
+        "html": "<html><body>resumed</body></html>",
+        "outlinks": 0,
+        "external_outlinks": 0,
+    }
     assert calls == ["https://example.test/"]
 
 

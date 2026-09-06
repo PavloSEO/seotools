@@ -20,6 +20,7 @@ from urllib.parse import urlsplit
 
 from seohead.recon.net import normalize_url as normalize_start_url
 from seohead.storage import ScanError, open_scan
+from seohead.storage.analysis_graph import selected_links_cte
 from seohead.tools.parser import robots_directives
 from seohead.tools.sitemap import normalize_url
 
@@ -381,8 +382,8 @@ def _fill_declared(con: sqlite3.Connection, names: dict[str, str]) -> None:
 def _fill_observed(con: sqlite3.Connection, table: str) -> None:
     for row in _rows(
         con.execute(
-            "SELECT l.destination_url_id,destination.url "
-            "FROM links AS l JOIN pages AS source_page ON source_page.url_id=l.source_url_id "
+            selected_links_cte("l") + "SELECT l.destination_url_id,destination.url "
+            "FROM l JOIN pages AS source_page ON source_page.url_id=l.source_url_id "
             "JOIN urls AS destination ON destination.url_id=l.destination_url_id "
             "ORDER BY source_page.page_ordinal,l.ordinal,l.link_id"
         )

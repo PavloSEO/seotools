@@ -38,13 +38,20 @@ from seohead.crawl.spider import (
 from seohead.crawl.throttle import Throttle
 from seohead.models import ParsedRobots
 from seohead.recon.net import UA, http_client, normalize_url
-from seohead.storage import ScanError
+from seohead.storage import MAX_RECORD_BYTES, ScanError
 from seohead.storage.native_scan import NativeScan
 from seohead.tools.robots import crawl_delay as robots_crawl_delay
 from seohead.tools.robots import is_allowed, match_path
 
 MAX_LINK_OBSERVATIONS = 20_000
 MAX_FORM_OBSERVATIONS = 2_000
+
+
+def _append_capture(captures, event):
+    size = sum(len(item.entity_bytes or b"") for item in captures) + len(event.entity_bytes or b"")
+    if len(captures) >= 1000 or size > 8 * MAX_RECORD_BYTES:
+        raise ScanError("page response observations exceed the bounded capture unit")
+    captures.append(event)
 
 
 @dataclass(frozen=True)
@@ -314,7 +321,7 @@ def crawl_to_scan(
     sleeper: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
 ) -> ScanRun:
-    """Collect a raw, cache-off native crawl into one explicit scan artifact.
+    """Collect a cache-off native crawl into one explicit scan artifact.
 
     Handler/CLI/MCP wiring is deliberately outside this module.  Callers pass
     the already loaded settings and producer provenance, so there is no second
@@ -322,16 +329,7 @@ def crawl_to_scan(
     """
     if settings["cache"]["mode"] != "off":
         raise ValueError(
-            "SQLite scan collection requires cache.mode=off until body ownership is implemented"
-        )
-    if settings["rendering"]["mode"] != "raw":
-        raise ValueError(
-            "SQLite scan collection supports raw rendering only until body/render provenance exists"
-        )
-    if settings["http"]["credential_headers"]:
-        raise ValueError(
-            "SQLite capture currently requires credential-free configuration; "
-            "use directory mode for authenticated crawls"
+            "SQLite scan collection requires cache.mode=off; its artifact owns retained bodies"
         )
     limit = checked_url_budget(settings["limits"]["max_urls"])
     start = normalize_url(start_url)
@@ -351,7 +349,7 @@ def crawl_to_scan(
     robots_delay = None
     partial = False
     finish_reason = "finished"
-    limitations = ["raw HTML only: response/document retention is unavailable until G"]
+    limitations = ["resource capture and offline reanalysis are unavailable"]
     start_page_gate: dict[str, Any] | None = None
 
     existing = Path(scan_out).exists()
@@ -376,6 +374,7 @@ def crawl_to_scan(
         )
     )
     with _client_context(settings, fetcher) as client, scan_context as scan:
+        scan.preflight_capture()
         snapshot = scan.resume_snapshot()
         seeded = (
             existing
@@ -551,6 +550,7 @@ def crawl_to_scan(
                 scan.interrupt("duration limit reached")
                 break
             remaining = limit - counts["pages"]
+            scan.preflight_capture()
             leases = scan.claim(min(throttle.concurrency, remaining))
             if not leases:
                 # Handler owns audit/no-audit finalization after its bounded
@@ -565,7 +565,35 @@ def crawl_to_scan(
                 gate: _DispatchGate = dispatch_gate,
                 options: dict[str, Any] = parse_options,
             ) -> Any:
-                return lease, fetch_one(
+                captures = []
+                captured_bytes = 0
+
+                def observe(observation):
+                    nonlocal captured_bytes
+                    captured_bytes += (
+                        len(observation.entity_bytes) if observation.entity_bytes is not None else 0
+                    )
+                    if len(captures) >= 1000 or captured_bytes > 8 * MAX_RECORD_BYTES:
+                        raise ScanError(
+                            "page response observations exceed the bounded capture unit"
+                        )
+                    captures.append(observation)
+
+                capture_options = {}
+                if "storage" in settings:
+                    capture_options = {
+                        "capture_observer": observe,
+                        "capture_max_bytes": min(
+                            8 * MAX_RECORD_BYTES,
+                            max(
+                                settings["limits"]["max_response_bytes"],
+                                settings["storage"]["max_body_bytes"]
+                                if settings["storage"]["body_mode"] != "off"
+                                else 0,
+                            ),
+                        ),
+                    }
+                result = fetch_one(
                     lease.url,
                     client=client,
                     fetcher=fetcher,
@@ -577,7 +605,9 @@ def crawl_to_scan(
                     parse_options=options,
                     cache=None,
                     wait=gate.wait_turn,
+                    **capture_options,
                 )
+                return lease, result, captures
 
             actions: list[tuple[Any, bool]] = []
             robots_context: dict[int, list[dict[str, str]]] = {}
@@ -630,7 +660,11 @@ def crawl_to_scan(
                             _storage_failure(scan, exc)
                             raise ScanError(f"native scan storage failure: {exc}") from exc
                         continue
-                    lease, (record, parsed) = futures[lease.queue_ordinal].result()
+                    try:
+                        lease, (record, parsed), captures = futures[lease.queue_ordinal].result()
+                    except ScanError as exc:
+                        _storage_failure(scan, exc)
+                        raise
                     record.crawl_depth = lease.depth
                     max_depth = max(max_depth, lease.depth)
                     if (
@@ -649,10 +683,24 @@ def crawl_to_scan(
                             parse_options=parse_options,
                             cache=None,
                             sleeper=sleeper,
+                            capture_observer=(
+                                lambda observation, captured=captures: _append_capture(
+                                    captured, observation
+                                )
+                            )
+                            if "storage" in settings
+                            else None,
+                            capture_max_bytes=min(
+                                8 * MAX_RECORD_BYTES,
+                                max(
+                                    settings["limits"]["max_response_bytes"],
+                                    settings.get("storage", {}).get("max_body_bytes", 0),
+                                ),
+                            ),
+                            headers_for_url=lambda target: _headers(settings, target),
                         )
                     if (
-                        not existing
-                        and start_page_gate is None
+                        start_page_gate is None
                         and lease.depth == 0
                         and lease.url == start
                         and parsed is not None
@@ -693,6 +741,18 @@ def crawl_to_scan(
                         batch.candidates.extend(links_batch.candidates)
                         batch.partial_reasons.extend(links_batch.partial_reasons)
                     try:
+                        if (
+                            record.is_html
+                            and parsed is None
+                            and any(
+                                event.body_state in {"truncated", "unavailable"}
+                                and event.body_reason in {"truncated", "fetch_failed"}
+                                for event in captures
+                            )
+                        ):
+                            batch.partial_reasons.append(
+                                "response_body_unavailable: HTML could not be decoded completely"
+                            )
                         scan.commit_page(
                             lease,
                             dataclasses.asdict(record),
@@ -710,6 +770,7 @@ def crawl_to_scan(
                             ),
                             partial_reasons=tuple(batch.partial_reasons),
                             context=robots_context.get(lease.queue_ordinal, ()),
+                            captures=captures,
                         )
                     except (ScanError, sqlite3.Error) as exc:
                         _storage_failure(scan, exc)
@@ -721,6 +782,8 @@ def crawl_to_scan(
                 if partial:
                     break
 
+        if start_page_gate is None:
+            start_page_gate = retained_start_gate(scan, settings, content_area_config)
         outcome = scan.resume_snapshot(include_edges=True)
         return ScanRun(
             path=str(scan.path),
@@ -734,3 +797,40 @@ def crawl_to_scan(
             limitations=tuple(json.loads(outcome["scan"]["limitations_json"])),
             start_page_gate=start_page_gate,
         )
+
+
+def retained_start_gate(scan, settings, content_area_config=None):
+    """Reconstruct the raw start-page gate from its static document, one body at a time."""
+    from seohead.crawl.collect import PageRecord, _apply_body
+    from seohead.storage.bodies import read_document
+
+    start = scan.con.execute("SELECT start_url FROM scan").fetchone()[0]
+    row = scan.con.execute(
+        "SELECT d.document_id,r.content_type,r.effective_url_id,u.url AS final_url,b.decoded_bytes "
+        "FROM documents d JOIN urls logical ON logical.url_id=d.url_id "
+        "JOIN responses r ON r.response_id=d.source_response_id "
+        "JOIN bodies b ON b.sha256=d.body_sha256 "
+        "LEFT JOIN urls u ON u.url_id=r.effective_url_id "
+        "WHERE logical.url=? AND d.representation='static' AND d.body_state='complete' "
+        "ORDER BY d.document_id DESC LIMIT 1",
+        (start,),
+    ).fetchone()
+    if row is None:
+        return None
+    html = read_document(scan.con, row["document_id"], max_decoded_bytes=8 * MAX_RECORD_BYTES)
+    record = PageRecord(url=start, content_type=row["content_type"])
+    parsed = _apply_body(
+        record,
+        row["final_url"] or start,
+        html,
+        parse_options=_parse_options(settings, content_area_config),
+        max_response_bytes=settings["limits"]["max_response_bytes"],
+        size_bytes=row["decoded_bytes"],
+    )
+    if parsed is None:
+        return None
+    return {
+        "html": html,
+        "outlinks": record.outlinks,
+        "external_outlinks": record.external_outlinks,
+    }
