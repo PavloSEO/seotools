@@ -114,6 +114,9 @@ def _seed_workdir(tmp_path: Path, base_url: str) -> None:
     # A finished, internally consistent crawl output, so a documented `log-scan --run ./run`
     # actually scans something instead of reporting that the directory is empty.
     shutil.copytree(ROOT / "tests" / "doc_fixtures" / "run", tmp_path / "run")
+    # segment-diff reads a native crawl whose scope.segments were declared, which the
+    # SF-export example audit is not and cannot become: its input never had segments.
+    shutil.copytree(ROOT / "tests" / "doc_fixtures" / "segmented", tmp_path / "multilingual")
     (tmp_path / "report").mkdir()
     shutil.copy(ROOT / "examples" / "audit.json", tmp_path / "report" / "audit.json")
     (tmp_path / "crawl.json").write_text(json.dumps({"limits": {"max_urls": 5}}), encoding="utf-8")

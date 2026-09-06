@@ -127,13 +127,13 @@ details (adaptive back-off, which checks come back `skipped` and why) and
 |---|---|---|
 | `crawl-site` | Follows links from a start URL on the same host, respects `robots.txt`, and audits the result. Not full Screaming Frog parity — checks needing evidence a native crawl cannot produce (redirect chains, near-duplicates, readability, ...) come back `skipped`, never a false clean | writes `pages.jsonl` and the audit document under `--out-dir` |
 | `compare-crawls` | Diffs two audit documents into `entered` / `left` / `appeared` / `disappeared` findings, so a fix is distinguished from a page that simply dropped out of the crawl | — |
-| `segment-diff` | Answers "which pages exist in one segment and not in another" from one crawl, using the site's own hreflang declarations as the authority. Mirrored paths are a fallback only where the site's declared pairs prove it mirrors them; a partially crawled target segment yields no absences at all, because a page nobody fetched is not a page that is missing | — |
+| `segment-diff` | Answers "which pages exist in one segment and not in another" from one crawl, using the site's own hreflang declarations as the authority. Mirrored paths are a fallback only where the site's declared pairs prove it mirrors them; a partially crawled target segment yields no absences at all, because a page nobody fetched is not a page that is missing. Reads a native crawl whose config declared `scope.segments`, not an SF export | — |
 | `crawl-describe-settings` | Lists every `crawl-site` config setting — dotted path, type, default, description, and whether it is results-affecting — generated from `seohead/crawl/settings.py`. Same source as `crawl-site --config-help`, reachable over MCP for an agent with no filesystem access | — |
 
 ```bash
 seohead crawl-site --url https://example.com/ --max-urls 200 --out-dir ./report
 seohead compare-crawls --before old-audit.json --after new-audit.json
-seohead segment-diff --audit ./report/audit.json --source en --target pl
+seohead segment-diff --audit ./multilingual/audit.json --source en --target pl
 seohead crawl-describe-settings
 ```
 
