@@ -258,5 +258,5 @@ def test_http_entity_cannot_be_relabelled_as_a_rendered_dom():
         representation="rendered",
         renderer_json='{"engine":"test","engine_version":"1","settings":{},"flattened_iframes":false,"capture_limitations":[],"navigation_url_id":1,"final_url_id":1,"navigation_transform":"direct"}',
     )
-    with pytest.raises(ScanError, match="representation.*fidelity"):
+    with pytest.raises(ScanError, match=r"representation.*fidelity"):
         read_document(con, 1, max_decoded_bytes=100)
