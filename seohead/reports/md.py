@@ -6,6 +6,11 @@ import pathlib
 from typing import Any
 
 
+def _field(value: Any, limit: int | None = None) -> str:
+    text = "" if value is None else str(value)
+    return text.replace("|", "\\|")[:limit] if limit else text
+
+
 def write(document: dict[str, Any], path: pathlib.Path) -> None:
     from seohead.reports import SEVERITY_TITLES
 
@@ -84,11 +89,11 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
         for page in pages:
             out.append(
                 "| {} | {} | {} | {} | {} |".format(
-                    page.get("url", ""),
-                    page.get("status", ""),
-                    str(page.get("title", "")).replace("|", "\\|")[:80],
-                    page.get("words", ""),
-                    str(page.get("canonical", "")).replace("|", "\\|")[:60],
+                    _field(page.get("url")),
+                    _field(page.get("status")),
+                    _field(page.get("title"), 80),
+                    _field(page.get("words")),
+                    _field(page.get("canonical"), 60),
                 )
             )
         out.append("")

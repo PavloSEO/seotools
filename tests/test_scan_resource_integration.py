@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections import Counter
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,7 +14,7 @@ from seohead.crawl.resource_fetch import ResourceFetchResult
 from seohead.crawl.settings import fingerprint, load
 from seohead.crawl.sqlite_adapter import crawl_to_scan
 from seohead.crawl.sqlite_resources import capture_resources
-from seohead.storage import open_scan
+from seohead.storage import ScanError, open_scan
 from seohead.storage.native_scan import NativeScan
 from seohead.storage.resource_capture import commit_resource
 from tests.test_scan_native import _metadata, _record, _runtime
@@ -479,6 +480,55 @@ def test_resource_commit_failpoints_roll_back_and_safe_retry(tmp_path, failpoint
         assert (
             scan.con.execute("SELECT COUNT(*) FROM responses WHERE purpose='script'").fetchone()[0]
             == 1
+        )
+
+
+def test_resource_commit_refuses_large_body_before_writing_under_low_disk(tmp_path, monkeypatch):
+    path = tmp_path / "low-disk-resource.sqlite"
+    resource_url = "https://example.test/app.js"
+    with NativeScan.create(
+        path,
+        **_metadata_for_resources(
+            **{
+                "storage.max_body_bytes": 20 * 1024 * 1024,
+                "storage.min_free_bytes": 0,
+            }
+        ),
+    ) as scan:
+        scan.enqueue([("https://example.test/", 0)])
+        lease = scan.claim(1)[0]
+        scan.commit_page(
+            lease,
+            _record(),
+            captures=[_event(lease.url, b"<html></html>", "text/html")],
+            resources=[{"kind": "script", "url": resource_url, "raw_url": "/app.js"}],
+            resource_inventory_state="complete",
+            runtime=_runtime(),
+        )
+        url_id = scan.con.execute(
+            "SELECT url_id FROM urls WHERE url=?", (resource_url,)
+        ).fetchone()[0]
+        before_bodies = scan.con.execute("SELECT COUNT(*) FROM bodies").fetchone()[0]
+        outcome = ResourceFetchResult(
+            (_event(resource_url, b"x" * (15 * 1024 * 1024), "application/javascript"),),
+            "measured",
+            "",
+            1,
+        )
+        monkeypatch.setattr(
+            "seohead.storage.native_scan.shutil.disk_usage",
+            lambda _path: SimpleNamespace(free=9 * 1024 * 1024),
+        )
+
+        with pytest.raises(ScanError, match="insufficient free disk"):
+            commit_resource(scan, url_id, "script", outcome, elapsed_seconds=1.0)
+
+        assert scan.con.execute("SELECT COUNT(*) FROM bodies").fetchone()[0] == before_bodies
+        assert (
+            scan.con.execute(
+                "SELECT capture_state FROM resource_refs WHERE resource_url_id=?", (url_id,)
+            ).fetchone()[0]
+            == "not_fetched"
         )
 
 

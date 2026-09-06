@@ -22,7 +22,7 @@ from seohead.crawl import settings as crawl_config
 
 def _kwargs(*flags):
     """Through the real parser, so the flags are exercised as an operator types them
-    -- a hand-built Namespace would leave SOURCE_FLAGS unpopulated and send
+    -- a hand-built Namespace would leave source-flag metadata unpopulated and send
     _build_kwargs to read stdin."""
     args = cli.build_parser().parse_args(["crawl-site", "--url", "https://example.com", *flags])
     return cli._build_kwargs("crawl-site", args)[1]
@@ -58,6 +58,33 @@ def test_a_value_gets_the_type_its_default_has(assignment, expected):
 def test_an_empty_list_value_is_an_empty_list_not_one_empty_pattern():
     """An empty pattern matches everything, which would silently widen a crawl."""
     assert crawl_config.parse_setting_assignment("scope.include_patterns=")[1] == []
+
+
+@pytest.mark.parametrize("raw", ["treu", "enable", "", "2"])
+def test_set_refuses_an_unrecognized_boolean_instead_of_turning_it_off(raw):
+    """A typo in a result-affecting setting cannot silently mean false."""
+    with pytest.raises(crawl_config.ConfigError, match=r"sitemaps\.auto_discover"):
+        crawl_config.parse_setting_assignment(f"sitemaps.auto_discover={raw}")
+
+
+def test_set_parses_header_mapping_before_the_crawl_starts():
+    """The one mapping-valued leaf must not become a string and fail in the spider."""
+    kwargs = _kwargs("--set", 'http.headers={"X-Audit":"seohead"}')
+    assert kwargs["overrides"] == {"http.headers": {"X-Audit": "seohead"}}
+    assert crawl_config.load(overrides=kwargs["overrides"])["http"]["headers"] == {
+        "X-Audit": "seohead"
+    }
+
+
+@pytest.mark.parametrize("raw", ["X-Audit:seohead", "[]", '{"X-Audit": 1}'])
+def test_set_refuses_invalid_header_mapping_before_the_crawl_starts(raw):
+    with pytest.raises(crawl_config.ConfigError, match=r"http\.headers"):
+        crawl_config.parse_setting_assignment(f"http.headers={raw}")
+
+
+def test_load_refuses_wrongly_typed_headers_before_the_crawl_starts():
+    with pytest.raises(crawl_config.ConfigError, match=r"http\.headers"):
+        crawl_config.load(overrides={"http.headers": "X-Audit:seohead"})
 
 
 def test_a_misspelled_path_names_the_setting_the_operator_meant():

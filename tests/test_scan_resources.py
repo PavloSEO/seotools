@@ -207,6 +207,53 @@ def test_resource_ordinal_gap_is_rejected_and_current_complete_replaces_old_part
         validate_resources(con)
 
 
+def _inventory_capability_work(count: int) -> tuple[dict[str, dict[str, str]], int]:
+    con = sqlite3.connect(":memory:")
+    con.executescript(Path("seohead/storage/scan_v1.sql").read_text(encoding="utf-8"))
+    con.executemany(
+        "INSERT INTO urls(url_id,url) VALUES(?,?)",
+        [(index, f"https://example.test/{index}") for index in range(1, count + 1)],
+    )
+    documents = [(1, 1, "static"), (2, 1, "static")]
+    inventories = [("document:1", "partial"), ("document:2", "complete")]
+    for index in range(2, count + 1):
+        document_id = index + 1
+        documents.append((document_id, index, "static"))
+        inventories.append((f"document:{document_id}", "complete"))
+    con.executemany(
+        "INSERT INTO documents(document_id,url_id,representation,source_response_id,body_sha256,"
+        "captured_at,decoder_version,decoder_source,decoder_charset,decoder_errors,fidelity,"
+        "body_state,body_reason,renderer_json) VALUES(?,?,?,NULL,NULL,'x','scan_decoder.v1',"
+        "'not_applicable','unknown','not_applicable','unavailable','unavailable','not_fetched','{}')",
+        documents,
+    )
+    con.executemany(
+        "INSERT INTO context_items(kind,item_key,payload_version,payload_json,completeness,reason) "
+        "VALUES('resource_inventory',?,'scan_context.v1','{}',?,'')",
+        inventories,
+    )
+    work = [0]
+    con.set_progress_handler(lambda: work.__setitem__(0, work[0] + 1), 1)
+    try:
+        capabilities = resource_capabilities(con, fetch_enabled=False)
+    finally:
+        con.set_progress_handler(None, 0)
+        con.close()
+    return capabilities, work[0]
+
+
+def test_resource_capabilities_scales_linearly_with_current_inventory_rows():
+    small_capabilities, small_work = _inventory_capability_work(24)
+    large_capabilities, large_work = _inventory_capability_work(48)
+
+    expected = {
+        "resource_refs": {"state": "complete", "reason": ""},
+        "resource_bodies": {"state": "unavailable", "reason": "resources.fetch disabled"},
+    }
+    assert small_capabilities == large_capabilities == expected
+    assert large_work < small_work * 3
+
+
 def test_unavailable_inventory_is_distinct_from_empty_measured_inventory():
     con = _con()
     put_declarations(

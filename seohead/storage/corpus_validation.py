@@ -174,7 +174,10 @@ def validate_corpus(
         _headers(row["effective_headers_redacted_json"], "effective headers")
         if not isinstance(row["variant_key"], str) or not row["variant_key"]:
             raise ScanError("response variant key must be a nonempty opaque string")
-        if row["transport_source"] == "cache" and scan.get("source_kind") == "native":
+        if row["transport_source"] == "cache" and scan.get("source_kind") in {
+            "native",
+            "reanalysis",
+        }:
             raise ScanError("native corpus response cannot claim legacy cache transport")
         _state(row, document=False)
         if row["body_state"] == "complete" and (

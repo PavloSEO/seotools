@@ -105,7 +105,16 @@ def _process_export(
             raws.append(link.destination_url)
 
     for dest_key, links in by_dest.items():
-        dest = raw_dests[dest_key][0]
+        # Group occurrences by normalized identity, but report the actual
+        # crawled spelling whenever it is known. redirect_map is keyed by the
+        # Internal:All Address spelling, so first-seen raw inlink text would
+        # make both target_url and final_url depend on CSV row order.
+        crawled = ctx.page_by_norm.get(dest_key)
+        dest = (
+            crawled.url
+            if crawled is not None
+            else sorted(raw_dests[dest_key], key=lambda value: (value.casefold(), value))[0]
+        )
         dest_host = urllib.parse.urlparse(dest).netloc.lower()
         is_internal = (not dest_host) or (dest_host == site_host)
         check_id = internal_check if is_internal else external_check
@@ -376,7 +385,7 @@ def check_hreflang_quality(ctx: AuditContext) -> None:
     by_source: OrderedDict[str, list[dict[str, Any]]] = OrderedDict()
     for rec in records_from_df(df, HREFLANG_FIELD_MAP):
         src = rec.get("source_url")
-        if not src or not rec.get("destination_url"):
+        if not src:
             continue
         by_source.setdefault(src, []).append(rec)
 
@@ -384,9 +393,10 @@ def check_hreflang_quality(ctx: AuditContext) -> None:
     for source, entries in by_source.items():
         _check_invalid_codes(ctx, source, entries, evidence)
         _check_duplicate_entries(ctx, source, entries, evidence)
-        _check_self_reference(ctx, source, entries, evidence)
-        _check_xdefault(ctx, source, entries, evidence)
-        _check_not_canonical(ctx, source, entries, evidence)
+        target_entries = [rec for rec in entries if rec.get("destination_url")]
+        _check_self_reference(ctx, source, target_entries, evidence)
+        _check_xdefault(ctx, source, target_entries, evidence)
+        _check_not_canonical(ctx, source, target_entries, evidence)
 
 
 def _check_invalid_codes(
@@ -529,6 +539,104 @@ def check_hreflang_reciprocity(ctx: AuditContext) -> None:
             details={"expected_return_to": expected_from},
             evidence={"export": ctx.exports.files.get("all_hreflang")},
         )
+
+
+# "x-default" names a fallback for unmatched users, not a language and region, so
+# it is never a locale claim either side of a pair can be measured against: a page
+# is routinely declared both as "en" by its counterparts and as "x-default" by
+# itself, and reading the second as a contradiction of the first would fire on the
+# single most common correct hreflang layout there is.
+_XDEFAULT = "x-default"
+
+
+def _hreflang_code(value: Any) -> str:
+    """One hreflang value folded for comparison -- case only, nothing else.
+
+    Language tags are case-insensitive ("en-GB" and "en-gb" are one tag), so the
+    fold is safe. Nothing further is normalised on purpose: "en" and "en-GB" are
+    genuinely different annotations, and quietly treating a region-less tag as
+    matching a regioned one would hide exactly the inconsistency this check exists
+    to find.
+    """
+    return str(value or "").strip().lower()
+
+
+def check_hreflang_confirmation_consistency(ctx: AuditContext) -> None:
+    """HREFLANG_INCONSISTENT_CONFIRMATION -- A declares B as "fr"; B says it is "de".
+
+    :func:`check_hreflang_reciprocity` asks only whether a return link exists. A pair
+    can be fully reciprocal and still be discarded by Google, because the contract is
+    that both sides name the *same* language and region code: a page's counterparts
+    must call it what it calls itself. That is the fact this reads (#386).
+
+    The counterpart's own self-referencing hreflang is the authority for what it is,
+    which is why a counterpart with no self-reference is passed over entirely rather
+    than guessed at -- that page has no statement to disagree with, and
+    HREFLANG_MISSING_SELF_REFERENCE already names it. ``x-default`` is excluded on
+    both sides (see ``_XDEFAULT``), and a declaration whose target was never crawled
+    is left alone for the same reason reciprocity leaves it alone: a page nobody
+    fetched cannot be faulted for what it does or does not say.
+
+    Reported against the *declaring* page, because that is where the annotation that
+    disagrees was written; the details name the counterpart, the code this page
+    claimed for it, and the codes the counterpart confirms for itself, so the reader
+    can see which of the two is wrong without opening both.
+    """
+    df = ctx.exports.get("all_hreflang")
+    if df is None or df.empty:
+        ctx.skip(
+            "HREFLANG_INCONSISTENT_CONFIRMATION",
+            "no all_hreflang export (export Bulk Export -> Links -> All Hreflang)",
+        )
+        return
+
+    # What each page declares about itself, and what every other page declares
+    # about it, keyed the same way so the two are comparable at all.
+    self_codes: dict[str, set[str]] = {}
+    claims: OrderedDict[str, list[tuple[str, str]]] = OrderedDict()
+    # The URL as the export wrote it, for the case where neither end is in the
+    # crawl's own page table: a normalised key is a comparison aid, not an address
+    # a reader can open.
+    written_as: dict[str, str] = {}
+    for rec in records_from_df(df, HREFLANG_FIELD_MAP):
+        src, dest = rec.get("source_url"), rec.get("destination_url")
+        code = _hreflang_code(rec.get("hreflang"))
+        if not src or not dest or not code or code == _XDEFAULT:
+            continue
+        src_norm, dest_norm = norm_url(src), norm_url(dest)
+        written_as.setdefault(src_norm, str(src))
+        written_as.setdefault(dest_norm, str(dest))
+        if src_norm == dest_norm:
+            self_codes.setdefault(src_norm, set()).add(code)
+        else:
+            claims.setdefault(src_norm, []).append((dest_norm, code))
+
+    evidence = {"export": ctx.exports.files.get("all_hreflang")}
+    for src_norm, declared in claims.items():
+        source_page = ctx.page_by_norm.get(src_norm)
+        mismatched = []
+        for dest_norm, code in declared:
+            confirmed = self_codes.get(dest_norm)
+            if not confirmed or code in confirmed:
+                continue  # no self-statement to contradict, or the two agree
+            target = ctx.page_by_norm.get(dest_norm)
+            if target is None:
+                continue  # counterpart was not crawled, so its self-row is not usable evidence
+            mismatched.append(
+                {
+                    "counterpart": target.url,
+                    "declared_here": code,
+                    "confirmed_there": sorted(confirmed),
+                }
+            )
+        if mismatched:
+            ctx.add(
+                "HREFLANG_INCONSISTENT_CONFIRMATION",
+                target_url=(source_page.url if source_page is not None else written_as[src_norm]),
+                occurrences_count=len(mismatched),
+                details={"inconsistent": mismatched},
+                evidence=evidence,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -1029,6 +1137,7 @@ def run_inlinks(ctx: AuditContext) -> None:
     check_hreflang_targets(ctx)
     check_hreflang_quality(ctx)
     check_hreflang_reciprocity(ctx)
+    check_hreflang_confirmation_consistency(ctx)
     check_link_score(ctx)
     check_inlink_composition(ctx)
     check_discovery_path(ctx)

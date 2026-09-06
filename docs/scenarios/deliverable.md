@@ -43,7 +43,7 @@ Three audiences, one source document:
 |---|---|
 | `docx` | the client — an executive summary (counts, unavailable checks) followed by evidence, not a generated conclusion or recommendation |
 | `xlsx` | the SEO — four sheets, filters, a chart |
-| `csv` | one row per finding plus an adjacent page table — a flat export, not a grouped backlog |
+| `csv` | separate finding, scope-evidence, and page tables — a flat export, not a grouped backlog |
 | `md` | the repository, or another agent |
 
 `report-build` only renders an audit document (`findings`+`pages`, or the SF `issues`+`pages`
@@ -63,7 +63,9 @@ the [images scenario](images.md).
 ```
 audit.docx        the narrative, for a person who will not open JSON — summary and evidence, no conclusion
 audit.xlsx        the working file, filterable by severity and section
-audit.csv         findings plus pages — needs recipient-side field mapping to become tracker rows
+audit.csv         findings — needs recipient-side field mapping to become tracker rows
+audit.pages.csv   page facts
+audit.scope.csv   crawl validity, scope, and unavailable/disabled check evidence
 tasks.json/.md     the grouped, prioritized backlog, from `sf run --tasks`, not from `report-build`
 run/audit.json    the machine-readable original, which the formats above cannot contradict
 ```

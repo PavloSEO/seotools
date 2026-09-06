@@ -1,7 +1,7 @@
 # Usage scenarios
 
-The rest of the documentation lists what this toolkit *has*: 56 commands, 60 MCP tools, 121
-checks, 22 skills, each described on its own. This directory describes what it **does** — the
+The rest of the documentation lists what this toolkit *has*: 63 commands, 68 MCP tools, 149
+checks, 29 workflow skills, each described on its own. This directory describes what it **does** — the
 chains that run several of them in order and end in something a person can act on.
 
 The distinction matters. One command is a measurement. A chain is a deliverable:

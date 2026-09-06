@@ -1,17 +1,17 @@
 # SEO audit — example.com
 
-- **Generated:** 2026-09-06T11:46:15Z
+- **Generated:** 2026-09-06T13:35:28Z
 - **Input mode:** parse-exports  ·  **Profile:** full
 - **Source:** examples/exports
 - **Exports used:** internal_all, inlinks_4xx
 
 ## Health summary
 
-**Health score: None / 100**
+> **No health score.** only 75 of 155 checks could run (48% coverage); too little evidence to score.
 
-_75 of 152 checks could run; the score is not comparable to a run with full evidence_
+_75 of 155 checks could run; the score is not comparable to a run with full evidence_
 
-- Checks: **16 fired**, 77 skipped, 59 silent, 0 disabled (of 152 total)
+- Checks: **16 fired**, 80 skipped, 59 silent, 0 disabled (of 155 total)
 
 - URLs crawled: **6** (HTML: 4, indexable: 4)
 - Total issues: **21**
@@ -220,6 +220,8 @@ Each check below describes more than half the crawled pages. That can be true --
 | `UNSUPPORTED_PLUGIN` | no plugin-element evidence (native crawl only) |
 | `IMG_MISSING_ALT_ATTRIBUTE` | no per-image evidence (native crawl only) |
 | `IMG_ALT_TOO_LONG` | no per-image evidence (native crawl only) |
+| `AJAX_CRAWLING_SCHEME_URL` | no AJAX-scheme URL evidence (native crawl only) |
+| `AJAX_CRAWLING_SCHEME_META_FRAGMENT` | no <meta name="fragment"> evidence (native crawl only) |
 | `MISSING_CHARSET` | no Meta Charset column, so a page without a header charset cannot be distinguished from one declaring <meta charset> (needs a native seohead crawl or Custom Extraction in SF) |
 | `MISSING_DOCTYPE` | no Doctype column (needs a native seohead crawl or Custom Extraction in SF) |
 | `VIEWPORT_MISSING` | no Viewport column (needs a native seohead crawl or Custom Extraction in SF) |
@@ -249,6 +251,7 @@ Each check below describes more than half the crawled pages. That can be true --
 | `HREFLANG_MISSING_XDEFAULT` | no all_hreflang export (export Bulk Export -> Links -> All Hreflang) |
 | `HREFLANG_NOT_CANONICAL` | no all_hreflang export (export Bulk Export -> Links -> All Hreflang) |
 | `HREFLANG_MISSING_RETURN_LINK` | no all_hreflang export (export Bulk Export -> Links -> All Hreflang) |
+| `HREFLANG_INCONSISTENT_CONFIRMATION` | no all_hreflang export (export Bulk Export -> Links -> All Hreflang) |
 | `LOW_LINK_SCORE` | no all_inlinks export (needed for the complete internal edge list) |
 | `ONLY_NOFOLLOW_INLINKS` | no all_inlinks export (needed for the complete inlink list) |
 | `ONLY_NONINDEXABLE_SOURCE_INLINKS` | no all_inlinks export (needed for the complete inlink list) |

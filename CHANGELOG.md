@@ -4,7 +4,7 @@ All notable public changes are documented here.
 
 ## Unreleased
 
-- Close the three pagination rows #385 left open, taking the registry from 149 to 152 checks.
+- Close the three pagination rows #385 left open, taking the registry from 152 to 155 checks.
   `PAGINATION_MULTIPLE` and `PAGINATION_URL_NOT_IN_ANCHOR` read the All Inlinks export, which
   is the only place a page's complete `rel="next"`/`rel="prev"` declaration list exists --
   `Internal:All` keeps the first of each and drops the rest -- and report a page that declares

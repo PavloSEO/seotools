@@ -31,6 +31,7 @@ from seohead.crawl.settings import (
 )
 from seohead.storage import (
     _PAGE_BOOLS,
+    _PAGE_NONNEGATIVE_INTS,
     APPLICATION_ID,
     FORMAT_VERSION,
     MAX_RECORD_BYTES,
@@ -39,6 +40,7 @@ from seohead.storage import (
     _config,
     _dump,
     _expected,
+    _has_negative_page_counts,
     _insert,
     _objects,
     _runtime,
@@ -73,19 +75,6 @@ _LINK_KEYS = {
     "raw_href",
 }
 _FORM_KEYS = {"page", "method", "action", "has_password"}
-_CURRENT_PAGE_INTS = {
-    "size_bytes",
-    "word_count",
-    "content_frames",
-    "content_frames_same_origin",
-    "crawl_depth",
-    "head_count",
-    "body_count",
-    "outlinks",
-    "external_outlinks",
-    "jsonld_blocks_found",
-    "jsonld_blocks_parsed",
-}
 _OPTIONAL_PAGE_SOURCES = {
     "status_code",
     "response_time",
@@ -311,7 +300,7 @@ class NativeScan:
                 },
                 "offline_reanalysis": {
                     "state": "unavailable",
-                    "reason": "offline replay is child I",
+                    "reason": "no retained offline reanalysis inputs yet",
                 },
             }
             con.execute("BEGIN IMMEDIATE")
@@ -422,6 +411,7 @@ class NativeScan:
         expected_start_url: str | None = None,
         expected_config: dict[str, Any] | None = None,
         expected_writer_revision: str | None = None,
+        _allow_reanalysis: bool = False,
     ) -> NativeScan:
         path = Path(path).absolute()
         if fcntl is None:
@@ -450,6 +440,8 @@ class NativeScan:
             # would create a missing file and PRAGMA journal_mode would mutate
             # a foreign file before its application/schema identity was known.
             scan = cls.inspect(path)["scan"]
+            if scan["source_kind"] == "reanalysis" and not _allow_reanalysis:
+                raise ScanError("derived reanalysis artifacts cannot resume collection")
             if scan["lifecycle"] in {"finished", "failed"}:
                 raise ScanError(
                     f"native scan lifecycle {scan['lifecycle']!r} cannot be opened for writing"
@@ -563,16 +555,22 @@ class NativeScan:
         if con.execute("SELECT COUNT(*) FROM scan").fetchone()[0] != 1:
             raise ScanError("native scan requires exactly one header")
         scan = con.execute("SELECT * FROM scan WHERE singleton=1").fetchone()
-        if scan["source_kind"] != "native" or scan["format_version"] != FORMAT_VERSION:
-            raise ScanError("not a native scan.v1 artifact")
         if (
-            scan["evidence_version"],
-            scan["parent_scan_uuid"],
-            scan["pinned"],
-        ) != ("crawl.v1", None, 0):
+            scan["source_kind"] not in {"native", "reanalysis"}
+            or scan["format_version"] != FORMAT_VERSION
+        ):
+            raise ScanError("not a native scan.v1 artifact")
+        if scan["evidence_version"] != "crawl.v1" or scan["pinned"] not in (0, 1):
             raise ScanError(
                 "native evidence version, corpus completeness, parent or pin metadata is unsupported"
             )
+        if scan["source_kind"] == "native" and scan["parent_scan_uuid"] is not None:
+            raise ScanError("native metadata: capture cannot name a parent scan")
+        if scan["source_kind"] == "reanalysis":
+            try:
+                uuid.UUID(scan["parent_scan_uuid"])
+            except (TypeError, ValueError) as exc:
+                raise ScanError("derived reanalysis requires a parent scan UUID") from exc
         if scan["lifecycle"] not in {"running", "interrupted", "finished", "failed"}:
             raise ScanError("invalid native scan lifecycle")
         from .native_audit import validate_audit
@@ -620,15 +618,29 @@ class NativeScan:
             value["state"]
             not in (
                 {"partial", "complete"}
-                if name in {"pages", "links", "resume"}
+                if name in {"pages", "links"}
+                else {"unavailable"}
+                if name == "resume" and scan["source_kind"] == "reanalysis"
+                else {"partial", "complete"}
+                if name == "resume"
+                else {"complete"}
+                if name == "offline_reanalysis" and scan["source_kind"] == "reanalysis"
                 else {"partial", "complete", "unavailable"}
-                if name in {"responses", "html_bodies", "rendered_bodies"}
+                if name in {"responses", "html_bodies", "rendered_bodies", "offline_reanalysis"}
                 or ("resources" in config and name in {"resource_refs", "resource_bodies"})
                 else {"unavailable"}
             )
             for name, value in capabilities.items()
         ):
             raise ScanError("native storage core capability state claims an unavailable feature")
+        # Older G/H files honestly recorded that their writer did not expose
+        # reanalysis. Reading them never upgrades that saved capability.
+        if (
+            capabilities["offline_reanalysis"]["state"] != "unavailable"
+            and scan["source_kind"] == "native"
+            and capabilities["offline_reanalysis"]["state"] != _reanalysis_capability(con)["state"]
+        ):
+            raise ScanError("offline reanalysis capability disagrees with retained inputs")
         validate_policy(retention)
         if retention != policy_for_config(config):
             raise ScanError("native retention policy disagrees with its recorded configuration")
@@ -732,11 +744,14 @@ class NativeScan:
             raise ScanError("native scan frontier depth cannot be negative")
         if (
             scan["lifecycle"] == "finished"
+            and scan["source_kind"] == "native"
             and con.execute(
                 "SELECT 1 FROM frontier WHERE state IN ('queued','inflight') LIMIT 1"
             ).fetchone()
         ):
             raise ScanError("terminal native scan has unfinished frontier work")
+        if _has_negative_page_counts(con):
+            raise ScanError("native scan page count cannot be negative")
         for page in con.execute("SELECT * FROM pages"):
             frontier_page = con.execute(
                 "SELECT depth FROM frontier WHERE url_id=?", (page["url_id"],)
@@ -753,15 +768,9 @@ class NativeScan:
                 )
             ):
                 raise ScanError("native scan page is missing a current PageRecord evidence field")
-            if (
-                page["size_bytes"] < 0
-                or page["word_count"] < 0
-                or page["crawl_depth"] < 0
-                or page["content_frames"] < 0
-                or page["content_frames_same_origin"] < 0
-                or page["content_frames_same_origin"] > page["content_frames"]
-                or page["body_unavailable"] not in (None, "", "oversized")
-            ):
+            if page["content_frames_same_origin"] > page["content_frames"] or page[
+                "body_unavailable"
+            ] not in (None, "", "oversized"):
                 raise ScanError("native scan page scalar/body marker is invalid")
             try:
                 alternates = json.loads(page["hreflang_json"] or "[]")
@@ -785,15 +794,33 @@ class NativeScan:
         ).fetchone()
         if page_count and (page_low != 0 or page_high != page_count - 1):
             raise ScanError("native scan page ordinals are not a contiguous sequence")
-        if (
-            scan["evidence_revision"]
-            != page_count
+        evidence_floor = (
+            page_count
             + con.execute(
                 "SELECT COUNT(*) FROM context_items WHERE kind='resource_commit'"
             ).fetchone()[0]
             + con.execute(
                 "SELECT COUNT(*) FROM documents WHERE representation IN ('rendered','legacy_fragment')"
             ).fetchone()[0]
+        )
+        provenance = con.execute(
+            "SELECT payload_json FROM context_items WHERE kind='reanalysis_provenance' AND item_key='run'"
+        ).fetchone()
+        derived_revision = None
+        if provenance is not None:
+            try:
+                derived_revision = json.loads(provenance[0]).get("derived_evidence_revision")
+            except (TypeError, ValueError):
+                derived_revision = None
+        revision_invalid = (
+            scan["evidence_revision"] != evidence_floor
+            if scan["source_kind"] == "native"
+            else provenance is None
+            or scan["evidence_revision"] != derived_revision
+            or scan["evidence_revision"] < evidence_floor
+        )
+        if (
+            revision_invalid
             or con.execute(
                 "SELECT 1 FROM frontier f LEFT JOIN pages p USING(url_id) "
                 "WHERE (f.state='done') != (p.url_id IS NOT NULL) OR "
@@ -803,6 +830,8 @@ class NativeScan:
                 "SELECT 1 FROM pages p LEFT JOIN frontier f USING(url_id) WHERE f.url_id IS NULL LIMIT 1"
             ).fetchone()
         ):
+            if scan["source_kind"] == "reanalysis":
+                raise ScanError("derived reanalysis provenance or revision disagrees")
             raise ScanError("native page evidence revision or frontier completion/depth disagrees")
         if (
             con.execute("SELECT COUNT(*) FROM context_items WHERE kind='native_commit'").fetchone()[
@@ -839,6 +868,15 @@ class NativeScan:
             from .native_context import validate_context
 
             validate_context(con, dict(item), sitemap_roots=sitemap_roots)
+        if scan["source_kind"] == "reanalysis":
+            marker = con.execute(
+                "SELECT payload_json FROM context_items WHERE kind='reanalysis_provenance' AND item_key='run'"
+            ).fetchone()
+            if (
+                marker is None
+                or json.loads(marker[0])["parent_scan_uuid"] != scan["parent_scan_uuid"]
+            ):
+                raise ScanError("derived reanalysis provenance is missing or disagrees")
         for kind, expression in (
             ("resource_commit", "CAST(substr(item_key,10) AS INTEGER)"),
             ("sitemap_declaration", "CAST(substr(item_key,9) AS INTEGER)"),
@@ -933,10 +971,14 @@ class NativeScan:
         """Update declared corpus availability in the evidence transaction."""
         from .corpus import corpus_summary
 
-        row = self.con.execute("SELECT capabilities_json,retention_json FROM scan").fetchone()
+        row = self.con.execute(
+            "SELECT capabilities_json,retention_json,source_kind FROM scan"
+        ).fetchone()
         capabilities = json.loads(row[0])
         summary = corpus_summary(self.con, json.loads(row[1]))
         capabilities.update(summary["capabilities"])
+        if row[2] == "native":
+            capabilities["offline_reanalysis"] = _reanalysis_capability(self.con)
         self.con.execute(
             "UPDATE scan SET capabilities_json=?,corpus_partial=? WHERE singleton=1",
             (_dump(capabilities), int(summary["corpus_partial"])),
@@ -1324,7 +1366,7 @@ class NativeScan:
                 )
         if set(record) - source_names:
             raise ScanError(f"page record has unknown fields: {sorted(set(record) - source_names)}")
-        for name in _CURRENT_PAGE_INTS:
+        for name in _PAGE_NONNEGATIVE_INTS:
             value = record.get(name)
             if type(value) is not int or value < 0:
                 raise ScanError(f"pages.{name}: expected a nonnegative integer")
@@ -1569,11 +1611,7 @@ class NativeScan:
                 policy = json.loads(
                     self.con.execute("SELECT retention_json FROM scan").fetchone()[0]
                 )
-                if (
-                    shutil.disk_usage(self.path.parent).free
-                    < policy["min_free_bytes"] + body_bytes * 3 + MAX_RECORD_BYTES
-                ):
-                    raise ScanError("insufficient free disk for the next atomic response capture")
+                self._check_capture_disk_space(policy, body_bytes)
                 for event in captures:
                     if event.requested_url != lease.url and event.requested_url not in {
                         hop.get("url") for hop in record.get("redirect_chain", [])
@@ -1784,6 +1822,13 @@ class NativeScan:
         if shutil.disk_usage(self.path.parent).free < policy["min_free_bytes"] + MAX_RECORD_BYTES:
             raise ScanError("insufficient free disk for native capture; no request was started")
 
+    def _check_capture_disk_space(self, policy: dict[str, Any], body_bytes: int) -> None:
+        if (
+            shutil.disk_usage(self.path.parent).free
+            < policy["min_free_bytes"] + body_bytes * 3 + MAX_RECORD_BYTES
+        ):
+            raise ScanError("insufficient free disk for the next atomic response capture")
+
     def commit_render(
         self,
         url: str,
@@ -1840,6 +1885,14 @@ class NativeScan:
             if page is None:
                 raise ScanError("rendered document has no committed static page")
             policy = json.loads(self.con.execute("SELECT retention_json FROM scan").fetchone()[0])
+            self._check_capture_disk_space(
+                policy,
+                (
+                    len(html.encode("utf-8") if isinstance(html, str) else html or b"")
+                    if representation == "rendered"
+                    else sum(len(event.entity_bytes or b"") for event in captures)
+                ),
+            )
             if representation == "rendered":
                 if captures:
                     raise ScanError("serialized DOM must not masquerade as an HTTP response")
@@ -2170,6 +2223,27 @@ class NativeScan:
             raise
         return False
 
+    def _finish_reanalysis(self) -> bool:
+        """Finalize a derived artifact without treating historical frontier work as resumable."""
+        if (
+            self.con.execute("SELECT source_kind FROM scan WHERE singleton=1").fetchone()[0]
+            != "reanalysis"
+        ):
+            raise ScanError("only a derived artifact can use reanalysis finalization")
+        if not self._finalize_checkpoint(FINALIZATION_TIMEOUT_SECONDS):
+            raise ScanError("derived reanalysis finalization was blocked")
+        self.con.execute("BEGIN IMMEDIATE")
+        try:
+            self.con.execute(
+                "UPDATE scan SET lifecycle='finished',finish_reason='offline_reanalysis',finished_at=? WHERE singleton=1",
+                (_utc(),),
+            )
+            self.con.commit()
+            return True
+        except BaseException:
+            self._rollback()
+            raise
+
     def resume_or_finalize(self) -> bool:
         """Requeue recovered work; an empty frontier has only finalization left to do."""
         self._assert_mutable()
@@ -2247,3 +2321,38 @@ class NativeScan:
                 dest.close()
             with contextlib.suppress(FileNotFoundError):
                 temporary.unlink()
+
+
+def _reanalysis_capability(con: sqlite3.Connection) -> dict[str, str]:
+    """Count admitted HTML inputs in SQL without reading body BLOBs or Python page lists."""
+    config = json.loads(con.execute("SELECT config_json FROM scan WHERE singleton=1").fetchone()[0])
+    parse_limit = config["limits"]["max_response_bytes"]
+    required, usable = con.execute(
+        """WITH active_static AS (
+            SELECT d.url_id,MAX(d.document_id) AS document_id FROM documents d
+            JOIN context_items c ON c.kind='resource_inventory' AND c.item_key='document:'||d.document_id
+            WHERE d.representation='static' GROUP BY d.url_id
+        )
+        SELECT COUNT(*),COALESCE(SUM(CASE WHEN
+            selected.body_state='complete' AND selected.body_sha256 IS NOT NULL
+            AND raw.body_state='complete' AND raw.body_sha256 IS NOT NULL
+            AND raw_body.decoded_bytes<=? AND selected_body.decoded_bytes<=?
+            THEN 1 ELSE 0 END),0)
+        FROM pages p
+        LEFT JOIN documents selected ON selected.document_id=p.document_id
+        LEFT JOIN active_static a ON a.url_id=p.url_id
+        LEFT JOIN documents raw ON raw.document_id=CASE WHEN p.representation='static'
+            THEN p.document_id ELSE a.document_id END
+        LEFT JOIN bodies raw_body ON raw_body.sha256=raw.body_sha256
+        LEFT JOIN bodies selected_body ON selected_body.sha256=selected.body_sha256
+        WHERE lower(p.content_type) LIKE '%html%' AND p.status_code IS NOT NULL""",
+        (parse_limit, parse_limit),
+    ).fetchone()
+    if usable and usable == required:
+        return {"state": "complete", "reason": ""}
+    if usable:
+        return {
+            "state": "partial",
+            "reason": "some HTML documents lack retained raw or selected inputs",
+        }
+    return {"state": "unavailable", "reason": "no retained raw HTML inputs"}

@@ -694,6 +694,16 @@ CHECKS: dict[str, dict[str, Any]] = {
         "message": "Another page's hreflang points here, but this page does not point back",
         "fix": "Add a reciprocal hreflang annotation back to every page that names this one.",
     },
+    "HREFLANG_INCONSISTENT_CONFIRMATION": {
+        "severity": "warning",
+        "source": "inlinks:All Hreflang",
+        "message": "This page declares a counterpart under a language and region code the "
+        "counterpart does not confirm for itself",
+        "fix": "Make the two declarations agree: either correct this page's hreflang value for "
+        "that URL, or correct the counterpart's own self-referencing hreflang. Google reads a "
+        "pair as valid only when both sides name the same code, so a mismatched pair is "
+        "discarded exactly as a missing return link is.",
+    },
     # --- extension: pagination ---
     "PAGINATION_NONINDEXABLE": {
         "severity": "warning",
@@ -836,6 +846,25 @@ CHECKS: dict[str, dict[str, Any]] = {
         "<video>/<audio>, an <img>/<svg>, or a JavaScript-driven alternative) -- mobile "
         "browsers, and modern desktop ones, do not run plugins, so this content is simply "
         "invisible there.",
+    },
+    "AJAX_CRAWLING_SCHEME_URL": {
+        "severity": "notice",
+        "source": "crawl:ajax_scheme_outlinks",
+        "message": "The deprecated AJAX crawling scheme (#! / _escaped_fragment_) is still used "
+        "by this page's URL or by URLs it links to",
+        "fix": "Serve the same content at ordinary URLs and link to those instead. Google "
+        "deprecated the scheme in 2015 and stopped supporting it in 2018, so an _escaped_fragment_ "
+        "companion URL is no longer requested by anything -- informational rather than broken, "
+        "because a site may still keep it for a legacy client of its own.",
+    },
+    "AJAX_CRAWLING_SCHEME_META_FRAGMENT": {
+        "severity": "notice",
+        "source": "crawl:meta_fragment",
+        "message": 'Page declares <meta name="fragment"> -- the page-wide opt-in to the '
+        "deprecated AJAX crawling scheme",
+        "fix": "Remove the tag once the page is served as ordinary HTML (server-rendered or "
+        "crawlable client-rendered). Nothing requests the _escaped_fragment_ companion URL it "
+        "advertises any more, so the declaration is inert -- informational rather than broken.",
     },
     "NO_COMPRESSION": {
         "severity": "notice",
@@ -1034,8 +1063,9 @@ def check_meta(check_id: str) -> dict[str, Any]:
 # check, when neither source has redirect data.
 # Only frames other than ``internal_all`` are listed: the master table is
 # required for a run at all, and checks derived from its columns guard
-# themselves per column. A check absent from this map and lacking its own skip
-# path is caught by ``test_every_check_can_be_skipped``.
+# themselves per column. ``test_every_declared_check_reports_its_frame_as_missing_when_absent``
+# covers the entries declared here. Checks absent from this map rely on their
+# own evidence guards; this map does not provide a universal inline-skip gate.
 CHECK_REQUIRES: dict[str, tuple[str, ...]] = {
     "IMG_MISSING_ALT": ("images_missing_alt",),
     "IMG_OVER_KB": ("images_over_kb",),

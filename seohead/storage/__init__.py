@@ -75,6 +75,36 @@ _LATE_PAGE_FIELDS = {
     "hreflang": "hreflang_json",
     "body_unavailable": "body_unavailable",
     "meta_refresh": "meta_refresh",
+    "http_refresh": "http_refresh",
+    "meta_description_count": "meta_description_count",
+    "h1_alt_text": "h1_alt_text",
+    "lorem_ipsum_count": "lorem_ipsum_count",
+    "images_total": "images_total",
+    "images_missing_alt_attr": "images_missing_alt_attr",
+    "images_max_alt_length": "images_max_alt_length",
+    "plugin_elements": "plugin_elements",
+    "meta_fragment": "meta_fragment",
+    "ajax_scheme_outlinks": "ajax_scheme_outlinks",
+}
+_PAGE_NONNEGATIVE_INTS = {
+    "ajax_scheme_outlinks",
+    "body_count",
+    "content_frames",
+    "content_frames_same_origin",
+    "crawl_depth",
+    "external_outlinks",
+    "head_count",
+    "images_max_alt_length",
+    "images_missing_alt_attr",
+    "images_total",
+    "jsonld_blocks_found",
+    "jsonld_blocks_parsed",
+    "lorem_ipsum_count",
+    "meta_description_count",
+    "outlinks",
+    "plugin_elements",
+    "size_bytes",
+    "word_count",
 }
 
 
@@ -89,6 +119,16 @@ def _legacy_fields_missing(con) -> list[str]:
         + " FROM pages"
     ).fetchone()
     return [name for name, missing in zip(_LATE_PAGE_FIELDS, row, strict=True) if missing]
+
+
+def _has_negative_page_counts(con) -> bool:
+    return bool(
+        con.execute(
+            "SELECT 1 FROM pages WHERE "
+            + " OR ".join(f"{name}<0" for name in _PAGE_NONNEGATIVE_INTS)
+            + " LIMIT 1"
+        ).fetchone()
+    )
 
 
 def _hreflang(value: Any) -> None:
@@ -353,6 +393,9 @@ def _import_pages(con, source: Path, limitations: list[str], inputs: list[dict])
                 if type(row[key]) is not bool:
                     raise ScanError(f"pages.{key}: expected boolean")
                 row[key] = int(row[key])
+        for key in _PAGE_NONNEGATIVE_INTS:
+            if row[key] is not None and (type(row[key]) is not int or row[key] < 0):
+                raise ScanError(f"pages.{key}: expected a nonnegative integer")
         _insert(con, "pages", row)
 
 
@@ -446,12 +489,10 @@ def _validate_import_metadata(con, scan: dict, audit: dict) -> None:
     }
     if _dump(retention) != _dump(expected_retention):
         raise ScanError("unsupported point-A body retention policy")
+    if _has_negative_page_counts(con):
+        raise ScanError("invalid negative PageRecord count")
     if con.execute(
-        "SELECT 1 FROM pages WHERE size_bytes < 0 OR word_count < 0 OR crawl_depth < 0 LIMIT 1"
-    ).fetchone():
-        raise ScanError("invalid negative page size, word count or depth")
-    if con.execute(
-        "SELECT 1 FROM pages WHERE content_frames < 0 OR content_frames_same_origin < 0 OR content_frames_same_origin > content_frames OR body_unavailable NOT IN ('','oversized') LIMIT 1"
+        "SELECT 1 FROM pages WHERE content_frames_same_origin > content_frames OR body_unavailable NOT IN ('','oversized') LIMIT 1"
     ).fetchone():
         raise ScanError("invalid frame counts or body_unavailable state")
     count, low, high = con.execute(
@@ -532,7 +573,7 @@ def _validate(con, *, require_audit: bool = True) -> None:
             "scan.v1 schema differs: missing/changed tables, indexes or unexpected schema objects"
         )
     source = con.execute("SELECT source_kind FROM scan WHERE singleton=1").fetchone()
-    if source is not None and source[0] == "native":
+    if source is not None and source[0] in {"native", "reanalysis"}:
         from .native_scan import NativeScan
 
         NativeScan._validate_native(con)

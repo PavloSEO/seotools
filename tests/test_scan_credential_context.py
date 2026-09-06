@@ -38,6 +38,14 @@ def test_redaction_is_deep_and_never_leaks_environment_or_profile_path(monkeypat
     assert live["http"]["credential_headers"][0]["headers"]["Authorization"] == "env:TEST_SECRET"
 
 
+def test_redaction_defensively_hides_credentials_from_a_legacy_generic_header_mapping():
+    live = _settings()
+    live["http"]["headers"] = {"Cookie": "dummy-inline-value", "Accept-Language": "de"}
+    recorded = redact_config(live)
+    assert recorded["http"]["headers"] == {"Cookie": "REDACTED", "Accept-Language": "de"}
+    assert live["http"]["headers"]["Cookie"] == "dummy-inline-value"
+
+
 def test_recorded_snapshot_validates_without_environment_and_yields_safe_settings_copy(monkeypatch):
     monkeypatch.delenv("TEST_SECRET", raising=False)
     recorded = redact_config(_settings())

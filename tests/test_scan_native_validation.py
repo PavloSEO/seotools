@@ -145,7 +145,6 @@ def test_native_inspector_rejects_link_and_form_ordinal_gaps(tmp_path, statement
     [
         "UPDATE scan SET corpus_partial=0",
         "UPDATE scan SET evidence_version='other.v9'",
-        "UPDATE scan SET pinned=1",
         "UPDATE scan SET parent_scan_uuid='parent'",
     ],
 )
@@ -154,6 +153,16 @@ def test_native_inspector_refuses_unsupported_capture_metadata(tmp_path, stateme
     with sqlite3.connect(path) as con:
         con.execute(statement)
     with pytest.raises(ScanError, match="metadata"):
+        NativeScan.inspect(path)
+
+
+@pytest.mark.parametrize("value", ["2", "-1", "'invalid'"])
+def test_native_inspector_refuses_non_boolean_pin_metadata(tmp_path, value):
+    path = _committed_scan(tmp_path)
+    with sqlite3.connect(path) as con:
+        con.execute("PRAGMA ignore_check_constraints=ON")
+        con.execute("UPDATE scan SET pinned=" + value)
+    with pytest.raises(ScanError, match=r"quick_check|pin metadata|invalid scalar"):
         NativeScan.inspect(path)
 
 

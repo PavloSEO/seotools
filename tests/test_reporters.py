@@ -116,7 +116,15 @@ def test_markdown_has_broken_link_table(result, tmp_path):
         text = stream.read()
     assert "BROKEN_INTERNAL_LINK" in text
     assert "/html/body/footer/nav/a[2]" in text  # XPath location details are rendered.
-    assert "Sitemap & robots" not in text or "Health score" in text
+    score = result.summary["health_score"]
+    if score is None:
+        reason = result.summary["health_score_reason"]
+        assert reason
+        assert "**No health score.**" in text
+        assert _esc(reason) in text
+        assert "None / 100" not in text
+    else:
+        assert f"**Health score: {score} / 100**" in text
 
 
 def test_markdown_h1_multiple_texts(result, tmp_path):
@@ -189,6 +197,39 @@ def test_markdown_disabled_appendix_is_populated_when_a_check_is_turned_off(expo
 
     assert "## Appendix: disabled checks" in text
     assert "`BROKEN_INTERNAL_LINK`" in text
+
+
+def test_markdown_states_a_withheld_score_with_its_reason(tmp_path, result):
+    """Issue #546: the aggregator withholds the score when coverage is too low and
+    records why. The reporter used to print that withheld value, so the report read
+    "Health score: None / 100" -- the word None rendered as a number -- and dropped
+    health_score_reason, the one sentence explaining the absence. A missing
+    measurement must be stated, never disguised as one."""
+    result.summary["health_score"] = None
+    result.summary["health_score_reason"] = (
+        "only 75 of 156 checks could run (48% coverage); too little evidence to score"
+    )
+
+    path = write_markdown(result, str(tmp_path / "audit.md"))
+    text = Path(path).read_text(encoding="utf-8")
+
+    assert "None / 100" not in text
+    assert "No health score" in text
+    assert "48% coverage" in text
+    # The rest of the section still renders: withholding the number is not a reason
+    # to withhold the evidence the reader judges the run by.
+    assert "Total issues:" in text
+
+
+def test_markdown_still_prints_a_score_that_was_produced(tmp_path, result):
+    """The control for the test above: a run with enough coverage keeps its number."""
+    result.summary["health_score"] = 42
+
+    path = write_markdown(result, str(tmp_path / "audit.md"))
+    text = Path(path).read_text(encoding="utf-8")
+
+    assert "**Health score: 42 / 100**" in text
+    assert "No health score" not in text
 
 
 def test_markdown_invalid_crawl_still_has_no_numeric_score(tmp_path):

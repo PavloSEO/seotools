@@ -283,3 +283,46 @@ def test_all_items_with_ids_leave_excluded_no_id_at_zero():
     r = D.find_duplicates(items)
     assert r["excluded_no_id"] == 0
     assert r["count"] == len(items)
+
+
+def test_empty_or_missing_text_is_excluded_from_duplicate_evidence():
+    """Issues #579: failed extraction must not become an exact-duplicate claim."""
+    items = [
+        {"id": "empty", "text": ""},
+        {"id": "missing", "text": None},
+        {"id": "whitespace", "text": " \n\t "},
+        {"id": "content", "text": TEXT_A},
+    ]
+
+    r = D.find_duplicates(items)
+
+    assert r["count"] == 1
+    assert r["exact_duplicates"] == []
+    assert r["excluded_no_text"] == 3
+    assert r["count"] + r["excluded_non_indexable"] + r["excluded_no_id"] + r[
+        "excluded_no_text"
+    ] + r["excluded_duplicate_id"] == len(items)
+
+
+def test_duplicate_ids_are_counted_without_overwriting_the_first_item():
+    """Issue #580: keep one stable item and account for every colliding input."""
+    items = [
+        {"id": "a", "text": TEXT_A},
+        {"id": "a", "text": TEXT_B},
+        {"id": "b", "text": TEXT_A_COPY},
+    ]
+
+    r = D.find_duplicates(items)
+
+    assert r["count"] == 2
+    assert r["excluded_duplicate_id"] == 1
+    assert r["excluded_no_text"] == 0
+    assert r["exact_duplicates"] == [
+        {
+            "hash": D.content_hash(TEXT_A),
+            "members": ["a", "b"],
+        }
+    ]
+    assert r["count"] + r["excluded_non_indexable"] + r["excluded_no_id"] + r[
+        "excluded_no_text"
+    ] + r["excluded_duplicate_id"] == len(items)

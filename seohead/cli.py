@@ -25,6 +25,7 @@ COMMANDS = (
     "parse",
     "crawl-site",
     "crawl-describe-settings",
+    "scan-reanalyze",
     "log-scan",
     "compare-crawls",
     "segment-diff",
@@ -78,6 +79,12 @@ COMMANDS = (
     "gsc-query",
     "crux-report",
     "indexnow-submit",
+    "scan-list",
+    "scan-inspect",
+    "scan-snapshot",
+    "scan-pin",
+    "scan-prune",
+    "scan-body-diff",
 )
 
 # Tools whose complete direct CLI input can be supplied by one --url flag.
@@ -132,25 +139,21 @@ def _stdin_has_data() -> bool:
 # its first iteration: regular-file stdin is always reported as ready, so the command consumes every
 # unread URL and the loop processes only one.
 #
-# Populated by _source_flag() below rather than hand-listed here: a hand-kept copy of "which
-# flags count" drifted out of sync with the parser once already (#156 — --phrase, --keywords,
-# --query/--queries, --seed, --counter, and --before/--after were all missing), silently
-# truncating any per-line loop over one of them to a single iteration.
-SOURCE_FLAGS: set[str] = set()
-
-
 def _source_flag(sub: argparse.ArgumentParser, *args: str, **kwargs: Any) -> argparse.Action:
     """Add a flag whose value alone supplies a command's complete input (a URL, a file path, a
-    search phrase, a counter ID, ...) and register it in SOURCE_FLAGS in the same place it is
-    defined, so the set cannot drift from the parser the way the old hand-maintained tuple did.
+    search phrase, a counter ID, ...) and register it on that command's parser. Keeping the
+    destinations with their parser prevents an identically named flag on another command from
+    changing whether this command reads stdin.
     """
     action = sub.add_argument(*args, **kwargs)
-    SOURCE_FLAGS.add(action.dest)
+    source_flags = set(sub.get_default("_source_flags") or ())
+    source_flags.add(action.dest)
+    sub.set_defaults(_source_flags=frozenset(source_flags))
     return action
 
 
 def _has_source_flag(args: argparse.Namespace) -> bool:
-    return any(getattr(args, name, None) for name in SOURCE_FLAGS)
+    return any(getattr(args, name, None) for name in getattr(args, "_source_flags", ()))
 
 
 def _load_input(raw: str | None, allow_stdin: bool = True) -> dict[str, Any]:
@@ -192,7 +195,12 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
     handler_name = cmd.replace("-", "_")
     kw: dict[str, Any] = dict(data)  # --input is the base; flags override/augment
 
-    if cmd == "parse":
+    if cmd == "scan-reanalyze":
+        for flag in ("input_path", "out", "producer_build"):
+            value = getattr(args, flag, None)
+            if value is not None:
+                kw[flag] = value
+    elif cmd == "parse":
         if args.url:
             kw["url"] = args.url
         if args.urls:
@@ -426,6 +434,54 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
             kw["host"] = args.host
         if getattr(args, "key_location", None):
             kw["key_location"] = args.key_location
+    if cmd == "scan-list":
+        if getattr(args, "directory", None):
+            kw["directory"] = args.directory
+        for name in ("offset", "limit"):
+            value = getattr(args, name, None)
+            if value is not None:
+                kw[name] = value
+    if cmd == "scan-inspect":
+        if getattr(args, "input_path", None):
+            kw["input_path"] = args.input_path
+        for name in ("table", "offset", "limit", "max_bytes"):
+            value = getattr(args, name, None)
+            if value is not None:
+                kw[name] = value
+    if cmd == "scan-snapshot":
+        if getattr(args, "input_path", None):
+            kw["input_path"] = args.input_path
+        if getattr(args, "out", None):
+            kw["out"] = args.out
+    if cmd == "scan-pin":
+        if getattr(args, "input_path", None):
+            kw["input_path"] = args.input_path
+        if getattr(args, "unpin", False):
+            kw["pinned"] = False
+    if cmd == "scan-prune":
+        if getattr(args, "directory", None):
+            kw["directory"] = args.directory
+        for name in ("older_than_days", "keep_newest", "plan"):
+            value = getattr(args, name, None)
+            if value is not None:
+                kw[name] = value
+        if getattr(args, "apply", False):
+            kw["apply"] = True
+    if cmd == "scan-body-diff":
+        for name in (
+            "left",
+            "right",
+            "url",
+            "variant_key",
+            "representation",
+            "max_bytes",
+            "max_lines",
+        ):
+            value = getattr(args, name, None)
+            if value is not None:
+                kw[name] = value
+        if getattr(args, "text", False):
+            kw["text"] = True
     if cmd == "metrika-setup" and getattr(args, "counter", None):
         kw["counter_id"] = args.counter
     if cmd == "metrika-report":
@@ -529,7 +585,16 @@ def _read_donors(path: str) -> list[str]:
 
 
 def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
-    sub.add_argument("--input", help="JSON object mapped onto the handler arguments")
+    if cmd.startswith("scan-") and cmd != "scan-reanalyze":
+        sub.add_argument(
+            "--json-input", dest="input", help="JSON object mapped onto handler arguments"
+        )
+    else:
+        sub.add_argument("--input", help="JSON object mapped onto the handler arguments")
+    if cmd == "scan-reanalyze":
+        _source_flag(sub, "--source", dest="input_path", help="retained SQLite scan to read")
+        sub.add_argument("--out", help="new derived SQLite file; never overwrites an existing file")
+        sub.add_argument("--producer-build", metavar="SHA", help="current analyzer source build")
     if cmd in URL_COMMANDS:
         _source_flag(sub, "--url", help="target URL")
     if cmd == "links-check":
@@ -758,6 +823,41 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
         )
         sub.add_argument("--source", help="segment name that should have a counterpart")
         sub.add_argument("--target", help="segment name to look for the counterpart in")
+
+    if cmd == "scan-list":
+        _source_flag(
+            sub, "--directory", required=False, help="directory containing scan SQLite files"
+        )
+        sub.add_argument("--offset", type=int)
+        sub.add_argument("--limit", type=int)
+    if cmd in {"scan-inspect", "scan-snapshot", "scan-pin"}:
+        _source_flag(sub, "--input", dest="input_path", required=False, help="scan SQLite file")
+    if cmd == "scan-inspect":
+        sub.add_argument("--table")
+        sub.add_argument("--offset", type=int)
+        sub.add_argument("--limit", type=int)
+        sub.add_argument("--max-bytes", dest="max_bytes", type=int)
+    if cmd == "scan-snapshot":
+        _source_flag(sub, "--out", help="new snapshot SQLite file")
+    if cmd == "scan-pin":
+        sub.add_argument("--unpin", action="store_true")
+    if cmd == "scan-prune":
+        _source_flag(
+            sub, "--directory", required=False, help="directory containing scan SQLite files"
+        )
+        sub.add_argument("--older-than-days", dest="older_than_days", type=int)
+        sub.add_argument("--keep-newest", dest="keep_newest", type=int)
+        _source_flag(sub, "--plan", help="reviewed prune-plan JSON file")
+        sub.add_argument("--apply", action="store_true")
+    if cmd == "scan-body-diff":
+        _source_flag(sub, "--left", help="earlier scan SQLite file")
+        _source_flag(sub, "--right", help="later scan SQLite file")
+        _source_flag(sub, "--url", help="exact logical URL")
+        sub.add_argument("--variant-key")
+        sub.add_argument("--representation", choices=("static", "rendered", "legacy_fragment"))
+        sub.add_argument("--text", action="store_true")
+        sub.add_argument("--max-bytes", dest="max_bytes", type=int)
+        sub.add_argument("--max-lines", dest="max_lines", type=int)
     if cmd == "regions-check":
         _source_flag(sub, "--url", help="any site page, usually the home page")
         sub.add_argument(
@@ -862,10 +962,20 @@ def build_parser() -> argparse.ArgumentParser:
         epilog = CRAWL_SITE_HELP_NOTE if cmd == "crawl-site" else None
         sp = subs.add_parser(cmd, help=f"run the {cmd} tool", epilog=epilog)
         _add_flags(sp, cmd)
+    scan = subs.add_parser("scan", help="saved SQLite scan history")
+    scan_subs = scan.add_subparsers(dest="scan_command", metavar="<action>", required=True)
+    for action in ("list", "inspect", "snapshot", "pin", "prune", "body-diff"):
+        cmd = "scan-" + action
+        sp = scan_subs.add_parser(action, help=f"run {cmd}")
+        _add_flags(sp, cmd)
     sf = subs.add_parser("sf", help="Screaming Frog crawl audit (run | tasks | doctor)")
     sf.add_argument(
         "sf_args", nargs=argparse.REMAINDER, help="arguments forwarded to the sf-analyzer CLI"
     )
+    reanalyze = scan_subs.add_parser("reanalyze", help="reanalyze retained inputs without network")
+    _source_flag(reanalyze, "--input", dest="input_path", required=True, help="source SQLite scan")
+    reanalyze.add_argument("--out", required=True, help="new derived SQLite scan")
+    reanalyze.add_argument("--producer-build", metavar="SHA", help="current analyzer source build")
     subs.add_parser("mcp", help="run the MCP server (stdio)")
     return p
 
@@ -874,6 +984,8 @@ def main(argv: list[str] | None = None) -> int:
     runlog.set_interface("cli")
     args = build_parser().parse_args(argv)
     cmd = args.command
+    if cmd == "scan":
+        cmd = "scan-" + args.scan_command
     if not cmd:
         build_parser().print_help()
         return 0

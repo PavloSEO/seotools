@@ -23,20 +23,20 @@ This is a division of labour, not a feature-by-feature contest with Screaming Fr
 
 The short workflow is: **collect -> analyze -> enrich deliberately -> review -> deliver**.
 
-The built-in 152-check importer targets Screaming Frog CSV/XLSX exports. Another crawler may still
+The built-in 155-check importer targets Screaming Frog CSV/XLSX exports. Another crawler may still
 belong in a team's stack, but its exports are not claimed to be a drop-in input for the SF analyzer.
 
 ## Where it is strong
 
 ### One local interface for an agent
 
-The CLI and MCP server share the same 56 handlers, and five additional MCP tools cover the
+The CLI and MCP server share the same 63 handlers, and five additional MCP tools cover the
 Screaming Frog audit workflow. A registration test prevents a command from existing in only one
 interface.
 
 ### Deep analysis of existing crawl data
 
-Export mode evaluates Screaming Frog CSV/XLSX data against a 152-check registry without crawling
+Export mode evaluates Screaming Frog CSV/XLSX data against a 155-check registry without crawling
 again. It is useful when the crawl was taken by another specialist, came from CI, or must remain
 offline. Missing exports become explicit skipped checks rather than silent zeroes.
 

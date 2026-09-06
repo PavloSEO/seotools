@@ -653,6 +653,8 @@ def _audit_crawl_result(
     pages_resume_path=None,
     stored_scan=None,
     stored_sitemap=None,
+    offline: bool = False,
+    captured_render_summary: dict[str, Any] | None = None,
 ):
     """Run the existing native analysis over a complete, admitted population."""
     import json
@@ -672,6 +674,11 @@ def _audit_crawl_result(
     from seohead.sf.core.rules import run_rules
     from seohead.sf.core.sitemap_coverage import run_sitemap
 
+    if type(offline) is not bool:
+        raise ValueError("offline must be a boolean")
+    if captured_render_summary is not None and not isinstance(captured_render_summary, dict):
+        raise ValueError("captured_render_summary must be an object when supplied")
+
     requires_rendering = False
     requires_rendering_reason = ""
     render_summary: dict[str, Any] = {}
@@ -682,7 +689,17 @@ def _audit_crawl_result(
         start_norm = normalize_url(url)
         rendering_config = settings["rendering"]
         escalation = None
-        if rendering_config["mode"] != "raw" and result.pages:
+        if offline and rendering_config["mode"] != "raw":
+            render_summary = (
+                dict(captured_render_summary)
+                if captured_render_summary is not None
+                else {
+                    "mode": rendering_config["mode"],
+                    "state": "unavailable",
+                    "reason": "offline reanalysis has no captured render summary",
+                }
+            )
+        elif rendering_config["mode"] != "raw" and result.pages:
             if stored_scan is None:
                 escalation = _run_render_escalation(result, rendering_config, settings)
                 render_escalation.apply_rendered_evidence(result.pages, result.links, escalation)
@@ -701,9 +718,10 @@ def _audit_crawl_result(
                 # leaves HTML out of ``EscalationResult`` so a large scan never
                 # accumulates every serialized DOM in memory.
                 escalation = run_render_escalation(stored_scan, result, settings)
-                from seohead.crawl.sqlite_resources import capture_resources
+                if not offline:
+                    from seohead.crawl.sqlite_resources import capture_resources
 
-                capture_resources(stored_scan, settings)
+                    capture_resources(stored_scan, settings)
                 coverage = stored_scan.con.execute(
                     "SELECT crawl_partial,limitations_json FROM scan"
                 ).fetchone()
@@ -821,13 +839,27 @@ def _audit_crawl_result(
     # (SITEMAP_DESYNC and the "in_sitemap_and_linked"-shaped summary keys) is cruder
     # than the dedicated reconciliation below, so those three summary keys are
     # overwritten by it further down rather than the other way around.
-    measured = run_sitemap(
-        ctx,
-        sitemap_url=sitemap_seed["sitemap_url"],
-        sitemap_urls=sitemap_seed["sitemap_urls"],
-        compare_with_crawl=stored_scan is None and not sitemap_seed["declared"],
-        crawl_partial=bool(getattr(result, "partial", False)),
-    )
+    if offline:
+        reason = "offline reanalysis has no retained sitemap XML, robots.txt, or lastmod evidence"
+        for check in (
+            "SITEMAP_NOT_IN_ROBOTS",
+            "ROBOTS_BLOCKS_RESOURCES",
+            "SITEMAP_FETCH_INCOMPLETE",
+            "SITEMAP_TOO_MANY_URLS",
+            "SITEMAP_TOO_LARGE",
+            "SITEMAP_URL_DUPLICATED",
+            "SITEMAP_STALE_LASTMOD",
+        ):
+            ctx.skip(check, reason)
+        measured: dict[str, Any] = {}
+    else:
+        measured = run_sitemap(
+            ctx,
+            sitemap_url=sitemap_seed["sitemap_url"],
+            sitemap_urls=sitemap_seed["sitemap_urls"],
+            compare_with_crawl=stored_scan is None and not sitemap_seed["declared"],
+            crawl_partial=bool(getattr(result, "partial", False)),
+        )
     # Only surfaced when something was actually measured. run_sitemap always
     # returns its keys, and a run with no sitemap at all would otherwise report
     # urls_in_sitemap: 0 -- which reads as "the sitemap is empty" when the truth
@@ -966,55 +998,76 @@ def _audit_crawl_result(
                     )
 
     # Same shape again (issue #125): pure functions over the crawl's own LinkEdge/FormEdge
-    # evidence, never through the SF-export analyzer. Localhost outlinks, the per-target
-    # follow/nofollow mix, and both form checks need only fields every crawl already
-    # records; the cross-origin and protocol-relative checks additionally need
-    # link_attributes.capture (off by default -- see its own docstring).
-    if url:
-        from contextlib import nullcontext
+    # evidence, never through the SF-export analyzer.  A URL-list run has no such retained
+    # evidence, but a saved scan or SpiderResult can still answer the three predicates that do
+    # not need one site host.  FOLLOW_AND_NOFOLLOW_INLINKS is different: without a crawl start
+    # URL, a multi-host URL list has no defensible definition of "internal" and must say so.
+    from contextlib import nullcontext
 
-        from seohead.crawl import link_findings
-        from seohead.crawl.sql_graph import StoredGraph
+    from seohead.crawl import link_findings
+    from seohead.crawl.sql_graph import StoredGraph
 
-        with StoredGraph(stored_scan.con) if stored_scan else nullcontext(None) as graph:
-            crawl_host = urlsplit(start_norm).hostname or ""
+    links = getattr(result, "links", None)
+    forms = getattr(result, "forms", None)
+    has_link_evidence = stored_scan is not None or links is not None
+    has_form_evidence = stored_scan is not None or forms is not None
+    with StoredGraph(stored_scan.con) if stored_scan else nullcontext(None) as graph:
+        if has_link_evidence:
             for item in (
                 graph.iter_localhost_findings()
                 if graph
-                else link_findings.outlinks_to_localhost(result.links)
+                else link_findings.outlinks_to_localhost(links)
             ):
                 ctx.add("OUTLINK_TO_LOCALHOST", target_url=item["target_url"], details=item)
-            for dest in (
-                graph.iter_follow_and_nofollow(crawl_host)
-                if graph
-                else link_findings.follow_and_nofollow_inlinks(result.links, crawl_host)
-            ):
-                ctx.add("FOLLOW_AND_NOFOLLOW_INLINKS", target_url=dest)
+            crawl_host = (urlsplit(start_norm).hostname or "") if url else ""
+            if crawl_host:
+                for dest in (
+                    graph.iter_follow_and_nofollow(crawl_host)
+                    if graph
+                    else link_findings.follow_and_nofollow_inlinks(links, crawl_host)
+                ):
+                    ctx.add("FOLLOW_AND_NOFOLLOW_INLINKS", target_url=dest)
+            else:
+                ctx.skip(
+                    "FOLLOW_AND_NOFOLLOW_INLINKS",
+                    "no crawl start URL is available to identify one site's internal links",
+                )
+        else:
+            reason = "crawl-list input retains no link-edge evidence"
+            ctx.skip("OUTLINK_TO_LOCALHOST", reason)
+            ctx.skip("FOLLOW_AND_NOFOLLOW_INLINKS", reason)
+
+        if has_form_evidence:
             for item in (
-                graph.iter_insecure_forms()
-                if graph
-                else link_findings.form_url_insecure(result.forms)
+                graph.iter_insecure_forms() if graph else link_findings.form_url_insecure(forms)
             ):
                 ctx.add("FORM_URL_INSECURE", target_url=item["target_url"], details=item)
             for item in (
                 graph.iter_password_forms_on_http()
                 if graph
-                else link_findings.forms_on_http_pages_with_password(result.forms)
+                else link_findings.forms_on_http_pages_with_password(forms)
             ):
                 ctx.add("FORM_ON_HTTP_URL", target_url=item["target_url"], details=item)
-            if settings["link_attributes"]["capture"]:
-                for item in (
-                    graph.iter_unsafe_cross_origin()
-                    if graph
-                    else link_findings.unsafe_cross_origin_links(result.links)
-                ):
-                    ctx.add("UNSAFE_CROSS_ORIGIN_LINK", target_url=item["target_url"], details=item)
-                for item in (
-                    graph.iter_protocol_relative()
-                    if graph
-                    else link_findings.protocol_relative_links(result.links)
-                ):
-                    ctx.add("PROTOCOL_RELATIVE_LINK", target_url=item["target_url"], details=item)
+        else:
+            reason = "crawl-list input retains no form evidence"
+            ctx.skip("FORM_URL_INSECURE", reason)
+            ctx.skip("FORM_ON_HTTP_URL", reason)
+
+        # These two need optional LinkEdge attributes and retain their existing capture gate.
+        # They are not part of the always-recorded link/form evidence contract above.
+        if url and has_link_evidence and settings["link_attributes"]["capture"]:
+            for item in (
+                graph.iter_unsafe_cross_origin()
+                if graph
+                else link_findings.unsafe_cross_origin_links(links)
+            ):
+                ctx.add("UNSAFE_CROSS_ORIGIN_LINK", target_url=item["target_url"], details=item)
+            for item in (
+                graph.iter_protocol_relative()
+                if graph
+                else link_findings.protocol_relative_links(links)
+            ):
+                ctx.add("PROTOCOL_RELATIVE_LINK", target_url=item["target_url"], details=item)
 
     audit = aggregate(
         ctx,
@@ -1836,6 +1889,8 @@ def google_keywords(
             expanded, location_code=location_code, language=language, country=country
         )
         ideas["difficulty"] = scored
+        if scored.get("ok") is False:
+            ideas["ok"] = False
         return ideas
     if not keywords:
         raise ValueError("keywords or seed required")
@@ -2129,6 +2184,85 @@ def sources_doctor() -> dict[str, Any]:
     return {"ok": True, "sources": sources, "spend_log": str(spend_core.log_path())}
 
 
+def scan_reanalyze(input_path: str, out: str, producer_build: str | None = None) -> dict[str, Any]:
+    """Derive a fresh SQLite scan by parsing retained evidence without network access."""
+    from seohead.servers.reanalysis_handlers import reanalyze_scan
+
+    return reanalyze_scan(input_path=input_path, out=out, producer_build=producer_build)
+
+
+def scan_list(directory: str, offset: int = 0, limit: int = 100) -> dict[str, Any]:
+    from seohead.servers.history_handlers import scan_list as core
+
+    return core(directory, offset=offset, limit=limit)
+
+
+def scan_inspect(
+    input_path: str,
+    table: str = "pages",
+    offset: int = 0,
+    limit: int = 100,
+    max_bytes: int = 1_048_576,
+) -> dict[str, Any]:
+    from seohead.servers.history_handlers import scan_inspect as core
+
+    return core(input_path, table=table, offset=offset, limit=limit, max_bytes=max_bytes)
+
+
+def scan_snapshot(input_path: str, out: str) -> dict[str, Any]:
+    from seohead.servers.history_handlers import scan_snapshot as core
+
+    return core(input_path, out)
+
+
+def scan_pin(input_path: str, pinned: bool = True) -> dict[str, Any]:
+    from seohead.servers.history_handlers import scan_pin as core
+
+    return core(input_path, pinned=pinned)
+
+
+def scan_prune(
+    directory: str,
+    older_than_days: int = 30,
+    keep_newest: int = 5,
+    plan: dict[str, Any] | str | None = None,
+    apply: bool = False,
+) -> dict[str, Any]:
+    from seohead.servers.history_handlers import scan_prune as core
+
+    return core(
+        directory,
+        older_than_days=older_than_days,
+        keep_newest=keep_newest,
+        plan=plan,
+        apply=apply,
+    )
+
+
+def scan_body_diff(
+    left: str,
+    right: str,
+    url: str,
+    variant_key: str | None = None,
+    representation: str = "static",
+    text: bool = False,
+    max_bytes: int = 5 * 1024 * 1024,
+    max_lines: int = 10_000,
+) -> dict[str, Any]:
+    from seohead.servers.history_handlers import scan_body_diff as core
+
+    return core(
+        left,
+        right,
+        url,
+        variant_key=variant_key,
+        representation=representation,
+        text=text,
+        max_bytes=max_bytes,
+        max_lines=max_lines,
+    )
+
+
 _RAW_HANDLERS = {
     "parse": parse,
     "redirects_generate": redirects_generate,
@@ -2186,6 +2320,13 @@ _RAW_HANDLERS = {
     "gsc_query": gsc_query,
     "crux_report": crux_report,
     "indexnow_submit": indexnow_submit,
+    "scan_reanalyze": scan_reanalyze,
+    "scan_list": scan_list,
+    "scan_inspect": scan_inspect,
+    "scan_snapshot": scan_snapshot,
+    "scan_pin": scan_pin,
+    "scan_prune": scan_prune,
+    "scan_body_diff": scan_body_diff,
 }
 
 # Journaling sits here rather than in each interface: the CLI and the MCP server

@@ -1,10 +1,10 @@
 # Tool reference
 
-56 + 5 tools, reachable identically from the CLI and from MCP. One
+63 + 5 tools, reachable identically from the CLI and from MCP. One
 implementation, two faces: `seohead <command>` in the terminal and
 `seo_<command>` on the MCP server (`seohead mcp`). Five more `sf_*` tools cover
 the Screaming Frog crawl audit workflow specifically — see that section below
-and the generated [CHECKS.md](CHECKS.md) for the 152 checks it runs.
+and the generated [CHECKS.md](CHECKS.md) for the 155 checks it runs.
 
 This page is hand-written orientation: what each group is for, and the calling
 conventions shared across it. The generated [TOOL_REFERENCE.md](TOOL_REFERENCE.md)
@@ -98,6 +98,7 @@ because the rules could not be read, so the command never claims crawling is all
 |---|---|
 | `site-audit` | Runs a bounded live pass: 10 site-level tools once and 3 page-level tools per selected URL (from the sitemap by default; 25 pages by default). Returns one `seohead.site-audit/1` document. It is not a full crawl or an exhaustive run of the catalog; site-level failures remain in `summary.tools_failed`, while page-level failures remain in that page's issues |
 | `report-build` | Document -> file: `xlsx`, `docx`, `csv`, `md`, `json` |
+| `scan-reanalyze` | Reparse retained HTML/DOM and run existing checks offline into a new SQLite artifact, preserving source evidence and provenance |
 | `facts-export` | Zero-network comparison: reads crawl/site audits you already produced for several domains and returns one `facts.v1` document — measured/absent/partial/unavailable/not_requested facts per site, never a score, rank, or ratio |
 
 ```bash
@@ -136,6 +137,62 @@ seohead compare-crawls --before old-audit.json --after new-audit.json
 seohead segment-diff --audit ./multilingual/audit.json --source en --target pl
 seohead crawl-describe-settings
 ```
+
+---
+
+## Saved scan history (`seohead/storage/`)
+
+These local operations work only on validated `scan.v1` SQLite artifacts. They
+do not create a background catalog, migrate an older schema, or delete a body
+without deleting its scan. The exact arguments and defaults are in the generated
+[TOOL_REFERENCE.md](TOOL_REFERENCE.md).
+
+| Command | What it does | Side effects |
+|---|---|---|
+| `scan-list` | Validates and lists metadata for `*.sqlite` files in one existing directory without reading retained body BLOBs. It stops at 10,000 files and 64 MiB of metadata, and reports unreadable candidates under `errors` rather than treating them as scans. | — |
+| `scan-inspect` | Reads one allowed table (`pages`, `links`, `forms`, `decisions`, `frontier`, `query_variants`, `context_items`, `responses`, `documents`, `resource_refs`, or `audit`) as a paginated view. At most 1,000 rows and 8 MiB of row payload are returned; `has_more`/`truncated` says when the caller must narrow or continue. | — |
+| `scan-snapshot` | Makes a validated, portable single-file SQLite copy. `--out` may name a new file or an existing directory; a directory receives a UTC timestamp, host, and short scan UUID filename. Existing destinations are never overwritten. | writes a new file |
+| `scan-pin` | Explicitly pins a scan, or unpins it with `--unpin`, so retention will not select it. | changes scan metadata |
+| `scan-prune` | Produces a retention plan by default. Deletion needs `--apply` and the exact reviewed plan. | deletes only with `--apply` |
+| `scan-body-diff` | Compares matching retained body hashes from two validated scans; optional text output is bounded and only applies to compatible textual evidence. A changed body is not an SEO score or verdict. | — |
+
+```bash
+# metadata-only directory view; no retained body BLOBs are read
+seohead scan-list --directory . --limit 100
+
+# inspect a whitelisted table with a smaller total row-payload budget
+seohead scan-inspect --input native.sqlite --table documents --limit 100 --max-bytes 1048576
+
+# no-clobber snapshot: either a new filename or an existing directory
+seohead scan-snapshot --input native.sqlite --out snapshot.sqlite
+seohead scan-snapshot --input native.sqlite --out .
+
+# pin before retaining a comparison baseline; use --unpin to reverse only the pin
+seohead scan-pin --input native.sqlite
+seohead scan-pin --input native.sqlite --unpin
+
+# inspect the JSON preview, then retain its stdout envelope for explicit review
+seohead scan-prune --directory . > plan.json
+
+# hash-first comparison; text materialization is explicit and bounded
+seohead scan-body-diff --left before.sqlite --right after.sqlite --url https://example.com/ --text --max-bytes 5242880 --max-lines 10000
+```
+
+The default retention plan selects only scans that are finished, unpinned,
+complete in both crawl and corpus state, older than 30 days, outside the five
+newest scans for the same host and configuration, and free of a live writer
+lock. Before any unlink it revalidates every reviewed candidate and recomputes
+the current retention rank. `crawl_partial` and `corpus_partial` scans are
+always protected by automatic selection. The preview's stdout envelope is an
+accepted `--plan` JSON file; a changed directory, identity, metadata, or rank
+invalidates it. After reviewing `plan.json`, run `seohead scan-prune --directory .
+--plan plan.json --apply` to perform that exact deletion plan. The flat commands
+also have the nested `scan list`, `scan inspect`, `scan snapshot`, `scan pin`,
+`scan prune`, and `scan body-diff` forms.
+
+Pinning acquires the writer lock and writes the artifact in SQLite DELETE journal
+mode. It changes only the `pinned` field, so the SQLite container hash changes,
+while the audit, body records, and evidence revision stay intact.
 
 ---
 
@@ -236,7 +293,7 @@ seohead sf tasks --json report/audit.json                            # backlog f
 Note: `sf tasks` takes the audit path via the required `--json` flag, not as
 a positional argument (`seohead/sf/cli.py`).
 
-**152 checks**: 12 critical, 72 warnings, 68 notices. Sources: SF exports,
+**155 checks**: 12 critical, 73 warnings, 70 notices. Sources: SF exports,
 derived metrics, inlink exports, the sitemap module, and heuristics.
 
 **Two modes.** A crawls by itself through the SF CLI (license required). B
@@ -268,7 +325,7 @@ echo '{"url":"https://example.com"}' | seohead parse
 tool must not knock where it was not asked to.
 
 **MCP.** The same set under the `seo_*` names plus the `sf_*` audit tools
-(49 + 5):
+(60 + 5):
 
 ```bash
 seohead mcp        # stdio
@@ -276,7 +333,7 @@ seohead mcp        # stdio
 
 ## Where to go next
 - [TOOL_REFERENCE.md](TOOL_REFERENCE.md) — every tool's arguments, types, defaults, cost, and failure modes, generated from the MCP definitions
-- [CHECKS.md](CHECKS.md) — the 152 checks the SF crawl audit runs, generated from the registry
+- [CHECKS.md](CHECKS.md) — the 155 checks the SF crawl audit runs, generated from the registry
 - [ARCHITECTURE.md](ARCHITECTURE.md) — layers, invariants, where new code goes
 - [SKILLS.md](SKILLS.md) — which skill drives which tool
 - [DECISIONS.md](DECISIONS.md) — why it was decided this way and not another

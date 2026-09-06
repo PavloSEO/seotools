@@ -15,16 +15,16 @@ here is written about *our own* behaviour.
 
 | Status | Count | Meaning |
 |---|---:|---|
-| check | 122 | a registry check finds it |
+| check | 125 | a registry check finds it |
 | tool | 33 | a command outside the crawl registry finds it |
-| partial | 20 | we find part of it; the missing part is stated |
+| partial | 17 | we find part of it; the missing part is stated |
 | gap | 9 | we should find it and do not |
 | out of scope | 136 | a decision, with its reason |
 | **total** | **320** | |
 
 108 of the out-of-scope entries are two whole categories declined as single
 decisions — accessibility and AMP, each explained in its own section below. Of the
-remaining 212 issues, **155 are found today**, 20 are
+remaining 212 issues, **158 are found today**, 17 are
 found in part, 9 are gaps worth closing, and
 28 need something we have decided not to build.
 
@@ -208,7 +208,7 @@ having, because the alternative is an absence nobody has noticed.
 |---|---|---|---|
 | Non-200 Hreflang URLs | check | `HREFLANG_BROKEN_TARGET` |  |
 | Missing Return Links | check | `HREFLANG_MISSING_RETURN_LINK` |  |
-| Inconsistent Language & Region Confirmation Links | partial | `HREFLANG_MISSING_RETURN_LINK` | a return link is checked for existence, not for declaring the same locale back |
+| Inconsistent Language & Region Confirmation Links | check | `HREFLANG_INCONSISTENT_CONFIRMATION` |  |
 | Non-Canonical Return Links | check | `HREFLANG_NOT_CANONICAL` |  |
 | Noindex Returns Links | gap | — | the indexability of an hreflang target is not cross-checked |
 | Incorrect Language & Region Codes | check | `HREFLANG_INVALID_CODE` |  |
@@ -226,8 +226,8 @@ having, because the alternative is an absence nobody has noticed.
 | Noindex Only in Original HTML | tool | `render-check` |  |
 | Nofollow Only in Original HTML | tool | `render-check` |  |
 | Canonical Mismatch | tool | `render-check` |  |
-| Uses Old AJAX Crawling Scheme URLs | partial | — | the scheme is honoured as a crawl mode (rendering.mode=legacy_fragment) but its presence is not reported as a finding |
-| Uses Old AJAX Crawling Scheme Meta Fragment Tag | partial | — | the meta fragment opt-in is read to decide the mode, not reported |
+| Uses Old AJAX Crawling Scheme URLs | check | `AJAX_CRAWLING_SCHEME_URL` |  |
+| Uses Old AJAX Crawling Scheme Meta Fragment Tag | check | `AJAX_CRAWLING_SCHEME_META_FRAGMENT` |  |
 | Pages with Blocked Resources | check | `ROBOTS_BLOCKS_RESOURCES` |  |
 | Contains JavaScript Links | tool | `render-check` |  |
 | Contains JavaScript Content | tool | `render-check` |  |
@@ -245,7 +245,7 @@ having, because the alternative is an absence nobody has noticed.
 | Issue | Status | Found by | Note |
 |---|---|---|---|
 | Outlinks To Localhost | check | `OUTLINK_TO_LOCALHOST` |  |
-| Pages With Uncrawlable Internal Outlinks | partial | — | excluded destinations are counted by reason in the run's excluded map, but not attributed back to the pages that linked them |
+| Pages With Uncrawlable Internal Outlinks | partial | — | attribution is possible -- the exclusion map holds the reason and the link graph holds the source -- but every reason a crawl records for an internal destination is a property of the run's own scope configuration (exclude/include patterns, segments_only, depth and query-variant budgets), not of the site, so a finding built on them would report the operator's settings back as defects. The two site-caused reasons already have their own checks from the destination side (BLOCKED_BY_ROBOTS, IMPORTANT_URL_BLOCKED_BY_ROBOTS) and a link to a robots-disallowed cart or search URL is ordinary, not a defect. This needs a reason the crawler does not record today -- a destination that is unfetchable in itself, e.g. a malformed href, which the parser discards before the crawl ever sees it |
 | Pages Without Internal Outlinks | check | `NO_INTERNAL_OUTLINKS` |  |
 | Non-Indexable Page Inlinks Only | check | `ONLY_NONINDEXABLE_SOURCE_INLINKS` |  |
 | Internal Nofollow Outlinks | partial | — | nofollow is recorded per edge and gates crawling; there is no page-level finding for having them |

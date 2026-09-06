@@ -41,6 +41,61 @@ than becoming a measured default. The saved audit is copied as its exact UTF-8
 bytes. The export contains no response bodies, raw HTML, forms, robots state,
 start-page evidence, sitemap-response corpus, or resume checkpoint.
 
+## Explicit local history operations
+
+The `scan` CLI group and matching `seo_scan_*` MCP tools operate on individual,
+validated `scan.v1` artifacts. They are deliberately not a catalog service: no daemon
+discovers scans, no command migrates an artifact, and no operation deletes bodies
+separately from their SQLite file.
+
+`scan list` accepts one existing directory and considers only `*.sqlite` files.
+For each candidate it validates the SQLite identity and `scan.v1` schema while
+reading metadata only; it never reads retained body BLOBs. The directory scan is
+capped at 10,000 candidate files and 64 MiB of accumulated metadata. Invalid,
+foreign, inaccessible, or changed candidates appear in `errors` rather than being
+silently accepted. The result is ordered by finish (or creation) time and includes
+the aggregate disk use and history warning threshold.
+
+`scan inspect` validates one artifact, then exposes a paginated read-only view of
+one whitelist table: `pages`, `links`, `forms`, `decisions`, `frontier`,
+`query_variants`, `context_items`, `responses`, `documents`, `resource_refs`, or
+`audit`. It never exposes the `bodies` table. `limit` is at most 1,000; the
+serialized returned rows are also bounded by `max_bytes`, up to 8 MiB. When a row
+or page would exceed the budget, the result says `truncated: true` and
+`has_more: true` instead of loading a partial BLOB or claiming the table ended.
+
+`scan snapshot` validates the source and copies it through SQLite's Backup API.
+`--out` may be a new filename or an existing directory. For a directory, the tool
+creates `YYYYMMDDTHHMMSSZ_host_shortUUID.sqlite` in UTC. Both forms are no-clobber:
+an existing file, symlink, or generated-name collision is refused. A snapshot is
+a consistent portable file; it does not change whether the original scan finished
+or has a usable audit.
+
+`scan pin` and `scan prune` are the only history mutations. Pinning holds the
+artifact writer lock and uses SQLite DELETE journal mode; it updates only the
+`scan.pinned` value. That changes the SQLite container hash, but leaves the audit,
+retained body rows, and evidence revision unchanged.
+
+Pruning is two steps. A preview produces a self-contained JSON plan and makes no
+deletion. Its defaults choose only scans that are finished, unpinned, not
+`crawl_partial`, not `corpus_partial`, older than 30 days, and outside the newest
+five scans with the same host and configuration. Scans with an active writer lock
+are excluded. The explicit apply call accepts the exact preview object, including
+the CLI/MCP stdout envelope written to a JSON file. Before unlinking, it validates
+the reviewed candidates again and recomputes their current group rank. A changed
+directory, inode, metadata, lock state, or retention rank refuses the plan.
+
+`scan body-diff` first validates both artifacts, then selects the exact logical URL,
+representation, and HTTP variant. Its default comparison is SHA-256 equality of
+complete retained bodies. If variants are ambiguous, fidelity differs, evidence is
+missing or truncated, or the representation is absent, the result is explicitly
+`not_comparable` or `missing_evidence`. `--text` is opt-in, only for compatible
+textual fidelity, and is bounded before materialization by `max_bytes` and
+`max_lines`; it produces no network request, replay, reanalysis, or SEO score.
+Static comparisons also support retained JS/CSS responses. A page's active raw
+inventory takes precedence over later diagnostic responses, and rendered DOM
+comparisons require compatible recorded renderer settings and transforms.
+
 A scan made partial only by recovery of a truncated JSONL tail cannot be represented
 faithfully by these three files when its unchanged audit says the crawl was complete.
 That export is refused; use the original SQLite artifact, which keeps the recovery
@@ -66,6 +121,40 @@ cryptographic attestation. The effective configuration comes from the exact
 `run.crawl_config` manifest or an explicit `--config` JSON. If neither exists the
 import is refused; if both exist they must agree. The importer records no separate
 importer-version field because `scan.v1` has no such column.
+
+## Offline reanalysis
+
+```bash
+seohead scan reanalyze --input old.sqlite --out derived.sqlite --producer-build SOURCE_SHA
+```
+
+Here `SOURCE_SHA` is the full lowercase Git SHA of the **current analyzer build**.
+The source artifact already records the original capture build. Reanalysis needs
+retained inputs; a legacy import with no response bodies cannot supply them.
+
+The `scan reanalyze` CLI subcommand creates a new
+derived scan from a Backup API copy of retained evidence. It never overwrites the
+input: the output has a new scan UUID, records its parent UUID, and records the
+current analyzer build. It preserves the capture configuration; there is no
+configuration override because mixing parser results from a different capture
+scope would make the derived audit incomparable.
+
+Reanalysis uses only retained static HTML and rendered DOM with the existing
+parser and check registry. It makes no HTTP, DNS, browser, provider, or resource
+fetch request. Missing required retained bodies fail clearly before publishing an
+output. Missing live-protocol context becomes a named skip, not a network
+fallback. The small MIT fixture bridge supports this route; it does not replace
+the broader real-corpus coverage work tracked by #98.
+
+The closed `reanalysis_provenance/run` context records the immediate parent and
+original capture UUID, their builds/runtime versions and configuration digests,
+the source audit hash, and the source/derived evidence revisions. Its
+`capture_run` object preserves the original lifecycle, stop reason, collection
+partialness, and creation/finish timestamps across repeated analyses. Each
+derivation advances the evidence revision once. Unfinished source frontier work
+remains historical and marks the derived collection scope partial; reanalysis
+does not resume collection. Previously recorded unavailable capability states
+remain unchanged when an older file is opened read-only.
 
 ## What is in the file
 
@@ -113,7 +202,8 @@ cache, which remains part of the directory workflow.
 `scan_decoder.v1` records entity decoding. A static document's logical URL stays
 separate from the effective navigation URL; legacy-fragment navigation is recorded
 as its explicit transform. Direct script and stylesheet fetching requires the explicit resource setting below.
-Offline replay and reanalysis remain unavailable until child I.
+Offline network replay remains unavailable. Reanalysis is the retained-evidence
+operation described above and never falls back to the network.
 
 ## Direct script and stylesheet capture
 
@@ -144,7 +234,7 @@ bodies are complete only when every declaration in the measured scope has a
 successful complete response; declaration coverage is independent of whether
 bodies were fetched. CSS `@import`, JavaScript modules, third-party resources,
 and browser-network response capture are outside this slice. Resource inventory
-and capture add no SEO findings, and they do not enable I's offline replay.
+and capture add no SEO findings, and they do not enable network replay.
 
 The writer records `resource_commit` with
 `{"digest": <64 lowercase hex>, "requests_used": <n>}` alongside inventory
@@ -153,36 +243,40 @@ anti-tampering claim.
 
 Credential material is re-supplied out of band. The closed `credential_context`
 payload is exactly `{"verifier": null|<64 lowercase hex>, "implicit_state": bool}`:
-environment references and profile paths are redacted. A changed explicit verifier
+environment references and profile paths are redacted. Global `http.headers` refuses
+credential-bearing names; a legacy mapping is defensively redacted in any new
+manifest or effective-config snapshot. A changed explicit verifier
 refuses resume. Changed implicit cookie or browser-profile state cannot be resumed
 safely and is refused conservatively.
 
-Legacy import's only populated `context_items` lane is
+For legacy imports, the only populated `context_items` lane is
 `legacy_import_provenance`; it exports no restore checkpoint or equivalent resume
-state. Native collection and resume use their own validated lanes; body access,
-retained-resource access, and offline reanalysis remain unavailable.
+state. These historical imported files have no retained bodies or resources and
+cannot be reanalyzed; native captures use their own validated lanes.
 
-The `pages` projection follows the prerelease `crawl.v1` `PageRecord`, including
-`content_frames`, `content_frames_same_origin`, ordered `hreflang_json`,
-`body_unavailable`, and `meta_refresh`. The first two are parser observations about frames in the
+The `pages` projection follows the prerelease `crawl.v1` `PageRecord`. Fifteen
+later-added fields are nullable for legacy compatibility: `content_frames`,
+`content_frames_same_origin`, ordered `hreflang_json`, `body_unavailable`,
+`meta_refresh`, `http_refresh`, `meta_description_count`, `h1_alt_text`,
+`lorem_ipsum_count`, `images_total`, `images_missing_alt_attr`,
+`images_max_alt_length`, `plugin_elements`, `meta_fragment`, and
+`ajax_scheme_outlinks`. The first two are parser observations about frames in the
 resolved content area. `hreflang_json` preserves the document's alternate
 declarations. `body_unavailable` records why collection could not parse a page
 body (for example, an oversized response); it does **not** describe whether this
-artifact retained that body. `meta_refresh` retains the page's declaration as
-written, including a declaration with no navigation target. Retention remains unavailable in Point A.
+artifact retained that body. `meta_refresh` and `http_refresh` retain the markup
+and HTTP declarations as written. Retention remains unavailable in Point A.
 
-These five later-added columns are nullable for legacy compatibility. `NULL`
-means the field was absent from an older crawl record; it never means measured
-zero frames, an empty hreflang list, an empty body-unavailability reason, or no
-meta-refresh declaration. Current imports validate and store actual field types. Imported
-older records therefore leave the `pages` capability partial independently of the
-run's `crawl_partial` state.
+`NULL` means the field was absent from an older crawl record; it never means a
+measured empty value or zero count. Current imports validate and store actual
+field types. Imported older records therefore leave the `pages` capability partial
+independently of the run's `crawl_partial` state.
 
 This is a prerelease `scan.v1` schema synchronized with that current record
 contract. There is no automatic migration. A prototype SQLite file with the old
 DDL is refused and must be explicitly reimported from its legacy source. The
 legacy importer can preserve a pre-merge 43-field JSONL record losslessly by
-recording these four unknown fields as `NULL`; it does not invent defaults that
+recording these fifteen unavailable fields as `NULL`; it does not invent defaults that
 claim a measurement.
 
 ## Read safely with the Python standard library
@@ -281,7 +375,8 @@ def decode_body(codec: str, data: bytes, decoded_bytes: int, sha256: str) -> byt
 
 For a live writer, do not copy the main `.sqlite` file alone: committed rows can be
 in its WAL. The native core's `NativeScan.snapshot()` uses SQLite's Backup API to
-publish a validated single-file copy; a public snapshot command is a later slice.
+publish a validated single-file copy; `scan snapshot` exposes that no-clobber path
+for an explicit operator-requested destination.
 Until a file is finalized or snapshot-created, retain
 its WAL/SHM beside it and treat lifecycle/partialness as part of the evidence.
 Future format changes use an explicit migration into a new file; readers do not
@@ -315,24 +410,21 @@ creation/ZIP timestamps are held equal in both test branches. Normal independent
 Office builds can differ in timestamps even for the same original audit.
 
 These are opt-in storage entry points and artifact inputs for the additive
-foundation. Existing `seohead crawl-site` keeps its directory workflow. The legacy importer provides no native resume state. Migration, body retention,
-resource fetch, replay, reanalysis, pruning, and SQL-backed analyzer work remain
-unavailable. Audit-level findings and context already saved in the exact audit
-remain available; the missing raw crawl corpus cannot be reconstructed from the
-three exported files.
+foundation. Existing `seohead crawl-site` keeps its directory workflow. For a
+legacy imported three-file directory, native resume, retained bodies/resources,
+and reanalysis remain unavailable because that source never retained the needed
+corpus. Audit-level findings and context already saved in the exact audit remain
+available; the missing raw crawl corpus cannot be reconstructed from the three
+exported files.
 
 ## Native collection (opt-in)
 
 ```bash
-# SOURCE_SHA is the full commit SHA of the crawler build producing this run
-seohead crawl-site --url https://example.com --max-urls 50 --scan-out native.sqlite --producer-build SOURCE_SHA
+seohead crawl-site --url https://example.com --max-urls 50 --scan-out native.sqlite
 seohead report-build --audit native.sqlite --format md --out native-report.md
 ```
 
-Replace `SOURCE_SHA` with the actual 40-character lowercase source SHA. A clean
-source checkout can determine its own revision when `--producer-build` is omitted;
-a wheel without source-revision metadata needs it explicitly. A dirty checkout
-is not described as a clean build. The producing version/revision, runtime
+The collector derives provenance from its current source build. The producing version/revision, runtime
 versions, full effective configuration and result-affecting fingerprint are stored
 in the scan. A different configuration or producing build refuses resume.
 
@@ -371,8 +463,8 @@ The writer checks that exact size before replacing an audit. If it cannot fit,
 the result explicitly says `audit_available=false`; all captured observations
 remain intact. No findings are truncated and the reader limit is not raised.
 
-A resumed scan without retained static start-page HTML has a named no-audit guard
-until body retention is available; it cannot invent a clean rendering verdict.
+A resumed scan without the required retained static start-page HTML has a named
+no-audit guard; it cannot invent a clean rendering verdict.
 An already-current audit can be reused when only file finalization was blocked.
 Current audits feed the existing report, comparison and task APIs; no automatic
 `audit.json` or task sidecars are written in SQLite mode. A zero configured delay
@@ -570,5 +662,5 @@ summary is partial or failed: it returns an unavailable state rather than a
 shortened replay that could label absent membership as an orphan or a clean empty
 sitemap. Exclusion counts derive from decision occurrences. Raw start-page HTML
 is not hidden in a context row: it requires the later document/body lane.
-Response, document, body, and resource retention, rendering updates, and offline
-replay remain unavailable.
+This native-core context table predates the later body/resource lanes. Network
+replay remains unavailable; retained-evidence reanalysis is documented above.

@@ -6,7 +6,7 @@ Generated from the MCP tool definitions in `seohead/servers/mcp_server.py` and `
 python scripts/generate_tool_reference.py
 ```
 
-**56 live/recon/data-source tools** (`seohead <command>` / `seo_<command>` on the MCP server) plus **5 crawl-audit tools** (`sf_<command>`, driven by `seohead sf ...`) — 61 in total.
+**63 core tools** (`seohead <command>` / `seo_<command>` on the MCP server) plus **5 crawl-audit tools** (`sf_<command>`, driven by `seohead sf ...`) — 68 in total.
 
 Every tool shares one contract: JSON in, JSON out. A target that could not be reached comes back as `{"ok": false, "error": "..."}` instead of raising, so an unreachable site is data, not a crash.
 
@@ -58,6 +58,28 @@ Follow a live redirect chain for a URL and report each hop (status, location).
 | `options` | `dict[str, Any] | None` | `None` |
 
 **Cost** — network: yes · writes files: no · idempotent: yes · spends money: no
+
+### `scan-reanalyze`
+
+MCP name: `seo_scan_reanalyze`
+
+Reparse retained HTML/DOM and rerun existing checks without network.
+
+| Argument | Type | Default |
+|---|---|---|
+| `input_path` | `str` | `required` |
+| `out` | `str` | `required` |
+| `producer_build` | `str | None` | `None` |
+
+**Cost** — network: no · writes files: yes · idempotent: no · spends money: no
+
+**Behavior and failure modes**
+
+Reads a native or derived SQLite scan and creates a new artifact with
+parent UUID and current analyzer provenance. The source is unchanged;
+an existing output is refused. Missing required bodies produce named
+unavailable errors. Missing live-only context remains skipped. No HTTP,
+DNS, browser, provider, or cache-miss fallback is permitted.
 
 ### `crawl-site`
 
@@ -472,7 +494,7 @@ Check OpenGraph and Twitter Card tags against the minimum needed for a link prev
 
 MCP name: `seo_soft404_check`
 
-Detect soft-404: whether the site returns an honest 404/410 for non-existent URLs, or silently serves 200/3xx (which pollutes the index with junk pages). Sends two deterministic probes (sha256 of origin, under /.well-known/) and applies strict AND-logic: both 2xx/3xx -> soft-404 confirmed (warning); both 404/410 -> pass; anything else -> unknown. Screaming Frog cannot see this — it crawls known URLs, not invented ones, so this needs an active request.
+Detect soft-404: whether the site returns an honest 404/410 for non-existent URLs, or silently serves 200/3xx (which pollutes the index with junk pages). Sends two deterministic probes (sha256 of origin, at ordinary root paths) and applies strict AND-logic: both 2xx/3xx -> soft-404 confirmed (warning); both 404/410 -> pass; anything else -> unknown. Screaming Frog cannot see this — it crawls known URLs, not invented ones, so this needs an active request.
 
 | Argument | Type | Default |
 |---|---|---|
@@ -543,7 +565,7 @@ Run the whole live toolkit over one site and return a single audit document (sch
 
 MCP name: `seo_report_build`
 
-Turn an audit document into a file: xlsx, docx, csv, md or json. Pass the dict returned by seo_site_audit, an SF Analyzer audit.json from sf_audit_run (or a path to either one's JSON, or a validated scan.v1 SQLite artifact) — both audit schemas are recognized and normalized before rendering. xlsx has four sheets with filters and a live Excel chart — for work; docx is prose with headings — for the client; csv is flat data for a tracker (two files: findings and pages); md is for reading and for git. The generators compute nothing and reach no network: what is not in the JSON does not appear in the report. A document matching neither schema is refused with ok: false naming the mismatch, never rendered as an empty report.
+Turn an audit document into a file: xlsx, docx, csv, md or json. Pass the dict returned by seo_site_audit, an SF Analyzer audit.json from sf_audit_run (or a path to either one's JSON, or a validated scan.v1 SQLite artifact) — both audit schemas are recognized and normalized before rendering. xlsx has four sheets with filters and a live Excel chart — for work; docx is prose with headings — for the client; csv writes separate findings, scope-evidence, and page tables for a tracker, listed under outputs; md is for reading and for git. The generators compute nothing and reach no network: what is not in the JSON does not appear in the report. A document matching neither schema is refused with ok: false naming the mismatch, never rendered as an empty report.
 
 | Argument | Type | Default |
 |---|---|---|
@@ -857,6 +879,97 @@ IMPORTANT: Google has not joined IndexNow as of 2026 — this does not affect Go
 crawl schedule. Requires a self-generated key published at https://<host>/<key>.txt
 before the first call; see docs/SETUP.md. Natural pairing: submit exactly the URLs
 seo_compare_crawls reports as new or changed.
+
+### `scan-list`
+
+MCP name: `seo_scan_list`
+
+List saved SQLite scan metadata without loading retained bodies.
+
+| Argument | Type | Default |
+|---|---|---|
+| `directory` | `str` | `required` |
+| `offset` | `int` | `0` |
+| `limit` | `int` | `100` |
+
+**Cost** — network: no · writes files: no · idempotent: yes · spends money: no
+
+### `scan-inspect`
+
+MCP name: `seo_scan_inspect`
+
+Read a bounded, paginated table view from one saved scan.
+
+| Argument | Type | Default |
+|---|---|---|
+| `input_path` | `str` | `required` |
+| `table` | `str` | `'pages'` |
+| `offset` | `int` | `0` |
+| `limit` | `int` | `100` |
+| `max_bytes` | `int` | `1048576` |
+
+**Cost** — network: no · writes files: no · idempotent: yes · spends money: no
+
+### `scan-snapshot`
+
+MCP name: `seo_scan_snapshot`
+
+Create a consistent new SQLite snapshot without overwriting a destination.
+
+| Argument | Type | Default |
+|---|---|---|
+| `input_path` | `str` | `required` |
+| `out` | `str` | `required` |
+
+**Cost** — network: no · writes files: yes · idempotent: no · spends money: no
+
+### `scan-pin`
+
+MCP name: `seo_scan_pin`
+
+Pin or unpin a finished scan; this is an explicit metadata mutation.
+
+| Argument | Type | Default |
+|---|---|---|
+| `input_path` | `str` | `required` |
+| `pinned` | `bool` | `True` |
+
+**Cost** — network: no · writes files: yes · idempotent: no · spends money: no · can overwrite/remove existing data
+
+### `scan-prune`
+
+MCP name: `seo_scan_prune`
+
+Preview candidates by default; deletion requires apply plus the reviewed plan.
+
+| Argument | Type | Default |
+|---|---|---|
+| `directory` | `str` | `required` |
+| `older_than_days` | `int` | `30` |
+| `keep_newest` | `int` | `5` |
+| `plan` | `dict[str, Any] | None` | `None` |
+| `apply` | `bool` | `False` |
+
+**Cost** — network: no · writes files: yes · idempotent: no · spends money: no · can overwrite/remove existing data
+
+### `scan-body-diff`
+
+MCP name: `seo_scan_body_diff`
+
+Compare compatible retained bodies offline; a change is not an SEO verdict.
+
+| Argument | Type | Default |
+|---|---|---|
+| `left` | `str` | `required` |
+| `right` | `str` | `required` |
+| `url` | `str` | `required` |
+| `variant_key` | `str | None` | `None` |
+| `representation` | `str` | `'static'` |
+| `text` | `bool` | `False` |
+| `max_bytes` | `int` | `5 * 1024 * 1024` |
+| `max_lines` | `int` | `10000` |
+
+**Cost** — network: no · writes files: no · idempotent: yes · spends money: no
 
 ---
 
