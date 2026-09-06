@@ -393,6 +393,33 @@ def test_list_mode_reads_robots_per_host_and_records_what_it_blocked():
     assert result.robots_blocked == ["https://a.example/private/x"]
 
 
+def test_list_mode_dispatch_gate_paces_per_host_robots_and_cached_page_attempts():
+    now = [0.0]
+    calls = []
+
+    def fetcher(url):
+        calls.append((now[0], url))
+        if url.endswith("/robots.txt"):
+            return FakeResponse("User-agent: *\n", headers={"content-type": "text/plain"})
+        return FakeResponse(HTML)
+
+    _collect_urls(
+        ["https://a.example/one", "https://a.example/two", "https://b.example/one"],
+        fetcher=fetcher,
+        min_delay=1.0,
+        robots_policy="respect",
+        sleeper=lambda seconds: now.__setitem__(0, now[0] + seconds),
+        clock=lambda: now[0],
+    )
+    assert calls == [
+        (0.0, "https://a.example/robots.txt"),
+        (1.0, "https://a.example/one"),
+        (2.0, "https://a.example/two"),
+        (3.0, "https://b.example/robots.txt"),
+        (4.0, "https://b.example/one"),
+    ]
+
+
 def test_a_robots_txt_that_cannot_be_read_does_not_block_the_whole_list():
     """A single-site crawl can treat an unreadable robots.txt as "stop, we do not know the
     rules". List mode cannot: one unreachable host would then decide the fate of URLs on

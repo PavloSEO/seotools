@@ -77,6 +77,42 @@ def test_sqlite_adapter_accepts_js_config_and_collects_raw_html_with_an_offline_
     }
 
 
+def test_sqlite_adapter_paces_robots_redirects_before_page_dispatch(tmp_path):
+    now = [0.0]
+    calls = []
+
+    def fetcher(url):
+        calls.append((now[0], url))
+        if url.endswith("/robots.txt"):
+            return _Response(302, "", {"location": "/robots-1.txt"})
+        if url.endswith("/robots-1.txt"):
+            return _Response(200, "User-agent: *\nAllow: /\n", {"content-type": "text/plain"})
+        return _Response(200, "<html><body>page</body></html>")
+
+    crawl_to_scan(
+        "https://example.test/",
+        scan_out=str(tmp_path / "paced.sqlite"),
+        settings=load(overrides={"speed.min_delay_seconds": 1.0, "limits.max_urls": 1}),
+        producer_version="3.0.0",
+        producer_revision="a" * 40,
+        runtime_versions={
+            "python": "test",
+            "sqlite": "test",
+            "httpx": "test",
+            "lxml": "test",
+            "beautifulsoup4": "test",
+        },
+        fetcher=fetcher,
+        sleeper=lambda seconds: now.__setitem__(0, now[0] + seconds),
+        clock=lambda: now[0],
+    )
+    assert calls == [
+        (0.0, "https://example.test/robots.txt"),
+        (1.0, "https://example.test/robots-1.txt"),
+        (2.0, "https://example.test/"),
+    ]
+
+
 class _Response:
     def __init__(self, status_code, text, headers=None):
         self.status_code = status_code
