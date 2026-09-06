@@ -94,10 +94,28 @@ def _audit(result, settings, *, stored_scan=None, stored_sitemap=None, sitemap_s
 
 
 def _outcome(audit):
-    """The whole audit contract, excluding only its legitimate wall clock."""
+    """The whole audit contract except the report clock and measured response durations.
+
+    ``generated_at`` is a report wall clock.  Every ``response_time`` in this
+    contract is independently measured by each crawl, including a copied value
+    in a finding's details, so it cannot decide graph parity.  All other
+    fields, including thresholds, counts, URLs, and findings, stay strict.
+    """
+    measured_duration_fields = {"response_time"}
+
+    def normalize(value):
+        if isinstance(value, dict):
+            return {
+                key: 0.0 if key in measured_duration_fields else normalize(child)
+                for key, child in value.items()
+            }
+        if isinstance(value, list):
+            return [normalize(item) for item in value]
+        return value
+
     result = copy.deepcopy(audit)
     result["run"].pop("generated_at")
-    return result
+    return normalize(result)
 
 
 def _different_paths(left, right, path="$"):
@@ -134,6 +152,34 @@ def _at_path(value, path):
         else:
             value = value[part]
     return value
+
+
+def test_outcome_normalizes_measured_durations_but_keeps_issues_strict():
+    """Parity ignores separate clocks, never a different audit conclusion."""
+    left = {
+        "run": {"generated_at": "2026-09-06T00:00:00Z"},
+        "pages": [{"metrics": {"response_time": 0.001, "word_count": 10}}],
+        "issues": [
+            {
+                "check": "SLOW_RESPONSE_TIME",
+                "details": {"response_time": 0.001, "max_s": 1.5},
+            }
+        ],
+    }
+    right = copy.deepcopy(left)
+    right["run"]["generated_at"] = "2026-09-06T00:00:01Z"
+    right["pages"][0]["metrics"]["response_time"] = 0.999
+    right["issues"][0]["details"]["response_time"] = 0.999
+
+    assert _outcome(left) == _outcome(right)
+
+    strict_number = copy.deepcopy(right)
+    strict_number["pages"][0]["metrics"]["word_count"] = 11
+    assert _outcome(left) != _outcome(strict_number)
+
+    right["issues"].append({"check": "UNEXPECTED_PARITY_BREAK", "details": {}})
+    with pytest.raises(AssertionError):
+        assert _outcome(left) == _outcome(right)
 
 
 @pytest.mark.parametrize("mode", ("complete", "partial", "empty", "unclassified"))
@@ -219,15 +265,17 @@ def test_sql_graph_audit_matches_legacy_without_building_all_inlinks(
             "ONLY_NONINDEXABLE_SOURCE_INLINKS",
             "DEEP_DISCOVERY_PATH",
         }
-    # Renderers preserve audit provenance. Freeze only the legitimate wall-clock
-    # difference after the complete outcome comparison above has already passed.
-    sql_audit["run"]["generated_at"] = legacy_audit["run"]["generated_at"]
+    # Renderers receive comparable copies: their byte-level parity should not
+    # depend on either audit's independently measured response durations.
+    legacy_render_audit, sql_render_audit = _outcome(legacy_audit), _outcome(sql_audit)
+    for audit in (legacy_render_audit, sql_render_audit):
+        audit["run"]["generated_at"] = legacy_audit["run"]["generated_at"]
     from seohead.reports import build_report
 
     for fmt in ("json", "md", "csv", "xlsx", "docx"):
         left, right = tmp_path / f"legacy.{fmt}", tmp_path / f"sql.{fmt}"
-        assert build_report(legacy_audit, fmt, str(left))["ok"]
-        assert build_report(sql_audit, fmt, str(right))["ok"]
+        assert build_report(legacy_render_audit, fmt, str(left))["ok"]
+        assert build_report(sql_render_audit, fmt, str(right))["ok"]
         if fmt == "json":
             legacy_report, sql_report = json.loads(left.read_text()), json.loads(right.read_text())
             report_paths = _different_paths(legacy_report, sql_report)
