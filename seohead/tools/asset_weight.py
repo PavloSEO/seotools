@@ -319,7 +319,7 @@ def flag_outlier_pages(
 
 
 def _discover_resources(soup: BeautifulSoup, base_url: str) -> list[dict[str, str]]:
-    """External ``<link rel=stylesheet>`` and ``<script src>`` URLs, deduplicated.
+    """Direct ``<link rel=stylesheet>`` and ``<script src>`` URLs, deduplicated.
 
     Skips ``<template>`` descendants: a stylesheet or script held only in a
     DocumentFragment is never requested by a browser, so counting it would

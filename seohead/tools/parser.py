@@ -27,7 +27,7 @@ from html.parser import HTMLParser
 from typing import Any, Literal, cast
 from urllib.parse import urljoin, urlparse
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 from seohead.models import (
     DocumentPosition,
@@ -1191,7 +1191,9 @@ def extract_resource_declarations(
         raise ValueError("max_resource_declarations must be a non-negative integer or null")
     declarations: list[ResourceDeclaration] = []
     omitted = 0
-    for tag in soup.find_all(["script", "link"]):
+    for tag in soup.descendants:
+        if not isinstance(tag, Tag) or tag.name not in {"script", "link"}:
+            continue
         if _has_ancestor(tag, _INERT_LINK_CONTAINERS):
             continue
         if tag.name == "script":
@@ -1208,10 +1210,7 @@ def extract_resource_declarations(
             continue
         try:
             resolved = urljoin(base_url, raw_url.strip())
-            parts = urlparse(resolved)
         except ValueError:
-            continue
-        if parts.scheme.lower() not in {"http", "https"} or not parts.netloc:
             continue
         if max_declarations is not None and len(declarations) >= max_declarations:
             omitted += 1

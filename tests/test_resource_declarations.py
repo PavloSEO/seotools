@@ -44,7 +44,7 @@ def test_declarations_preserve_document_order_duplicates_and_raw_attribute_spell
     assert parsed["resource_declarations_omitted"] == 0
 
 
-def test_declarations_follow_base_skip_templates_and_ignore_non_http_or_empty_values():
+def test_declarations_follow_base_skip_templates_and_keep_non_http_or_empty_values():
     parsed = _parsed(
         '<base href="https://cdn.example.test/assets/">'
         '<template><script src="hidden.js"></script></template>'
@@ -59,6 +59,16 @@ def test_declarations_follow_base_skip_templates_and_ignore_non_http_or_empty_va
             "kind": "script",
             "url": "https://cdn.example.test/assets/module.js",
             "raw_url": "module.js",
+        },
+        {
+            "kind": "script",
+            "url": "data:text/javascript,x",
+            "raw_url": "data:text/javascript,x",
+        },
+        {
+            "kind": "script",
+            "url": "ftp://example.test/file.js",
+            "raw_url": "ftp://example.test/file.js",
         },
         {
             "kind": "stylesheet",
@@ -103,6 +113,17 @@ def test_asset_weight_reuses_declarations_but_keeps_css_before_js_deduplication(
     assert _discover_resources(soup, "https://example.test/") == [
         {"url": "https://example.test/theme.css", "kind": "css"},
         {"url": "https://example.test/app.js", "kind": "js"},
+    ]
+
+
+def test_asset_weight_keeps_non_http_declarations_as_its_existing_fetch_failures():
+    soup = BeautifulSoup(
+        '<script src="data:text/javascript,alert(1)"></script><script src="ftp://example.test/app.js"></script>',
+        "lxml",
+    )
+    assert _discover_resources(soup, "https://example.test/") == [
+        {"url": "data:text/javascript,alert(1)", "kind": "js"},
+        {"url": "ftp://example.test/app.js", "kind": "js"},
     ]
 
 
