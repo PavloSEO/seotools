@@ -25,6 +25,7 @@ COMMANDS = (
     "parse",
     "crawl-site",
     "crawl-describe-settings",
+    "scan-reanalyze",
     "log-scan",
     "compare-crawls",
     "segment-diff",
@@ -192,7 +193,12 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
     handler_name = cmd.replace("-", "_")
     kw: dict[str, Any] = dict(data)  # --input is the base; flags override/augment
 
-    if cmd == "parse":
+    if cmd == "scan-reanalyze":
+        for flag in ("input_path", "out", "producer_build"):
+            value = getattr(args, flag, None)
+            if value is not None:
+                kw[flag] = value
+    elif cmd == "parse":
         if args.url:
             kw["url"] = args.url
         if args.urls:
@@ -530,6 +536,10 @@ def _read_donors(path: str) -> list[str]:
 
 def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
     sub.add_argument("--input", help="JSON object mapped onto the handler arguments")
+    if cmd == "scan-reanalyze":
+        _source_flag(sub, "--source", dest="input_path", help="retained SQLite scan to read")
+        sub.add_argument("--out", help="new derived SQLite file; never overwrites an existing file")
+        sub.add_argument("--producer-build", metavar="SHA", help="current analyzer source build")
     if cmd in URL_COMMANDS:
         _source_flag(sub, "--url", help="target URL")
     if cmd == "links-check":
@@ -866,6 +876,12 @@ def build_parser() -> argparse.ArgumentParser:
     sf.add_argument(
         "sf_args", nargs=argparse.REMAINDER, help="arguments forwarded to the sf-analyzer CLI"
     )
+    scan = subs.add_parser("scan", help="work with saved SQLite scan artifacts offline")
+    scan_subs = scan.add_subparsers(dest="scan_command", required=True)
+    reanalyze = scan_subs.add_parser("reanalyze", help="reanalyze retained inputs without network")
+    _source_flag(reanalyze, "--input", dest="input_path", required=True, help="source SQLite scan")
+    reanalyze.add_argument("--out", required=True, help="new derived SQLite scan")
+    reanalyze.add_argument("--producer-build", metavar="SHA", help="current analyzer source build")
     subs.add_parser("mcp", help="run the MCP server (stdio)")
     return p
 
@@ -874,6 +890,8 @@ def main(argv: list[str] | None = None) -> int:
     runlog.set_interface("cli")
     args = build_parser().parse_args(argv)
     cmd = args.command
+    if cmd == "scan":
+        cmd = "scan-" + args.scan_command
     if not cmd:
         build_parser().print_help()
         return 0

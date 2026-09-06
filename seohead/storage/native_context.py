@@ -56,6 +56,77 @@ def validate_context(
         ):
             raise ScanError("native resource commit context is invalid")
         return
+    if item["kind"] == "reanalysis_provenance":
+        if (
+            item["item_key"] != "run"
+            or item["completeness"] != "complete"
+            or item["reason"] != "offline reanalysis"
+            or not isinstance(payload, dict)
+            or set(payload)
+            != {
+                "parent_scan_uuid",
+                "capture_scan_uuid",
+                "source_evidence_revision",
+                "derived_evidence_revision",
+                "source_audit_sha256",
+                "source_writer_version",
+                "source_writer_revision",
+                "source_runtime_versions_json",
+                "source_config_sha256",
+                "capture_writer_version",
+                "capture_writer_revision",
+                "capture_runtime_versions_json",
+                "capture_config_sha256",
+                "capture_run",
+            }
+            or not isinstance(payload["parent_scan_uuid"], str)
+            or not isinstance(payload["capture_scan_uuid"], str)
+            or type(payload["source_evidence_revision"]) is not int
+            or payload["source_evidence_revision"] < 0
+            or type(payload["derived_evidence_revision"]) is not int
+            or payload["derived_evidence_revision"] != payload["source_evidence_revision"] + 1
+            or (
+                payload["source_audit_sha256"] is not None
+                and (
+                    not isinstance(payload["source_audit_sha256"], str)
+                    or len(payload["source_audit_sha256"]) != 64
+                    or any(ch not in "0123456789abcdef" for ch in payload["source_audit_sha256"])
+                )
+            )
+            or not isinstance(payload["source_writer_version"], str)
+            or not isinstance(payload["source_writer_revision"], str)
+            or len(payload["source_writer_revision"]) != 40
+            or any(ch not in "0123456789abcdef" for ch in payload["source_writer_revision"])
+            or not isinstance(payload["source_runtime_versions_json"], str)
+            or not isinstance(payload["source_config_sha256"], str)
+            or len(payload["source_config_sha256"]) != 64
+            or any(ch not in "0123456789abcdef" for ch in payload["source_config_sha256"])
+            or not isinstance(payload["capture_writer_version"], str)
+            or not isinstance(payload["capture_writer_revision"], str)
+            or len(payload["capture_writer_revision"]) != 40
+            or any(ch not in "0123456789abcdef" for ch in payload["capture_writer_revision"])
+            or not isinstance(payload["capture_runtime_versions_json"], str)
+            or not isinstance(payload["capture_config_sha256"], str)
+            or len(payload["capture_config_sha256"]) != 64
+            or any(ch not in "0123456789abcdef" for ch in payload["capture_config_sha256"])
+        ):
+            raise ScanError("native reanalysis provenance is invalid")
+        capture = payload["capture_run"]
+        if (
+            not isinstance(capture, dict)
+            or set(capture)
+            != {"lifecycle", "finish_reason", "crawl_partial", "created_at", "finished_at"}
+            or capture["lifecycle"] not in {"running", "interrupted", "finished", "failed"}
+            or not isinstance(capture["finish_reason"], str)
+            or type(capture["crawl_partial"]) is not int
+            or capture["crawl_partial"] not in (0, 1)
+        ):
+            raise ScanError("reanalysis capture state is invalid")
+        from .corpus_validation import _timestamp
+
+        _timestamp(capture["created_at"], "capture created_at")
+        _timestamp(capture["finished_at"], "capture finished_at", nullable=True)
+        return
     if item["kind"] == "credential_context":
         verifier = payload.get("verifier") if isinstance(payload, dict) else object()
         if (

@@ -6,7 +6,7 @@ Generated from the MCP tool definitions in `seohead/servers/mcp_server.py` and `
 python scripts/generate_tool_reference.py
 ```
 
-**56 live/recon/data-source tools** (`seohead <command>` / `seo_<command>` on the MCP server) plus **5 crawl-audit tools** (`sf_<command>`, driven by `seohead sf ...`) — 61 in total.
+**57 live/recon/data-source tools** (`seohead <command>` / `seo_<command>` on the MCP server) plus **5 crawl-audit tools** (`sf_<command>`, driven by `seohead sf ...`) — 62 in total.
 
 Every tool shares one contract: JSON in, JSON out. A target that could not be reached comes back as `{"ok": false, "error": "..."}` instead of raising, so an unreachable site is data, not a crash.
 
@@ -58,6 +58,28 @@ Follow a live redirect chain for a URL and report each hop (status, location).
 | `options` | `dict[str, Any] | None` | `None` |
 
 **Cost** — network: yes · writes files: no · idempotent: yes · spends money: no
+
+### `scan-reanalyze`
+
+MCP name: `seo_scan_reanalyze`
+
+Reparse retained HTML/DOM and rerun existing checks without network.
+
+| Argument | Type | Default |
+|---|---|---|
+| `input_path` | `str` | `required` |
+| `out` | `str` | `required` |
+| `producer_build` | `str | None` | `None` |
+
+**Cost** — network: no · writes files: yes · idempotent: no · spends money: no
+
+**Behavior and failure modes**
+
+Reads a native or derived SQLite scan and creates a new artifact with
+parent UUID and current analyzer provenance. The source is unchanged;
+an existing output is refused. Missing required bodies produce named
+unavailable errors. Missing live-only context remains skipped. No HTTP,
+DNS, browser, provider, or cache-miss fallback is permitted.
 
 ### `crawl-site`
 

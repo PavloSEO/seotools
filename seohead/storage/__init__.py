@@ -532,7 +532,7 @@ def _validate(con, *, require_audit: bool = True) -> None:
             "scan.v1 schema differs: missing/changed tables, indexes or unexpected schema objects"
         )
     source = con.execute("SELECT source_kind FROM scan WHERE singleton=1").fetchone()
-    if source is not None and source[0] == "native":
+    if source is not None and source[0] in {"native", "reanalysis"}:
         from .native_scan import NativeScan
 
         NativeScan._validate_native(con)
