@@ -254,7 +254,9 @@ def find_duplicates(
 
     ``only_indexable`` (default True) drops non-indexable items before either
     comparison: a page canonicalised to another is an intended twin, not a
-    defect. Set it to False to audit the canonical tags themselves.
+    defect. Set it to False to audit the canonical tags themselves. Items
+    without usable text or a unique identifier are excluded and counted rather
+    than represented as duplicate-content evidence.
 
     ``with_fingerprints`` includes each document fingerprint. It is disabled by
     default because the mapping can dominate output for hundreds of pages and is
@@ -274,6 +276,8 @@ def find_duplicates(
             "exact_duplicates": [],
             "excluded_non_indexable": excluded_non_indexable,
             "excluded_no_id": 0,
+            "excluded_no_text": 0,
+            "excluded_duplicate_id": 0,
         }
         if with_fingerprints:
             out["fingerprints"] = {}
@@ -282,15 +286,22 @@ def find_duplicates(
     texts: dict[str, str] = {}
     doc_shingles: dict[str, list[tuple[str, ...]]] = {}
     excluded_no_id = 0
+    excluded_no_text = 0
+    excluded_duplicate_id = 0
     for it in items:
         doc_id = it.get("id") or it.get("url") or ""
-        text = it.get("text") or ""
-        if doc_id:
+        text = it.get("text")
+        if not doc_id:
+            excluded_no_id += 1
+        elif not isinstance(text, str) or not text.strip():
+            excluded_no_text += 1
+        else:
             doc_id = str(doc_id)
+            if doc_id in texts:
+                excluded_duplicate_id += 1
+                continue
             texts[doc_id] = text
             doc_shingles[doc_id] = shingles(_tokenize(text), k)
-        else:
-            excluded_no_id += 1
 
     # A shingle in nearly every document is the site's template, not distinguishing
     # content; damping it before hashing is what keeps a templated corpus's
@@ -395,6 +406,8 @@ def find_duplicates(
         "candidate_pairs_checked": len(candidate_pairs),
         "excluded_non_indexable": excluded_non_indexable,
         "excluded_no_id": excluded_no_id,
+        "excluded_no_text": excluded_no_text,
+        "excluded_duplicate_id": excluded_duplicate_id,
     }
     if with_fingerprints:
         result["fingerprints"] = fingerprints
