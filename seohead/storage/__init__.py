@@ -521,11 +521,24 @@ def _validate_import_metadata(con, scan: dict, audit: dict) -> None:
             raise ScanError("imported page/link capability completeness disagrees")
 
 
-def _validate(con) -> None:
+def _validate(con, *, require_audit: bool = True) -> None:
     if _objects(con) != _expected()[0]:
         raise ScanError(
             "scan.v1 schema differs: missing/changed tables, indexes or unexpected schema objects"
         )
+    source = con.execute("SELECT source_kind FROM scan WHERE singleton=1").fetchone()
+    if source is not None and source[0] == "native":
+        from .native_scan import NativeScan
+
+        NativeScan._validate_native(con)
+        if (
+            require_audit
+            and con.execute("SELECT 1 FROM audit WHERE singleton=1").fetchone() is None
+        ):
+            raise ScanError(
+                "native scan has no current audit; collection evidence is available separately"
+            )
+        return
     for table in _FUTURE_TABLES:
         if con.execute(f'SELECT 1 FROM "{table}" LIMIT 1').fetchone():
             raise ScanError(
@@ -609,7 +622,7 @@ def _validate(con) -> None:
     _validate_import_metadata(con, scan, audit)
 
 
-def open_scan(path: str | Path):
+def open_scan(path: str | Path, *, require_audit: bool = True):
     """Return a validated read-only connection; the caller must close it."""
     _runtime()
     con = None
@@ -631,7 +644,7 @@ def open_scan(path: str | Path):
             )
         if app_id != APPLICATION_ID:
             raise ScanError(f"foreign application_id {app_id}; expected {APPLICATION_ID} (SEOH)")
-        _validate(con)
+        _validate(con, require_audit=require_audit)
         return con
     except (OSError, sqlite3.Error, ValueError) as exc:
         if con is not None:

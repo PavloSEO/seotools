@@ -28,7 +28,9 @@ one-at-a-time rate.
 
 from __future__ import annotations
 
+import math
 import threading
+from typing import Any
 
 TIMEOUT_PENALTY = 4.0
 MAX_DELAY_S = 60.0
@@ -184,3 +186,50 @@ class Throttle:
         """
         with self._lock:
             return self.server_errors >= limit
+
+    def snapshot_state(self) -> dict[str, float | int]:
+        """Return the adaptive state persisted independently of circuit streaks.
+
+        Timeout and server-refusal streaks belong to the crawler's deterministic
+        queue-order fold, not this completion-order adaptive throttle state.
+        Once concurrency has reached its configured ceiling, additional successes
+        cannot widen it further; cap their persisted streak at the largest value
+        that can still affect a future response. A timeout, refusal or failed
+        response resets the live streak either way.
+        """
+        with self._lock:
+            return {
+                "delay_seconds": self.delay,
+                "concurrency": self.concurrency,
+                "consecutive_ok": min(self._consecutive_ok, WIDEN_AFTER_CONSECUTIVE_OK - 1),
+            }
+
+    def restore_state(self, state: dict[str, Any]) -> None:
+        """Restore a validated :meth:`snapshot_state` payload.
+
+        The payload is deliberately closed: accepting a missing/defaulted field
+        would turn a resumed crawl into a different adaptive policy.
+        """
+        if not isinstance(state, dict) or set(state) != {
+            "delay_seconds",
+            "concurrency",
+            "consecutive_ok",
+        }:
+            raise ValueError("invalid throttle state keys")
+        delay = state["delay_seconds"]
+        concurrency = state["concurrency"]
+        consecutive_ok = state["consecutive_ok"]
+        if type(delay) not in (int, float) or not math.isfinite(float(delay)):
+            raise ValueError("throttle delay_seconds must be finite")
+        if type(concurrency) is not int or not 1 <= concurrency <= self.max_concurrency:
+            raise ValueError("throttle concurrency is outside configured bounds")
+        if type(consecutive_ok) is not int or not 0 <= consecutive_ok < WIDEN_AFTER_CONSECUTIVE_OK:
+            raise ValueError("throttle consecutive_ok is outside supported bounds")
+        if not self.min_delay <= float(delay) <= self.max_delay:
+            raise ValueError("throttle delay_seconds is outside configured bounds")
+        if not self.adaptive and concurrency != self.max_concurrency:
+            raise ValueError("non-adaptive throttle concurrency must equal its configured maximum")
+        with self._lock:
+            self.delay = float(delay)
+            self.concurrency = concurrency
+            self._consecutive_ok = consecutive_ok

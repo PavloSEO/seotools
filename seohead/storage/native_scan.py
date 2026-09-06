@@ -384,6 +384,7 @@ class NativeScan:
         *,
         expected_start_url: str | None = None,
         expected_config: dict[str, Any] | None = None,
+        expected_writer_revision: str | None = None,
     ) -> NativeScan:
         path = Path(path).absolute()
         if fcntl is None:
@@ -418,6 +419,11 @@ class NativeScan:
                 )
             if expected_start_url is not None and scan["start_url"] != expected_start_url:
                 raise ScanError("native scan start URL differs; refusing unsafe resume")
+            if (
+                expected_writer_revision is not None
+                and scan["writer_revision"] != expected_writer_revision
+            ):
+                raise ScanError("native scan producing build differs; refusing mixed-build resume")
             if expected_config is not None and scan[
                 "config_fingerprint"
             ] != crawl_config_fingerprint(_native_config(expected_config)):
@@ -513,8 +519,9 @@ class NativeScan:
             )
         if scan["lifecycle"] not in {"running", "interrupted", "finished", "failed"}:
             raise ScanError("invalid native scan lifecycle")
-        if con.execute("SELECT COUNT(*) FROM audit").fetchone()[0] != 0:
-            raise ScanError("child-C native scan must not contain an audit")
+        from .native_audit import validate_audit
+
+        validate_audit(con, scan)
         for table in _BODY_TABLES:
             if con.execute(f'SELECT 1 FROM "{table}" LIMIT 1').fetchone() is not None:
                 raise ScanError(f"{table}: unavailable before child G/H")
@@ -557,7 +564,10 @@ class NativeScan:
         ):
             raise ScanError("native scan has invalid capability metadata")
         if any(
-            value["state"] != ("partial" if name in {"pages", "links", "resume"} else "unavailable")
+            value["state"]
+            not in (
+                {"partial", "complete"} if name in {"pages", "links", "resume"} else {"unavailable"}
+            )
             for name, value in capabilities.items()
         ):
             raise ScanError("native storage core capability state claims an unavailable feature")
@@ -734,56 +744,9 @@ class NativeScan:
         ).fetchone():
             raise ScanError("native scan form ordinals are not contiguous per source")
         for item in con.execute("SELECT * FROM context_items"):
-            if item["payload_version"] != "scan_context.v1":
-                raise ScanError("native scan context payload version is invalid")
-            try:
-                payload = json.loads(item["payload_json"])
-            except (TypeError, ValueError) as exc:
-                raise ScanError("native scan context payload is invalid JSON") from exc
-            if item["kind"] == "native_commit":
-                if (
-                    not item["item_key"].isascii()
-                    or not item["item_key"].isdigit()
-                    or str(int(item["item_key"])) != item["item_key"]
-                    or not isinstance(payload, dict)
-                    or set(payload) != {"digest"}
-                    or not isinstance(payload["digest"], str)
-                    or len(payload["digest"]) != 64
-                    or any(char not in "0123456789abcdef" for char in payload["digest"])
-                    or item["completeness"] != "complete"
-                    or item["reason"] != "atomic page commit"
-                ):
-                    raise ScanError("native scan commit idempotency context is invalid")
-                if not con.execute(
-                    "SELECT 1 FROM frontier WHERE queue_ordinal=? AND state='done'",
-                    (int(item["item_key"]),),
-                ).fetchone():
-                    raise ScanError("native scan commit context does not name a completed lease")
-                continue
-            if item["kind"] != "robots_blocked_url":
-                raise ScanError("native scan has an unsupported context kind")
-            if (
-                not isinstance(payload, dict)
-                or set(payload) != {"url_id", "token", "policy"}
-                or type(payload["url_id"]) is not int
-                or payload["url_id"] <= 0
-                or item["item_key"] != f"url:{payload['url_id']}"
-                or type(payload["token"]) is not str
-                or payload["policy"] not in {"respect", "report_only"}
-            ):
-                raise ScanError("native scan robots_blocked_url context is invalid")
-            url = con.execute(
-                "SELECT url FROM urls WHERE url_id=?", (payload["url_id"],)
-            ).fetchone()
-            if url is None:
-                raise ScanError("native scan robots context references an unknown URL")
-            if (
-                payload["policy"] == "respect"
-                and not con.execute(
-                    "SELECT 1 FROM decisions WHERE url=? AND reason='blocked_by_robots'", (url[0],)
-                ).fetchone()
-            ):
-                raise ScanError("native robots exclusion lacks its blocked_by_robots decision")
+            from .native_context import validate_context
+
+            validate_context(con, dict(item))
 
     def _assert_mutable(self) -> None:
         lifecycle = self.con.execute("SELECT lifecycle FROM scan WHERE singleton=1").fetchone()[0]
@@ -813,6 +776,7 @@ class NativeScan:
     def _begin(self) -> None:
         self._enforce_wal_bound()
         self.con.execute("BEGIN IMMEDIATE")
+        self.con.execute("DELETE FROM audit")
 
     def _enforce_wal_bound(self) -> None:
         wal = self.path.with_name(self.path.name + "-wal")
@@ -829,6 +793,197 @@ class NativeScan:
     def _rollback(self) -> None:
         if self.con.in_transaction:
             self.con.rollback()
+
+    def resume_snapshot(self, *, include_edges: bool = False) -> dict[str, Any]:
+        """Read only scalar resume state; complete edge counts are opt-in."""
+        scan = dict(self.con.execute("SELECT * FROM scan WHERE singleton=1").fetchone())
+        runtime = dict(self.con.execute("SELECT * FROM resume_state WHERE singleton=1").fetchone())
+        throttle = json.loads(runtime.pop("throttle_state_json"))
+        throttle.pop("schema_version")
+        runtime["throttle"] = throttle
+        runtime.pop("singleton")
+        runtime.pop("state_version")
+        counts = {"pages": self.con.execute("SELECT COUNT(*) FROM pages").fetchone()[0]}
+        counts.update(
+            {
+                row[0]: row[1]
+                for row in self.con.execute("SELECT state,COUNT(*) FROM frontier GROUP BY state")
+            }
+        )
+        for state in ("queued", "inflight", "done", "excluded"):
+            counts.setdefault(state, 0)
+        if include_edges:
+            for table in ("links", "forms", "decisions"):
+                counts[table] = self.con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        return {"scan": scan, "runtime": runtime, "counts": counts}
+
+    def read_context(self, kind: str, key: str = "run"):
+        row = self.con.execute(
+            "SELECT payload_json FROM context_items WHERE kind=? AND item_key=?", (kind, key)
+        ).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def begin_collection(self) -> None:
+        """Declare the delivered collector and reset only recoverable interruption state."""
+        self._assert_mutable()
+        self._begin()
+        try:
+            row = self.con.execute(
+                "SELECT limitations_json,capabilities_json FROM scan WHERE singleton=1"
+            ).fetchone()
+            limitations = json.loads(row[0])
+            partial = any(
+                reason.partition(":")[0]
+                in {"link_observations_omitted", "form_observations_omitted"}
+                for reason in limitations
+            )
+            capabilities = json.loads(row[1])
+            for kind in ("pages", "links"):
+                capabilities[kind] = {
+                    "state": "partial" if partial else "complete",
+                    "reason": "native observation prefix omitted"
+                    if partial
+                    else "committed native crawl observations",
+                }
+            capabilities["resume"] = {
+                "state": "complete",
+                "reason": "native frontier and runtime state retained",
+            }
+            self.con.execute(
+                "UPDATE scan SET lifecycle='running',finish_reason='running',finished_at=NULL,crawl_partial=?,capabilities_json=? WHERE singleton=1",
+                (int(partial), _dump(capabilities)),
+            )
+            self.con.commit()
+        except BaseException:
+            self._rollback()
+            raise
+
+    def note_audit_unavailable(self, reason: str) -> None:
+        """Keep a missing analyzer result distinct from incomplete collection."""
+        self._assert_mutable()
+        if type(reason) is not str or not reason or len(reason) > 500:
+            raise ScanError("audit availability reason must be a short nonempty string")
+        self._begin()
+        try:
+            notes = json.loads(
+                self.con.execute("SELECT limitations_json FROM scan WHERE singleton=1").fetchone()[
+                    0
+                ]
+            )
+            note = "audit unavailable: " + reason
+            if note not in notes:
+                if len(notes) >= 64:
+                    raise ScanError("native scan limitation registry is full")
+                notes.append(note)
+            self.con.execute(
+                "UPDATE scan SET limitations_json=? WHERE singleton=1", (_dump(notes),)
+            )
+            self.con.commit()
+        except BaseException:
+            self._rollback()
+            raise
+
+    def write_context(self, items) -> None:
+        from .native_context import put_context
+
+        self._assert_mutable()
+        items = _bounded_items(items, "context")
+        self._begin()
+        try:
+            for item in items:
+                put_context(self.con, item)
+            self.con.commit()
+        except BaseException:
+            self._rollback()
+            raise
+
+    def seed_frontier(self, entries) -> dict[str, int]:
+        from .frontier import apply_seeds
+
+        self._assert_mutable()
+        entries = _bounded_items(entries, "initial seeds")
+        self._begin()
+        try:
+            start = self.con.execute("SELECT start_url FROM scan WHERE singleton=1").fetchone()[0]
+            counts = apply_seeds(
+                self.con, entries, limit=self._stored_query_limit(), start_url=start
+            )
+            self.con.commit()
+            return counts
+        except BaseException:
+            self._rollback()
+            raise
+
+    def _partial_reasons(self, reasons) -> None:
+        if not reasons:
+            return
+        if len(reasons) > 16 or any(
+            type(reason) is not str or not reason or len(reason) > 200 for reason in reasons
+        ):
+            raise ScanError("partial reasons must be a finite short string list")
+        row = self.con.execute(
+            "SELECT limitations_json,capabilities_json FROM scan WHERE singleton=1"
+        ).fetchone()
+        limitations = json.loads(row[0])
+        for reason in reasons:
+            if reason not in limitations:
+                if len(limitations) >= 64:
+                    raise ScanError("native scan limitation registry is full")
+                limitations.append(reason)
+        capabilities = json.loads(row[1])
+        for kind in ("pages", "links"):
+            capabilities[kind] = {"state": "partial", "reason": "; ".join(reasons)}
+        self.con.execute(
+            "UPDATE scan SET crawl_partial=1, limitations_json=?, capabilities_json=? WHERE singleton=1",
+            (_dump(limitations), _dump(capabilities)),
+        )
+
+    def exclude_lease(self, lease: Lease, reason: str, *, runtime, context=()) -> None:
+        from .native_context import put_context
+
+        self._assert_mutable()
+        if type(reason) is not str or not reason or len(reason) > 200:
+            raise ScanError("exclusion reason must be a short nonempty string")
+        context = _bounded_items(context, "exclusion context")
+        self._begin()
+        try:
+            row = self.con.execute(
+                "SELECT f.*,u.url FROM frontier f JOIN urls u USING(url_id) WHERE f.url_id=?",
+                (lease.url_id,),
+            ).fetchone()
+            if row is None or (row["url"], row["depth"], row["queue_ordinal"], row["state"]) != (
+                lease.url,
+                lease.depth,
+                lease.queue_ordinal,
+                "inflight",
+            ):
+                raise ScanError("exclusion requires the exact inflight lease")
+            if (
+                self.con.execute(
+                    "SELECT MIN(queue_ordinal) FROM frontier WHERE state='inflight'"
+                ).fetchone()[0]
+                != lease.queue_ordinal
+            ):
+                raise ScanError("exclusion must preserve the contiguous inflight prefix")
+            _insert(
+                self.con,
+                "decisions",
+                {
+                    "url": lease.url,
+                    "reason": reason,
+                    "source": "frontier",
+                    "depth": lease.depth,
+                    "occurrence_key": f"lease:{lease.queue_ordinal}:excluded",
+                },
+            )
+            self.con.execute("UPDATE frontier SET state='excluded' WHERE url_id=?", (lease.url_id,))
+            self._write_runtime(runtime, 0)
+            for item in context:
+                put_context(self.con, item)
+            self.con.commit()
+        except BaseException:
+            self._rollback()
+            raise
 
     def enqueue(self, entries: Iterable[tuple[str, int]]) -> list[Lease]:
         """Add only new frontier identities in one transaction."""
@@ -908,6 +1063,11 @@ class NativeScan:
     def recover_inflight(self) -> int:
         """Requeue only after this object obtained the exclusive lifetime lock."""
         self._assert_mutable()
+        if (
+            self.con.execute("SELECT 1 FROM frontier WHERE state='inflight' LIMIT 1").fetchone()
+            is None
+        ):
+            return 0
         self._begin()
         try:
             count = self.con.execute(
@@ -1010,11 +1170,15 @@ class NativeScan:
         decisions: Iterable[dict[str, Any]] = (),
         discovered: Iterable[tuple[str, int]] = (),
         query_reservations: Iterable[tuple[str, str, str]] = (),
+        candidates: Iterable[dict[str, Any]] = (),
+        partial_reasons: Iterable[str] = (),
         runtime: dict[str, Any] | None = None,
         context: Iterable[dict[str, Any]] = (),
     ) -> CommitReceipt:
         """Commit one complete fold-back unit or none of it."""
         self._assert_mutable()
+        candidates = _bounded_items(candidates, "ordered discovery candidates")
+        partial_reasons = _bounded_items(partial_reasons, "partial reasons", 16)
         for _ in _json_chunks(record):
             pass
         links, forms, decisions, discovered, query_reservations, context = (
@@ -1036,6 +1200,8 @@ class NativeScan:
             "runtime": runtime or {},
             "context": context,
         }
+        if candidates or partial_reasons:
+            payload.update(candidates=candidates, partial_reasons=partial_reasons)
         digest = _digest(payload)
         self._begin()
         try:
@@ -1239,58 +1405,25 @@ class NativeScan:
                         (url_id, next_ordinal, int(depth)),
                     )
                     next_ordinal += 1
+            from .frontier import apply_candidates
+
+            apply_candidates(
+                self.con,
+                candidates,
+                source=lease.url,
+                queue_ordinal=lease.queue_ordinal,
+                limit=query_limit,
+            )
+            self._partial_reasons(partial_reasons)
             self.con.execute("UPDATE frontier SET state='done' WHERE url_id=?", (lease.url_id,))
             self._hit("after_frontier")
             self._hit("before_runtime")
             self._write_runtime(runtime or {}, lease.depth)
             self._hit("after_runtime")
             for item in context:
-                if not isinstance(item, dict) or set(item) != {
-                    "kind",
-                    "item_key",
-                    "payload_version",
-                    "payload_json",
-                    "completeness",
-                    "reason",
-                }:
-                    raise ScanError("child-C context item has unknown or missing fields")
-                if item["kind"] != "robots_blocked_url":
-                    raise ScanError("child-C supports only documented robots_blocked_url context")
-                if (
-                    type(item["item_key"]) is not str
-                    or item["payload_version"] != "scan_context.v1"
-                    or item["completeness"] not in {"complete", "partial", "unavailable"}
-                    or type(item["reason"]) is not str
-                ):
-                    raise ScanError("child-C robots context has invalid metadata")
-                try:
-                    payload = json.loads(item["payload_json"])
-                except (TypeError, ValueError) as exc:
-                    raise ScanError("child-C robots context payload is invalid JSON") from exc
-                if (
-                    not isinstance(payload, dict)
-                    or set(payload) != {"url_id", "token", "policy"}
-                    or type(payload["url_id"]) is not int
-                    or payload["url_id"] <= 0
-                    or item["item_key"] != f"url:{payload['url_id']}"
-                    or type(payload["token"]) is not str
-                    or payload["policy"] not in {"respect", "report_only"}
-                ):
-                    raise ScanError("child-C robots context must use the documented URL-id payload")
-                url = self.con.execute(
-                    "SELECT url FROM urls WHERE url_id=?", (payload["url_id"],)
-                ).fetchone()
-                if url is None:
-                    raise ScanError("child-C robots context references an unknown URL")
-                if (
-                    payload["policy"] == "respect"
-                    and not self.con.execute(
-                        "SELECT 1 FROM decisions WHERE url=? AND reason='blocked_by_robots'",
-                        (url[0],),
-                    ).fetchone()
-                ):
-                    raise ScanError("child-C robots exclusion lacks blocked_by_robots decision")
-                _insert(self.con, "context_items", item)
+                from .native_context import put_context
+
+                put_context(self.con, item)
             _insert(
                 self.con,
                 "context_items",
@@ -1432,6 +1565,72 @@ class NativeScan:
                 time.sleep(min(0.05, max(0, deadline - time.monotonic())))
         finally:
             self.con.execute(f"PRAGMA busy_timeout={prior_timeout}")
+
+    def save_audit(self, document: dict[str, Any]) -> None:
+        from . import _audit, _sha
+        from .native_audit import validate_audit
+
+        self._assert_mutable()
+        raw = json.dumps(document, ensure_ascii=False, allow_nan=False, indent=2)
+        _audit(raw)
+        self._begin()
+        try:
+            scan = dict(self.con.execute("SELECT * FROM scan WHERE singleton=1").fetchone())
+            _insert(
+                self.con,
+                "audit",
+                {
+                    "singleton": 1,
+                    "schema_version": document["schema_version"],
+                    "analyzer_version": scan["writer_version"],
+                    "analyzer_revision": scan["writer_revision"],
+                    "evidence_revision": scan["evidence_revision"],
+                    "document_json": raw,
+                    "sha256": _sha(raw),
+                    "created_at": _utc(),
+                },
+            )
+            validate_audit(self.con, scan, required=True)
+            self.con.commit()
+        except BaseException:
+            self._rollback()
+            raise
+
+    def finish_capture(
+        self, reason: str = "finished", *, timeout_seconds: float = FINALIZATION_TIMEOUT_SECONDS
+    ) -> bool:
+        """Finalize the file independently of collection completeness and audit availability."""
+        self._assert_mutable()
+        if (
+            type(reason) is not str
+            or not reason
+            or not math.isfinite(timeout_seconds)
+            or timeout_seconds <= 0
+        ):
+            raise ScanError("invalid capture finalization reason or deadline")
+        ready = self._finalize_checkpoint(timeout_seconds)
+        self.con.execute("BEGIN IMMEDIATE")
+        try:
+            partial = self.con.execute(
+                "SELECT crawl_partial FROM scan WHERE singleton=1"
+            ).fetchone()[0]
+            pending = self.con.execute(
+                "SELECT 1 FROM frontier WHERE state IN ('queued','inflight') LIMIT 1"
+            ).fetchone()
+            lifecycle = "finished" if ready and not partial and not pending else "interrupted"
+            self.con.execute(
+                "UPDATE scan SET lifecycle=?,finish_reason=?,finished_at=? WHERE singleton=1",
+                (
+                    lifecycle,
+                    reason if ready else "finalization_blocked",
+                    _utc() if lifecycle == "finished" else None,
+                ),
+            )
+            self.con.commit()
+            return ready
+        except BaseException:
+            self._rollback()
+            raise
 
     def finish_without_audit(
         self,

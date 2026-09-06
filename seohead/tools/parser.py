@@ -768,7 +768,84 @@ def extract_hreflang(soup: BeautifulSoup, base_url: str) -> list[dict[str, str]]
     return alternates
 
 
-def _extract_links(
+def _link_cap(options: dict[str, Any] | None, key: str) -> int | None:
+    """Read an opt-in per-document observation cap without changing defaults."""
+    value = (options or {}).get(key)
+    if value is None:
+        return None
+    if type(value) is not int or value < 0:
+        raise ValueError(f"{key} must be a non-negative integer or null")
+    return value
+
+
+def _link_context(
+    soup: BeautifulSoup,
+    *,
+    classify_links: bool,
+    content_area_config: dict[str, Any] | None,
+    position_rules: Any,
+) -> tuple[Any, Any]:
+    if not classify_links:
+        return None, None
+    from seohead.tools.content_area import find_content_root
+    from seohead.tools.link_position import rules_from_config
+
+    content_root, _ = find_content_root(soup, content_area_config)
+    return content_root, rules_from_config(position_rules)
+
+
+def _link_target(tag: Any, base_url: str, final_url: str) -> tuple[str, str, bool] | None:
+    """Return the inexpensive facts needed to count a valid anchor observation."""
+    if _has_ancestor(tag, _INERT_LINK_CONTAINERS):
+        return None
+    href_raw = (cast("str | None", tag.get("href")) or "").strip()
+    if not href_raw:
+        return None
+    lowered = href_raw.lower()
+    if (
+        href_raw.startswith("#")
+        or lowered.startswith("javascript:")
+        or lowered.startswith("mailto:")
+        or lowered.startswith("tel:")
+    ):
+        return None
+    try:
+        href = urljoin(base_url, href_raw)
+    except ValueError:
+        return None
+    return href, href_raw, is_external(href, final_url)
+
+
+def _link_info(
+    tag: Any,
+    href: str,
+    href_raw: str,
+    external: bool,
+    *,
+    classify_links: bool,
+    content_root: Any,
+    rules: Any,
+) -> LinkInfo:
+    rel_attr: str | list[str] = tag.get("rel") or []
+    rel_tokens = rel_attr.split() if isinstance(rel_attr, str) else list(rel_attr)
+    rel_tokens = [token.lower() for token in rel_tokens]
+    entry: LinkInfo = {
+        "href": href,
+        "raw_href": href_raw,
+        "text": collapse_whitespace(tag.get_text(" ")),
+        "rel": " ".join(rel_tokens),
+        "target": (cast("str | None", tag.get("target")) or "").strip(),
+        "nofollow": "nofollow" in rel_tokens,
+        "external": external,
+    }
+    if classify_links:
+        from seohead.tools.link_position import classify_link
+
+        entry["position"] = classify_link(tag, content_root, rules=rules)
+    return entry
+
+
+def _extract_link_observations(
     soup: BeautifulSoup,
     base_url: str,
     final_url: str,
@@ -776,7 +853,8 @@ def _extract_links(
     classify_links: bool = False,
     content_area_config: dict[str, Any] | None = None,
     position_rules: Any = None,
-) -> list[LinkInfo]:
+    cap: int | None = None,
+) -> tuple[list[LinkInfo], dict[str, int] | None]:
     """Collect ``<a href>`` links resolved against ``base_url``.
 
     ``base_url`` resolves the hrefs; ``final_url`` decides what counts as
@@ -799,53 +877,80 @@ def _extract_links(
     absence visible rather than a silently empty string.
     """
     links: list[LinkInfo] = []
-    content_root = None
-    rules = None
-    if classify_links:
-        from seohead.tools.content_area import find_content_root
-        from seohead.tools.link_position import classify_link, rules_from_config
-
-        content_root, _ = find_content_root(soup, content_area_config)
-        rules = rules_from_config(position_rules)
+    total = 0
+    external_total = 0
+    content_root, rules = _link_context(
+        soup,
+        classify_links=classify_links and cap != 0,
+        content_area_config=content_area_config,
+        position_rules=position_rules,
+    )
     for tag in soup.find_all("a"):
-        if _has_ancestor(tag, _INERT_LINK_CONTAINERS):
-            continue  # a <template>-only link is never fetched by a browser or crawler
-        # "href" is single-valued, so this is always a plain string.
-        href_raw = (cast("str | None", tag.get("href")) or "").strip()
-        if not href_raw:
+        target = _link_target(tag, base_url, final_url)
+        if target is None:
             continue
-        lowered = href_raw.lower()
-        if (
-            href_raw.startswith("#")
-            or lowered.startswith("javascript:")
-            or lowered.startswith("mailto:")
-            or lowered.startswith("tel:")
-        ):
-            continue
-        try:
-            abs_href = urljoin(base_url, href_raw)
-        except ValueError:
-            continue
-        rel_attr: str | list[str] = tag.get("rel") or []
-        # BeautifulSoup returns rel as a list; normalize to lowercase tokens.
-        rel_tokens = rel_attr.split() if isinstance(rel_attr, str) else list(rel_attr)
-        rel_tokens = [t.lower() for t in rel_tokens]
-        entry: LinkInfo = {
-            "href": abs_href,
-            "raw_href": href_raw,
-            "text": collapse_whitespace(tag.get_text(" ")),
-            "rel": " ".join(rel_tokens),
-            "target": (cast("str | None", tag.get("target")) or "").strip(),
-            "nofollow": "nofollow" in rel_tokens,
-            "external": is_external(abs_href, final_url),
-        }
-        if classify_links:
-            entry["position"] = classify_link(tag, content_root, rules=rules)
-        links.append(entry)
+        href, href_raw, external = target
+        total += 1
+        external_total += int(external)
+        if cap is None or len(links) < cap:
+            links.append(
+                _link_info(
+                    tag,
+                    href,
+                    href_raw,
+                    external,
+                    classify_links=classify_links,
+                    content_root=content_root,
+                    rules=rules,
+                )
+            )
+    if cap is None:
+        return links, None
+    return links, {
+        "stored": len(links),
+        "total": total,
+        "external_total": external_total,
+        "omitted": total - len(links),
+    }
+
+
+def _extract_links(
+    soup: BeautifulSoup,
+    base_url: str,
+    final_url: str,
+    *,
+    classify_links: bool = False,
+    content_area_config: dict[str, Any] | None = None,
+    position_rules: Any = None,
+) -> list[LinkInfo]:
+    links, _ = _extract_link_observations(
+        soup,
+        base_url,
+        final_url,
+        classify_links=classify_links,
+        content_area_config=content_area_config,
+        position_rules=position_rules,
+    )
     return links
 
 
-def _extract_forms(soup: BeautifulSoup, base_url: str, final_url: str) -> list[FormInfo]:
+def _form_info(tag: Any, base_url: str, final_url: str) -> FormInfo:
+    method = (cast("str | None", tag.get("method")) or "get").strip().lower()
+    action_raw = (cast("str | None", tag.get("action")) or "").strip()
+    try:
+        action = urljoin(base_url, action_raw) if action_raw else final_url
+    except ValueError:
+        action = final_url
+    return {
+        "method": method,
+        "action": action,
+        "has_password": tag.find("input", attrs={"type": _ci("password")}) is not None,
+    }
+
+
+def _extract_form_observations(
+    soup: BeautifulSoup, base_url: str, final_url: str, *, cap: int | None = None
+) -> tuple[list[FormInfo], int]:
     """Collect ``<form>`` elements: method, resolved action, and whether a password field
     is present (issue #125 — a form is otherwise invisible to every check downstream).
 
@@ -859,17 +964,18 @@ def _extract_forms(soup: BeautifulSoup, base_url: str, final_url: str) -> list[F
     insecure-action or password-over-HTTP finding on a target nothing ever posts to.
     """
     forms: list[FormInfo] = []
+    total = 0
     for tag in soup.find_all("form"):
         if _has_ancestor(tag, _INERT_LINK_CONTAINERS):
             continue  # a <template>-only form is never submitted, see _INERT_LINK_CONTAINERS
-        method = (cast("str | None", tag.get("method")) or "get").strip().lower()
-        action_raw = (cast("str | None", tag.get("action")) or "").strip()
-        try:
-            action = urljoin(base_url, action_raw) if action_raw else final_url
-        except ValueError:
-            action = final_url
-        has_password = tag.find("input", attrs={"type": _ci("password")}) is not None
-        forms.append({"method": method, "action": action, "has_password": has_password})
+        total += 1
+        if cap is None or len(forms) < cap:
+            forms.append(_form_info(tag, base_url, final_url))
+    return forms, total - len(forms)
+
+
+def _extract_forms(soup: BeautifulSoup, base_url: str, final_url: str) -> list[FormInfo]:
+    forms, _ = _extract_form_observations(soup, base_url, final_url)
     return forms
 
 
@@ -1080,6 +1186,8 @@ def parse_html(html: str, final_url: str, options: dict[str, Any] | None = None)
     ``final_url`` is used to resolve relative links and the canonical URL.
     """
     opts = _resolve_options(options)
+    link_cap = _link_cap(options, "max_link_observations")
+    form_cap = _link_cap(options, "max_form_observations")
     soup = BeautifulSoup(html, features="lxml")
     # Everything that turns markup into absolute URLs resolves against the
     # document base, not the page URL: see document_base_url.
@@ -1154,19 +1262,40 @@ def parse_html(html: str, final_url: str, options: dict[str, Any] | None = None)
     if opts["links"]:
         content_config = options.get("content_area") if isinstance(options, dict) else None
         position_rules = options.get("link_position_rules") if isinstance(options, dict) else None
-        result["links"] = _extract_links(
-            soup,
-            base_url,
-            final_url,
-            classify_links=opts["classify_links"],
-            content_area_config=content_config,
-            position_rules=position_rules,
-        )
+        if link_cap is None:
+            result["links"] = _extract_links(
+                soup,
+                base_url,
+                final_url,
+                classify_links=opts["classify_links"],
+                content_area_config=content_config,
+                position_rules=position_rules,
+            )
+        else:
+            links, observation = _extract_link_observations(
+                soup,
+                base_url,
+                final_url,
+                classify_links=opts["classify_links"],
+                content_area_config=content_config,
+                position_rules=position_rules,
+                cap=link_cap,
+            )
+            result["links"] = links
+            result["link_observation"] = observation
     else:
         result["links"] = []
     # Cheap regardless of site size: forms are rare compared to links, so — unlike
     # classify_links — there is no per-crawl memory concern that would justify an opt-out.
-    result["forms"] = _extract_forms(soup, base_url, final_url) if opts["forms"] else []
+    if opts["forms"]:
+        if form_cap is None:
+            result["forms"] = _extract_forms(soup, base_url, final_url)
+        else:
+            forms, omitted = _extract_form_observations(soup, base_url, final_url, cap=form_cap)
+            result["forms"] = forms
+            result["forms_omitted"] = omitted
+    else:
+        result["forms"] = []
     # url_sources covers carriers beyond a[href] (srcset, ping, formaction,
     # cite, meta-refresh, itemtype). It is off by default to preserve the links contract.
     if opts["url_sources"]:

@@ -83,6 +83,7 @@ def _substitute(raw: str, base_url: str) -> str:
     host = base_url.split("//", 1)[1]
     # Longer / prefixed patterns first, so a bare fallback cannot half-rewrite one.
     replacements = [
+        ("SOURCE_SHA", "1" * 40),
         ("https://example-msk.example", base_url),
         ("https://example-spb.example", base_url),
         ("https://donor1.example", base_url),
@@ -151,7 +152,7 @@ def _seed_scan_inputs(tmp_path: Path) -> None:
     scan = import_run(
         source, tmp_path / "scan.sqlite", producer_build="1" * 40, effective_config=original_config
     )
-    for name in ("before.sqlite", "after.sqlite"):
+    for name in ("before.sqlite", "after.sqlite", "native.sqlite"):
         shutil.copyfile(scan, tmp_path / name)
 
 
@@ -192,7 +193,7 @@ def test_documented_command_executes_or_at_least_still_parses(
     from seohead.cli import main as cli_main
 
     _seed_workdir(tmp_path, fixture_site)
-    if any(".sqlite" in value for value in argv):
+    if any(".sqlite" in value for value in argv) and "--scan-out" not in argv:
         _seed_scan_inputs(tmp_path)
     if command.source.name == "robots-blocked.md":
         (tmp_path / "config.json").write_text(
