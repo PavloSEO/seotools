@@ -293,6 +293,7 @@ def test_csv_writes_scope_evidence_without_polluting_tracker_findings(tmp_path):
     assert result["ok"], result
     assert result["outputs"] == [
         str(target),
+        str(target.with_suffix(".pages.csv")),
         str(target.with_suffix(".scope.csv")),
     ]
 
@@ -330,11 +331,37 @@ def test_csv_writes_scope_evidence_without_polluting_tracker_findings(tmp_path):
     ]
 
 
-def test_clean_csv_has_an_empty_scope_sidecar(tmp_path):
-    """A fresh clean report cannot retain caveats from an earlier write to the same path."""
+def test_clean_csv_replaces_stale_scope_and_page_rows(tmp_path):
+    """A new empty report must not advertise data from a previous output at the same path."""
     target = tmp_path / "clean.csv"
-    result = build_report(SF_DOCUMENT, fmt="csv", path=str(target))
+    previous = copy.deepcopy(_PARTIAL_SF_AUDIT)
+    assert build_report(previous, fmt="csv", path=str(target))["ok"]
+
+    clean = copy.deepcopy(SF_DOCUMENT)
+    clean["pages"] = []
+    result = build_report(clean, fmt="csv", path=str(target))
     assert result["ok"], result
+    assert result["outputs"] == [
+        str(target),
+        str(target.with_suffix(".pages.csv")),
+        str(target.with_suffix(".scope.csv")),
+    ]
+    with target.with_suffix(".pages.csv").open(encoding="utf-8-sig", newline="") as fh:
+        assert list(csv.reader(fh, delimiter=";")) == [
+            [
+                "url",
+                "status",
+                "title",
+                "title_length",
+                "description_length",
+                "h1",
+                "canonical",
+                "words",
+                "schema_types",
+                "schema_errors",
+                "social_missing",
+            ]
+        ]
     with target.with_suffix(".scope.csv").open(encoding="utf-8-sig", newline="") as fh:
         assert list(csv.reader(fh, delimiter=";")) == [
             ["Evidence type", "Identifier", "Status", "Reason"]

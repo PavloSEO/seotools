@@ -43,7 +43,7 @@ Three audiences, one source document:
 |---|---|
 | `docx` | the client — an executive summary (counts, unavailable checks) followed by evidence, not a generated conclusion or recommendation |
 | `xlsx` | the SEO — four sheets, filters, a chart |
-| `csv` | separate finding, scope-evidence, and (when present) page tables — a flat export, not a grouped backlog |
+| `csv` | separate finding, scope-evidence, and page tables — a flat export, not a grouped backlog |
 | `md` | the repository, or another agent |
 
 `report-build` only renders an audit document (`findings`+`pages`, or the SF `issues`+`pages`

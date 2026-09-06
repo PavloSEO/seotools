@@ -1,8 +1,8 @@
 """Write flat CSV records for a task tracker or downstream database.
 
-One file represents one entity, so the renderer writes adjacent files:
-``<name>.csv`` contains findings, ``<name>.pages.csv`` contains page facts when
-they exist, and ``<name>.scope.csv`` contains run-evidence caveats. Mixing
+One file represents one entity, so the renderer writes three adjacent files:
+``<name>.csv`` contains findings, ``<name>.pages.csv`` contains page facts, and
+``<name>.scope.csv`` contains run-evidence caveats. Mixing
 different entities into a single table produces an ambiguous file that is difficult
 or impossible to import reliably.
 
@@ -91,24 +91,22 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
         for row in scope_rows:
             writer.writerow([neutralize_formula(value) for value in row])
 
-    pages = document.get("pages") or []
-    if pages:
-        columns = [
-            "url",
-            "status",
-            "title",
-            "title_length",
-            "description_length",
-            "h1",
-            "canonical",
-            "words",
-            "schema_types",
-            "schema_errors",
-            "social_missing",
-        ]
-        pages_path = path.with_suffix(".pages.csv")
-        with pages_path.open("w", encoding="utf-8-sig", newline="") as fh:
-            writer = csv.writer(fh, delimiter=";")
-            writer.writerow(columns)
-            for page in pages:
-                writer.writerow([neutralize_formula(page.get(c, "")) for c in columns])
+    columns = [
+        "url",
+        "status",
+        "title",
+        "title_length",
+        "description_length",
+        "h1",
+        "canonical",
+        "words",
+        "schema_types",
+        "schema_errors",
+        "social_missing",
+    ]
+    pages_path = path.with_suffix(".pages.csv")
+    with pages_path.open("w", encoding="utf-8-sig", newline="") as fh:
+        writer = csv.writer(fh, delimiter=";")
+        writer.writerow(columns)
+        for page in document.get("pages") or []:
+            writer.writerow([neutralize_formula(page.get(c, "")) for c in columns])

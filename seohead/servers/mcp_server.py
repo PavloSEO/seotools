@@ -569,7 +569,7 @@ def build_server():  # -> FastMCP
         schemas are recognized and normalized before
         rendering. xlsx has four sheets with filters and a live Excel chart — for work;
         docx is prose with headings — for the client; csv writes separate findings,
-        scope-evidence, and (when present) page tables for a tracker, listed under outputs;
+        scope-evidence, and page tables for a tracker, listed under outputs;
         md is for reading and for git. The generators compute nothing and reach no network:
         what is not in the JSON does not appear in the report. A document matching neither
         schema is refused with ok: false naming the mismatch, never rendered as an empty report."""
