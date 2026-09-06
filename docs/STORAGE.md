@@ -23,7 +23,6 @@ python -m seohead.storage export-run scan.sqlite --out-dir NEW_DIR
 seohead report-build --audit scan.sqlite --format md --out report.md
 seohead compare-crawls --before before.sqlite --after after.sqlite
 seohead sf tasks --json scan.sqlite --out tasks
-seohead scan reanalyze --input old.sqlite --out derived.sqlite --producer-build SHA
 ```
 
 `--producer-build` names the build that produced `RUN_DIR`. It is required because current legacy
@@ -69,6 +68,14 @@ import is refused; if both exist they must agree. The importer records no separa
 importer-version field because `scan.v1` has no such column.
 
 ## Offline reanalysis
+
+```bash
+seohead scan reanalyze --input old.sqlite --out derived.sqlite --producer-build SOURCE_SHA
+```
+
+Here `SOURCE_SHA` is the full lowercase Git SHA of the **current analyzer build**.
+The source artifact already records the original capture build. Reanalysis needs
+retained inputs; a legacy import with no response bodies cannot supply them.
 
 The `scan reanalyze` CLI subcommand creates a new
 derived scan from a Backup API copy of retained evidence. It never overwrites the
