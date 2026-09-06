@@ -325,25 +325,73 @@ def _segment_counts(
 ) -> dict[str, dict[str, int]]:
     """Page and issue counts per named segment (#358).
 
-    Every URL is assigned to exactly one segment -- a declared one, or the
-    built-in "default" -- via the same ``Scope`` rules that (optionally) also
-    restrict what gets fetched, so these counts always sum to the ungrouped
-    totals reported elsewhere in the same audit.
-    """
-    from seohead.crawl.spider import Scope
+    Every page and every issue -- including an audit-wide finding with no
+    single ``target_url``, such as ``TITLE_TEMPLATED`` -- is assigned to
+    exactly one bucket: a declared segment, or the built-in "default", so
+    these counts always sum to the ungrouped totals reported elsewhere in
+    the same audit (#441).
 
-    rules = Scope.from_config(scope_config)
+    The bucketing itself is delegated to ``sf.core.segments.segment_report``,
+    the tested engine that already carries this exact invariant (#456),
+    rather than re-deriving it here with ``Scope.segment_for`` alone, which
+    only ever looked at issues that had a ``target_url``.
+    """
+    from urllib.parse import urlsplit
+
+    from seohead.crawl.spider import Scope
+    from seohead.sf.core.segments import UNSEGMENTED, assign_segments
+
+    scope_rules = Scope.from_config(scope_config)
+    if not scope_rules.segments:
+        return {}
+
+    engine_segments = [
+        {
+            "name": rule.name,
+            "rules": [
+                r
+                for r in (
+                    {"op": "prefix", "field": "path", "value": rule.prefix}
+                    if rule.prefix
+                    else None,
+                    {"op": "eq", "field": "host", "value": rule.host} if rule.host else None,
+                    {"op": "regex", "field": "url", "value": rule.pattern.pattern}
+                    if rule.pattern
+                    else None,
+                )
+                if r is not None
+            ],
+        }
+        for rule in scope_rules.segments
+    ]
+
+    def record(url: str) -> dict[str, str]:
+        parts = urlsplit(url)
+        return {"url": url, "path": parts.path, "host": (parts.hostname or "").lower()}
+
+    def bucket(name: str | None) -> dict[str, int]:
+        bucket_name = "default" if name in (None, UNSEGMENTED) else name
+        return counts.setdefault(bucket_name, {"pages": 0, "issues": 0})
+
     counts: dict[str, dict[str, int]] = {}
 
-    def bucket(name: str) -> dict[str, int]:
-        return counts.setdefault(name, {"pages": 0, "issues": 0})
+    # Pages decide segment membership; no rule here references another segment
+    # (op="segment"), so an issue's target can be classified on its own,
+    # against the same rule set, without needing to belong to the page pool.
+    page_records = [record(page.url) for page in pages]
+    page_primary = assign_segments(page_records, engine_segments)["primary"]
+    for page_record in page_records:
+        bucket(page_primary.get(page_record["url"]))["pages"] += 1
 
-    for page in pages:
-        bucket(rules.segment_for(page.url))["pages"] += 1
     for issue in issues:
         target = issue.get("target_url")
         if target:
-            bucket(rules.segment_for(target))["issues"] += 1
+            issue_primary = assign_segments([record(target)], engine_segments)["primary"]
+            bucket(issue_primary.get(target))["issues"] += 1
+        else:
+            # An audit-wide finding with no single target still counts
+            # somewhere, so segment sums keep matching issues_total (#441).
+            bucket(None)["issues"] += 1
     return counts
 
 
