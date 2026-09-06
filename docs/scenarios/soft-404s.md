@@ -21,10 +21,10 @@ thing that is wrong.
 seohead soft404-check --url https://example.com/this-page-cannot-exist
 ```
 
-The probe is the whole method: two randomised paths under `/.well-known/` that no site could
-legitimately route, requested and observed. If a URL nobody has ever published answers 200, then
-every mistyped, stale or invented URL on the site does too — which is an unbounded set of
-indexable, empty pages.
+The probe is the whole method: two deterministic, unguessable root paths that are requested and
+observed. They avoid special prefixes such as `/.well-known/`, because static middleware can own
+those prefixes before an application's fallback route sees them. A 200 is evidence that the host
+served one of these unpublished paths as content; the printed URLs make that evidence repeatable.
 
 **2. Read the verdict and the evidence together.**
 
@@ -32,7 +32,7 @@ indexable, empty pages.
 {
   "verdict": "warning",
   "probes": [
-    {"url": "https://example.com/.well-known/seo-audit/not-found-9afcba6dff63-1",
+    {"url": "https://example.com/seo-audit-not-found-9afcba6dff63-1",
      "status": 200, "redirected": false}
   ],
   "findings": [
