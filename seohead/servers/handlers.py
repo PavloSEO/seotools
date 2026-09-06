@@ -358,6 +358,8 @@ def crawl_site(
     robots: str | None = None,
     out_dir: str | None = None,
     sitemap: str | None = None,
+    scan_out: str | None = None,
+    producer_build: str | None = None,
 ) -> dict[str, Any]:
     """Crawl a site from a start URL, or fetch an explicit list, then audit it.
 
@@ -379,25 +381,12 @@ def crawl_site(
     rather than guess at a default sitemap location.
     """
     import contextlib
-    import json
     import os
-    from datetime import datetime, timezone
-    from urllib.parse import urlsplit
 
     from seohead.crawl import cache as http_cache
     from seohead.crawl import settings as crawl_config
     from seohead.crawl.collect import collect_urls
-    from seohead.crawl.evidence import build_evidence
-    from seohead.crawl.reconcile import reconcile_sitemap
     from seohead.crawl.spider import crawl_site as _spider
-    from seohead.sf.config import load_config
-    from seohead.sf.core.aggregate import aggregate
-    from seohead.sf.core.context import AuditContext
-    from seohead.sf.core.heuristics import run_heuristics
-    from seohead.sf.core.inlinks import run_inlinks
-    from seohead.sf.core.loader import LoadedExports
-    from seohead.sf.core.rules import run_rules
-    from seohead.sf.core.sitemap_coverage import run_sitemap
 
     if not url and not urls:
         raise ValueError("url or urls required")
@@ -414,6 +403,22 @@ def crawl_site(
             "output.dir": out_dir,
         },
     )
+    if scan_out:
+        if not url or urls:
+            raise ValueError(
+                "SQLite scan mode requires a start URL; list mode remains directory-based"
+            )
+        if out_dir or settings["output"]["dir"]:
+            raise ValueError("scan_out and a legacy output directory cannot be combined")
+        from seohead.servers.scan_handlers import crawl_site_scan
+
+        return crawl_site_scan(
+            url,
+            scan_out=scan_out,
+            settings=settings,
+            sitemap=sitemap,
+            producer_build=producer_build,
+        )
     out_dir = settings["output"]["dir"] or None
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
@@ -567,6 +572,47 @@ def crawl_site(
             "directive_policy": settings["robots"]["policy"],
             "robots_blocked": len(result.robots_blocked),
         }
+
+    response, _audit = _audit_crawl_result(
+        result,
+        settings=settings,
+        url=url,
+        sitemap_seed=sitemap_seed,
+        discovery=discovery,
+        out_dir=out_dir,
+        pages_resume_path=pages_resume_path,
+    )
+    return response
+
+
+def _audit_crawl_result(
+    result,
+    *,
+    settings,
+    url,
+    sitemap_seed,
+    discovery,
+    out_dir=None,
+    pages_resume_path=None,
+    finite_json=False,
+):
+    """Run the existing native analysis over a complete, admitted population."""
+    import json
+    import os
+    from datetime import datetime, timezone
+    from urllib.parse import urlsplit
+
+    from seohead.crawl import settings as crawl_config
+    from seohead.crawl.evidence import build_evidence
+    from seohead.crawl.reconcile import reconcile_sitemap
+    from seohead.sf.config import load_config
+    from seohead.sf.core.aggregate import aggregate
+    from seohead.sf.core.context import AuditContext
+    from seohead.sf.core.heuristics import run_heuristics
+    from seohead.sf.core.inlinks import run_inlinks
+    from seohead.sf.core.loader import LoadedExports
+    from seohead.sf.core.rules import run_rules
+    from seohead.sf.core.sitemap_coverage import run_sitemap
 
     requires_rendering = False
     requires_rendering_reason = ""
@@ -808,7 +854,11 @@ def crawl_site(
             # Resolved values of every setting that can change what was found.
             # Without these two reports on the same site are not comparable.
             "crawl_config": crawl_config.manifest(settings),
-            "effective_max_requests_per_second": crawl_config.effective_request_rate(settings),
+            "effective_max_requests_per_second": (
+                "unbounded"
+                if finite_json and settings["speed"]["min_delay_seconds"] == 0
+                else crawl_config.effective_request_rate(settings)
+            ),
             # "The site is fine" and "the site was fine when we last looked" are different
             # claims — cache_replay says which one this report can support, and cache_stats
             # says how much of the corpus was measured now versus remembered.
@@ -856,7 +906,7 @@ def crawl_site(
             )
             tasks_written = {"tasks_json": json_path, "tasks_md": md_path}
 
-    return {
+    response = {
         "urls_collected": len(result.pages),
         "tasks": tasks_written,
         "partial": result.partial,
@@ -879,6 +929,8 @@ def crawl_site(
         "requires_rendering_reason": requires_rendering_reason,
         "render_escalation": render_summary,
     }
+
+    return response, audit
 
 
 def crawl_describe_settings() -> dict[str, Any]:

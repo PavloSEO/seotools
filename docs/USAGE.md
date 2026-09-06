@@ -18,6 +18,21 @@ seohead report-build --audit audit.json --format docx --out client.docx
 `--limit` caps the pages parsed (default 25); URLs come from the sitemap
 unless `--urls` is given. Any format: `xlsx`, `docx`, `csv`, `md`, `json`.
 
+## Native SQLite crawl (opt-in)
+
+```bash
+# Replace SOURCE_SHA with the actual crawler build's full source commit SHA
+seohead crawl-site --url https://example.com --max-urls 50 --scan-out native.sqlite --producer-build SOURCE_SHA
+seohead report-build --audit native.sqlite --format md --out native-report.md
+```
+
+The default crawl output remains a directory. SQLite mode keeps queue, evidence
+and runtime in one transactional scan and resumes an interrupted file under the
+same build/configuration. It currently retains no response bodies and requires
+raw rendering, cache off and credential-free configuration. Audit creation has an explicit compatibility guard;
+check `audit_available` before requesting a report. See [STORAGE.md](STORAGE.md)
+for limits, provenance, interrupted-file handling and missing evidence.
+
 ## Saved scan artifact
 
 ```bash

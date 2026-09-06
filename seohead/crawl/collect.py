@@ -200,6 +200,7 @@ def _first_heading(parsed: dict, level: str, index: int = 0) -> str:
 def _record_from_parsed(parsed: dict) -> dict[str, Any]:
     og = parsed.get("og") or {}
     links = parsed.get("links") or []
+    link_observation = parsed.get("link_observation") or {}
     position = parsed.get("position") or {}
     # Only the frames inside the content area: an iframe in a footer is a widget,
     # an iframe where the copy should be is the page's content (#360).
@@ -221,8 +222,12 @@ def _record_from_parsed(parsed: dict) -> dict[str, Any]:
         "word_count": int(parsed.get("word_count") or 0),
         "content_frames": len(framed),
         "content_frames_same_origin": len([f for f in framed if f.get("same_origin")]),
-        "outlinks": len(links),
-        "external_outlinks": len([link for link in links if link.get("external")]),
+        "outlinks": int(link_observation.get("total", len(links))),
+        "external_outlinks": int(
+            link_observation.get(
+                "external_total", len([link for link in links if link.get("external")])
+            )
+        ),
         "charset": _text_of(parsed.get("charset")),
         "doctype": _text_of(parsed.get("doctype")),
         "viewport": _text_of(parsed.get("viewport")),

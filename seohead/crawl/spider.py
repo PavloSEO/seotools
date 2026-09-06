@@ -323,6 +323,92 @@ def _read_links_jsonl(path: str) -> list[LinkEdge]:
     return edges
 
 
+def form_edges(parsed: dict[str, Any] | None, source_url: str) -> tuple[list[FormEdge], int]:
+    """Translate the parser's retained form observations without side effects.
+
+    The optional omitted count is emitted only by the SQLite collector's opt-in
+    parser cap. Legacy parsing has no such key and therefore keeps its current
+    complete list and zero omitted forms.
+    """
+    forms = [
+        FormEdge(
+            page=source_url,
+            method=form.get("method") or "get",
+            action=form.get("action") or "",
+            has_password=bool(form.get("has_password")),
+        )
+        for form in (parsed or {}).get("forms") or []
+    ]
+    omitted = int((parsed or {}).get("forms_omitted") or 0)
+    return forms, omitted
+
+
+def apply_document_links(
+    parsed: dict[str, Any] | None,
+    source_url: str,
+    depth: int,
+    *,
+    depth_limit: int,
+    host: str,
+    rejection: Callable[[str, str], str],
+    discover: Callable[[str, int, str], str | None],
+    store_hyperlinks: bool,
+    store_external_links: bool,
+    crawl_hyperlinks: bool,
+    follow_nofollow: bool,
+    capture_link_attributes: bool,
+    record_edge: Callable[[LinkEdge], None],
+    reject: Callable[[str, str | None], None],
+    mark_link_partial: Callable[[int], None],
+) -> None:
+    """Apply one parsed document's link observations in crawler order.
+
+    ``discover`` owns stateful query reservation and identity deduplication. It
+    is deliberately called after storage, discovery and nofollow gates: moving
+    it earlier spends a query-variant slot on a link that was never eligible to
+    reach the frontier (#193). The legacy crawler supplies its deque/set closure;
+    the SQLite adapter supplies one transaction-local reservation callback.
+    """
+    if parsed is None:
+        return
+    if depth >= depth_limit:
+        reject("depth_limit", None)
+        return
+    for link in parsed.get("links") or []:
+        href = (link.get("href") or "").strip()
+        if not href:
+            continue
+        target = _strip_fragment(href)
+        nofollow = bool(link.get("nofollow"))
+        scope_reason = rejection(target, host)
+        is_external = scope_reason == "outside_host"
+        if store_external_links if is_external else store_hyperlinks:
+            edge = LinkEdge(
+                source=source_url,
+                destination=href,
+                anchor=(link.get("text") or "")[:200],
+                nofollow=nofollow,
+                position=link.get("position") or "",
+            )
+            if capture_link_attributes:
+                edge.rel = tuple((link.get("rel") or "").split())
+                edge.target = link.get("target") or ""
+                edge.raw_href = link.get("raw_href") or ""
+            record_edge(edge)
+        if not crawl_hyperlinks:
+            reject("hyperlink_discovery_off", href)
+            continue
+        if nofollow and not follow_nofollow:
+            reject("nofollow", href)
+            continue
+        reason = scope_reason or discover(target, depth + 1, href)
+        if reason:
+            reject(reason, href)
+    omitted = int((parsed.get("link_observation") or {}).get("omitted") or 0)
+    if omitted:
+        mark_link_partial(omitted)
+
+
 @dataclass(frozen=True)
 class SegmentRule:
     """One named segment: matches a URL by path prefix, exact host, or a regex over
@@ -881,78 +967,43 @@ def crawl_site(
                         queue.append((target, depth + 1))
 
         def handle_links(parsed: dict[str, Any] | None, url: str, depth: int) -> None:
-            if parsed is None:
-                return
-            if depth >= depth_limit:
-                exclude("depth_limit")
-                return
-            # Document order, not sorted: a truncated crawl must sample the page
-            # as the page is written, not alphabetically.
-            for link in parsed.get("links") or []:
-                href = (link.get("href") or "").strip()
-                if not href:
-                    continue
-                # The frontier and PageRecord identity never see the fragment — it
-                # selects nothing on the server, so a fragment-only variant of a
-                # page must not become its own queued request (#194). ``href`` on
-                # the stored edge below stays exactly as written, since that is
-                # what the page actually links to.
-                target = _strip_fragment(href)
-                nofollow = bool(link.get("nofollow"))
-                # Scope alone: no side effect, unlike extra_rejection below, so it is
-                # safe to compute before the nofollow/discovery gates decide whether
-                # this link may reach extra_rejection at all.
-                scope_reason = rules.rejection(target, host)
-                is_external = scope_reason == "outside_host"
-                # "store" and "crawl" are independent questions: an edge that will not be
-                # enqueued below is still real evidence of what the page links to. Both are
-                # on by default; turning a store off makes the report smaller, not different.
-                store_this = store_external_links if is_external else store_hyperlinks
-                if store_this:
-                    edge = LinkEdge(
-                        source=url,
-                        destination=href,
-                        anchor=(link.get("text") or "")[:200],
-                        nofollow=nofollow,
-                        position=link.get("position") or "",
-                    )
-                    if capture_link_attributes:
-                        edge.rel = tuple((link.get("rel") or "").split())
-                        edge.target = link.get("target") or ""
-                        edge.raw_href = link.get("raw_href") or ""
-                    result.links.append(edge)
-                    _write_link(links_handle, edge)
-                if not crawl_hyperlinks:
-                    exclude("hyperlink_discovery_off", href)
-                    continue
-                if nofollow and not follow_nofollow:
-                    exclude("nofollow", href)
-                    continue
-                # extra_rejection spends a query-variant slot the instant it runs
-                # (see its own docstring above), so it must be the last check before
-                # enqueueing — a link already rejected, or one that will never be
-                # dispatched because it is nofollow or discovery is off, must never
-                # have paid for that slot (#193).
-                reason = scope_reason or extra_rejection(target)
+            def discover(target: str, next_depth: int, _requested_url: str) -> str | None:
+                reason = extra_rejection(target)
                 if reason:
-                    exclude(reason, href)
-                    continue
+                    return reason
                 key = _canonical_key(target)
-                if key in seen:
-                    continue
-                seen.add(key)
-                queue.append((target, depth + 1))
+                if key not in seen:
+                    seen.add(key)
+                    queue.append((target, next_depth))
+                return None
+
+            def record_edge(edge: LinkEdge) -> None:
+                result.links.append(edge)
+                _write_link(links_handle, edge)
+
+            apply_document_links(
+                parsed,
+                url,
+                depth,
+                depth_limit=depth_limit,
+                host=host,
+                rejection=rules.rejection,
+                discover=discover,
+                store_hyperlinks=store_hyperlinks,
+                store_external_links=store_external_links,
+                crawl_hyperlinks=crawl_hyperlinks,
+                follow_nofollow=follow_nofollow,
+                capture_link_attributes=capture_link_attributes,
+                record_edge=record_edge,
+                reject=exclude,
+                mark_link_partial=lambda omitted: exclude("link_observations_limit"),
+            )
 
         def handle_forms(parsed: dict[str, Any] | None, url: str) -> None:
-            for form in (parsed or {}).get("forms") or []:
-                result.forms.append(
-                    FormEdge(
-                        page=url,
-                        method=form.get("method") or "get",
-                        action=form.get("action") or "",
-                        has_password=bool(form.get("has_password")),
-                    )
-                )
+            forms, omitted = form_edges(parsed, url)
+            result.forms.extend(forms)
+            if omitted:
+                exclude("form_observations_limit")
 
         def after_fetch(
             url: str, depth: int, record: PageRecord, parsed: dict[str, Any] | None

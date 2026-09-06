@@ -14,7 +14,7 @@ from .exports import export_run
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Import and inspect scan.v1 legacy artifacts (no bodies)"
+        description="Import and inspect scan.v1 artifacts (no retained bodies)"
     )
     commands = parser.add_subparsers(dest="command", required=True)
     importer = commands.add_parser(
@@ -59,13 +59,17 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "export-run":
             result = export_run(args.source, args.out_dir)
         elif args.command == "inspect":
-            con = open_scan(args.source)
+            con = open_scan(args.source, require_audit=False)
             try:
                 result = {
                     "ok": True,
                     "scan": dict(con.execute("SELECT * FROM scan").fetchone()),
                     "pages": con.execute("SELECT COUNT(*) FROM pages").fetchone()[0],
                     "links": con.execute("SELECT COUNT(*) FROM links").fetchone()[0],
+                    "audit_available": con.execute(
+                        "SELECT 1 FROM audit WHERE singleton=1"
+                    ).fetchone()
+                    is not None,
                 }
             finally:
                 con.close()

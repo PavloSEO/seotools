@@ -6,9 +6,9 @@ and its identity is also recorded as `application_id=1397051208` (`SEOH`) and
 `user_version=1`. A reader must require all three identifiers to agree before it
 treats a file as a scan artifact.
 
-The legacy foundation imports an existing crawl directory into a portable file,
-reopens its stored audit without fetching again, and exports compatible legacy
-observations again. It does not change the existing crawler or directory workflow.
+The legacy importer packages an existing crawl directory. Native crawling can
+also write directly to SQLite with `crawl-site --scan-out`; the default remains
+the existing directory workflow. Both retain the existing audit/report contract.
 Use one file per imported run; do not merge runs or write an imported artifact
 concurrently.
 
@@ -102,9 +102,8 @@ The current legacy importer and native storage core retain no bodies: `bodies`,
 `responses`, `documents`, and `resource_refs` are future schema lanes and are not populated by the legacy
 importer. Its only populated `context_items` lane is
 `legacy_import_provenance`; it exports no restore checkpoint or equivalent resume
-state. Body access, retained-resource access, native SQLite collection, resume,
-and offline reanalysis are all reported as unavailable until their later slices
-land.
+state. Native collection and resume use their own validated lanes; body access,
+retained-resource access, and offline reanalysis remain unavailable.
 
 The `pages` projection follows the prerelease `crawl.v1` `PageRecord`, including
 `content_frames`, `content_frames_same_origin`, ordered `hreflang_json`, and
@@ -231,7 +230,7 @@ its WAL/SHM beside it and treat lifecycle/partialness as part of the evidence.
 Future format changes use an explicit migration into a new file; readers do not
 silently add columns or reinterpret a newer version.
 
-## Point A boundaries
+## Legacy import boundaries
 
 The importer accepts current `crawl.v1` PageRecord/LinkEdge fields and a validated
 `audit.json` schema `2.0`. Nonstandard JSON numbers (`NaN`/`Infinity`) are
@@ -241,9 +240,9 @@ link occurrences. Only one physically truncated final JSONL record may be
 recovered, with partialness recorded; it must not hide a missing audit page.
 
 The reader validates the exact schema, foreign keys, scalar/JSON types, revision,
-page population, ordering and audit digest in one read transaction. It currently
-refuses populated future lanes rather than implying it can validate their
-evidence. This verifies consistency, not authenticity or protection from an
+page population, ordering and audit digest in one read transaction. For a legacy import it
+refuses populated native lanes; native files have a separate validator for their
+collection state and current audit. This verifies consistency, not authenticity or protection from an
 editor who can recompute a checksum. No Merkle tree, signature or key management
 is provided.
 
@@ -259,23 +258,95 @@ creation/ZIP timestamps are held equal in both test branches. Normal independent
 Office builds can differ in timestamps even for the same original audit.
 
 These are opt-in storage entry points and artifact inputs for the additive
-foundation. Existing `seohead crawl-site` keeps its directory workflow. No live
-SQLite collection, resume, migration, body retention, resource fetch, replay,
-reanalysis, pruning, SQL-backed graph work, or memory-ceiling improvement is
-delivered here. Audit-level findings and context already saved in the exact audit
+foundation. Existing `seohead crawl-site` keeps its directory workflow. The legacy importer provides no native resume state. Migration, body retention,
+resource fetch, replay, reanalysis, pruning, and SQL-backed analyzer work remain
+unavailable. Audit-level findings and context already saved in the exact audit
 remain available; the missing raw crawl corpus cannot be reconstructed from the
 three exported files.
 
-## Native transaction core (Point C)
+## Native collection (opt-in)
+
+```bash
+# SOURCE_SHA is the full commit SHA of the crawler build producing this run
+seohead crawl-site --url https://example.com --max-urls 50 --scan-out native.sqlite --producer-build SOURCE_SHA
+seohead report-build --audit native.sqlite --format md --out native-report.md
+```
+
+Replace `SOURCE_SHA` with the actual 40-character lowercase source SHA. A clean
+source checkout can determine its own revision when `--producer-build` is omitted;
+a wheel without source-revision metadata needs it explicitly. A dirty checkout
+is not described as a clean build. The producing version/revision, runtime
+versions, full effective configuration and result-affecting fingerprint are stored
+in the scan. A different configuration or producing build refuses resume.
+
+`python -m seohead.storage inspect native.sqlite` also validates a capture with
+no audit and reports `audit_available`; report commands still require an audit.
+Repeat the same command/path to resume an interrupted scan. A finished file is
+immutable and cannot be overwritten or resumed for writing. Use a new destination
+for a new run. `--scan-out` cannot be combined with `--out-dir` or URL-list mode;
+SQLite mode currently requires `cache.mode=off`, raw rendering and a
+credential-free configuration; authenticated crawling remains in directory mode
+until redacted native credential provenance is supported. The MCP
+`seo_crawl_site` exposes the same `scan_out` and `producer_build` parameters.
+Response bodies are **not retained**, including the raw start-page HTML used
+transiently by the first-run rendering gate.
+
+The collector keeps only its bounded worker batch and page observations in
+Python; page/link/form records, seen identities, queue, query variants and
+recovery state live in SQLite. Parser caps retain at most 20,000 link observations and 2,000 form observations
+per page. Full valid link totals remain PageRecord measurements;
+omitted occurrences/discovery produce an explicit partial state. Seeds and query
+reservations retain legacy ordering, including the different seen/query order
+for sitemap seeds and ordinary links. Interrupted work can be fetched again;
+committed pages are not issued again.
+
+Before the SQL graph/analyzer children land, the existing analyzer runs only for
+at most 5,000 pages, 100,000 links and 20,000 forms. Those counts are checked before
+materializing its temporary compatibility input. Above them, the scan is retained
+with `audit_available=false` and a recorded reason. This is a compatibility guard,
+not a claim about analyzer memory at arbitrary field sizes. The existing sitemap
+expansion is outside the collector memory profile; a 50,000-URL admission check
+runs after that existing expansion, not before its allocation.
+
+A resumed scan without retained static start-page HTML has a named no-audit guard
+until body retention is available; it cannot invent a clean rendering verdict.
+An already-current audit can be reused when only file finalization was blocked.
+Current audits feed the existing report, comparison and task APIs; no automatic
+`audit.json` or task sidecars are written in SQLite mode. A zero configured delay
+is recorded as the schema-supported rate string `unbounded`, never JSON Infinity.
+
+### Collector capacity measurement
+
+The offline profiler uses 10,000 seeded pages, generated HTML, and injected
+transport without sockets. On macOS 26.6.2 arm64, Python 3.14.6 and SQLite 3.53.3:
+
+| Stored links | Peak collector RSS | Collection time |
+|---:|---:|---:|
+| 300,000 (30/page) | 241.05 MiB | 61.69 s |
+| 1,500,000 (150/page) | 241.95 MiB | 244.55 s |
+
+The fixed-page increase was 0.90 MiB; both runs met the 256 MiB peak and 128 MiB
+increase budgets. Counts and ordered link digests were checked from SQLite. macOS
+reports `ru_maxrss` in bytes; the profiler normalizes Linux KiB separately. This
+measures collection only: the analyzer compatibility bridge, report rendering,
+sitemap expansion, large page fields and retained bodies are outside this result.
+No larger default crawl ceiling follows from these measurements.
+
+Reproduce with `python scripts/profile_scan_collector.py`.
+The profiler emits progress and JSON with platform/runtime versions and source
+file hashes. It keeps no full edge graph in Python. See
+[the profiler](../scripts/profile_scan_collector.py) for the exact fixture.
+
+## Native transactions and recovery
 
 `seohead.storage.native_scan.NativeScan` is an internal Python storage API for a
-native `scan.v1` file. It does not yet connect `crawl-site` to SQLite. Its
+native `scan.v1` file used by the opt-in collector. Its
 `create`, `open`, `enqueue`, `claim`, `commit_page`, `recover_inflight`, `interrupt`,
 `inspect`, `finish_without_audit`, `resume_or_finalize`, and `snapshot` operations
 are exercised with offline page observations.
 Fetch workers must return their bounded results to the one writer; they must not
-share its connection or start additional writers. The existing directory crawler,
-CLI/MCP registrations, report reader, and legacy-import validator are unchanged.
+share its connection or start additional writers. The directory crawler and
+legacy-import validator remain separate; CLI/MCP select native capture explicitly.
 
 A committed page unit contains its page projection, ordered duplicate link/form
 occurrences, decisions, accepted query variants, frontier updates, runtime state,
@@ -292,8 +363,10 @@ body/resource/reanalysis states. A different start URL or configuration refuses
 resume. Missing, foreign, newer, malformed, and terminal files cannot become live
 writers. Validation occurs read-only before writer setup; reading never upgrades
 the file. `NativeScan.inspect()` validates native metadata and references in one
-bounded read transaction. It returns no SEO audit: Point C has no `audit` row, and
-report/compare/task routes deliberately refuse these unfinished native files.
+bounded read transaction. Report/compare/task routes require a current audit
+whose hash, revision, build, configuration, and page population agree with the
+scan. A capture with no admitted audit is inspectable evidence, never a clean
+report.
 
 Only the process holding the lifetime POSIX advisory lock may requeue orphaned
 inflight URLs. The lock lives at `<scan>.writer.lock`, separate from SQLite's own
@@ -327,16 +400,18 @@ deadline; a reader that blocks checkpointing leaves `lifecycle=interrupted` and
 After the reader closes, `resume_or_finalize()` with an empty frontier only
 finalizes the file. WAL/SHM files are never manually deleted.
 
-The native core currently permits these versioned context rows only:
+The current native lanes use these versioned context rows:
 
 | Kind / key | Exact `scan_context.v1` payload |
 |---|---|
 | `robots_blocked_url` / `url:<url_id>` | `{"url_id":positive_integer,"token":string,"policy":"respect or report_only"}` |
+| `seed_url` / `url:<url_id>` | `{"url_id":positive_integer,"depth":0,"source":"sitemap"}` |
+| `robots_summary` / `run` | Policy/token, fetch state, nullable response ID, note, and parsed groups/sitemaps; the exact closed payload is in [the format contract](https://github.com/PavloSEO/seotools/issues/372). |
 | `native_commit` / queue ordinal as decimal text | `{"digest":lowercase_sha256}` |
 
 Unknown context kinds/keys and extra payload fields are refused. A robots context
 references this scan's URL and measured policy; `native_commit` belongs to a done
 frontier row. Exclusion counts derive from decision occurrences. Raw start-page
 HTML is not hidden in a context row: it requires the later document/body lane.
-No response, document, body, resource capture, rendering update, collector memory
-claim, or offline replay is delivered by this storage core.
+Response, document, body, and resource retention, rendering updates, and offline
+replay remain unavailable.

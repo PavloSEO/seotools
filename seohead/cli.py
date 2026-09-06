@@ -215,6 +215,8 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
             "out_dir",
             "robots",
             "sitemap",
+            "scan_out",
+            "producer_build",
         ):
             value = getattr(args, flag, None)
             if value is not None:
@@ -520,22 +522,24 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
         )
         sub.add_argument("--max-urls", type=int, help="URL budget (default 200)")
         sub.add_argument("--out-dir", help="directory for pages.jsonl and audit.json")
+        sub.add_argument("--scan-out", metavar="FILE", help="opt-in SQLite scan artifact")
+        sub.add_argument(
+            "--producer-build", metavar="SHA", help="original source build for SQLite capture"
+        )
         sub.add_argument("--config", help="path to a crawler config file (JSON)")
         sub.add_argument(
             "--robots",
             choices=["respect", "report_only", "ignore"],
-            help="respect robots.txt; report what it blocks but crawl anyway; or do not fetch it",
+            help="obey, report-only, or skip robots.txt",
         )
         sub.add_argument(
             "--sitemap",
-            help="seed the crawl from this sitemap's declared URLs and reconcile it against "
-            "the link graph found by crawling (or set sitemaps.auto_discover in --config to use "
-            "the sitemap robots.txt declares)",
+            help="seed and reconcile sitemap URLs; auto-discovery uses --config",
         )
         sub.add_argument(
             "--config-help",
             action="store_true",
-            help="print every crawler config setting (path, type, default, description) and exit",
+            help="list every crawler configuration setting",
         )
         # Kept working for scripts written before --config existed, but no longer advertised in
         # --help: depth and delay are exactly the kind of setting #13's config file exists for, and
@@ -792,10 +796,7 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
 # crawl-site keeps only its most-used settings as direct flags; everything the crawler build-out
 # (#13 onward) has added or will add lives in --config instead, so --help stays short as the
 # surface grows. This note is the pointer from one to the other.
-CRAWL_SITE_HELP_NOTE = (
-    "For anything beyond the basics above, use --config; see 'seohead crawl-site "
-    "--config-help' for every available key."
-)
+CRAWL_SITE_HELP_NOTE = "More crawler settings: seohead crawl-site --config-help."
 
 
 def build_parser() -> argparse.ArgumentParser:

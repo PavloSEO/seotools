@@ -109,6 +109,8 @@ def build_server():  # -> FastMCP
         robots: str | None = None,
         concurrency: int | None = None,
         out_dir: str | None = None,
+        scan_out: str | None = None,
+        producer_build: str | None = None,
     ) -> dict[str, Any]:
         """Crawl a site from a start URL by following links, or fetch an explicit
         ``urls`` list instead of following links at all, then audit the result
@@ -136,7 +138,14 @@ def build_server():  # -> FastMCP
         override preserves whatever ``config`` (or its own defaults) already
         says, exactly like the CLI's flags -- pass one explicitly only to
         change that one setting. ``seo_crawl_describe_settings`` lists the
-        defaults each of them falls back to."""
+        defaults each of them falls back to.
+
+        ``scan_out`` opts into a SQLite scan file with bounded collection and
+        resume; it cannot be combined with list mode or ``out_dir``. It requires
+        raw rendering, cache off and credential-free configuration. Audit creation has an explicit
+        compatibility population limit and may return unavailable. Pass the
+        producing source SHA in ``producer_build`` if the installed build cannot
+        determine it from a clean checkout. No response bodies are retained."""
         return _checked(
             handlers.crawl_site(
                 url=url or None,
@@ -149,6 +158,8 @@ def build_server():  # -> FastMCP
                 robots=robots,
                 concurrency=concurrency,
                 out_dir=out_dir,
+                scan_out=scan_out,
+                producer_build=producer_build,
             )
         )
 
