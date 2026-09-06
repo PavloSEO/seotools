@@ -17,6 +17,25 @@ MAX_AUDIT_PAGES = 10_000
 MAX_AUDIT_FORMS = 20_000
 _SHA = re.compile(r"[0-9a-f]{40}\Z")
 
+# scan.v1 (evidence_version crawl.v1) retains no robots.txt or sitemap document
+# (that is child H/#381 scope), so these seven checks cannot be re-measured
+# from stored evidence -- only from a new crawl. Pre-registered here, by name,
+# so a reanalysis never silently drops them out of the coverage denominator
+# while still reporting a score (#382).
+UNMEASURABLE_OFFLINE_CHECKS = (
+    "SITEMAP_NOT_IN_ROBOTS",
+    "ROBOTS_BLOCKS_RESOURCES",
+    "SITEMAP_FETCH_INCOMPLETE",
+    "SITEMAP_TOO_MANY_URLS",
+    "SITEMAP_TOO_LARGE",
+    "SITEMAP_URL_DUPLICATED",
+    "SITEMAP_STALE_LASTMOD",
+)
+_UNMEASURABLE_REASON = (
+    "scan.v1 retains no robots.txt/sitemap document; re-measuring this check "
+    "requires a new crawl, not a reanalysis of stored evidence"
+)
+
 
 def _installed_version(name: str) -> str:
     try:
@@ -266,3 +285,130 @@ def crawl_site_scan(
         _response(run, audit_available=True, audit_reason="", finalized=finalized)
     )
     return _response_data
+
+
+def _sha256_file(path: str) -> str:
+    import hashlib
+
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def reanalyze_scan(
+    scan_in: str,
+    *,
+    producer_build: str | None = None,
+) -> dict[str, Any]:
+    """Re-run today's parser/check registry over a scan.v1 already on disk.
+
+    Offline by construction, not by configuration: ``url`` is never passed
+    to the shared audit assembly, so its render-escalation branch (gated on
+    ``if url:``) never runs, and the sitemap stage is given no sitemap URL,
+    so its own network gate (``want_network``) stays false and it answers
+    the seven sitemap/robots checks it cannot measure with a named
+    ``ctx.skip`` instead of a fetch. No HTTP client module is imported
+    anywhere on this path.
+
+    ``scan_in`` is opened only through a private working copy -- the
+    original file is hashed up front and never reopened for writing, so its
+    bytes (and that hash) are provably unchanged by this call.
+    """
+    if not isinstance(scan_in, str) or not scan_in:
+        raise ValueError("scan_in is required")
+    source_path = Path(scan_in)
+    if not source_path.is_file():
+        raise ValueError(f"scan_in does not exist: {scan_in}")
+    producer_version, producer_revision, runtime_versions = _producer_provenance(producer_build)
+    source_sha256 = _sha256_file(str(source_path))
+
+    import shutil
+    import tempfile
+    import uuid as uuid_mod
+
+    from seohead.crawl.sql_sitemap import prepare_sitemap_reconciliation
+    from seohead.servers.handlers import _audit_crawl_result
+    from seohead.storage import ScanError, open_scan
+    from seohead.storage.native_scan import NativeScan
+
+    # The original audit (if any), read through the validated read-only path --
+    # never the writer -- purely to report how this reanalysis' coverage
+    # compares to what the original run measured.
+    original_audit: dict[str, Any] | None = None
+    original_scan_uuid: str | None = None
+    try:
+        con = open_scan(scan_in, require_audit=False)
+        try:
+            scan_row = con.execute("SELECT scan_uuid FROM scan WHERE singleton=1").fetchone()
+            original_scan_uuid = scan_row["scan_uuid"] if scan_row else None
+            audit_row = con.execute("SELECT document_json FROM audit WHERE singleton=1").fetchone()
+            if audit_row is not None:
+                original_audit = json.loads(audit_row["document_json"])
+        finally:
+            con.close()
+    except ScanError as exc:
+        return {
+            "reanalysis": True,
+            "source_scan": scan_in,
+            "source_sha256": source_sha256,
+            "audit_available": False,
+            "audit_reason": f"cannot read source scan: {exc}",
+        }
+
+    with tempfile.TemporaryDirectory(prefix="seohead-reanalyze-") as tmpdir:
+        work_copy = str(Path(tmpdir) / "scan.sqlite")
+        shutil.copyfile(scan_in, work_copy)
+        with NativeScan.open(work_copy) as scan:
+            snapshot = scan.resume_snapshot()
+            config = json.loads(snapshot["scan"]["config_json"])
+            start_url = snapshot["scan"]["start_url"]
+            result = _rebuild_page_result(scan)
+            result.start_page_evidence = {}
+            result.resumed = False
+            with prepare_sitemap_reconciliation(
+                scan.con, start_url=start_url or ""
+            ) as reconciliation:
+                _response_data, audit = _audit_crawl_result(
+                    result,
+                    settings=config,
+                    url=None,
+                    sitemap_seed={"sitemap_url": None, "sitemap_urls": [], "declared": []},
+                    discovery={
+                        "mode": "spider",
+                        "directive_policy": config["robots"]["policy"],
+                        "robots_blocked": len(result.robots_blocked),
+                    },
+                    stored_scan=scan,
+                    stored_sitemap=reconciliation,
+                )
+
+    audit["run"]["input_mode"] = "reanalysis"
+    audit["run"]["source"] = start_url or audit["run"].get("source")
+
+    coverage = audit.get("summary", {}).get("check_coverage", {})
+    original_coverage = (
+        (original_audit or {}).get("summary", {}).get("check_coverage", {})
+        if original_audit
+        else None
+    )
+
+    return {
+        "reanalysis": True,
+        "reanalysis_uuid": str(uuid_mod.uuid4()),
+        "source_scan": scan_in,
+        "source_sha256": source_sha256,
+        "parent_scan_uuid": original_scan_uuid,
+        "analyzer_version": producer_version,
+        "analyzer_revision": producer_revision,
+        "runtime_versions": runtime_versions,
+        "generated_at": audit["run"]["generated_at"],
+        "unmeasurable_checks": list(UNMEASURABLE_OFFLINE_CHECKS),
+        "unmeasurable_reason": _UNMEASURABLE_REASON,
+        "coverage": coverage,
+        "original_coverage": original_coverage,
+        "original_audit_available": original_audit is not None,
+        "audit_available": True,
+        "audit": audit,
+    }
