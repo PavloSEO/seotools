@@ -1626,11 +1626,7 @@ class NativeScan:
                 policy = json.loads(
                     self.con.execute("SELECT retention_json FROM scan").fetchone()[0]
                 )
-                if (
-                    shutil.disk_usage(self.path.parent).free
-                    < policy["min_free_bytes"] + body_bytes * 3 + MAX_RECORD_BYTES
-                ):
-                    raise ScanError("insufficient free disk for the next atomic response capture")
+                self._check_capture_disk_space(policy, body_bytes)
                 for event in captures:
                     if event.requested_url != lease.url and event.requested_url not in {
                         hop.get("url") for hop in record.get("redirect_chain", [])
@@ -1841,6 +1837,13 @@ class NativeScan:
         if shutil.disk_usage(self.path.parent).free < policy["min_free_bytes"] + MAX_RECORD_BYTES:
             raise ScanError("insufficient free disk for native capture; no request was started")
 
+    def _check_capture_disk_space(self, policy: dict[str, Any], body_bytes: int) -> None:
+        if (
+            shutil.disk_usage(self.path.parent).free
+            < policy["min_free_bytes"] + body_bytes * 3 + MAX_RECORD_BYTES
+        ):
+            raise ScanError("insufficient free disk for the next atomic response capture")
+
     def commit_render(
         self,
         url: str,
@@ -1897,6 +1900,14 @@ class NativeScan:
             if page is None:
                 raise ScanError("rendered document has no committed static page")
             policy = json.loads(self.con.execute("SELECT retention_json FROM scan").fetchone()[0])
+            self._check_capture_disk_space(
+                policy,
+                (
+                    len(html.encode("utf-8") if isinstance(html, str) else html or b"")
+                    if representation == "rendered"
+                    else sum(len(event.entity_bytes or b"") for event in captures)
+                ),
+            )
             if representation == "rendered":
                 if captures:
                     raise ScanError("serialized DOM must not masquerade as an HTTP response")
