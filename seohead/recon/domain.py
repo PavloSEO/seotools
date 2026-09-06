@@ -347,15 +347,14 @@ def profile_domain(domain: str, *, with_tls: bool = True) -> dict[str, Any]:
             if whois_server:
                 registration["whois_server"] = whois_server
         else:
-            # Either nothing answered, or what answered was about another object
-            # (typically the zone). Reporting "none" is the same discipline the
-            # toolkit already applies when RDAP and whois both fail.
+            # A response without a matching identity does not establish any
+            # registration fields for the requested domain.
             registration = dict(empty)
             registration["source"] = "none"
             if text:
                 registration["whois_note"] = (
-                    "whois answered with a record for another object "
-                    "(usually the zone); no registration data was taken from it"
+                    "WHOIS response did not identify the requested domain; "
+                    "no registration data was taken from it"
                 )
         registration["rdap_note"] = res.get("error")
 
