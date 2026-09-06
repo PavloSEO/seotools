@@ -149,6 +149,21 @@ def _dom_metrics(html: str) -> tuple[int, int]:
     return max_depth, nodes
 
 
+def _coverage_note(matched: int, total: int, min_coverage: float) -> str | None:
+    """Describe a low-coverage stored-HTML sample, or None when coverage is fine.
+
+    ``matched == 0`` is the caller's own full-miss case, not this one's; a
+    ``total`` of zero means nothing was ever in scope, which is not a coverage
+    problem either.
+    """
+    if matched == 0 or total == 0:
+        return None
+    coverage = matched / total
+    if coverage >= min_coverage:
+        return None
+    return f"stored HTML matched only {matched} of {total} indexable pages ({coverage:.0%})"
+
+
 def check_dom(ctx: AuditContext) -> None:
     html_dir = ctx.config.get("input", {}).get("html_store_dir")
     if not html_dir or not os.path.isdir(html_dir):
@@ -157,33 +172,40 @@ def check_dom(ctx: AuditContext) -> None:
         return
     t = ctx.thresholds
     index = _build_html_index(html_dir)
-    matched = 0
-    for page in ctx.indexable_html_pages():
+    pages = ctx.indexable_html_pages()
+    total = len(pages)
+    min_coverage = t.get("html_store_coverage_min", 0.5)
+    matched_pages = []
+    for page in pages:
         path = _match_html_file(index, page.url)
-        if not path:
-            continue
+        if path:
+            matched_pages.append((page, path))
+    matched = len(matched_pages)
+    coverage_note = _coverage_note(matched, total, min_coverage)
+    for page, path in matched_pages:
         try:
             with open(path, encoding="utf-8", errors="replace") as fh:
                 depth, nodes = _dom_metrics(fh.read())
         except Exception:
             continue
-        matched += 1
         page.metrics["dom_depth"] = depth
         page.metrics["dom_nodes"] = nodes
         if depth > t["dom_depth_max"]:
-            ctx.add(
-                "DOM_TOO_DEEP",
-                target_url=page.url,
-                details={"dom_depth": depth, "max": t["dom_depth_max"]},
-            )
+            details = {"dom_depth": depth, "max": t["dom_depth_max"]}
+            if coverage_note:
+                details["html_coverage"] = coverage_note
+            ctx.add("DOM_TOO_DEEP", target_url=page.url, details=details)
         if nodes > t["dom_nodes_max"]:
-            ctx.add(
-                "DOM_TOO_MANY_NODES",
-                target_url=page.url,
-                details={"dom_nodes": nodes, "max": t["dom_nodes_max"]},
-            )
+            details = {"dom_nodes": nodes, "max": t["dom_nodes_max"]}
+            if coverage_note:
+                details["html_coverage"] = coverage_note
+            ctx.add("DOM_TOO_MANY_NODES", target_url=page.url, details=details)
     if matched == 0:
         reason = "stored HTML present but no files mapped to crawled URLs"
+        ctx.skip("DOM_TOO_DEEP", reason)
+        ctx.skip("DOM_TOO_MANY_NODES", reason)
+    elif coverage_note:
+        reason = f"{coverage_note} — DOM size not assessed for the rest"
         ctx.skip("DOM_TOO_DEEP", reason)
         ctx.skip("DOM_TOO_MANY_NODES", reason)
 
@@ -275,8 +297,11 @@ def check_content_duplication(ctx: AuditContext) -> None:
 
     index = _build_html_index(html_dir)
     content_cfg = ctx.config.get("content_area", {})
+    candidate_pages = ctx.indexable_html_pages()
+    total = len(candidate_pages)
+    min_coverage = ctx.thresholds.get("html_store_coverage_min", 0.5)
     items: list[dict[str, Any]] = []
-    for page in ctx.indexable_html_pages():
+    for page in candidate_pages:
         path = _match_html_file(index, page.url)
         if not path:
             continue
@@ -296,6 +321,8 @@ def check_content_duplication(ctx: AuditContext) -> None:
             ctx.skip("DUPLICATE_BY_HASH", reason)
         return
 
+    coverage_note = _coverage_note(len(items), total, min_coverage)
+
     threshold = ctx.thresholds.get("near_duplicate_similarity", 0.92)
     result = find_duplicates(items, threshold=threshold)
 
@@ -304,26 +331,36 @@ def check_content_duplication(ctx: AuditContext) -> None:
             members = sorted(cluster["members"])
             group = ctx.add_group("NEAR_DUPLICATE", None, members)
             for url in members:
+                details = {
+                    "cluster_min_similarity": cluster["min_similarity"],
+                    "cluster_size": len(members),
+                }
+                if coverage_note:
+                    details["html_coverage"] = coverage_note
                 ctx.add(
                     "NEAR_DUPLICATE",
                     target_url=url,
                     group_id=group.group_id,
-                    details={
-                        "cluster_min_similarity": cluster["min_similarity"],
-                        "cluster_size": len(members),
-                    },
+                    details=details,
                 )
+        if coverage_note:
+            ctx.skip("NEAR_DUPLICATE", f"{coverage_note} — duplicates not assessed for the rest")
     if not has_native_hash:
         for exact in result["exact_duplicates"]:
             members = sorted(exact["members"])
             group = ctx.add_group("DUPLICATE_BY_HASH", None, members)
             for url in members:
+                details = {"duplicate_count": len(members)}
+                if coverage_note:
+                    details["html_coverage"] = coverage_note
                 ctx.add(
                     "DUPLICATE_BY_HASH",
                     target_url=url,
                     group_id=group.group_id,
-                    details={"duplicate_count": len(members)},
+                    details=details,
                 )
+        if coverage_note:
+            ctx.skip("DUPLICATE_BY_HASH", f"{coverage_note} — duplicates not assessed for the rest")
 
 
 # --------------------------------------------------------------------------

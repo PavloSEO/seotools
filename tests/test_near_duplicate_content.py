@@ -103,6 +103,41 @@ def test_skips_without_a_stored_html_directory(tmp_path):
     assert "DUPLICATE_BY_HASH" in reasons
 
 
+def test_low_html_store_coverage_skips_instead_of_reading_clean(tmp_path):
+    """#455: 1 of 10 pages stored must not read as "0 duplicates found"."""
+    urls = [f"https://example.com/p{i}.html" for i in range(10)]
+    html_files = {urls[0]: _page_html("A completely unrelated product page about shoes.")}
+    exports_dir, cfg = _write(tmp_path, urls, html_files)
+    res = run_audit(
+        input_mode="parse-exports", exports_dir=exports_dir, config=cfg, log=lambda m: None
+    )
+    reasons = {s.id: s.reason for s in res.skipped}
+    assert _fired(res, "NEAR_DUPLICATE") == {}
+    assert _fired(res, "DUPLICATE_BY_HASH") == {}
+    assert "1 of 10" in reasons["NEAR_DUPLICATE"]
+    # DUPLICATE_BY_HASH is already skipped earlier by rules.py's own
+    # check_duplicates (no Hash column in this fixture) -- the first
+    # recorded skip wins, so only NEAR_DUPLICATE's own reason is asserted here.
+
+
+def test_high_html_store_coverage_stays_silent(tmp_path):
+    """Negative control: near-full coverage must not start emitting a spurious skip."""
+    urls = [URL_A, URL_B, URL_C]
+    html_files = {
+        URL_A: _page_html(_PARAGRAPH),
+        URL_B: _page_html(_PARAGRAPH.replace("website", "site", 1)),
+        URL_C: _page_html("A completely unrelated product page about shoes."),
+    }
+    exports_dir, cfg = _write(tmp_path, urls, html_files)
+    res = run_audit(
+        input_mode="parse-exports", exports_dir=exports_dir, config=cfg, log=lambda m: None
+    )
+    # Full coverage must not introduce a spurious skip for the check this
+    # issue is about. DUPLICATE_BY_HASH is skipped regardless, for the
+    # unrelated, pre-existing reason that this fixture has no Hash column.
+    assert "NEAR_DUPLICATE" not in {s.id for s in res.skipped}
+
+
 def test_defers_to_native_columns_when_present(tmp_path):
     cols = [*COLS, "No. Near Duplicates", "Hash"]
     exports_dir = tmp_path / "exports"
