@@ -221,6 +221,17 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
             value = getattr(args, flag, None)
             if value is not None:
                 kw[flag] = value
+        from seohead.crawl import settings as crawl_config
+
+        overrides: dict[str, Any] = {}
+        rate = getattr(args, "max_urls_per_second", None)
+        if rate is not None:
+            overrides["speed.min_delay_seconds"] = crawl_config.delay_for_request_rate(rate)
+        for assignment in getattr(args, "set_settings", None) or ():
+            path, value = crawl_config.parse_setting_assignment(assignment)
+            overrides[path] = value
+        if overrides:
+            kw["overrides"] = overrides
     elif cmd == "sitemap-crawl":
         if args.url:
             kw["url"] = args.url
@@ -477,16 +488,24 @@ def _print_effective_rate(kwargs: dict[str, Any]) -> None:
     from seohead.crawl import settings as crawl_config
 
     try:
-        resolved = crawl_config.load(
-            kwargs.get("config"),
-            overrides={
-                "limits.max_urls": kwargs.get("max_urls"),
-                "limits.max_depth": kwargs.get("max_depth"),
-                "speed.min_delay_seconds": kwargs.get("min_delay"),
-                "robots.policy": kwargs.get("robots"),
-                "output.dir": kwargs.get("out_dir"),
-            },
-        )
+        # The same overrides the handler will resolve, in the same precedence, or
+        # the printed rate describes a run that is not the one about to happen --
+        # which is worse than printing nothing, because it is believed.
+        overrides = dict(kwargs.get("overrides") or {})
+        # Only a named argument that was actually given wins. Updating with None
+        # would erase a --set or --max-urls-per-second value and silently fall
+        # back to the default, which is how a rate cap becomes a no-op.
+        for path, value in (
+            ("limits.max_urls", kwargs.get("max_urls")),
+            ("limits.max_depth", kwargs.get("max_depth")),
+            ("speed.min_delay_seconds", kwargs.get("min_delay")),
+            ("speed.concurrency", kwargs.get("concurrency")),
+            ("robots.policy", kwargs.get("robots")),
+            ("output.dir", kwargs.get("out_dir")),
+        ):
+            if value is not None:
+                overrides[path] = value
+        resolved = crawl_config.load(kwargs.get("config"), overrides=overrides)
     except crawl_config.ConfigError:
         return  # the handler call below reports the same error to the user
     rate = crawl_config.effective_request_rate(resolved)
@@ -541,9 +560,27 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
             action="store_true",
             help="list every crawler configuration setting",
         )
+        sub.add_argument(
+            "--max-urls-per-second",
+            type=float,
+            metavar="N",
+            help="cap the request rate to one host, the way a site owner states it "
+            "(sets speed.min_delay_seconds to 1/N). Parity with 'sf run'.",
+        )
+        sub.add_argument(
+            "--set",
+            action="append",
+            dest="set_settings",
+            metavar="PATH=VALUE",
+            help="set any crawler setting without writing a config file, e.g. "
+            "--set speed.concurrency=4 --set scope.include_patterns=/blog/,/docs/. "
+            "Repeatable; applied after --config. See --config-help for every path.",
+        )
         # Kept working for scripts written before --config existed, but no longer advertised in
         # --help: depth and delay are exactly the kind of setting #13's config file exists for, and
         # every flag shown here is one more line standing between a new setting and --config.
+        # --set is the answer to that tension rather than an exception to it: one flag reaches
+        # every setting, and a setting added tomorrow is reachable with no CLI change at all.
         sub.add_argument("--max-depth", type=int, help=argparse.SUPPRESS)
         sub.add_argument("--min-delay", type=float, help=argparse.SUPPRESS)
     if cmd == "site-audit":

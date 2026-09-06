@@ -593,7 +593,7 @@ def _set_path(mapping: dict[str, Any], path: str, value: Any) -> None:
 
 
 def _coerce(path: str, raw: str) -> Any:
-    """Environment values arrive as strings; give them the default's type."""
+    """Environment and command-line values arrive as strings; give them the default's type."""
     current = _flatten(DEFAULTS).get(path)
     if isinstance(current, bool):
         return raw.strip().lower() in ("1", "true", "yes", "on")
@@ -601,7 +601,47 @@ def _coerce(path: str, raw: str) -> Any:
         return int(raw)
     if isinstance(current, float):
         return float(raw)
+    if isinstance(current, list):
+        # A list setting is a set of patterns or hosts; an empty string means the
+        # empty list rather than a list containing one empty pattern, which would
+        # match everything and silently widen a crawl.
+        return [item.strip() for item in raw.split(",") if item.strip()]
     return raw
+
+
+def parse_setting_assignment(text: str) -> tuple[str, Any]:
+    """Turn one ``path=value`` argument into a validated override.
+
+    The path is checked against DEFAULTS here rather than at validate() time, so a
+    typo is reported as a typo -- naming the setting the operator meant to reach --
+    instead of surfacing later as an unknown-key error about a path nobody typed.
+    """
+    path, sep, raw = text.partition("=")
+    path = path.strip()
+    if not sep or not path:
+        raise ConfigError(f"--set expects PATH=VALUE, got {text!r}")
+    known = _flatten(DEFAULTS)
+    if path not in known:
+        near = [k for k in sorted(known) if k.split(".")[-1] == path.split(".")[-1]]
+        hint = f"; did you mean {near[0]}?" if near else "; see --config-help"
+        raise ConfigError(f"unknown setting {path!r}{hint}")
+    try:
+        return path, _coerce(path, raw)
+    except ValueError as exc:
+        raise ConfigError(f"{path}={raw!r} is not valid: {exc}") from exc
+
+
+def delay_for_request_rate(rate: float) -> float:
+    """The ``speed.min_delay_seconds`` that caps a crawl at ``rate`` requests/second.
+
+    The inverse of ``effective_request_rate``. Politeness is the number an operator
+    actually has in mind -- a site owner says "no more than seven a second", not
+    "at least 0.1428 seconds apart" -- and making them invert it themselves is how
+    a decimal point in the wrong place becomes somebody's site under load.
+    """
+    if rate <= 0:
+        raise ConfigError("--max-urls-per-second must be greater than 0")
+    return 1.0 / rate
 
 
 def _merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
@@ -853,8 +893,17 @@ def load(path: str | None = None, overrides: dict[str, Any] | None = None) -> di
                 raise ConfigError(f"{variable}={raw!r} is not valid for {setting}: {exc}") from exc
 
     for setting, value in (overrides or {}).items():
-        if value is not None:
-            _set_path(config, setting, value)
+        if value is None:
+            continue
+        # Dotted paths only. A nested mapping here replaces the whole subtree and
+        # takes its siblings' defaults with it, and the failure then surfaces from
+        # validate() as a bare KeyError about a key the caller never mentioned.
+        if isinstance(value, dict):
+            raise ConfigError(
+                f"override {setting!r} is a mapping; use dotted paths such as "
+                f"{setting}.{next(iter(value), 'key')} so sibling defaults survive"
+            )
+        _set_path(config, setting, value)
 
     if config["http"]["credential_headers"]:
         existing = config["scope"]["exclude_patterns"]

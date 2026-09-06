@@ -111,6 +111,7 @@ def build_server():  # -> FastMCP
         out_dir: str | None = None,
         scan_out: str | None = None,
         producer_build: str | None = None,
+        overrides: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Crawl a site from a start URL by following links, or fetch an explicit
         ``urls`` list instead of following links at all, then audit the result
@@ -160,6 +161,7 @@ def build_server():  # -> FastMCP
                 out_dir=out_dir,
                 scan_out=scan_out,
                 producer_build=producer_build,
+                overrides=overrides,
             )
         )
 
