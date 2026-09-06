@@ -997,6 +997,158 @@ def check_insecure_subresources(ctx: AuditContext) -> None:
         )
 
 
+# Screaming Frog types every All Inlinks row, and a page's own rel="next" /
+# rel="prev" declarations are rows in it like any other link (the same Type
+# values _NON_RESOURCE_LINK_TYPES above already names), one row per
+# declaration. Counting a page's declarations is therefore what that export is
+# already shaped for.
+#
+# Not because Internal:All throws the rest away. The trailing 1 in its
+# rel="next" 1 header is an occurrence index, and normalize.INTERNAL_FIELD_MAP
+# maps a second occurrence where SF writes one -- canonical / canonical_2 is
+# exactly that pair, and CANONICAL_MULTIPLE is answered from it. What the map
+# does not carry is a rel="next" 2, so a count taken from Internal:All today
+# would be capped at one by our own column list rather than by the data, and
+# could not tell "the page declared one" from "we read only the first". The
+# anchor half of this pair needs All Inlinks whatever happens, so both read it
+# and both skip together on the same named absence (#385).
+_PAGINATION_LINK_TYPES = {"rel next": 'rel="next"', "rel prev": 'rel="prev"'}
+
+_PAGINATION_DECLARATION_CHECKS = ("PAGINATION_MULTIPLE", "PAGINATION_URL_NOT_IN_ANCHOR")
+
+
+def _pagination_declarations(
+    records: list[dict[str, Any]],
+) -> OrderedDict[str, OrderedDict[str, list[str]]]:
+    """source URL -> relation -> declared destinations, in export order.
+
+    Destinations are de-duplicated per relation **through** ``norm_url``, the
+    same identity ``_anchor_destinations`` and the anchor half of
+    ``check_pagination_declarations`` compare by. De-duplicating by raw string
+    instead would make ``/blog/page/2`` and ``/blog/page/2/`` one successor to
+    the anchor half and two to this one, and PAGINATION_MULTIPLE would then tell
+    the operator a crawler must guess between two different successors when
+    there is only one -- two plugins writing the same URL with different
+    formatting is untidy markup, not an ambiguous series, and the row this feeds
+    is about *which page comes next*.
+
+    The first spelling seen is the one reported, so the finding quotes markup
+    that is actually on the page rather than a normalized form of it.
+    """
+    seen: OrderedDict[str, OrderedDict[str, OrderedDict[str, str]]] = OrderedDict()
+    for rec in records:
+        source, dest = rec.get("source_url"), rec.get("destination_url")
+        if not source or not dest:
+            continue
+        relation = _PAGINATION_LINK_TYPES.get(str(rec.get("type") or "").strip().lower())
+        if relation is None:
+            continue
+        seen.setdefault(source, OrderedDict()).setdefault(relation, OrderedDict()).setdefault(
+            norm_url(dest), dest
+        )
+    return OrderedDict(
+        (source, OrderedDict((relation, list(t.values())) for relation, t in by_relation.items()))
+        for source, by_relation in seen.items()
+    )
+
+
+def _anchor_destinations(records: list[dict[str, Any]]) -> dict[str, set[str]]:
+    """source (normalized) -> every destination it reaches with a ``Hyperlink`` row.
+
+    Unlike ``_internal_hyperlink_edges`` this keeps nofollow rows: the question
+    here is whether an ``<a href>`` to the paginated URL exists on the page at
+    all, and a nofollow anchor is still an anchor.
+    """
+    out: dict[str, set[str]] = {}
+    for rec in records:
+        if str(rec.get("type") or "").strip().lower() != "hyperlink":
+            continue
+        source, dest = rec.get("source_url"), rec.get("destination_url")
+        if not source or not dest:
+            continue
+        out.setdefault(norm_url(source), set()).add(norm_url(dest))
+    return out
+
+
+def check_pagination_declarations(ctx: AuditContext) -> None:
+    """PAGINATION_MULTIPLE / PAGINATION_URL_NOT_IN_ANCHOR — the declarations themselves.
+
+    Both read the one export that carries every rel="next"/rel="prev"
+    declaration beside every anchor on the same page, so both answer from the
+    page's own row set rather than from a whole-site negative: unlike
+    UNLINKED_PAGINATION_SERIES, "this page does not link its own successor" is
+    provable on a partial crawl, because the page in question was crawled and
+    its links are all here.
+
+    Each precondition the pair can fail is declared by name rather than passed
+    over: no export, no Type column to tell a declaration from an anchor, no
+    declarations in it at all.
+    """
+    records = _all_inlink_records(ctx)
+    if records is None and _graph_access(ctx) is None:
+        for check_id in _PAGINATION_DECLARATION_CHECKS:
+            ctx.skip(
+                check_id,
+                'no all_inlinks export (needed for every rel="next"/rel="prev" '
+                "declaration and the anchors beside them)",
+            )
+        return
+    # A native crawl arrives here by either route and neither carries a link
+    # type: its All Inlinks projection leaves Type unset because the spider
+    # records only <a href> hyperlinks (see crawl/evidence._inlinks_frame), and
+    # the SQL-backed graph declares has_resource_type False. Both therefore
+    # reach the same verdict as an export written without the column, which is
+    # also what the two routes' parity contract requires of every check.
+    if records is None or not any(rec.get("type") for rec in records):
+        for check_id in _PAGINATION_DECLARATION_CHECKS:
+            ctx.skip(
+                check_id,
+                "the link inventory carries no link type (needed to tell a "
+                'rel="next" declaration from an anchor)',
+            )
+        return
+    declarations = _pagination_declarations(records)
+    if not declarations:
+        for check_id in _PAGINATION_DECLARATION_CHECKS:
+            ctx.skip(check_id, 'all_inlinks export contains no rel="next"/rel="prev" rows')
+        return
+
+    anchors = _anchor_destinations(records)
+    if not anchors:
+        # Declarations but not one Hyperlink row anywhere is a filtered export,
+        # not a site with no links on it. Reporting every declaration as
+        # un-anchored off that would be a whole crawl of wrong findings.
+        ctx.skip(
+            "PAGINATION_URL_NOT_IN_ANCHOR",
+            "all_inlinks export contains no Hyperlink rows (needed for the page's anchors)",
+        )
+
+    for source, by_relation in declarations.items():
+        for relation, targets in by_relation.items():
+            if len(targets) > 1:
+                ctx.add(
+                    "PAGINATION_MULTIPLE",
+                    target_url=source,
+                    details={"relation": relation, "urls": targets},
+                )
+        if not anchors:
+            continue
+        linked = anchors.get(norm_url(source), set())
+        missing = [
+            {"relation": relation, "url": target}
+            for relation, targets in by_relation.items()
+            for target in targets
+            if norm_url(target) not in linked
+        ]
+        if missing:
+            ctx.add(
+                "PAGINATION_URL_NOT_IN_ANCHOR",
+                target_url=source,
+                occurrences_count=len(missing),
+                details={"declared_without_an_anchor": missing},
+            )
+
+
 def run_inlinks(ctx: AuditContext) -> None:
     site_host = _site_host(ctx)
     for key, (internal_check, external_check) in INLINK_SOURCES.items():
@@ -1010,3 +1162,4 @@ def run_inlinks(ctx: AuditContext) -> None:
     check_inlink_composition(ctx)
     check_discovery_path(ctx)
     check_insecure_subresources(ctx)
+    check_pagination_declarations(ctx)

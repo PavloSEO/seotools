@@ -6,7 +6,7 @@ Generated from `seohead/sf/core/registry.py` — do not edit by hand. Regenerate
 python scripts/generate_checks_reference.py
 ```
 
-**152 checks.** Severity, evidence and fix all come from the same `CHECKS` dict the rule engine reads, so this table cannot say something the engine disagrees with.
+**155 checks.** Severity, evidence and fix all come from the same `CHECKS` dict the rule engine reads, so this table cannot say something the engine disagrees with.
 
 - **Fires on** — what the check id means, in the registry's own words.
 - **Evidence** — the `source` tag: which export or module has to be present for the check to run at all; its absence is why a check comes back `skipped` instead of a silent pass.
@@ -211,6 +211,9 @@ python scripts/generate_checks_reference.py
 | `PAGINATION_NONINDEXABLE` | warning | SF-derived | Pagination page is non-indexable | Pagination pages should generally remain crawlable and indexable unless a deliberate alternative architecture is in place. |
 | `PAGINATION_LOOP` | warning | SF-derived | A rel="next" pagination series loops back on itself | Fix the rel="next"/rel="prev" values so the series terminates instead of cycling. |
 | `UNLINKED_PAGINATION_SERIES` | warning | SF-derived | A pagination series is reachable only by following rel="next", never by a hyperlink | Add an ordinary internal link to the first page of the series so it does not depend on rel="next" alone for discovery. |
+| `PAGINATION_MULTIPLE` | warning | inlinks:All Inlinks | The page declares more than one rel="next" (or more than one rel="prev") URL | Declare exactly one rel="next" and one rel="prev" URL per page; two different successors leave the series ambiguous, and a crawler picks one of them without telling anybody which. |
+| `PAGINATION_URL_NOT_IN_ANCHOR` | notice | inlinks:All Inlinks | A rel="next"/rel="prev" URL is not also linked from the same page with an anchor | Link the paginated URL from the page itself with an ordinary <a href> as well. Google stopped using rel="next"/rel="prev" for indexing in 2019, so an annotation with no anchor beside it is a route only some crawlers still take. |
+| `PAGINATION_SEQUENCE_ERROR` | warning | SF-derived | A rel="next" series breaks a page-number run it otherwise follows | Point each rel="next" at the page that actually follows this one. A run that goes 1, 2, 3, 7 leaves pages 4 to 6 out of the chain entirely, so a crawler following it never reaches them. |
 
 ## --- extension: links ---
 

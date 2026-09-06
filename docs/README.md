@@ -40,7 +40,7 @@ core through two interfaces — CLI and local MCP. It is not a general-purpose c
   definitions in `seohead/servers/mcp_server.py` and `sf_mcp.py`
   (`scripts/generate_tool_reference.py`); `tests/test_docs_drift.py` fails the
   build if it drifts.
-- **[CHECKS.md](CHECKS.md)** — the 152 checks the SF crawl audit runs: what each fires
+- **[CHECKS.md](CHECKS.md)** — the 155 checks the SF crawl audit runs: what each fires
   on, what evidence it needs, and the fix that ships with the finding. Generated
   from `seohead/sf/core/registry.py` (`scripts/generate_checks_reference.py`);
   `tests/test_docs_drift.py` fails the build if it drifts from the registry.
