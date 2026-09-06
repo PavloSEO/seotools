@@ -207,7 +207,7 @@ def render() -> str:
         "python scripts/generate_tool_reference.py",
         "```",
         "",
-        f"**{len(seo_tools)} live/recon/data-source tools** (`seohead <command>` / "
+        f"**{len(seo_tools)} core tools** (`seohead <command>` / "
         "`seo_<command>` on the MCP server) plus "
         f"**{len(sf_tools)} crawl-audit tools** (`sf_<command>`, driven by `seohead sf ...`) "
         f"— {len(seo_tools) + len(sf_tools)} in total.",

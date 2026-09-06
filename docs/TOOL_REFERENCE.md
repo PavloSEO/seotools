@@ -6,7 +6,7 @@ Generated from the MCP tool definitions in `seohead/servers/mcp_server.py` and `
 python scripts/generate_tool_reference.py
 ```
 
-**57 live/recon/data-source tools** (`seohead <command>` / `seo_<command>` on the MCP server) plus **5 crawl-audit tools** (`sf_<command>`, driven by `seohead sf ...`) — 62 in total.
+**63 core tools** (`seohead <command>` / `seo_<command>` on the MCP server) plus **5 crawl-audit tools** (`sf_<command>`, driven by `seohead sf ...`) — 68 in total.
 
 Every tool shares one contract: JSON in, JSON out. A target that could not be reached comes back as `{"ok": false, "error": "..."}` instead of raising, so an unreachable site is data, not a crash.
 
@@ -879,6 +879,97 @@ IMPORTANT: Google has not joined IndexNow as of 2026 — this does not affect Go
 crawl schedule. Requires a self-generated key published at https://<host>/<key>.txt
 before the first call; see docs/SETUP.md. Natural pairing: submit exactly the URLs
 seo_compare_crawls reports as new or changed.
+
+### `scan-list`
+
+MCP name: `seo_scan_list`
+
+List saved SQLite scan metadata without loading retained bodies.
+
+| Argument | Type | Default |
+|---|---|---|
+| `directory` | `str` | `required` |
+| `offset` | `int` | `0` |
+| `limit` | `int` | `100` |
+
+**Cost** — network: no · writes files: no · idempotent: yes · spends money: no
+
+### `scan-inspect`
+
+MCP name: `seo_scan_inspect`
+
+Read a bounded, paginated table view from one saved scan.
+
+| Argument | Type | Default |
+|---|---|---|
+| `input_path` | `str` | `required` |
+| `table` | `str` | `'pages'` |
+| `offset` | `int` | `0` |
+| `limit` | `int` | `100` |
+| `max_bytes` | `int` | `1048576` |
+
+**Cost** — network: no · writes files: no · idempotent: yes · spends money: no
+
+### `scan-snapshot`
+
+MCP name: `seo_scan_snapshot`
+
+Create a consistent new SQLite snapshot without overwriting a destination.
+
+| Argument | Type | Default |
+|---|---|---|
+| `input_path` | `str` | `required` |
+| `out` | `str` | `required` |
+
+**Cost** — network: no · writes files: yes · idempotent: no · spends money: no
+
+### `scan-pin`
+
+MCP name: `seo_scan_pin`
+
+Pin or unpin a finished scan; this is an explicit metadata mutation.
+
+| Argument | Type | Default |
+|---|---|---|
+| `input_path` | `str` | `required` |
+| `pinned` | `bool` | `True` |
+
+**Cost** — network: no · writes files: yes · idempotent: no · spends money: no · can overwrite/remove existing data
+
+### `scan-prune`
+
+MCP name: `seo_scan_prune`
+
+Preview candidates by default; deletion requires apply plus the reviewed plan.
+
+| Argument | Type | Default |
+|---|---|---|
+| `directory` | `str` | `required` |
+| `older_than_days` | `int` | `30` |
+| `keep_newest` | `int` | `5` |
+| `plan` | `dict[str, Any] | None` | `None` |
+| `apply` | `bool` | `False` |
+
+**Cost** — network: no · writes files: yes · idempotent: no · spends money: no · can overwrite/remove existing data
+
+### `scan-body-diff`
+
+MCP name: `seo_scan_body_diff`
+
+Compare compatible retained bodies offline; a change is not an SEO verdict.
+
+| Argument | Type | Default |
+|---|---|---|
+| `left` | `str` | `required` |
+| `right` | `str` | `required` |
+| `url` | `str` | `required` |
+| `variant_key` | `str | None` | `None` |
+| `representation` | `str` | `'static'` |
+| `text` | `bool` | `False` |
+| `max_bytes` | `int` | `5 * 1024 * 1024` |
+| `max_lines` | `int` | `10000` |
+
+**Cost** — network: no · writes files: no · idempotent: yes · spends money: no
 
 ---
 

@@ -880,6 +880,84 @@ def build_server():  # -> FastMCP
         seo_compare_crawls reports as new or changed."""
         return _checked(handlers.indexnow_submit(urls=urls, host=host, key_location=key_location))
 
+    @mcp.tool(annotations=read_files, structured_output=True)
+    def seo_scan_list(directory: str, offset: int = 0, limit: int = 100) -> dict[str, Any]:
+        """List saved SQLite scan metadata without loading retained bodies."""
+        return _checked(handlers.scan_list(directory=directory, offset=offset, limit=limit))
+
+    @mcp.tool(annotations=read_files, structured_output=True)
+    def seo_scan_inspect(
+        input_path: str,
+        table: str = "pages",
+        offset: int = 0,
+        limit: int = 100,
+        max_bytes: int = 1_048_576,
+    ) -> dict[str, Any]:
+        """Read a bounded, paginated table view from one saved scan."""
+        return _checked(
+            handlers.scan_inspect(
+                input_path=input_path,
+                table=table,
+                offset=offset,
+                limit=limit,
+                max_bytes=max_bytes,
+            )
+        )
+
+    @mcp.tool(annotations=create_files, structured_output=True)
+    def seo_scan_snapshot(input_path: str, out: str) -> dict[str, Any]:
+        """Create a consistent new SQLite snapshot without overwriting a destination."""
+        return _checked(handlers.scan_snapshot(input_path=input_path, out=out))
+
+    @mcp.tool(annotations=rewrite_files, structured_output=True)
+    def seo_scan_pin(input_path: str, pinned: bool = True) -> dict[str, Any]:
+        """Pin or unpin a finished scan; this is an explicit metadata mutation."""
+        return _checked(handlers.scan_pin(input_path=input_path, pinned=pinned))
+
+    @mcp.tool(annotations=rewrite_files, structured_output=True)
+    def seo_scan_prune(
+        directory: str,
+        older_than_days: int = 30,
+        keep_newest: int = 5,
+        plan: dict[str, Any] | None = None,
+        apply: bool = False,
+    ) -> dict[str, Any]:
+        """Preview candidates by default; deletion requires apply plus the reviewed plan."""
+        return _checked(
+            handlers.scan_prune(
+                directory=directory,
+                older_than_days=older_than_days,
+                keep_newest=keep_newest,
+                plan=plan,
+                apply=apply,
+            )
+        )
+
+    @mcp.tool(annotations=read_files, structured_output=True)
+    def seo_scan_body_diff(
+        left: str,
+        right: str,
+        url: str,
+        variant_key: str | None = None,
+        representation: str = "static",
+        text: bool = False,
+        max_bytes: int = 5 * 1024 * 1024,
+        max_lines: int = 10_000,
+    ) -> dict[str, Any]:
+        """Compare compatible retained bodies offline; a change is not an SEO verdict."""
+        return _checked(
+            handlers.scan_body_diff(
+                left=left,
+                right=right,
+                url=url,
+                variant_key=variant_key,
+                representation=representation,
+                text=text,
+                max_bytes=max_bytes,
+                max_lines=max_lines,
+            )
+        )
+
     # Register Screaming Frog crawl-export tools on the same local connector.
     from seohead.servers import sf_mcp
 

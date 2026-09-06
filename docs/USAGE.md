@@ -28,7 +28,8 @@ seohead report-build --audit native.sqlite --format md --out native-report.md
 
 The default crawl output remains a directory. SQLite mode keeps queue, evidence
 and runtime in one transactional scan and resumes an interrupted file under the
-same build/configuration. It currently retains no response bodies and requires
+same build/configuration. Native capture can retain bounded HTTP entities and
+separately captured DOM according to its explicit retention policy; it requires
 raw rendering, cache off and credential-free configuration. Audit creation has an explicit compatibility guard;
 check `audit_available` before requesting a report. See [STORAGE.md](STORAGE.md)
 for limits, provenance, interrupted-file handling and missing evidence.
@@ -61,6 +62,45 @@ saved `audit.json`. It does not recreate bodies, raw HTML, forms, robots,
 start-page evidence, sitemap responses, or a resume checkpoint. See
 [STORAGE.md](STORAGE.md) for safe read-only access, version rules, and the export
 contract.
+
+## Saved scan history
+
+These commands are local and offline. `scan list` validates artifact metadata and
+schema without reading body BLOBs; `scan inspect` reads only a whitelisted table
+and returns a bounded page of rows.
+
+```bash
+seohead scan-list --directory . --limit 100
+seohead scan-inspect --input native.sqlite --table pages --offset 0 --limit 100 --max-bytes 1048576
+
+# --out is either a new filename or an existing directory; neither form overwrites
+seohead scan-snapshot --input native.sqlite --out snapshot.sqlite
+seohead scan-snapshot --input native.sqlite --out .
+
+seohead scan-pin --input native.sqlite
+seohead scan-pin --input native.sqlite --unpin
+
+# preview only: save this complete stdout JSON envelope and review it before applying
+seohead scan-prune --directory . > plan.json
+
+# compare retained, compatible evidence only; no network request and no SEO score
+seohead scan-body-diff --left before.sqlite --right after.sqlite --url https://example.com/ --text
+```
+
+`scan snapshot` assigns a directory output a no-clobber
+`UTCtimestamp_host_shortUUID.sqlite` name. `scan prune` defaults to finished,
+unpinned, non-partial scans older than 30 days and outside the newest five for the
+same host/configuration. It never automatically selects `crawl_partial` or
+`corpus_partial` files. Applying deletion requires the reviewed preview envelope:
+`seohead scan-prune --directory . --plan plan.json --apply`. The tool rechecks
+every candidate and its current retention rank before deleting anything.
+
+Each flat form also has a nested `scan` equivalent: `scan list`, `scan inspect`,
+`scan snapshot`, `scan pin`, `scan prune`, and `scan body-diff`.
+
+`scan pin` takes the artifact's writer lock and uses SQLite DELETE journal mode.
+It changes only the pin bit: the SQLite file hash changes, while the saved audit,
+retained body rows, and evidence revision do not.
 
 ## Screaming Frog crawl audit
 
@@ -163,7 +203,7 @@ Money rules for this layer: [GOTCHAS.md](GOTCHAS.md).
 ## MCP server
 
 ```bash
-seohead mcp        # stdio server, all 57 seo_* tools + 5 sf_* audit tools
+seohead mcp        # stdio server, all 63 seo_* tools + 5 sf_* audit tools
 ```
 
 Client config (`.mcp.json` in this repo does exactly this):

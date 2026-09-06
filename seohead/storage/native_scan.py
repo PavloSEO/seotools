@@ -571,7 +571,7 @@ class NativeScan:
             or scan["format_version"] != FORMAT_VERSION
         ):
             raise ScanError("not a native scan.v1 artifact")
-        if scan["evidence_version"] != "crawl.v1" or scan["pinned"] != 0:
+        if scan["evidence_version"] != "crawl.v1" or scan["pinned"] not in (0, 1):
             raise ScanError(
                 "native evidence version, corpus completeness, parent or pin metadata is unsupported"
             )
