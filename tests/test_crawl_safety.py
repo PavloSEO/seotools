@@ -148,6 +148,15 @@ def test_request_rate_supplies_a_conservative_minimum_interval():
     assert politeness_delay(parsed) == pytest.approx(10 / 3)
 
 
+def test_repeated_matching_groups_keep_the_strictest_crawl_delay_floor():
+    parsed = parse_robots(
+        "User-agent: ExampleBot\nCrawl-delay: 1\nUser-agent: ExampleBot\nCrawl-delay: 10\n"
+    )
+
+    assert crawl_delay(parsed, "ExampleBot") == 10
+    assert politeness_delay(parsed, "ExampleBot") == 10
+
+
 @pytest.mark.parametrize("value", ["0/1", "1/0", "1.5/2", "1 / 2", "soon", "1/-2"])
 def test_malformed_request_rate_is_ignored_without_affecting_crawl_delay(value):
     parsed = parse_robots(f"User-agent: *\nRequest-rate: {value}\nCrawl-delay: 2\n")

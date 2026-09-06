@@ -136,8 +136,12 @@ def _rules_for(parsed: ParsedRobots, user_agent: str) -> RobotsGroup:
         "user_agents": [ua for g in selected for ua in g["user_agents"]],
         "allow": [pattern for g in selected for pattern in g["allow"]],
         "disallow": [pattern for g in selected for pattern in g["disallow"]],
-        "crawl_delay": next(
-            (g["crawl_delay"] for g in selected if g["crawl_delay"] is not None), None
+        # Matching groups combine.  Unlike Allow/Disallow, these non-standard
+        # directives describe a floor, so preserve the strictest value rather
+        # than letting file order choose a faster request rate.
+        "crawl_delay": max(
+            (float(g["crawl_delay"]) for g in selected if g["crawl_delay"] is not None),
+            default=None,
         ),
         "request_rate_delay": max(
             (float(g.get("request_rate_delay") or 0) for g in selected), default=0

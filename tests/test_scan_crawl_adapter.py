@@ -165,6 +165,74 @@ def test_sqlite_adapter_keeps_sitemap_page_and_resource_requests_on_one_gate(tmp
     ]
 
 
+def test_sqlite_adapter_accepts_legacy_two_argument_seed_loader(tmp_path):
+    calls = []
+
+    def fetcher(url):
+        calls.append(url)
+        if url.endswith("/robots.txt"):
+            return _Response(200, "User-agent: *\nAllow: /\n", {"content-type": "text/plain"})
+        return _Response(200, "<html><body>page</body></html>")
+
+    def seed_loader(_scan, emit_seeds):
+        emit_seeds(())
+
+    run = crawl_to_scan(
+        "https://example.test/",
+        scan_out=str(tmp_path / "legacy-seed-loader.sqlite"),
+        settings=load(overrides={"limits.max_urls": 1}),
+        producer_version="3.0.0",
+        producer_revision="a" * 40,
+        runtime_versions={
+            "python": "test",
+            "sqlite": "test",
+            "httpx": "test",
+            "lxml": "test",
+            "beautifulsoup4": "test",
+        },
+        seed_loader=seed_loader,
+        fetcher=fetcher,
+        sleeper=lambda _seconds: None,
+    )
+
+    assert run.pages == 1
+    assert calls == ["https://example.test/robots.txt", "https://example.test/"]
+
+
+def test_sqlite_adapter_does_not_reinvoke_a_failing_gate_aware_seed_loader(tmp_path):
+    calls = []
+
+    def seed_loader(_scan, _emit_seeds, *, request_gate):
+        calls.append(request_gate)
+        raise TypeError("loader body failed")
+
+    def fetcher(url):
+        if url.endswith("/robots.txt"):
+            return _Response(200, "User-agent: *\nAllow: /\n", {"content-type": "text/plain"})
+        pytest.fail("the seed hook should fail before page dispatch")
+
+    with pytest.raises(TypeError, match="loader body failed"):
+        crawl_to_scan(
+            "https://example.test/",
+            scan_out=str(tmp_path / "failing-seed-loader.sqlite"),
+            settings=load(overrides={"limits.max_urls": 1}),
+            producer_version="3.0.0",
+            producer_revision="a" * 40,
+            runtime_versions={
+                "python": "test",
+                "sqlite": "test",
+                "httpx": "test",
+                "lxml": "test",
+                "beautifulsoup4": "test",
+            },
+            seed_loader=seed_loader,
+            fetcher=fetcher,
+            sleeper=lambda _seconds: None,
+        )
+
+    assert len(calls) == 1
+
+
 class _Response:
     def __init__(self, status_code, text, headers=None):
         self.status_code = status_code

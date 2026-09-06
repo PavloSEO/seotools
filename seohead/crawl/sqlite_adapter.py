@@ -9,6 +9,7 @@ SQLite link semantics cannot drift.
 from __future__ import annotations
 
 import dataclasses
+import inspect
 import itertools
 import json
 import sqlite3
@@ -558,7 +559,18 @@ def crawl_to_scan(
             if seed_loader is None:
                 emit_seeds(seed_urls)
             else:
-                seed_loader(scan, emit_seeds, request_gate=dispatch_gate.wait_turn)
+                signature = inspect.signature(seed_loader)
+                try:
+                    signature.bind(scan, emit_seeds, request_gate=dispatch_gate.wait_turn)
+                except TypeError:
+                    # Seed loaders predate shared dispatch pacing. Bind before
+                    # calling so a TypeError raised inside the callback cannot
+                    # be mistaken for an incompatible signature and replay its
+                    # side effects.
+                    signature.bind(scan, emit_seeds)
+                    seed_loader(scan, emit_seeds)
+                else:
+                    seed_loader(scan, emit_seeds, request_gate=dispatch_gate.wait_turn)
 
         frontier_state = scan.resume_snapshot()["counts"]
         if frontier_state.get("queued", 0) or frontier_state.get("inflight", 0):
