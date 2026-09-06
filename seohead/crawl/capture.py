@@ -137,10 +137,18 @@ def bounded_entity_chunks(chunks: Iterable[bytes], content_encoding: str, limit:
                 decoder = zlib.decompressobj(wbits)
                 chunk = bytes(prefix)
                 prefix.clear()
-            out.extend(decoder.decompress(chunk, limit + 1 - len(out)))
-            if len(out) > limit or decoder.unconsumed_tail:
-                raise EntityLimitError("compressed entity exceeds capture limit")
-        if decoder is None or not decoder.eof or decoder.unused_data:
+            while chunk:
+                if decoder.eof:
+                    if encoding != "gzip":
+                        raise EntityDecodeError("compressed entity contains trailing data")
+                    # gzip permits concatenated members. Each member shares
+                    # the same aggregate decoded/encoded byte limits.
+                    decoder = zlib.decompressobj(16 + zlib.MAX_WBITS)
+                out.extend(decoder.decompress(chunk, limit + 1 - len(out)))
+                if len(out) > limit or decoder.unconsumed_tail:
+                    raise EntityLimitError("compressed entity exceeds capture limit")
+                chunk = decoder.unused_data
+        if decoder is None or not decoder.eof:
             raise EntityLimitError("compressed entity is truncated")
         return bytes(out)
     except zlib.error as exc:
