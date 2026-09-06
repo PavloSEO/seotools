@@ -27,7 +27,9 @@ def _cli(capsys, *argv: str) -> dict:
 
 def _audit_bytes(path: Path) -> bytes:
     with sqlite3.connect(path) as con:
-        return con.execute("SELECT document_json FROM audit WHERE singleton=1").fetchone()[0].encode()
+        return (
+            con.execute("SELECT document_json FROM audit WHERE singleton=1").fetchone()[0].encode()
+        )
 
 
 def _documented_stdlib_read(path: Path) -> None:
@@ -95,9 +97,7 @@ def test_offline_saved_scan_operator_workflow(tmp_path, monkeypatch, capsys, fro
         inspected = _cli(capsys, "scan", "inspect", "--input", str(source), "--table", "pages")
         assert inspected["rows"][0]["title"] == "Owned iframe fixture"
 
-        copied = _cli(
-            capsys, "scan", "snapshot", "--input", str(source), "--out", str(snapshot)
-        )
+        copied = _cli(capsys, "scan", "snapshot", "--input", str(source), "--out", str(snapshot))
         assert Path(copied["snapshot"]) == snapshot
         assert _audit_bytes(snapshot) == _audit_bytes(source)
 
@@ -149,9 +149,10 @@ def test_offline_saved_scan_operator_workflow(tmp_path, monkeypatch, capsys, fro
                 outputs.append(output)
             assert outputs[0].read_bytes() == outputs[1].read_bytes()
             if fmt == "csv":
-                assert outputs[0].with_suffix(".pages.csv").read_bytes() == outputs[1].with_suffix(
-                    ".pages.csv"
-                ).read_bytes()
+                assert (
+                    outputs[0].with_suffix(".pages.csv").read_bytes()
+                    == outputs[1].with_suffix(".pages.csv").read_bytes()
+                )
 
         for after in (snapshot, derived):
             comparison = _cli(
