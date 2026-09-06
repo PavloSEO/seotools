@@ -100,7 +100,13 @@ class AuthProxy:
                     # Keep redirects inside the proxy; otherwise SF would leave the
                     # authenticated path and request the protected origin directly.
                     if name.lower() == "location":
-                        value = value.replace(proxy.origin, proxy.base_url)
+                        if value.startswith(f"//{proxy.target_host}"):
+                            value = (
+                                f"//{proxy.base_url.split('://', 1)[1]}"
+                                + value[len(f"//{proxy.target_host}") :]
+                            )
+                        else:
+                            value = value.replace(proxy.origin, proxy.base_url)
                     self.send_header(name, value)
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()

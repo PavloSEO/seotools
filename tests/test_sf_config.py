@@ -77,3 +77,31 @@ def test_invalid_scoring_weight_is_rejected(weight):
     cfg["scoring"]["weights"] = {"critical": weight}
     with pytest.raises(ConfigError, match="weights"):
         validate_config(cfg)
+
+
+# ── validate_config: checks.<ID>.enabled must be a real bool (issue #463) ──
+#
+# AuditContext.enabled() reads checks[<ID>]["enabled"] with no type coercion,
+# so a JSON string like "false" is truthy in Python and the check stays on
+# despite the config explicitly asking to turn it off. validate_config must
+# catch this the same way it already catches a bad severity.
+
+
+def test_string_enabled_value_is_rejected():
+    cfg = load_config(None)
+    cfg["checks"] = {"TITLE_MISSING": {"enabled": "false"}}
+    with pytest.raises(ConfigError, match="TITLE_MISSING"):
+        validate_config(cfg)
+
+
+def test_real_bool_enabled_value_validates_clean():
+    cfg = load_config(None)
+    cfg["checks"] = {"TITLE_MISSING": {"enabled": False}}
+    validate_config(cfg)  # must not raise
+
+
+def test_well_formed_checks_override_still_validates_clean():
+    """Negative control: valid enabled/severity together must not add errors."""
+    cfg = load_config(None)
+    cfg["checks"] = {"TITLE_MISSING": {"enabled": True, "severity": "notice"}}
+    validate_config(cfg)  # must not raise
