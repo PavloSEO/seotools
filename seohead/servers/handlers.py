@@ -1285,6 +1285,22 @@ def report_build(audit: Any = None, fmt: str = "xlsx", out: str | None = None) -
     return build_report(audit, fmt=fmt, path=out)
 
 
+def facts_export(sites: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Build a facts.v1 multi-site export from already-produced crawl/site
+    audits. Makes zero network requests and picks no winner -- see
+    seohead.reports.facts for the state machine and the two failure modes
+    it refuses (site-identity mismatch, duplicate registrable domain)."""
+    if not sites:
+        raise ValueError("sites required: a list of {label, crawl_audit, site_audit} descriptors")
+    from seohead.reports.facts import build_facts_export
+
+    try:
+        result = build_facts_export(sites)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    return {"ok": True, **result}
+
+
 def _load_audit(
     value: Any, label: str, diagnostics: list[dict[str, str]] | None = None
 ) -> dict[str, Any]:
@@ -2113,6 +2129,7 @@ _RAW_HANDLERS = {
     "render_check": render_check,
     "site_audit": site_audit,
     "report_build": report_build,
+    "facts_export": facts_export,
     "compare_crawls": compare_crawls,
     "keywords_expand": keywords_expand,
     "keywords_seasonality": keywords_seasonality,

@@ -30,7 +30,7 @@ belong in a team's stack, but its exports are not claimed to be a drop-in input 
 
 ### One local interface for an agent
 
-The CLI and MCP server share the same 54 handlers, and five additional MCP tools cover the
+The CLI and MCP server share the same 55 handlers, and five additional MCP tools cover the
 Screaming Frog audit workflow. A registration test prevents a command from existing in only one
 interface.
 
