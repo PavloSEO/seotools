@@ -735,9 +735,19 @@ def check_content_quality(ctx: AuditContext) -> None:
         ctx.skip("GRAMMAR_ERRORS", "no Grammar Errors column (enable grammar-check in SF)")
 
 
-# The "url=" part of a meta refresh: its presence is what separates a redirect
-# from a timed reload of the same page.
-_REFRESH_TARGET_RE = re.compile(r"url\s*=", re.IGNORECASE)
+# A refresh needs a non-empty ``url=`` target to redirect. A delay alone (or an
+# empty target) reloads the current page instead.
+_REFRESH_TARGET_RE = re.compile(r"url\s*=\s*(?P<target>\"[^\"]*\"|'[^']*'|[^;\s]+)", re.IGNORECASE)
+
+
+def _has_refresh_target(refresh: str) -> bool:
+    match = _REFRESH_TARGET_RE.search(refresh)
+    if not match:
+        return False
+    target = match.group("target").strip()
+    if target[:1] in {'"', "'"}:
+        target = target[1:-1].strip()
+    return bool(target)
 
 
 def check_directives_extra(ctx: AuditContext) -> None:
@@ -765,17 +775,18 @@ def check_directives_extra(ctx: AuditContext) -> None:
         # 301" -- is advice that would break the page. The check reads the same
         # declaration whichever source supplied it, so this holds for a Screaming
         # Frog export and a native crawl alike.
-        if refresh and _REFRESH_TARGET_RE.search(refresh):
+        if refresh and _has_refresh_target(refresh):
             ctx.add(
                 "META_REFRESH_REDIRECT",
                 target_url=page.url,
                 details={"meta_refresh": refresh},
             )
-        if rec.get("http_refresh"):
+        http_refresh = str(rec.get("http_refresh") or "")
+        if http_refresh and _has_refresh_target(http_refresh):
             ctx.add(
                 "HTTP_REFRESH_REDIRECT",
                 target_url=page.url,
-                details={"refresh_header": rec.get("http_refresh")},
+                details={"refresh_header": http_refresh},
             )
     if not _has_column(ctx, "http_refresh"):
         ctx.skip("HTTP_REFRESH_REDIRECT", "no Refresh response header evidence (native crawl only)")
