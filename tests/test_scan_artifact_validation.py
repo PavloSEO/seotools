@@ -354,7 +354,7 @@ def test_documented_stdlib_queries_and_bounded_decoder_execute(artifact, tmp_pat
 
 def test_schema_maps_all_current_page_and_link_fields():
     from dataclasses import fields
-    from typing import get_type_hints
+    from typing import get_args, get_type_hints
 
     from seohead.crawl.collect import PageRecord
     from seohead.crawl.spider import LinkEdge
@@ -370,8 +370,10 @@ def test_schema_maps_all_current_page_and_link_fields():
     assert set(_LATE_PAGE_FIELDS) <= page_record_fields
     assert len(page_record_fields - set(_LATE_PAGE_FIELDS)) == 43
     assert {
-        name for name, annotation in get_type_hints(PageRecord).items() if annotation is int
-    } == _PAGE_NONNEGATIVE_INTS
+        name
+        for name, annotation in get_type_hints(PageRecord).items()
+        if annotation is int or set(get_args(annotation)) == {int, type(None)}
+    } - {"status_code"} == _PAGE_NONNEGATIVE_INTS
     assert {field.name for field in fields(LinkEdge)} == {
         "source",
         "destination",
@@ -526,3 +528,11 @@ def test_import_rejects_negative_page_counts(legacy_run, tmp_path, field):
 
     with pytest.raises(ScanError, match=rf"pages\.{field}: expected a nonnegative integer"):
         import_run(legacy_run, tmp_path / f"negative-{field}.sqlite", producer_build=BUILD)
+
+
+@pytest.mark.parametrize("field", sorted(_PAGE_NONNEGATIVE_INTS))
+def test_reader_rejects_mutated_negative_page_counts(artifact, field):
+    with sqlite3.connect(artifact) as con:
+        con.execute(f"UPDATE pages SET {field}=-1 WHERE page_ordinal=0")
+    with pytest.raises(ScanError, match="invalid negative PageRecord count"):
+        open_scan(artifact)

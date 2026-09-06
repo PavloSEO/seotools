@@ -315,6 +315,17 @@ def test_native_write_rejects_negative_page_counts(tmp_path, field):
         assert scan.con.execute("SELECT COUNT(*) FROM pages").fetchone()[0] == 0
 
 
+def test_native_reader_rejects_mutated_negative_page_count(tmp_path):
+    path = tmp_path / "scan.sqlite"
+    with NativeScan.create(path, **_metadata()) as scan:
+        scan.enqueue([("https://example.test/", 0)])
+        scan.commit_page(scan.claim(1)[0], _record(), runtime=_runtime())
+    with sqlite3.connect(path) as con:
+        con.execute("UPDATE pages SET images_total=-1")
+    with pytest.raises(ScanError, match="native scan page count cannot be negative"):
+        NativeScan.inspect(path)
+
+
 def test_page_ordinals_ignore_excluded_frontier_entries(tmp_path):
     path = tmp_path / "scan.sqlite"
     with NativeScan.create(path, **_metadata(**{"limits.max_query_variants_per_path": 1})) as scan:

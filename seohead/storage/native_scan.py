@@ -40,6 +40,7 @@ from seohead.storage import (
     _config,
     _dump,
     _expected,
+    _has_negative_page_counts,
     _insert,
     _objects,
     _runtime,
@@ -749,6 +750,8 @@ class NativeScan:
             ).fetchone()
         ):
             raise ScanError("terminal native scan has unfinished frontier work")
+        if _has_negative_page_counts(con):
+            raise ScanError("native scan page count cannot be negative")
         for page in con.execute("SELECT * FROM pages"):
             frontier_page = con.execute(
                 "SELECT depth FROM frontier WHERE url_id=?", (page["url_id"],)
@@ -765,15 +768,9 @@ class NativeScan:
                 )
             ):
                 raise ScanError("native scan page is missing a current PageRecord evidence field")
-            if (
-                page["size_bytes"] < 0
-                or page["word_count"] < 0
-                or page["crawl_depth"] < 0
-                or page["content_frames"] < 0
-                or page["content_frames_same_origin"] < 0
-                or page["content_frames_same_origin"] > page["content_frames"]
-                or page["body_unavailable"] not in (None, "", "oversized")
-            ):
+            if page["content_frames_same_origin"] > page["content_frames"] or page[
+                "body_unavailable"
+            ] not in (None, "", "oversized"):
                 raise ScanError("native scan page scalar/body marker is invalid")
             try:
                 alternates = json.loads(page["hreflang_json"] or "[]")

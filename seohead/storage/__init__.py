@@ -121,6 +121,16 @@ def _legacy_fields_missing(con) -> list[str]:
     return [name for name, missing in zip(_LATE_PAGE_FIELDS, row, strict=True) if missing]
 
 
+def _has_negative_page_counts(con) -> bool:
+    return bool(
+        con.execute(
+            "SELECT 1 FROM pages WHERE "
+            + " OR ".join(f"{name}<0" for name in _PAGE_NONNEGATIVE_INTS)
+            + " LIMIT 1"
+        ).fetchone()
+    )
+
+
 def _hreflang(value: Any) -> None:
     if not isinstance(value, list) or any(
         not isinstance(item, dict)
@@ -479,12 +489,10 @@ def _validate_import_metadata(con, scan: dict, audit: dict) -> None:
     }
     if _dump(retention) != _dump(expected_retention):
         raise ScanError("unsupported point-A body retention policy")
+    if _has_negative_page_counts(con):
+        raise ScanError("invalid negative PageRecord count")
     if con.execute(
-        "SELECT 1 FROM pages WHERE size_bytes < 0 OR word_count < 0 OR crawl_depth < 0 LIMIT 1"
-    ).fetchone():
-        raise ScanError("invalid negative page size, word count or depth")
-    if con.execute(
-        "SELECT 1 FROM pages WHERE content_frames < 0 OR content_frames_same_origin < 0 OR content_frames_same_origin > content_frames OR body_unavailable NOT IN ('','oversized') LIMIT 1"
+        "SELECT 1 FROM pages WHERE content_frames_same_origin > content_frames OR body_unavailable NOT IN ('','oversized') LIMIT 1"
     ).fetchone():
         raise ScanError("invalid frame counts or body_unavailable state")
     count, low, high = con.execute(
