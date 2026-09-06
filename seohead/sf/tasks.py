@@ -115,7 +115,7 @@ def _group_by_check(issues, prio, effort, cap, loc_cap, min_occ) -> list[dict[st
             continue
         meta = check_meta(check)
         severity = group[0]["severity"]
-        page_count_label = "page" if len(group) == 1 else "pages"
+        page_count_label = "page" if len(unique_urls) == 1 else "pages"
         task = {
             "id": _task_id(check, "all"),
             "check": check,
@@ -123,7 +123,7 @@ def _group_by_check(issues, prio, effort, cap, loc_cap, min_occ) -> list[dict[st
             "severity": severity,
             "effort": effort.get(severity, "medium"),
             "title": (
-                f"{meta['message']} — {len(group)} {page_count_label}"
+                f"{meta['message']} — {len(unique_urls)} {page_count_label}"
                 if unique_urls
                 else meta["message"]
             ),
@@ -236,8 +236,13 @@ def render_tasks_md(backlog: dict[str, Any]) -> str:
         lines.append(f"> **Partial crawl — this is a sample, not the whole site.**{stop_text}")
         if src.get("health_score_scope"):
             lines.append(f"> {src['health_score_scope']}")
-        if src.get("health_score_basis"):
-            lines.append(f"> {src['health_score_basis']}")
+        lines.append("")
+    # health_score_basis is set whenever checks were skipped or disabled,
+    # independent of crawl_partial (#457) — a fully-crawled, export-based run
+    # missing files gets this warning too, and it must reach the human-facing
+    # backlog even when the crawl_partial block above never fires.
+    if src.get("health_score_basis"):
+        lines.append(f"> {src['health_score_basis']}")
         lines.append("")
     health = src.get("health_score")
     health_text = "n/a" if health is None else health

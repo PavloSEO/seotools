@@ -257,3 +257,115 @@ def test_location_cap_reports_totals_and_omissions():
     assert "https://example.test/b" not in md
     assert "https://example.test/c" not in md
     assert "2 more source location(s) omitted" in md
+
+
+def _reduced_coverage_audit(*, partial: bool) -> dict:
+    return {
+        "run": {
+            "project": "example.test",
+            "generated_at": "2026-09-06T00:00:00Z",
+            "crawl_valid": True,
+            "crawl_partial": partial,
+            "crawl_finish_reason": "url_limit" if partial else None,
+        },
+        "summary": {
+            "health_score": 82,
+            "health_score_basis": (
+                "40 of 96 checks could run; the score is not comparable to a run with full evidence"
+            ),
+            "check_coverage": {
+                "checks_total": 96,
+                "checks_fired": 40,
+                "checks_skipped": 50,
+                "checks_disabled": 6,
+                "coverage": 0.417,
+            },
+        },
+        "issues": [
+            {
+                "check": "MISSING_TITLE",
+                "severity": "warning",
+                "target_url": "https://example.test/a",
+                "occurrences_count": 1,
+                "source": "SF",
+            }
+        ],
+    }
+
+
+def test_reduced_coverage_basis_rendered_for_non_partial_crawl():
+    """#457: a fully-crawled but low-coverage run must still show its basis."""
+    md = render_tasks_md(build_tasks(_reduced_coverage_audit(partial=False)))
+    assert "40 of 96" in md
+
+
+def test_reduced_coverage_basis_rendered_alongside_partial_warning():
+    """#457: a partial crawl keeps both the partial warning and the basis."""
+    md = render_tasks_md(build_tasks(_reduced_coverage_audit(partial=True)))
+    assert "Partial crawl" in md
+    assert "40 of 96" in md
+
+
+def test_full_coverage_run_has_no_basis_text():
+    """#457 negative control: a fully-covered run injects no new basis text."""
+    audit = _reduced_coverage_audit(partial=False)
+    audit["summary"]["health_score_basis"] = None
+    audit["summary"]["check_coverage"] = {
+        "checks_total": 96,
+        "checks_fired": 96,
+        "checks_skipped": 0,
+        "checks_disabled": 0,
+        "coverage": 1.0,
+    }
+    md = render_tasks_md(build_tasks(audit))
+    assert "not comparable" not in md
+    assert "checks could run" not in md
+
+
+def _same_url_repeat_audit(count: int) -> dict:
+    return {
+        "run": {"project": "example.test", "generated_at": "2026-09-06T00:00:00Z"},
+        "summary": {"health_score": 90},
+        "issues": [
+            {
+                "check": "MISSING_TITLE",
+                "severity": "warning",
+                "target_url": "https://example.test/a",
+                "occurrences_count": 1,
+                "source": "SF",
+            }
+            for _ in range(count)
+        ],
+    }
+
+
+def test_grouped_title_counts_unique_pages_not_records():
+    """#459: title, affected_count and urls must agree on the same page count."""
+    backlog = build_tasks(_same_url_repeat_audit(3))
+    task = backlog["tasks"][0]
+    assert task["affected_count"] == 1
+    assert task["urls"] == ["https://example.test/a"]
+    assert "1 page" in task["title"]
+    assert "3 pages" not in task["title"]
+
+
+def test_grouped_title_still_counts_distinct_urls_correctly():
+    """#459 negative control: distinct-URL grouping is unchanged."""
+    audit = {
+        "run": {"project": "example.test", "generated_at": "2026-09-06T00:00:00Z"},
+        "summary": {"health_score": 90},
+        "issues": [
+            {
+                "check": "MISSING_TITLE",
+                "severity": "warning",
+                "target_url": f"https://example.test/{i}",
+                "occurrences_count": 1,
+                "source": "SF",
+            }
+            for i in range(3)
+        ],
+    }
+    backlog = build_tasks(audit)
+    task = backlog["tasks"][0]
+    assert task["affected_count"] == 3
+    assert "3 pages" in task["title"]
