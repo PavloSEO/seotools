@@ -50,6 +50,43 @@ def test_collects_in_the_order_given_and_deduplicates():
     assert [p.url for p in result.pages] == ["https://example.com/a", "https://example.com/b"]
 
 
+def test_redirect_resolution_rebinds_credentials_for_each_hop(monkeypatch):
+    import seohead.crawl.collect as collect_module
+
+    calls = []
+
+    class Client:
+        def get(self, url, *, headers, extensions):
+            calls.append((url, headers))
+            if url == "https://source.example.test/start":
+                return FakeResponse("", 302, {"location": "https://other.example.test/landing"})
+            return FakeResponse("<html><title>landing</title></html>")
+
+        def close(self):
+            pass
+
+    monkeypatch.setenv("SEOHEAD_LIST_TOKEN", "secret")
+    monkeypatch.setattr(collect_module, "validate_url", lambda url: url)
+    monkeypatch.setattr(collect_module, "pinned_target", lambda url: (url, {}, {}))
+    monkeypatch.setattr(collect_module, "http_client", lambda *_args, **_kwargs: (Client(), False))
+
+    collect_urls(
+        ["https://source.example.test/start"],
+        credential_headers=[
+            {
+                "host": "source.example.test",
+                "headers": {"Authorization": "env:SEOHEAD_LIST_TOKEN"},
+            }
+        ],
+        extra_request_headers={"Accept-Language": "en"},
+        resolve_redirect_destination=True,
+    )
+
+    assert calls[0][1]["Authorization"] == "secret"
+    assert calls[1][1]["Accept-Language"] == "en"
+    assert "Authorization" not in calls[1][1]
+
+
 def test_parses_against_the_document_base(tmp_path):
     """The <base href> fix must hold here too, or list mode invents 404s."""
     result = collect_urls(

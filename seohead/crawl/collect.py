@@ -972,6 +972,16 @@ def collect_urls(
 
     seen: set[str] = set()
     robots_cache: dict[tuple[str, str], Any] = {}
+
+    def headers_for_url(target: str) -> dict[str, str] | None:
+        headers = dict(extra_request_headers or {})
+        if credential_headers:
+            headers.update(
+                resolve_credential_headers(credential_headers, urlsplit(target).hostname or "")
+                or {}
+            )
+        return headers or None
+
     with contextlib.ExitStack() as stack:
         handle = None
         if out_path:
@@ -1022,12 +1032,8 @@ def collect_urls(
                 if robots_policy == "respect":
                     continue  # report_only still fetches it below
 
-            host = (urlsplit(url).hostname or "").lower()
             # http.headers goes on every request; a credential is bound to one host.
-            extra_headers = dict(extra_request_headers or {})
-            if credential_headers:
-                extra_headers.update(resolve_credential_headers(credential_headers, host) or {})
-            extra_headers = extra_headers or None
+            extra_headers = headers_for_url(url)
             record, _ = fetch_one(
                 url,
                 client=client,
@@ -1054,6 +1060,7 @@ def collect_urls(
                     parse_options=parse_options,
                     cache=cache,
                     wait=dispatch_gate.wait_turn,
+                    headers_for_url=headers_for_url,
                 )
             result.pages.append(record)
             _write(handle, record)

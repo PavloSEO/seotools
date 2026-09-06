@@ -6,9 +6,11 @@ behavior to the core + a handler here, then surface it in each face.
 
 from __future__ import annotations
 
+import sys
 import time
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import urlsplit
 
 from seohead import runlog
 from seohead.models import ParseManyResult, RobotsCheckResult
@@ -42,6 +44,19 @@ def handler_failed(result: Any) -> bool:
     contract in ``docs/USAGE.md``.
     """
     return isinstance(result, dict) and result.get("ok") is False
+
+
+def _warn_ignored_robots(settings: dict[str, Any], url: str | None, urls: list[str] | None) -> None:
+    """Make an explicit robots bypass visible at each CLI or MCP run boundary."""
+    if settings["robots"]["policy"] != "ignore":
+        return
+    targets = [url] if url else (urls or [])
+    hosts = sorted({(urlsplit(target).hostname or "").lower() for target in targets if target})
+    for host in hosts:
+        if host:
+            print(
+                f"warning: robots.txt bypass enabled for {host} (policy: ignore)", file=sys.stderr
+            )
 
 
 # SEO core is extracted BY DEFAULT (the caller can turn any field off with False).
@@ -490,6 +505,7 @@ def crawl_site(
         if value is not None:
             resolved_overrides[path] = value
     settings = crawl_config.load(config, overrides=resolved_overrides)
+    _warn_ignored_robots(settings, url, urls)
     if settings.get("resources", {}).get("fetch") and not scan_out:
         raise ValueError("resources.fetch requires a SQLite scan_out artifact")
     if scan_out:

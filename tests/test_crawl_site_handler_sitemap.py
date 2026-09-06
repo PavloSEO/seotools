@@ -10,7 +10,7 @@ URL_NOT_IN_SITEMAP check ids that pipeline already defines.
 from __future__ import annotations
 
 import seohead.tools.sitemap as sitemap_tool
-from seohead.crawl.collect import PageRecord
+from seohead.crawl.collect import CrawlResult, PageRecord
 from seohead.crawl.spider import LinkEdge, SpiderResult
 from seohead.servers import handlers
 
@@ -81,6 +81,38 @@ def test_handler_passes_one_gate_from_sitemap_seeding_to_page_collection(monkeyp
     handlers.crawl_site(url="https://example.com/", sitemap="https://example.com/sitemap.xml")
 
     assert gates[0].__self__ is gates[1].__self__
+
+
+def test_handler_warns_when_native_crawl_ignores_robots(monkeypatch, capsys):
+    monkeypatch.setattr("seohead.crawl.spider.crawl_site", lambda *_args, **_kwargs: SpiderResult())
+
+    handlers.crawl_site(url="https://native.example.test/", robots="ignore")
+
+    assert "robots.txt bypass enabled for native.example.test" in capsys.readouterr().err
+
+
+def test_handler_warns_for_each_list_host_when_robots_are_ignored(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "seohead.crawl.collect.collect_urls", lambda *_args, **_kwargs: CrawlResult()
+    )
+
+    handlers.crawl_site(
+        urls=["https://first.example.test/", "https://second.example.test/path"], robots="ignore"
+    )
+
+    warning = capsys.readouterr().err
+    assert "robots.txt bypass enabled for first.example.test" in warning
+    assert "robots.txt bypass enabled for second.example.test" in warning
+
+
+def test_handler_warns_for_a_resumed_scan_when_robots_are_ignored(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "seohead.servers.scan_handlers.crawl_site_scan", lambda *_args, **_kwargs: {"resumed": True}
+    )
+
+    handlers.crawl_site(url="https://resume.example.test/", robots="ignore", scan_out="scan.sqlite")
+
+    assert "robots.txt bypass enabled for resume.example.test" in capsys.readouterr().err
 
 
 def test_render_escalation_threads_the_shared_gate_to_browser_entry_points(monkeypatch):
