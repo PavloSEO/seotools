@@ -115,6 +115,22 @@ def test_sitemap_parses_clean_urlset():
     assert out[0]["lastmod"] == "2025-01-01"
 
 
+def test_bare_sitemap_xml_does_not_invent_an_origin_for_relative_locations():
+    """A direct parser caller without a document URL keeps relative loc text intact."""
+    out = S._parse_sitemap_bytes(
+        _urlset("/relative-page", "https://example.com/absolute-page"),
+        "ua",
+        1,
+        set(),
+        set(),
+    )
+
+    assert [(entry["loc"], entry["source"]) for entry in out] == [
+        ("/relative-page", ""),
+        ("https://example.com/absolute-page", ""),
+    ]
+
+
 def test_a_parse_error_is_a_named_failure_not_a_silent_empty_result():
     """#146: a document that fetched fine but doesn't parse (an unescaped '&' is the
     classic generator bug) must be distinguishable from "no such document" -- both used
@@ -254,6 +270,39 @@ def test_a_shallow_nested_index_is_unaffected_by_the_depth_guard(monkeypatch, tm
     assert not any(issue.check == "SITEMAP_FETCH_INCOMPLETE" for issue in ctx.issues)
     skipped = {s.id: s.reason for s in ctx.skipped}
     assert "SITEMAP_DESYNC" not in skipped or "depth cap" not in skipped.get("SITEMAP_DESYNC", "")
+
+
+def test_run_sitemap_resolves_relative_index_and_urlset_locations(monkeypatch, tmp_path):
+    """#567: live SF sitemap coverage follows the same document-relative locations as crawl."""
+    from seohead.tools.sitemap import parse_sitemap
+
+    root = "https://example.com/sitemaps/index.xml"
+    child = "https://example.com/sitemaps/parts/urls.xml"
+    child_xml = _urlset("../relative-page", "https://example.com/absolute-page")
+    expected_urls = [entry["loc"] for entry in parse_sitemap(child_xml, child)["urls"]]
+    ctx = _mini_ctx(tmp_path, expected_urls)
+    responses = {
+        "https://example.com/robots.txt": b"User-agent: *\n",
+        root: _index("parts/urls.xml"),
+        child: child_xml,
+    }
+    calls: list[str] = []
+
+    def fake_fetch(url, ua, timeout, retries=2):
+        calls.append(url)
+        return responses.get(url)
+
+    monkeypatch.setattr(S, "_fetch", fake_fetch)
+    summary = S.run_sitemap(ctx, sitemap_url=root)
+
+    assert calls == ["https://example.com/robots.txt", root, child]
+    assert expected_urls == [
+        "https://example.com/sitemaps/relative-page",
+        "https://example.com/absolute-page",
+    ]
+    assert summary["urls_in_sitemap"] == 2
+    assert summary["in_sitemap_and_linked"] == sorted(expected_urls)
+    assert summary["in_sitemap_not_in_crawl"] == 0
 
 
 def test_a_genuinely_empty_urlset_still_reports_declared_zero(monkeypatch, tmp_path):

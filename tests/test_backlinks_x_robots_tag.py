@@ -9,6 +9,8 @@ header, so a donor page that blocks indexing purely through an HTTP
 
 from __future__ import annotations
 
+import pytest
+
 from seohead.recon import backlinks
 
 
@@ -110,3 +112,37 @@ def test_link_rel_reasons_stay_distinct_from_page_level_reasons(monkeypatch):
     link = row["links"][0]
     assert link["follow"] is False
     assert link["blocked_by"] == ["sponsored"]
+
+
+@pytest.mark.parametrize(
+    ("canonical", "final_url", "expected_evidence"),
+    [
+        (
+            "https://DONOR.example.test/article",
+            "https://donor.example.test/article",
+            "https://DONOR.example.test/article",
+        ),
+        (
+            "HTTPS://donor.example.test/article",
+            "https://donor.example.test/article",
+            "https://donor.example.test/article",
+        ),
+    ],
+)
+def test_case_only_self_canonical_is_not_reported_elsewhere(
+    monkeypatch, canonical, final_url, expected_evidence
+):
+    html = f'<link rel="canonical" href="{canonical}"><a href="https://target.example.test/landing">x</a>'
+    row = _run(monkeypatch, _Response(html=html, url=final_url))["results"][0]
+    assert row["canonical"] == expected_evidence
+    assert row["canonical_elsewhere"] is False
+
+
+@pytest.mark.parametrize(
+    "canonical",
+    ["https://donor.example.test/Article", "https://donor.example.test/article?ref=campaign"],
+)
+def test_backlink_canonical_identity_keeps_path_and_query_distinct(monkeypatch, canonical):
+    html = f'<link rel="canonical" href="{canonical}"><a href="https://target.example.test/landing">x</a>'
+    row = _run(monkeypatch, _Response(html=html))["results"][0]
+    assert row["canonical_elsewhere"] is True

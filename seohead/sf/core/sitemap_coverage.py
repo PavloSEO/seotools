@@ -183,7 +183,7 @@ def _parse_sitemap_bytes(
             loc = sm.findtext("sm:loc", namespaces=_NS) or sm.findtext("loc")
             if not loc:
                 continue
-            loc = loc.strip()
+            loc = _resolve_sitemap_loc(loc.strip(), source)
             # SSRF guard: only follow children on an allowed host.
             if loc in seen or (allowed_hosts and _host(loc) not in allowed_hosts):
                 continue
@@ -218,7 +218,7 @@ def _parse_sitemap_bytes(
                             "loc"
                         )
                         if rloc:
-                            truncated.append(rloc.strip())
+                            truncated.append(_resolve_sitemap_loc(rloc.strip(), source))
                 break
     else:  # urlset
         declared = 0
@@ -229,7 +229,7 @@ def _parse_sitemap_bytes(
             if loc:
                 out.append(
                     {
-                        "loc": loc.strip(),
+                        "loc": _resolve_sitemap_loc(loc.strip(), source),
                         "lastmod": (lastmod or "").strip() or None,
                         "source": source,
                     }
@@ -258,6 +258,11 @@ def _origin(url: str) -> str | None:
     if parsed.scheme and parsed.netloc:
         return f"{parsed.scheme}://{parsed.netloc}"
     return None
+
+
+def _resolve_sitemap_loc(loc: str, source: str) -> str:
+    """Resolve a sitemap location only when its document URL is explicit and absolute."""
+    return urllib.parse.urljoin(source, loc) if _origin(source) else loc
 
 
 def _base_url(ctx: AuditContext) -> str | None:

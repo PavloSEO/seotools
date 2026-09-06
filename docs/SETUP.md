@@ -176,6 +176,10 @@ seohead crawl-site --url https://example.com/ --config crawl.json --out-dir ./re
 Resolution order is defaults, then the file, then environment variables, then explicit command-line
 arguments — the most local statement of intent wins.
 
+Use `http.headers` only for non-credential request headers such as `Accept-Language`. Authentication
+headers, cookies, API keys, and tokens are refused there: put them in host-bound
+`http.credential_headers` as `env:VARIABLE` references and set `http.credentials_acknowledged=true`.
+
 `crawl-site --help` only shows the handful of settings used directly on the command line
 (`--url`, `--max-urls`, `--out-dir`, `--config`, `--robots`, `--sitemap`); everything else — the
 settings above and every one the crawler build-out has added since — lives in the config file. Run

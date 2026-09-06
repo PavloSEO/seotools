@@ -31,6 +31,7 @@ from seohead.crawl.settings import (
 )
 from seohead.storage import (
     _PAGE_BOOLS,
+    _PAGE_NONNEGATIVE_INTS,
     APPLICATION_ID,
     FORMAT_VERSION,
     MAX_RECORD_BYTES,
@@ -39,6 +40,7 @@ from seohead.storage import (
     _config,
     _dump,
     _expected,
+    _has_negative_page_counts,
     _insert,
     _objects,
     _runtime,
@@ -73,19 +75,6 @@ _LINK_KEYS = {
     "raw_href",
 }
 _FORM_KEYS = {"page", "method", "action", "has_password"}
-_CURRENT_PAGE_INTS = {
-    "size_bytes",
-    "word_count",
-    "content_frames",
-    "content_frames_same_origin",
-    "crawl_depth",
-    "head_count",
-    "body_count",
-    "outlinks",
-    "external_outlinks",
-    "jsonld_blocks_found",
-    "jsonld_blocks_parsed",
-}
 _OPTIONAL_PAGE_SOURCES = {
     "status_code",
     "response_time",
@@ -761,6 +750,8 @@ class NativeScan:
             ).fetchone()
         ):
             raise ScanError("terminal native scan has unfinished frontier work")
+        if _has_negative_page_counts(con):
+            raise ScanError("native scan page count cannot be negative")
         for page in con.execute("SELECT * FROM pages"):
             frontier_page = con.execute(
                 "SELECT depth FROM frontier WHERE url_id=?", (page["url_id"],)
@@ -777,15 +768,9 @@ class NativeScan:
                 )
             ):
                 raise ScanError("native scan page is missing a current PageRecord evidence field")
-            if (
-                page["size_bytes"] < 0
-                or page["word_count"] < 0
-                or page["crawl_depth"] < 0
-                or page["content_frames"] < 0
-                or page["content_frames_same_origin"] < 0
-                or page["content_frames_same_origin"] > page["content_frames"]
-                or page["body_unavailable"] not in (None, "", "oversized")
-            ):
+            if page["content_frames_same_origin"] > page["content_frames"] or page[
+                "body_unavailable"
+            ] not in (None, "", "oversized"):
                 raise ScanError("native scan page scalar/body marker is invalid")
             try:
                 alternates = json.loads(page["hreflang_json"] or "[]")
@@ -1381,7 +1366,7 @@ class NativeScan:
                 )
         if set(record) - source_names:
             raise ScanError(f"page record has unknown fields: {sorted(set(record) - source_names)}")
-        for name in _CURRENT_PAGE_INTS:
+        for name in _PAGE_NONNEGATIVE_INTS:
             value = record.get(name)
             if type(value) is not int or value < 0:
                 raise ScanError(f"pages.{name}: expected a nonnegative integer")

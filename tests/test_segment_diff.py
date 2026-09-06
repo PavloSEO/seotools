@@ -58,6 +58,47 @@ def test_declared_alternate_translated_slug_is_not_reported_as_missing():
     assert result["counts"]["absent"] == 0
 
 
+def test_declared_case_variant_matches_the_crawled_counterpart():
+    """Only scheme/host case folds for identity; the declaration remains evidence."""
+    scope = _scope()
+    declared = "HTTPS://X.TLD/fr/a-propos"
+    result = sd.diff_segments(
+        [
+            _page("https://x.tld/en/about", hreflang=[_alt(declared)]),
+            _page("https://x.tld/fr/a-propos", hreflang=[]),
+        ],
+        source="en",
+        target="fr",
+        segments=SEGMENTS,
+        segment_for=scope.segment_for,
+    )
+    row = result["pages"][0]
+    assert row["class"] == "declared"
+    assert row["counterpart"] == declared
+
+
+@pytest.mark.parametrize(
+    ("declared", "crawled"),
+    [
+        ("https://X.TLD/fr/About", "https://x.tld/fr/about"),
+        ("https://X.TLD/fr/about?Q=A", "https://x.tld/fr/about?q=a"),
+    ],
+)
+def test_segment_identity_keeps_path_and_query_case_distinct(declared, crawled):
+    scope = _scope()
+    result = sd.diff_segments(
+        [
+            _page("https://x.tld/en/about", hreflang=[_alt(declared)]),
+            _page(crawled, hreflang=[]),
+        ],
+        source="en",
+        target="fr",
+        segments=SEGMENTS,
+        segment_for=scope.segment_for,
+    )
+    assert result["pages"][0]["class"] == "declared_not_crawled"
+
+
 def test_same_page_without_the_declaration_is_inferred_missing_not_a_fact():
     """Same site, same translated page, but this time nothing declares the
     correspondence and the mirrored path (/fr/about) genuinely does not exist --
@@ -90,6 +131,26 @@ def test_same_page_without_the_declaration_is_inferred_missing_not_a_fact():
     assert about["method"] == "mirrored_path"
     # labelled as an inference-driven finding, never a bare, undistinguishable-from-declared fact
     assert about["class"] != "declared"
+
+
+def test_case_variant_mirrored_path_matches_the_crawled_counterpart():
+    scope = _scope()
+    pages = [
+        _page("https://x.tld/en/contact", hreflang=[_alt("https://x.tld/fr/contact")]),
+        _page("https://x.tld/fr/contact", hreflang=[]),
+        _page("https://x.tld/en/about", hreflang=[]),
+        _page("HTTPS://X.TLD/fr/about", hreflang=[]),
+    ]
+    result = sd.diff_segments(
+        pages,
+        source="en",
+        target="fr",
+        segments=SEGMENTS,
+        segment_for=scope.segment_for,
+    )
+    about = next(row for row in result["pages"] if row["url"] == "https://x.tld/en/about")
+    assert about["class"] == "inferred"
+    assert about["counterpart"] == "https://x.tld/fr/about"
 
 
 def test_five_counts_sum_to_the_eligible_page_count():

@@ -31,6 +31,8 @@ The main trust boundaries are:
   require explicit input;
 - credentials are loaded from the local environment/configuration and should never appear in
   prompts, issue reports, transcripts, or committed files.
+- authenticated crawl headers use host-bound environment references; the global
+  `http.headers` setting rejects credential-bearing header names.
 
 ## Supported versions
 
