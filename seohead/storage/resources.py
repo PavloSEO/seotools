@@ -224,8 +224,8 @@ def resource_capabilities(
     # active; an older partial attempt must not poison its replacement.
     states = {"complete": 0, "partial": 0, "unavailable": 0}
     for (state,) in con.execute(
-        "SELECT c.completeness FROM context_items c JOIN documents d "
-        "ON c.item_key='document:'||d.document_id WHERE c.kind='resource_inventory' "
+        "SELECT c.completeness FROM documents d CROSS JOIN context_items c "
+        "WHERE c.kind='resource_inventory' AND c.item_key='document:'||d.document_id "
         "AND NOT EXISTS(SELECT 1 FROM context_items later JOIN documents nd "
         "ON later.item_key='document:'||nd.document_id WHERE later.kind='resource_inventory' "
         "AND nd.url_id=d.url_id AND nd.representation=d.representation AND nd.document_id>d.document_id)"
