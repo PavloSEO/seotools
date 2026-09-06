@@ -244,7 +244,8 @@ def test_sql_graph_audit_matches_legacy_without_building_all_inlinks(
                 )
         assert left.read_bytes() == right.read_bytes()
         if fmt == "csv":
-            assert (
-                left.with_suffix(".pages.csv").read_bytes()
-                == right.with_suffix(".pages.csv").read_bytes()
-            )
+            for suffix in (".pages.csv", ".scope.csv"):
+                left_sidecar, right_sidecar = left.with_suffix(suffix), right.with_suffix(suffix)
+                assert left_sidecar.exists() == right_sidecar.exists()
+                if left_sidecar.exists():
+                    assert left_sidecar.read_bytes() == right_sidecar.read_bytes()

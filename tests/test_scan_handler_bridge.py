@@ -342,7 +342,9 @@ def test_real_handler_adapter_native_audit_and_all_report_formats(
         assert build_report(audit, fmt, str(from_document))["ok"]
         assert from_scan.read_bytes() == from_document.read_bytes()
         if fmt == "csv":
-            assert (
-                from_scan.with_suffix(".pages.csv").read_bytes()
-                == from_document.with_suffix(".pages.csv").read_bytes()
-            )
+            for suffix in (".pages.csv", ".scope.csv"):
+                scan_sidecar = from_scan.with_suffix(suffix)
+                document_sidecar = from_document.with_suffix(suffix)
+                assert scan_sidecar.exists() == document_sidecar.exists()
+                if scan_sidecar.exists():
+                    assert scan_sidecar.read_bytes() == document_sidecar.read_bytes()

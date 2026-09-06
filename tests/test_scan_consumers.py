@@ -28,10 +28,11 @@ def test_existing_report_accepts_the_artifact_directly(
     assert build_report(str(scan), fmt, str(second))["ok"]
     assert first.read_bytes() == second.read_bytes()
     if fmt == "csv":
-        assert (
-            first.with_suffix(".pages.csv").read_bytes()
-            == second.with_suffix(".pages.csv").read_bytes()
-        )
+        for suffix in (".pages.csv", ".scope.csv"):
+            first_sidecar, second_sidecar = first.with_suffix(suffix), second.with_suffix(suffix)
+            assert first_sidecar.exists() == second_sidecar.exists()
+            if first_sidecar.exists():
+                assert first_sidecar.read_bytes() == second_sidecar.read_bytes()
 
 
 def test_stale_adjacent_export_is_reported_without_becoming_input(legacy_run, scan, tmp_path):

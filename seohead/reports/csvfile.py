@@ -1,7 +1,8 @@
 """Write flat CSV records for a task tracker or downstream database.
 
-One file represents one entity, so the renderer writes two adjacent files:
-``<name>.csv`` contains findings and ``<name>.pages.csv`` contains pages. Mixing
+One file represents one entity, so the renderer writes adjacent files:
+``<name>.csv`` contains findings, ``<name>.pages.csv`` contains page facts when
+they exist, and ``<name>.scope.csv`` contains run-evidence caveats. Mixing
 different entities into a single table produces an ambiguous file that is difficult
 or impossible to import reliably.
 
@@ -15,6 +16,32 @@ from __future__ import annotations
 import csv
 import pathlib
 from typing import Any
+
+
+def _scope_rows(summary: dict[str, Any]) -> list[list[Any]]:
+    """Return run evidence separately from task-tracker finding rows (#574)."""
+    rows: list[list[Any]] = []
+    if summary.get("crawl_valid") is False:
+        rows.append(
+            [
+                "crawl",
+                "validity",
+                "failed",
+                summary.get("crawl_invalid_reason") or "the crawl produced no usable data",
+            ]
+        )
+    if summary.get("crawl_partial"):
+        bits = []
+        if finish := summary.get("crawl_finish_reason"):
+            bits.append(f"stopped: {finish}")
+        if scope := summary.get("crawl_scope_note"):
+            bits.append(scope)
+        rows.append(["crawl", "scope", "partial", "; ".join(bits)])
+    for item in summary.get("checks_disabled") or []:
+        rows.append(["check", item.get("id", ""), "disabled", item.get("reason", "")])
+    for item in summary.get("tools_failed") or []:
+        rows.append(["check", item.get("tool", ""), "unavailable", item.get("error", "")])
+    return rows
 
 
 def write(document: dict[str, Any], path: pathlib.Path) -> None:
@@ -55,6 +82,14 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
                     neutralize_formula(finding.get("fix_hint", "")),
                 ]
             )
+
+    scope_rows = _scope_rows(document.get("summary") or {})
+    scope_path = path.with_suffix(".scope.csv")
+    with scope_path.open("w", encoding="utf-8-sig", newline="") as fh:
+        writer = csv.writer(fh, delimiter=";")
+        writer.writerow(["Evidence type", "Identifier", "Status", "Reason"])
+        for row in scope_rows:
+            writer.writerow([neutralize_formula(value) for value in row])
 
     pages = document.get("pages") or []
     if pages:
