@@ -42,7 +42,7 @@ def test_handler_reconciles_a_sitemap_seeded_crawl(monkeypatch):
     monkeypatch.setattr(
         sitemap_tool,
         "crawl",
-        lambda url, concurrency=3: {"urls": [{"loc": u} for u in DECLARED]},
+        lambda url, concurrency=3, **_kwargs: {"urls": [{"loc": u} for u in DECLARED]},
     )
     monkeypatch.setattr("seohead.crawl.spider.crawl_site", lambda *a, **kw: _fake_spider_result())
 
@@ -62,6 +62,58 @@ def test_handler_reconciles_a_sitemap_seeded_crawl(monkeypatch):
     by_check = out["summary"]["by_check"]
     assert by_check["SITEMAP_ORPHAN"] == len(ORPHANED)
     assert by_check["URL_NOT_IN_SITEMAP"] == 1
+
+
+def test_handler_passes_one_gate_from_sitemap_seeding_to_page_collection(monkeypatch):
+    gates = []
+
+    def seeded_sitemap(_url, *, request_gate=None, **_kwargs):
+        gates.append(request_gate)
+        return {"urls": [{"loc": "https://example.com/page"}]}
+
+    def spider(*_args, **kwargs):
+        gates.append(kwargs["dispatch_gate"].wait_turn)
+        return _fake_spider_result()
+
+    monkeypatch.setattr(sitemap_tool, "crawl", seeded_sitemap)
+    monkeypatch.setattr("seohead.crawl.spider.crawl_site", spider)
+
+    handlers.crawl_site(url="https://example.com/", sitemap="https://example.com/sitemap.xml")
+
+    assert gates[0].__self__ is gates[1].__self__
+
+
+def test_render_escalation_threads_the_shared_gate_to_browser_entry_points(monkeypatch):
+    seen = []
+
+    def gate():
+        return None
+
+    def probe(_url, *, request_gate=None, **_kwargs):
+        seen.append(request_gate)
+        return {"ok": True, "js_dependent": True}
+
+    def render(_url, _config, *, request_gate=None, **_kwargs):
+        seen.append(request_gate)
+        return {"ok": True, "html": "<html><body>rendered</body></html>"}
+
+    monkeypatch.setattr("seohead.tools.render.render_check", probe)
+    monkeypatch.setattr("seohead.tools.render.render_document", render)
+    result = SpiderResult(pages=[PageRecord(url="https://example.com/", content_type="text/html")])
+    config = {
+        "mode": "js",
+        "browser": {"wait_until": "load", "viewport": "desktop"},
+        "escalation": {"sample_per_pattern": 1, "max_render_urls": 1},
+    }
+
+    handlers._run_render_escalation(
+        result,
+        config,
+        {"http": {"timeout_seconds": 1, "user_agent": ""}, "output": {"dir": ""}},
+        request_gate=gate,
+    )
+
+    assert seen == [gate, gate]
 
 
 def test_handler_without_sitemap_reports_no_sitemap_summary(monkeypatch):
@@ -123,7 +175,7 @@ def test_only_a_missing_page_is_reported_not_files_hosts_or_uncrawled_urls(monke
     monkeypatch.setattr(
         sitemap_tool,
         "crawl",
-        lambda url, concurrency=3: {
+        lambda url, concurrency=3, **_kwargs: {
             "urls": [{"loc": "https://example.com/"}, {"loc": "https://example.com/declared"}]
         },
     )
@@ -151,7 +203,9 @@ def test_narrowing_the_comparable_side_does_not_invent_orphans(monkeypatch):
     turn into a SITEMAP_ORPHAN just because it left the URL_NOT_IN_SITEMAP population."""
     declared = ["https://example.com/private", "https://example.com/gallery/photo.jpg"]
     monkeypatch.setattr(
-        sitemap_tool, "crawl", lambda url, concurrency=3: {"urls": [{"loc": u} for u in declared]}
+        sitemap_tool,
+        "crawl",
+        lambda url, concurrency=3, **_kwargs: {"urls": [{"loc": u} for u in declared]},
     )
     monkeypatch.setattr(
         "seohead.crawl.spider.crawl_site", lambda *a, **kw: _site_with_the_four_wrong_populations()
@@ -179,10 +233,12 @@ def test_auto_discovery_seeds_from_every_declared_sitemap(monkeypatch, tmp_path)
     calls: list[str] = []
 
     monkeypatch.setattr(
-        robots_tool, "check_robots", lambda url: {"ok": True, "sitemaps": [first, second]}
+        robots_tool,
+        "check_robots",
+        lambda url, **_kwargs: {"ok": True, "sitemaps": [first, second]},
     )
 
-    def fake_sitemap_crawl(url: str, concurrency: int = 3) -> dict:
+    def fake_sitemap_crawl(url: str, concurrency: int = 3, **_kwargs) -> dict:
         calls.append(url)
         loc = "https://example.com/page-a" if url == first else "https://example.com/product-b"
         return {"urls": [{"loc": loc}]}
@@ -228,10 +284,12 @@ def test_direct_audit_fetches_every_auto_discovered_root_not_just_the_first(monk
     shared = f"{base}/shared"
 
     monkeypatch.setattr(
-        robots_tool, "check_robots", lambda url: {"ok": True, "sitemaps": [first, second]}
+        robots_tool,
+        "check_robots",
+        lambda url, **_kwargs: {"ok": True, "sitemaps": [first, second]},
     )
 
-    def fake_sitemap_crawl(url: str, concurrency: int = 3) -> dict:
+    def fake_sitemap_crawl(url: str, concurrency: int = 3, **_kwargs) -> dict:
         return {"urls": [{"loc": shared}]}
 
     monkeypatch.setattr(sitemap_tool, "crawl", fake_sitemap_crawl)
@@ -254,7 +312,7 @@ def test_direct_audit_fetches_every_auto_discovered_root_not_just_the_first(monk
             f"<url><loc>{loc}</loc></url></urlset>"
         ).encode()
 
-    def fake_fetch(url, ua, timeout, retries=2):
+    def fake_fetch(url, ua, timeout, retries=2, **_kwargs):
         fetch_calls.append(url)
         return {
             f"{base}/robots.txt": f"Sitemap: {first}\nSitemap: {second}\n".encode(),
@@ -295,7 +353,9 @@ def test_direct_audit_with_a_single_explicit_sitemap_is_unaffected(monkeypatch):
     only = f"{base}/sitemap.xml"
 
     monkeypatch.setattr(
-        sitemap_tool, "crawl", lambda url, concurrency=3: {"urls": [{"loc": f"{base}/page"}]}
+        sitemap_tool,
+        "crawl",
+        lambda url, concurrency=3, **_kwargs: {"urls": [{"loc": f"{base}/page"}]},
     )
 
     def fake_spider(*_a: object, **kw: object) -> SpiderResult:
@@ -310,7 +370,7 @@ def test_direct_audit_with_a_single_explicit_sitemap_is_unaffected(monkeypatch):
 
     fetch_calls: list[str] = []
 
-    def fake_fetch(url, ua, timeout, retries=2):
+    def fake_fetch(url, ua, timeout, retries=2, **_kwargs):
         fetch_calls.append(url)
         if url == f"{base}/robots.txt":
             return b"User-agent: *\n"
@@ -336,7 +396,9 @@ def test_direct_audit_with_a_single_explicit_sitemap_is_unaffected(monkeypatch):
 def test_report_only_robots_blocked_page_is_not_reported_as_a_missing_sitemap_page(monkeypatch):
     base = "https://example.com"
     monkeypatch.setattr(
-        sitemap_tool, "crawl", lambda url, concurrency=3: {"urls": [{"loc": f"{base}/"}]}
+        sitemap_tool,
+        "crawl",
+        lambda url, concurrency=3, **_kwargs: {"urls": [{"loc": f"{base}/"}]},
     )
 
     def fake_spider(*_a: object, **kw: object) -> SpiderResult:
@@ -366,7 +428,9 @@ def test_an_indexable_page_missing_from_the_sitemap_still_fires(monkeypatch):
     still be reported -- the robots-blocked exclusion must not swallow real findings."""
     base = "https://example.com"
     monkeypatch.setattr(
-        sitemap_tool, "crawl", lambda url, concurrency=3: {"urls": [{"loc": f"{base}/"}]}
+        sitemap_tool,
+        "crawl",
+        lambda url, concurrency=3, **_kwargs: {"urls": [{"loc": f"{base}/"}]},
     )
 
     def fake_spider(*_a: object, **kw: object) -> SpiderResult:
@@ -411,7 +475,9 @@ def test_partial_crawl_withholds_sitemap_desync_as_a_named_skip(monkeypatch, tmp
     base = "https://example.com"
     declared = [f"{base}/", f"{base}/a", f"{base}/unseen", f"{base}/unseen-2", f"{base}/unseen-3"]
     monkeypatch.setattr(
-        sitemap_tool, "crawl", lambda url, concurrency=3: {"urls": [{"loc": u} for u in declared]}
+        sitemap_tool,
+        "crawl",
+        lambda url, concurrency=3, **_kwargs: {"urls": [{"loc": u} for u in declared]},
     )
     monkeypatch.setattr(
         "seohead.crawl.spider.crawl_site", lambda *a, **kw: _partial_graph(partial=True)
@@ -439,7 +505,9 @@ def test_complete_crawl_still_fires_sitemap_desync(monkeypatch, tmp_path):
     base = "https://example.com"
     declared = [f"{base}/", f"{base}/a", f"{base}/unseen", f"{base}/unseen-2", f"{base}/unseen-3"]
     monkeypatch.setattr(
-        sitemap_tool, "crawl", lambda url, concurrency=3: {"urls": [{"loc": u} for u in declared]}
+        sitemap_tool,
+        "crawl",
+        lambda url, concurrency=3, **_kwargs: {"urls": [{"loc": u} for u in declared]},
     )
     monkeypatch.setattr(
         "seohead.crawl.spider.crawl_site", lambda *a, **kw: _partial_graph(partial=False)

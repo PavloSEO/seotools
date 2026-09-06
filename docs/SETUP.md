@@ -216,6 +216,11 @@ responses, end the run rather than continuing at the same rate. A single 429 is 
 overload signal rather than a retryable blip — it is the server explicitly asking for less. A
 numeric `Retry-After` raises the delay to at least what was asked.
 
+When robots.txt supplies `Crawl-delay` or a valid `Request-rate: requests/seconds`, the crawler
+uses the stricter interval before sitemap discovery and every later request. The stored
+`crawl_delay_applied` value is that effective robots-derived interval; the parsed robots context
+retains the two directives separately.
+
 `Crawl-delay` from robots.txt is honoured as a **floor** beneath the configured delay: the site's
 request can raise politeness and can never lower it.
 

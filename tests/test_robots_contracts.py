@@ -78,12 +78,19 @@ def test_crawl_delay_closes_an_agent_run_before_the_next_agent():
     )
 
     assert parsed["groups"] == [
-        {"user_agents": ["FirstBot"], "allow": [], "disallow": [], "crawl_delay": 10.5},
+        {
+            "user_agents": ["FirstBot"],
+            "allow": [],
+            "disallow": [],
+            "crawl_delay": 10.5,
+            "request_rate_delay": None,
+        },
         {
             "user_agents": ["SecondBot"],
             "allow": [],
             "disallow": ["/second-only/"],
             "crawl_delay": 2.0,
+            "request_rate_delay": None,
         },
     ]
     assert robots.crawl_delay(parsed, "FirstBot") == 10.5
@@ -126,8 +133,21 @@ def test_sitemap_does_not_close_an_agent_run():
             "allow": [],
             "disallow": ["/private/"],
             "crawl_delay": None,
+            "request_rate_delay": None,
         }
     ]
+
+
+def test_blank_user_agent_group_never_overrides_wildcard_or_absorbs_its_rules():
+    parsed = robots.parse_robots(
+        "User-agent: # retired bot\nDisallow: /old-secret/\n\nUser-agent: *\nDisallow: /\n"
+    )
+
+    assert len(parsed["groups"]) == 2
+    assert parsed["groups"][0]["user_agents"] == [""]
+    assert parsed["groups"][0]["disallow"] == ["/old-secret/"]
+    assert robots.is_allowed(parsed, "/", "GPTBot") is False
+    assert robots.is_allowed(parsed, "/old-secret/", "GPTBot") is False
 
 
 def test_spider_uses_its_selected_agent_crawl_delay():
