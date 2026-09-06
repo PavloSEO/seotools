@@ -10,14 +10,14 @@ known URLs rather than inventing nonexistent ones. The check therefore needs
 active probes, like the reconnaissance modules.
 
 The algorithm creates two deterministic nonexistent URLs from the origin's
-SHA-256 hash under ``/.well-known/``, a path unlikely to collide with real
-content. Requests use the shared HTTP layer with redirects enabled because the
-final status matters, not the first hop. Strict AND logic requires agreement:
-two 2xx/3xx responses confirm a soft 404 (warning), two 404/410 responses pass,
-and disagreement produces ``unknown`` without a verdict. A probe whose redirect
-was refused by our own network guard (``recon.net.BlockedRedirectError``) is
-neither: the site tried to send the probe somewhere we refuse to go, which is
-worth reporting by name rather than folded into "the probes disagreed" (#175).
+SHA-256 hash at ordinary root paths. Requests use the shared HTTP layer with
+redirects enabled because the final status matters, not the first hop. Strict
+AND logic requires agreement: two 2xx/3xx responses confirm a soft 404
+(warning), two 404/410 responses pass, and disagreement produces ``unknown``
+without a verdict. A probe whose redirect was refused by our own network guard
+(``recon.net.BlockedRedirectError``) is neither: the site tried to send the
+probe somewhere we refuse to go, which is worth reporting by name rather than
+folded into "the probes disagreed" (#175).
 """
 
 from __future__ import annotations
@@ -33,13 +33,13 @@ def probe_urls(start_url: str) -> list[str]:
     """Build deterministic nonexistent URLs from a site's origin.
 
     Hashing the origin yields the same pair on repeated runs, which is useful
-    for report caching. The ``/.well-known/`` path is unlikely to overlap with
-    real site content.
+    for report caching. The paths are ordinary root routes so static middleware
+    that owns ``/.well-known/`` cannot bypass an application's fallback route.
     """
     parts = urlsplit(start_url if "://" in start_url else "https://" + start_url)
     origin = urlunsplit((parts.scheme or "https", parts.netloc, "", "", ""))
     seed = hashlib.sha256(origin.encode()).hexdigest()[:12]
-    return [f"{origin}/.well-known/seo-audit/not-found-{seed}-{i}" for i in (1, 2)]
+    return [f"{origin}/seo-audit-not-found-{seed}-{i}" for i in (1, 2)]
 
 
 def classify_soft404(probes: list[dict[str, Any]]) -> str:

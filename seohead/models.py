@@ -228,6 +228,11 @@ class ParsedPage(_ParsedPageOptional):
     h1_alt_only_text: str | None
     # How many live <meta name="description"> tags the document declares.
     meta_description_count: int
+    # The <meta name="fragment"> content attribute exactly as written, "" when
+    # the page declares none -- the page-wide opt-in to Google's deprecated AJAX
+    # crawling scheme. A value, not a flag: "!" is the scheme's own opt-in and
+    # anything else is a different declaration a report should quote back.
+    meta_fragment: str
 
 
 class ParseFetched(ParsedPage):

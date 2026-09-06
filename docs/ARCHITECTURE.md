@@ -12,7 +12,7 @@ seohead/
   sf/                 CRAWL AUDIT (Screaming Frog)
     cli.py            own argument parser: run | tasks | doctor
     config.py         config.json loading (thresholds, severity overrides)
-    core/             loader -> context -> rules (registry, 149 checks)
+    core/             loader -> context -> rules (registry, 152 checks)
                       -> inlinks -> heuristics -> sitemap -> aggregate;
                       auth_proxy for protected staging sites,
                       runner for SF CLI mode A

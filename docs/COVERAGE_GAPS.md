@@ -1,7 +1,7 @@
 # Audit coverage — the gap map
 
 **Purpose.** The list of SEO checks our SF audit
-(`seohead/sf/core/registry.py`, 149 checks) still **lacks**. For every gap:
+(`seohead/sf/core/registry.py`, 152 checks) still **lacks**. For every gap:
 value, implementation mode, likely home in the code. This is a filling plan,
 not a bug report. Items implemented since this map was written are marked
 **DONE**.
@@ -59,7 +59,7 @@ from different starting lists; read both before filing a new gap.
 
 **Context.** `SLOW_RESPONSE` already catches a slow server, but it is no
 substitute for real CWV — Google ranks by LCP/INP/CLS. This is the largest
-qualitative gap: none of the 149 checks measures them directly. (Lab LCP/CLS
+qualitative gap: none of the 152 checks measures them directly. (Lab LCP/CLS
 from one Chromium run exist in the live `render-check` as `metrics_lab` —
 labelled lab, not field.)
 

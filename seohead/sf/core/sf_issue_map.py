@@ -290,10 +290,9 @@ CATEGORIES: dict[str, list[Entry]] = {
     "Hreflang": [
         _c("Non-200 Hreflang URLs", "HREFLANG_BROKEN_TARGET"),
         _c("Missing Return Links", "HREFLANG_MISSING_RETURN_LINK"),
-        _p(
+        _c(
             "Inconsistent Language & Region Confirmation Links",
-            "a return link is checked for existence, not for declaring the same locale back",
-            "HREFLANG_MISSING_RETURN_LINK",
+            "HREFLANG_INCONSISTENT_CONFIRMATION",
         ),
         _c("Non-Canonical Return Links", "HREFLANG_NOT_CANONICAL"),
         _g("Noindex Returns Links", "the indexability of an hreflang target is not cross-checked"),
@@ -309,14 +308,10 @@ CATEGORIES: dict[str, list[Entry]] = {
         _t("Noindex Only in Original HTML", "render-check"),
         _t("Nofollow Only in Original HTML", "render-check"),
         _t("Canonical Mismatch", "render-check"),
-        _p(
-            "Uses Old AJAX Crawling Scheme URLs",
-            "the scheme is honoured as a crawl mode (rendering.mode=legacy_fragment) but its "
-            "presence is not reported as a finding",
-        ),
-        _p(
+        _c("Uses Old AJAX Crawling Scheme URLs", "AJAX_CRAWLING_SCHEME_URL"),
+        _c(
             "Uses Old AJAX Crawling Scheme Meta Fragment Tag",
-            "the meta fragment opt-in is read to decide the mode, not reported",
+            "AJAX_CRAWLING_SCHEME_META_FRAGMENT",
         ),
         _c("Pages with Blocked Resources", "ROBOTS_BLOCKS_RESOURCES"),
         _t("Contains JavaScript Links", "render-check"),
@@ -339,8 +334,17 @@ CATEGORIES: dict[str, list[Entry]] = {
         _c("Outlinks To Localhost", "OUTLINK_TO_LOCALHOST"),
         _p(
             "Pages With Uncrawlable Internal Outlinks",
-            "excluded destinations are counted by reason in the run's excluded map, but not "
-            "attributed back to the pages that linked them",
+            "attribution is possible -- the exclusion map holds the reason and the link graph "
+            "holds the source -- but every reason a crawl records for an internal destination "
+            "is a property of the run's own scope configuration (exclude/include patterns, "
+            "segments_only, depth and query-variant budgets), not of the site, so a finding "
+            "built on them would report the operator's settings back as defects. The two "
+            "site-caused reasons already have their own checks from the destination side "
+            "(BLOCKED_BY_ROBOTS, IMPORTANT_URL_BLOCKED_BY_ROBOTS) and a link to a "
+            "robots-disallowed cart or search URL is ordinary, not a defect. This needs a "
+            "reason the crawler does not record today -- a destination that is unfetchable in "
+            "itself, e.g. a malformed href, which the parser discards before the crawl ever "
+            "sees it",
         ),
         _c("Pages Without Internal Outlinks", "NO_INTERNAL_OUTLINKS"),
         _c("Non-Indexable Page Inlinks Only", "ONLY_NONINDEXABLE_SOURCE_INLINKS"),

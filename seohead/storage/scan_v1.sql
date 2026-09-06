@@ -125,6 +125,8 @@ CREATE TABLE pages (
   images_missing_alt_attr INTEGER,
   images_max_alt_length INTEGER,
   plugin_elements INTEGER,
+  meta_fragment TEXT,
+  ajax_scheme_outlinks INTEGER,
   title_outside_head INTEGER CHECK (title_outside_head IN (0,1)),
   meta_description_outside_head INTEGER CHECK (meta_description_outside_head IN (0,1)),
   canonical_outside_head INTEGER CHECK (canonical_outside_head IN (0,1)),
