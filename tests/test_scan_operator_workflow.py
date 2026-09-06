@@ -136,7 +136,7 @@ def test_offline_saved_scan_operator_workflow(tmp_path, monkeypatch, capsys, fro
             outputs = []
             for name, scan in (("source", source), ("snapshot", snapshot)):
                 output = tmp_path / name / f"report.{fmt}"
-                assert _cli(
+                result = _cli(
                     capsys,
                     "report-build",
                     "--audit",
@@ -145,14 +145,39 @@ def test_offline_saved_scan_operator_workflow(tmp_path, monkeypatch, capsys, fro
                     fmt,
                     "--out",
                     str(output),
-                )["ok"]
-                outputs.append(output)
-            assert outputs[0].read_bytes() == outputs[1].read_bytes()
-            if fmt == "csv":
-                assert (
-                    outputs[0].with_suffix(".pages.csv").read_bytes()
-                    == outputs[1].with_suffix(".pages.csv").read_bytes()
                 )
+                assert result["ok"]
+                outputs.append((output, result))
+            assert outputs[0][0].read_bytes() == outputs[1][0].read_bytes()
+            if fmt == "csv":
+                for output, result in outputs:
+                    assert result["outputs"] == [
+                        str(output),
+                        str(output.with_suffix(".pages.csv")),
+                        str(output.with_suffix(".scope.csv")),
+                    ]
+                for suffix in (".pages.csv", ".scope.csv"):
+                    assert (
+                        outputs[0][0].with_suffix(suffix).read_bytes()
+                        == outputs[1][0].with_suffix(suffix).read_bytes()
+                    )
+
+        preview = _cli(capsys, "scan", "prune", "--directory", str(tmp_path))
+        assert preview["applied"] is False and preview["plan"]["candidates"] == []
+        plan_path = tmp_path / "reviewed-prune-plan.json"
+        plan_path.write_text(json.dumps(preview), encoding="utf-8")
+        applied = _cli(
+            capsys,
+            "scan",
+            "prune",
+            "--directory",
+            str(tmp_path),
+            "--plan",
+            str(plan_path),
+            "--apply",
+        )
+        assert applied == {"applied": True, "removed": []}
+        assert _cli(capsys, "scan", "list", "--directory", str(tmp_path))["total"] == 3
 
         for after in (snapshot, derived):
             comparison = _cli(
