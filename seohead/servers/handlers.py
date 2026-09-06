@@ -681,15 +681,29 @@ def _audit_crawl_result(
         rendering_config = settings["rendering"]
         escalation = None
         if rendering_config["mode"] != "raw" and result.pages:
-            escalation = _run_render_escalation(result, rendering_config, settings)
-            render_escalation.apply_rendered_evidence(result.pages, result.links, escalation)
-            # The spider already streamed pages_resume_path during the crawl, before
-            # this escalation existed to mutate result.pages -- so whichever pages
-            # were re-fetched now have audit-and-memory evidence the file on disk
-            # does not, and a resumed run or a pages.jsonl reader would see stale
-            # static evidence next to an audit.json that says rendered (#244).
-            if pages_resume_path and escalation.render_requests:
-                _rewrite_pages_sidecar(pages_resume_path, result.pages)
+            if stored_scan is None:
+                escalation = _run_render_escalation(result, rendering_config, settings)
+                render_escalation.apply_rendered_evidence(result.pages, result.links, escalation)
+                # The spider already streamed pages_resume_path during the crawl, before
+                # this escalation existed to mutate result.pages -- so whichever pages
+                # were re-fetched now have audit-and-memory evidence the file on disk
+                # does not, and a resumed run or a pages.jsonl reader would see stale
+                # static evidence next to an audit.json that says rendered (#244).
+                if pages_resume_path and escalation.render_requests:
+                    _rewrite_pages_sidecar(pages_resume_path, result.pages)
+            else:
+                from seohead.crawl.sqlite_render import run_render_escalation
+
+                # The SQLite path commits each DOM and its observations before
+                # admitting it to this transient audit view.  It deliberately
+                # leaves HTML out of ``EscalationResult`` so a large scan never
+                # accumulates every serialized DOM in memory.
+                escalation = run_render_escalation(stored_scan, result, settings)
+                coverage = stored_scan.con.execute(
+                    "SELECT crawl_partial,limitations_json FROM scan"
+                ).fetchone()
+                result.partial = bool(coverage[0])
+                result.limitations = json.loads(coverage[1])
             render_summary = {
                 "mode": escalation.mode,
                 "patterns_sampled": escalation.patterns_sampled,
@@ -716,9 +730,17 @@ def _audit_crawl_result(
         # which has no render to fall back on.
         start_record = next((p for p in result.pages if p.url == start_norm), None)
         if start_record is not None:
-            rendered_start = escalation.rendered.get(start_norm) if escalation else None
-            start_html = (rendered_start or {}).get("html") or result.start_page_evidence.get(
-                "html", ""
+            # Stored scans reconstruct this from the retained *static*
+            # document before analysis.  Rendering is a later representation
+            # and must not trigger a new request merely to satisfy the raw
+            # start-page gate on resume.
+            rendered_start = (
+                escalation.rendered.get(start_norm) if escalation and stored_scan is None else None
+            )
+            start_html = (
+                getattr(result, "_rendered_start_html", None)
+                or (rendered_start or {}).get("html")
+                or result.start_page_evidence.get("html", "")
             )
             gate = render_escalation.start_page_gate(
                 start_norm,

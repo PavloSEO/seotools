@@ -584,15 +584,18 @@ def rendered_html(url: str, timeout: float = 30.0, wait: str = "load") -> dict[s
 # unreachable from page script at all and are left untouched, same as for any
 # renderer.
 _FLATTEN_SHADOW_DOM_JS = """() => {
+  let flattened = 0;
   const walk = (root) => {
     root.querySelectorAll('*').forEach((el) => {
       if (el.shadowRoot) {
         walk(el.shadowRoot);
         el.append(...Array.from(el.shadowRoot.childNodes));
+        flattened += 1;
       }
     });
   };
   walk(document);
+  return flattened;
 }"""
 
 # Replaces each same-origin iframe with its own document's body content,
@@ -601,6 +604,7 @@ _FLATTEN_SHADOW_DOM_JS = """() => {
 # empty frame -- exactly what a non-rendering crawler could see too, so
 # nothing is invented in its place.
 _FLATTEN_IFRAMES_JS = """() => {
+  let flattened = 0;
   document.querySelectorAll('iframe').forEach((frame) => {
     try {
       const doc = frame.contentDocument;
@@ -609,12 +613,34 @@ _FLATTEN_IFRAMES_JS = """() => {
         div.setAttribute('data-flattened-iframe', frame.src || '');
         div.innerHTML = doc.body.innerHTML;
         frame.replaceWith(div);
+        flattened += 1;
       }
     } catch (e) {
       // Cross-origin: not reachable from page script, left as-is.
     }
   });
+  return flattened;
 }"""
+
+
+def _bounded_dom_script(max_html_bytes: int | None) -> str:
+    limit = "null" if max_html_bytes is None else str(max_html_bytes)
+    return f"""() => {{
+      const html = document.documentElement.outerHTML;
+      const bytes = new TextEncoder().encode(html).byteLength;
+      const limit = {limit};
+      if (limit !== null && bytes > limit) return {{complete: false, bytes}};
+      return {{complete: true, bytes, html}};
+    }}"""
+
+
+def _safe_policy_facts(policy_facts: dict[str, Any] | None) -> dict[str, bool]:
+    """Keep retention policy facts without copying headers, paths, or credentials."""
+    facts = policy_facts or {}
+    return {
+        "credentials_used": bool(facts.get("credentials_used")),
+        "cache_control_no_store": bool(facts.get("cache_control_no_store")),
+    }
 
 
 def render_document(
@@ -624,6 +650,8 @@ def render_document(
     nav_timeout: float = 30.0,
     artifacts_dir: str | None = None,
     user_agent: str = "",
+    max_html_bytes: int | None = None,
+    policy_facts: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Render one URL under the full crawler rendering configuration.
 
@@ -661,6 +689,12 @@ def render_document(
     except RuntimeError as exc:
         return {"ok": False, "url": target, "error": str(exc)}
 
+    if max_html_bytes is not None and (type(max_html_bytes) is not int or max_html_bytes < 0):
+        return {
+            "ok": False,
+            "url": target,
+            "error": "max_html_bytes must be a non-negative integer",
+        }
     browser_cfg = rendering_config.get("browser", {})
     artifacts_cfg = rendering_config.get("artifacts", {})
     preset = VIEWPORT_PRESETS.get(
@@ -669,6 +703,29 @@ def render_document(
     viewport = dict(preset)
     console_errors: list[str] = []
     screenshot_path: str | None = None
+    shadow_flattened = 0
+    iframe_flattened = 0
+    observed_policy = _safe_policy_facts(policy_facts)
+    observed_policy["credentials_used"] |= bool(browser_cfg.get("persistent_profile"))
+    engine_version = "unknown"
+
+    def _capture_request(request: Any) -> None:
+        if max_html_bytes is None:
+            return
+        headers = request.all_headers()
+        if any(
+            headers.get(name)
+            for name in ("authorization", "cookie", "proxy-authorization", "x-api-key")
+        ):
+            observed_policy["credentials_used"] = True
+
+    def _capture_response(response: Any) -> None:
+        if max_html_bytes is None:
+            return
+        from seohead.crawl.cache import _parse_cache_control
+
+        if "no-store" in _parse_cache_control(response.all_headers().get("cache-control", "")):
+            observed_policy["cache_control_no_store"] = True
 
     def _on_console(msg: Any) -> None:
         if artifacts_cfg.get("console_errors") and msg.type == "error":
@@ -710,8 +767,13 @@ def render_document(
             else:
                 browser = pw.chromium.launch()
                 context = browser.new_context(**context_options)
+            actual_browser = browser if browser is not None else getattr(context, "browser", None)
+            engine_version = str(getattr(actual_browser, "version", "unknown"))
             try:
                 page = context.new_page()
+                if max_html_bytes is not None:
+                    page.on("request", _capture_request)
+                    page.on("response", _capture_response)
                 page.route("**/*", _guard_browser_route)
                 context.route_web_socket("**/*", _guard_websocket_route)
                 page.on("console", _on_console)
@@ -730,10 +792,14 @@ def render_document(
                         {"width": viewport["width"], "height": max(min(content_height, cap), 1)}
                     )
                 if browser_cfg.get("flatten_shadow_dom"):
-                    page.evaluate(_FLATTEN_SHADOW_DOM_JS)
+                    shadow_flattened = int(page.evaluate(_FLATTEN_SHADOW_DOM_JS) or 0)
                 if browser_cfg.get("flatten_iframes"):
-                    page.evaluate(_FLATTEN_IFRAMES_JS)
-                html = page.content()
+                    iframe_flattened = int(page.evaluate(_FLATTEN_IFRAMES_JS) or 0)
+                if max_html_bytes is None:
+                    html = page.content()
+                    dom = {"complete": True, "bytes": len(html.encode("utf-8")), "html": html}
+                else:
+                    dom = page.evaluate(_bounded_dom_script(max_html_bytes))
                 final_url = page.url
                 if artifacts_cfg.get("screenshots") and artifacts_dir:
                     os.makedirs(artifacts_dir, exist_ok=True)
@@ -748,11 +814,55 @@ def render_document(
     except Exception as exc:
         return {"ok": False, "url": target, "error": f"{type(exc).__name__}: {exc}"}
 
+    renderer = {
+        "engine": "playwright-chromium",
+        "engine_version": engine_version,
+        "navigation": {
+            "requested_url": target,
+            "final_url": final_url,
+            "wait_until": browser_cfg.get("wait_until", "load"),
+            "timeout_seconds": nav_timeout,
+        },
+        "settings": {
+            "viewport": viewport,
+            "device_pixel_ratio": float(browser_cfg.get("device_pixel_ratio", 1.0) or 1.0),
+            "mobile_emulation": bool(browser_cfg.get("mobile_emulation")),
+            "touch_emulation": bool(browser_cfg.get("touch_emulation")),
+            "script_timeout_seconds": float(browser_cfg.get("script_timeout_seconds", 0) or 0),
+            "resize_to_content": bool(browser_cfg.get("resize_to_content")),
+            "resize_to_content_max_height_px": int(
+                browser_cfg.get("resize_to_content_max_height_px", 15000)
+            ),
+            "persistent_profile": bool(browser_cfg.get("persistent_profile")),
+        },
+        "transforms": {
+            "flatten_shadow_dom_requested": bool(browser_cfg.get("flatten_shadow_dom")),
+            "flatten_shadow_dom_applied": shadow_flattened,
+            "flatten_iframes_requested": bool(browser_cfg.get("flatten_iframes")),
+            "flatten_iframes_applied": iframe_flattened,
+        },
+        "policy": observed_policy,
+        "console_error_count": len(console_errors),
+    }
+    if not isinstance(dom, dict) or not dom.get("complete"):
+        return {
+            "ok": False,
+            "url": target,
+            "final_url": final_url,
+            "dom_state": "truncated",
+            "dom_bytes": (dom or {}).get("bytes") if isinstance(dom, dict) else None,
+            "renderer": renderer,
+            "error": "serialized DOM exceeds max_html_bytes",
+        }
+
     return {
         "ok": True,
         "url": target,
         "final_url": final_url,
-        "html": html,
+        "html": dom["html"],
+        "dom_bytes": dom.get("bytes"),
+        "dom_state": "complete",
+        "renderer": renderer,
         "console_errors": console_errors,
         "screenshot_path": screenshot_path,
     }

@@ -215,6 +215,13 @@ DEFAULTS: dict[str, Any] = {
         # (never touch the network for an entry already on disk).
         "invalidate": False,
     },
+    "storage": {
+        "body_mode": "captured_entity_bytes",
+        "max_body_bytes": 5 * 1024 * 1024,
+        "max_body_store_bytes": 10 * 1024 * 1024 * 1024,
+        "min_free_bytes": 1024 * 1024 * 1024,
+        "history_warning_bytes": 20 * 1024 * 1024 * 1024,
+    },
     "rendering": {
         # raw: static HTML only, the crawler's original behaviour. legacy_
         # fragment: honour a page's own opt-in to the deprecated "#!" / "
@@ -347,6 +354,11 @@ RESULTS_AFFECTING: frozenset[str] = frozenset(
         # nothing on disk. Both change whether the findings describe the site now or earlier.
         "cache.mode",
         "cache.invalidate",
+        "storage.body_mode",
+        "storage.max_body_bytes",
+        "storage.max_body_store_bytes",
+        "storage.min_free_bytes",
+        "storage.history_warning_bytes",
         # Every rendering setting below changes what the crawl finds on the
         # patterns it escalates -- see seohead.tools.render's module
         # docstring on why raw and rendered numbers are not comparable
@@ -378,6 +390,11 @@ RESULTS_AFFECTING: frozenset[str] = frozenset(
 # --config-help and, eventually, an MCP "describe settings" tool (#23) — so the three cannot drift
 # into different descriptions of the same setting. A test fails if a DEFAULTS path has no entry here.
 DESCRIPTIONS: dict[str, str] = {
+    "storage.body_mode": "SQLite only: captured_entity_bytes retains fetched HTML/DOM; off retains metadata only.",
+    "storage.max_body_bytes": "SQLite only: maximum decoded bytes retained for one complete body.",
+    "storage.max_body_store_bytes": "SQLite only: total unique encoded body bytes retained per scan.",
+    "storage.min_free_bytes": "SQLite only: filesystem reserve; low space interrupts collection with a checkpoint.",
+    "storage.history_warning_bytes": "SQLite only: history-size warning threshold; never enables automatic deletion.",
     "scope.internal": (
         "Which discovered URLs count as internal: 'host' (conservative) or "
         "'registrable_domain' (also accepts subdomains -- on a shared hosting suffix such as "
@@ -684,6 +701,23 @@ def validate(config: dict[str, Any]) -> None:
             "exists to override. Pick one: cache.mode='live' with cache.invalidate=true for "
             "a forced hard refresh, or drop invalidate to keep replaying from disk."
         )
+    if "storage" in config:
+        storage = config["storage"]
+        if storage["body_mode"] not in {"off", "captured_entity_bytes"}:
+            raise ConfigError("storage.body_mode must be off or captured_entity_bytes")
+        for name in (
+            "max_body_bytes",
+            "max_body_store_bytes",
+            "min_free_bytes",
+            "history_warning_bytes",
+        ):
+            value = storage[name]
+            if type(value) is not int or not 0 <= value <= 2**63 - 1:
+                raise ConfigError(f"storage.{name} must be a nonnegative SQLite-sized byte count")
+        if storage["body_mode"] != "off" and storage["max_body_bytes"] == 0:
+            raise ConfigError(
+                "storage.max_body_bytes must be positive when body capture is enabled"
+            )
     # A pattern that does not compile would otherwise fail mid-crawl, after the
     # site has already been asked for a few hundred pages.
     for key in ("include_patterns", "exclude_patterns"):

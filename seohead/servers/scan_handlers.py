@@ -147,7 +147,9 @@ def _bridge_reason(counts: dict[str, int], start_page_gate: dict[str, Any] | Non
             f"forms={counts['forms']}/{MAX_AUDIT_FORMS})"
         )
     if start_page_gate is None:
-        return "start-page transient raw evidence is unavailable after resume; audit waits for G"
+        return (
+            "start-page raw evidence was not retained; audit cannot reconstruct its rendering gate"
+        )
     if set(start_page_gate) != {"html", "outlinks", "external_outlinks"} or not all(
         isinstance(start_page_gate[name], str if name == "html" else int)
         for name in start_page_gate
@@ -252,7 +254,18 @@ def crawl_site_scan(
                 stored_scan=scan,
                 stored_sitemap=reconciliation,
             )
+        from dataclasses import replace
+
         from seohead.storage.native_audit import AuditSizeError
+
+        current = scan.resume_snapshot(include_edges=True)
+        run = replace(
+            run,
+            partial=bool(current["scan"]["crawl_partial"]),
+            links=current["counts"]["links"],
+            forms=current["counts"]["forms"],
+            limitations=tuple(json.loads(current["scan"]["limitations_json"])),
+        )
 
         try:
             scan.save_audit(audit)

@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 from seohead.crawl import link_findings
 from seohead.crawl.linkgraph import BOILERPLATE_POSITIONS
 from seohead.crawl.spider import FormEdge, LinkEdge, _canonical_key
+from seohead.storage.analysis_graph import selected_links_cte
 
 
 @dataclass(frozen=True)
@@ -118,8 +119,8 @@ class StoredGraph:
 
     def iter_links(self) -> Iterator[LinkEdge]:
         cursor = self.con.execute(
-            "SELECT l.*, src.url AS source, dst.url AS destination "
-            "FROM links AS l "
+            selected_links_cte("l") + "SELECT l.*, src.url AS source, dst.url AS destination "
+            "FROM l "
             "JOIN pages AS source_page ON source_page.url_id=l.source_url_id "
             "JOIN urls AS src ON src.url_id=l.source_url_id "
             "JOIN urls AS dst ON dst.url_id=l.destination_url_id "
@@ -156,9 +157,9 @@ class StoredGraph:
     def iter_inlink_counts(self) -> Iterator[dict[str, Any]]:
         """Count raw destination occurrences only where the destination is a page."""
         cursor = self.con.execute(
-            "SELECT dst.url AS url, COUNT(*) AS inlinks, "
+            selected_links_cte("l") + "SELECT dst.url AS url, COUNT(*) AS inlinks, "
             "COUNT(DISTINCT l.source_url_id) AS unique_inlinks "
-            "FROM links AS l "
+            "FROM l "
             "JOIN pages AS destination_page ON destination_page.url_id=l.destination_url_id "
             "JOIN urls AS dst ON dst.url_id=l.destination_url_id "
             "GROUP BY l.destination_url_id, dst.url ORDER BY dst.url COLLATE BINARY"
@@ -173,18 +174,18 @@ class StoredGraph:
     def composition_metadata(self) -> CompositionMetadata:
         self._ensure_composition_population()
         classified = self.con.execute(
-            "WITH classified AS ("
+            selected_links_cte("l") + ", classified AS ("
             "SELECT DISTINCT l.destination_url_id, l.source_url_id, l.position "
-            "FROM links AS l JOIN e_graph_destination_ids AS p ON p.url_id=l.destination_url_id "
+            "FROM l JOIN e_graph_destination_ids AS p ON p.url_id=l.destination_url_id "
             "WHERE l.position <> ''"
             ") SELECT COUNT(*) AS edges, COUNT(DISTINCT destination_url_id) AS pages FROM classified"
         ).fetchone()
         unclassified = self.con.execute(
-            "SELECT COUNT(*) FROM links AS l "
+            selected_links_cte("l") + "SELECT COUNT(*) FROM l "
             "JOIN e_graph_destination_ids AS p ON p.url_id=l.destination_url_id WHERE l.position=''"
         ).fetchone()[0]
         nonpage = self.con.execute(
-            "SELECT COUNT(*) FROM links AS l "
+            selected_links_cte("l") + "SELECT COUNT(*) FROM l "
             "LEFT JOIN e_graph_destination_ids AS p ON p.url_id=l.destination_url_id "
             "WHERE p.url_id IS NULL"
         ).fetchone()[0]
@@ -199,9 +200,9 @@ class StoredGraph:
         """Yield one raw page destination at a time with DISTINCT source/position counts."""
         self._ensure_composition_population()
         cursor = self.con.execute(
-            "WITH classified AS ("
+            selected_links_cte("l") + ", classified AS ("
             "SELECT DISTINCT l.destination_url_id, l.source_url_id, l.position "
-            "FROM links AS l JOIN e_graph_destination_ids AS p ON p.url_id=l.destination_url_id "
+            "FROM l JOIN e_graph_destination_ids AS p ON p.url_id=l.destination_url_id "
             "WHERE l.position <> ''"
             ") "
             "SELECT dst.url AS url, classified.position, COUNT(*) AS count "
@@ -240,7 +241,7 @@ class StoredGraph:
         """Stream one raw destination at a time; a port stays part of its raw key."""
         host = host.lower()
         cursor = self.con.execute(
-            "SELECT dst.url AS destination, l.nofollow FROM links AS l "
+            selected_links_cte("l") + "SELECT dst.url AS destination, l.nofollow FROM l "
             "JOIN urls AS dst ON dst.url_id=l.destination_url_id "
             "ORDER BY dst.url COLLATE BINARY, l.link_id"
         )

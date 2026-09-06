@@ -8,13 +8,14 @@ import itertools
 import json
 import math
 import os
+import shutil
 import sqlite3
 import stat
 import tempfile
 import time
 import uuid
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -45,6 +46,12 @@ from seohead.storage import (
     _url,
     _validate_scalar_storage,
 )
+from seohead.storage.credential_context import (
+    credential_verifier,
+    redact_config,
+    validate_recorded_credentials,
+)
+from seohead.storage.retention import policy_for_config, validate_policy
 
 try:  # Child C targets the supported macOS/Linux local-filesystem contract.
     import fcntl
@@ -95,19 +102,10 @@ SNAPSHOT_RESERVE_BYTES = 1024 * 1024 * 1024
 WAL_BACKPRESSURE_BYTES = 64 * 1024 * 1024
 BACKUP_TIMEOUT_SECONDS = 60.0
 FINALIZATION_TIMEOUT_SECONDS = 10.0
-_NO_BODY_RETENTION = {
-    "policy_version": "scan_retention.v1",
-    "body_mode": "off",
-    "max_body_bytes": 0,
-    "max_body_store_bytes": 0,
-    "min_free_bytes": 0,
-    "history_warning_bytes": 0,
-    "automatic_delete": False,
-}
 
 
-def _native_config(value: Any) -> dict[str, Any]:
-    config = _config(value)
+def _native_config(value: Any, *, recorded: bool = False) -> dict[str, Any]:
+    config = _config(value if recorded else redact_config(value))
 
     def require_fields(actual, expected, path="config"):
         if not isinstance(actual, dict) or not expected.keys() <= actual.keys():
@@ -116,9 +114,14 @@ def _native_config(value: Any) -> dict[str, Any]:
             if isinstance(default, dict):
                 require_fields(actual[name], default, f"{path}.{name}")
 
-    require_fields(config, DEFAULTS)
+    # Earlier native v1 captures predate the optional storage settings. Validate
+    # their recorded configuration without filling it or changing its fingerprint.
+    require_fields(
+        config,
+        DEFAULTS if "storage" in config else {k: v for k, v in DEFAULTS.items() if k != "storage"},
+    )
     try:
-        validate_crawl_config(config)
+        validate_crawl_config(validate_recorded_credentials(config) if recorded else value)
     except (TypeError, ValueError, KeyError) as exc:
         raise ScanError(f"native effective configuration is invalid: {exc}") from exc
     return config
@@ -274,9 +277,14 @@ class NativeScan:
             con = cls._connect_writer(temporary)
             con.executescript(_schema())
             now = _utc()
-            policy = retention or _NO_BODY_RETENTION
-            if policy != _NO_BODY_RETENTION:
-                raise ScanError("child-C native scan requires the exact no-body retention policy")
+            scan_uuid = str(uuid.uuid4())
+            policy = (
+                validate_policy(retention)
+                if retention is not None
+                else policy_for_config(effective)
+            )
+            if policy != policy_for_config(effective):
+                raise ScanError("body retention differs from the effective storage configuration")
             capabilities = {
                 "pages": {
                     "state": "partial",
@@ -286,9 +294,12 @@ class NativeScan:
                     "state": "partial",
                     "reason": "native writer has no collector adapter yet",
                 },
-                "responses": {"state": "unavailable", "reason": "response capture is child G"},
-                "html_bodies": {"state": "unavailable", "reason": "body capture is child G"},
-                "rendered_bodies": {"state": "unavailable", "reason": "body capture is child G"},
+                "responses": {"state": "unavailable", "reason": "no response observations yet"},
+                "html_bodies": {"state": "unavailable", "reason": "no retained HTML bodies yet"},
+                "rendered_bodies": {
+                    "state": "unavailable",
+                    "reason": "no retained rendered DOM yet",
+                },
                 "resource_refs": {"state": "unavailable", "reason": "resource capture is child H"},
                 "resource_bodies": {
                     "state": "unavailable",
@@ -309,7 +320,7 @@ class NativeScan:
                 "scan",
                 {
                     "singleton": 1,
-                    "scan_uuid": str(uuid.uuid4()),
+                    "scan_uuid": scan_uuid,
                     "format_version": FORMAT_VERSION,
                     "evidence_version": "crawl.v1",
                     "writer_version": writer_version,
@@ -354,6 +365,26 @@ class NativeScan:
                     ),
                 },
             )
+            if "storage" in effective:
+                _insert(
+                    con,
+                    "context_items",
+                    {
+                        "kind": "credential_context",
+                        "item_key": "run",
+                        "payload_version": "scan_context.v1",
+                        "payload_json": _dump(
+                            {
+                                "verifier": credential_verifier(config, scan_uuid),
+                                "implicit_state": bool(
+                                    config["rendering"]["browser"]["persistent_profile"]
+                                ),
+                            }
+                        ),
+                        "completeness": "complete",
+                        "reason": "",
+                    },
+                )
             from .sitemaps import declare
 
             for ordinal, (sitemap_url, source) in enumerate(initial_sitemaps):
@@ -372,7 +403,7 @@ class NativeScan:
             os.link(temporary, target, follow_symlinks=False)
             _fsync_directory(target.parent)
             temporary.unlink()
-            return cls.open(target, expected_start_url=start_url, expected_config=effective)
+            return cls.open(target, expected_start_url=start_url, expected_config=config)
         except FileExistsError as exc:
             raise ScanError(f"native scan output already exists: {target}") from exc
         except (OSError, sqlite3.Error, ValueError, TypeError, KeyError) as exc:
@@ -434,6 +465,26 @@ class NativeScan:
                 "config_fingerprint"
             ] != crawl_config_fingerprint(_native_config(expected_config)):
                 raise ScanError("native scan configuration differs; refusing unsafe resume")
+            # Credential references/values never enter the artifact. A local,
+            # per-scan verifier detects a changed explicit context on resume.
+            if expected_config is not None:
+                from . import open_scan
+
+                with open_scan(path, require_audit=False) as reader:
+                    row = reader.execute(
+                        "SELECT payload_json FROM context_items WHERE kind='credential_context' AND item_key='run'"
+                    ).fetchone()
+                    if row is not None:
+                        recorded = json.loads(row[0])
+                        observed = reader.execute("SELECT 1 FROM responses LIMIT 1").fetchone()
+                        if recorded["implicit_state"] and observed:
+                            raise ScanError(
+                                "implicit cookie or browser credential state cannot be restored; refusing unsafe resume"
+                            )
+                        if recorded["verifier"] != credential_verifier(
+                            expected_config, scan["scan_uuid"]
+                        ):
+                            raise ScanError("credential context differs; refusing unsafe resume")
             con = cls._connect_writer(path)
             return cls(path, con, fd)
         except BaseException:
@@ -516,10 +567,9 @@ class NativeScan:
             raise ScanError("not a native scan.v1 artifact")
         if (
             scan["evidence_version"],
-            scan["corpus_partial"],
             scan["parent_scan_uuid"],
             scan["pinned"],
-        ) != ("crawl.v1", 1, None, 0):
+        ) != ("crawl.v1", None, 0):
             raise ScanError(
                 "native evidence version, corpus completeness, parent or pin metadata is unsupported"
             )
@@ -528,13 +578,10 @@ class NativeScan:
         from .native_audit import validate_audit
 
         validate_audit(con, scan)
-        for table in _BODY_TABLES:
-            if con.execute(f'SELECT 1 FROM "{table}" LIMIT 1').fetchone() is not None:
-                raise ScanError(f"{table}: unavailable before child G/H")
         if con.execute("SELECT COUNT(*) FROM resume_state").fetchone()[0] != 1:
             raise ScanError("native scan requires one resume_state")
         try:
-            config = _native_config(json.loads(scan["config_json"]))
+            config = _native_config(json.loads(scan["config_json"]), recorded=True)
             stored_fingerprint = crawl_config_fingerprint(config)
         except (TypeError, ValueError, KeyError) as exc:
             raise ScanError("native scan has invalid effective configuration") from exc
@@ -572,15 +619,43 @@ class NativeScan:
         if any(
             value["state"]
             not in (
-                {"partial", "complete"} if name in {"pages", "links", "resume"} else {"unavailable"}
+                {"partial", "complete"}
+                if name in {"pages", "links", "resume"}
+                else {"partial", "complete", "unavailable"}
+                if name in {"responses", "html_bodies", "rendered_bodies"}
+                else {"unavailable"}
             )
             for name, value in capabilities.items()
         ):
             raise ScanError("native storage core capability state claims an unavailable feature")
-        if retention != _NO_BODY_RETENTION or any(
-            type(retention[key]) is not type(value) for key, value in _NO_BODY_RETENTION.items()
+        validate_policy(retention)
+        if retention != policy_for_config(config):
+            raise ScanError("native retention policy disagrees with its recorded configuration")
+        from .corpus_validation import validate_corpus
+
+        validate_corpus(con, dict(scan), retention)
+        if "storage" in config:
+            credential = con.execute(
+                "SELECT payload_json FROM context_items WHERE kind='credential_context' AND item_key='run'"
+            ).fetchone()
+            if credential is None:
+                raise ScanError("native scan is missing its credential resume context")
+            if con.execute("SELECT 1 FROM pages LIMIT 1").fetchone():
+                from .corpus import corpus_summary
+
+                coverage = corpus_summary(con, retention)
+                if bool(scan["corpus_partial"]) != coverage["corpus_partial"] or any(
+                    capabilities[name]["state"] != value["state"]
+                    for name, value in coverage["capabilities"].items()
+                ):
+                    raise ScanError(
+                        "native corpus capability metadata disagrees with recorded observations"
+                    )
+        if (
+            not scan["corpus_partial"]
+            and con.execute("SELECT 1 FROM bodies LIMIT 1").fetchone() is None
         ):
-            raise ScanError("child-C retention must be the explicit no-body policy")
+            raise ScanError("native corpus metadata claims complete bytes without a retained body")
         if not isinstance(limitations, list) or any(
             not isinstance(value, str) for value in limitations
         ):
@@ -710,7 +785,11 @@ class NativeScan:
         if page_count and (page_low != 0 or page_high != page_count - 1):
             raise ScanError("native scan page ordinals are not a contiguous sequence")
         if (
-            scan["evidence_revision"] != page_count
+            scan["evidence_revision"]
+            != page_count
+            + con.execute(
+                "SELECT COUNT(*) FROM documents WHERE representation IN ('rendered','legacy_fragment')"
+            ).fetchone()[0]
             or con.execute(
                 "SELECT 1 FROM frontier f LEFT JOIN pages p USING(url_id) "
                 "WHERE (f.state='done') != (p.url_id IS NOT NULL) OR "
@@ -731,14 +810,14 @@ class NativeScan:
         for row in con.execute(
             "SELECT source_document_id, evidence_representation, rel_json FROM links"
         ):
-            if row["source_document_id"] is not None or row["evidence_representation"] != "static":
-                raise ScanError("child-C links require static evidence without a document body")
+            if row["evidence_representation"] not in {"static", "rendered", "legacy_fragment"}:
+                raise ScanError("native link representation is invalid")
             rel = json.loads(row["rel_json"])
             if not isinstance(rel, list) or any(type(token) is not str for token in rel):
                 raise ScanError("native links.rel_json must be an ordered string list")
         for row in con.execute("SELECT source_document_id, evidence_representation FROM forms"):
-            if row["source_document_id"] is not None or row["evidence_representation"] != "static":
-                raise ScanError("child-C forms require static evidence without a document body")
+            if row["evidence_representation"] not in {"static", "rendered", "legacy_fragment"}:
+                raise ScanError("native form representation is invalid")
         if con.execute(
             "SELECT 1 FROM links GROUP BY source_url_id, evidence_representation "
             "HAVING MIN(ordinal) != 0 OR MAX(ordinal) != COUNT(*) - 1 LIMIT 1"
@@ -844,6 +923,19 @@ class NativeScan:
             "SELECT payload_json FROM context_items WHERE kind=? AND item_key=?", (kind, key)
         ).fetchone()
         return json.loads(row[0]) if row else None
+
+    def _sync_corpus(self) -> None:
+        """Update declared corpus availability in the evidence transaction."""
+        from .corpus import corpus_summary
+
+        row = self.con.execute("SELECT capabilities_json,retention_json FROM scan").fetchone()
+        capabilities = json.loads(row[0])
+        summary = corpus_summary(self.con, json.loads(row[1]))
+        capabilities.update(summary["capabilities"])
+        self.con.execute(
+            "UPDATE scan SET capabilities_json=?,corpus_partial=? WHERE singleton=1",
+            (_dump(capabilities), int(summary["corpus_partial"])),
+        )
 
     def declare_sitemap(self, url: str, source: str, ordinal: int) -> int:
         from .sitemaps import declare
@@ -953,7 +1045,11 @@ class NativeScan:
             limitations = json.loads(row[0])
             partial = any(
                 reason.partition(":")[0]
-                in {"link_observations_omitted", "form_observations_omitted"}
+                in {
+                    "link_observations_omitted",
+                    "form_observations_omitted",
+                    "response_body_unavailable",
+                }
                 for reason in limitations
             )
             partial = (
@@ -1286,6 +1382,68 @@ class NativeScan:
                 raise ScanError(f"pages.{name}: expected finite real")
         return row
 
+    def _write_observations(self, lease, document_id, representation, links, forms):
+        for ordinal, item in enumerate(links):
+            if set(item) != _LINK_KEYS:
+                raise ScanError("link input must have exactly the LinkEdge fields")
+            if item["source"] != lease.url:
+                raise ScanError("link source differs from page lease")
+            if (
+                any(
+                    type(item[name]) is not str
+                    for name in (
+                        "source",
+                        "destination",
+                        "anchor",
+                        "position",
+                        "target",
+                        "raw_href",
+                    )
+                )
+                or not item["destination"]
+                or type(item["nofollow"]) is not bool
+                or not isinstance(item["rel"], (tuple, list))
+                or any(type(token) is not str for token in item["rel"])
+            ):
+                raise ScanError("link input has invalid scalar types")
+            row = {
+                "source_url_id": lease.url_id,
+                "destination_url_id": _url(self.con, item["destination"]),
+                "source_document_id": document_id,
+                "evidence_representation": representation,
+                "ordinal": ordinal,
+                "anchor": item["anchor"],
+                "nofollow": int(item["nofollow"]),
+                "position": item["position"],
+                "rel_json": _dump(list(item["rel"])),
+                "target": item["target"],
+                "raw_href": item["raw_href"],
+            }
+            _insert(self.con, "links", row)
+        for ordinal, item in enumerate(forms):
+            if set(item) != _FORM_KEYS:
+                raise ScanError("form input must have exactly the FormEdge fields")
+            if item["page"] != lease.url:
+                raise ScanError("form page differs from page lease")
+            if (
+                any(type(item[name]) is not str for name in ("page", "method", "action"))
+                or type(item["has_password"]) is not bool
+            ):
+                raise ScanError("form input has invalid scalar types")
+            _insert(
+                self.con,
+                "forms",
+                {
+                    "page_url_id": lease.url_id,
+                    "ordinal": ordinal,
+                    "source_document_id": document_id,
+                    "evidence_representation": representation,
+                    "method": item["method"],
+                    "action": item["action"],
+                    "has_password": int(item["has_password"]),
+                },
+            )
+
     def commit_page(
         self,
         lease: Lease,
@@ -1300,9 +1458,31 @@ class NativeScan:
         partial_reasons: Iterable[str] = (),
         runtime: dict[str, Any] | None = None,
         context: Iterable[dict[str, Any]] = (),
+        captures: Iterable[Any] = (),
     ) -> CommitReceipt:
         """Commit one complete fold-back unit or none of it."""
         self._assert_mutable()
+        checked_captures = []
+        capture_metadata = []
+        body_bytes = 0
+        metadata_bytes = 0
+        for event in itertools.islice(captures, 1001):
+            if len(checked_captures) == 1000:
+                raise ScanError("too many response observations in one page commit")
+            if isinstance(event, type) or not is_dataclass(event):
+                raise ScanError("native capture must be a typed transport observation")
+            item = asdict(event)
+            data = item.pop("entity_bytes")
+            if data is not None and type(data) is not bytes:
+                raise ScanError("native capture entity must be bytes or unavailable")
+            body_bytes += len(data) if data is not None else 0
+            item["entity_sha256"] = hashlib.sha256(data).hexdigest() if data is not None else None
+            metadata_bytes += sum(map(len, _json_chunks(item)))
+            if body_bytes > 8 * MAX_RECORD_BYTES or metadata_bytes > MAX_RECORD_BYTES:
+                raise ScanError("native page response observations exceed the atomic input budget")
+            capture_metadata.append(item)
+            checked_captures.append(event)
+        captures = checked_captures
         candidates = _bounded_items(candidates, "ordered discovery candidates")
         partial_reasons = _bounded_items(partial_reasons, "partial reasons", 16)
         for _ in _json_chunks(record):
@@ -1326,6 +1506,8 @@ class NativeScan:
             "runtime": runtime or {},
             "context": context,
         }
+        if capture_metadata:
+            payload["captures"] = capture_metadata
         if candidates or partial_reasons:
             payload.update(candidates=candidates, partial_reasons=partial_reasons)
         digest = _digest(payload)
@@ -1364,68 +1546,43 @@ class NativeScan:
             ).fetchone()[0]
             if first_inflight != lease.queue_ordinal:
                 raise ScanError("page commit must fold back the contiguous inflight prefix")
-            _insert(self.con, "pages", self._page_row(record, lease))
-            self._hit("after_page")
-            for ordinal, item in enumerate(links):
-                if set(item) != _LINK_KEYS:
-                    raise ScanError("link input must have exactly the LinkEdge fields")
-                if item["source"] != lease.url:
-                    raise ScanError("link source differs from page lease")
-                if (
-                    any(
-                        type(item[name]) is not str
-                        for name in (
-                            "source",
-                            "destination",
-                            "anchor",
-                            "position",
-                            "target",
-                            "raw_href",
-                        )
-                    )
-                    or not item["destination"]
-                    or type(item["nofollow"]) is not bool
-                    or not isinstance(item["rel"], (tuple, list))
-                    or any(type(token) is not str for token in item["rel"])
-                ):
-                    raise ScanError("link input has invalid scalar types")
-                row = {
-                    "source_url_id": lease.url_id,
-                    "destination_url_id": _url(self.con, item["destination"]),
-                    "source_document_id": None,
-                    "evidence_representation": "static",
-                    "ordinal": ordinal,
-                    "anchor": item["anchor"],
-                    "nofollow": int(item["nofollow"]),
-                    "position": item["position"],
-                    "rel_json": _dump(list(item["rel"])),
-                    "target": item["target"],
-                    "raw_href": item["raw_href"],
-                }
-                _insert(self.con, "links", row)
-            for ordinal, item in enumerate(forms):
-                if set(item) != _FORM_KEYS:
-                    raise ScanError("form input must have exactly the FormEdge fields")
-                if item["page"] != lease.url:
-                    raise ScanError("form page differs from page lease")
-                if (
-                    any(type(item[name]) is not str for name in ("page", "method", "action"))
-                    or type(item["has_password"]) is not bool
-                ):
-                    raise ScanError("form input has invalid scalar types")
-                _insert(
-                    self.con,
-                    "forms",
-                    {
-                        "page_url_id": lease.url_id,
-                        "ordinal": ordinal,
-                        "source_document_id": None,
-                        "evidence_representation": "static",
-                        "method": item["method"],
-                        "action": item["action"],
-                        "has_password": int(item["has_password"]),
-                    },
+            document_id = None
+            if captures:
+                from .corpus import store_response
+
+                policy = json.loads(
+                    self.con.execute("SELECT retention_json FROM scan").fetchone()[0]
                 )
+                if (
+                    shutil.disk_usage(self.path.parent).free
+                    < policy["min_free_bytes"] + body_bytes * 3 + MAX_RECORD_BYTES
+                ):
+                    raise ScanError("insufficient free disk for the next atomic response capture")
+                for event in captures:
+                    if event.requested_url != lease.url and event.requested_url not in {
+                        hop.get("url") for hop in record.get("redirect_chain", [])
+                    }:
+                        raise ScanError(
+                            "response does not belong to the page or its observed redirect diagnostics"
+                        )
+                    _response_id, observed_document = store_response(
+                        self.con,
+                        event,
+                        purpose="page",
+                        policy=policy,
+                        logical_url=event.requested_url,
+                    )
+                    if event.requested_url == lease.url:
+                        document_id = observed_document
+                if document_id is None:
+                    raise ScanError("page has no response for its frontier lease")
+                self._record_session_change(captures)
+                self._hit("after_bodies")
+            page_row = self._page_row(record, lease)
+            page_row["document_id"] = document_id
+            _insert(self.con, "pages", page_row)
+            self._hit("after_page")
+            self._write_observations(lease, document_id, "static", links, forms)
             self._hit("after_observations")
             for index, item in enumerate(decisions):
                 allowed = {"url", "reason", "source", "depth", "occurrence_key"}
@@ -1565,6 +1722,7 @@ class NativeScan:
             self.con.execute(
                 "UPDATE scan SET evidence_revision=evidence_revision+1 WHERE singleton=1"
             )
+            self._sync_corpus()
             self._hit("before_commit")
             self.con.commit()
             revision = self.con.execute(
@@ -1572,6 +1730,144 @@ class NativeScan:
             ).fetchone()[0]
             self._hit("after_commit")
             return CommitReceipt(revision)
+        except BaseException:
+            self._rollback()
+            raise
+
+    def _record_session_change(self, captures) -> None:
+        if any(event.session_changed for event in captures):
+            row = self.con.execute(
+                "SELECT payload_json FROM context_items WHERE kind='credential_context' AND item_key='run'"
+            ).fetchone()
+            if row is not None:
+                payload = json.loads(row[0])
+                payload["implicit_state"] = True
+                self.con.execute(
+                    "UPDATE context_items SET payload_json=? WHERE kind='credential_context' AND item_key='run'",
+                    (_dump(payload),),
+                )
+
+    def preflight_capture(self) -> None:
+        """Check the configured free-space reserve before scheduling a request."""
+        policy = json.loads(self.con.execute("SELECT retention_json FROM scan").fetchone()[0])
+        if shutil.disk_usage(self.path.parent).free < policy["min_free_bytes"] + MAX_RECORD_BYTES:
+            raise ScanError("insufficient free disk for native capture; no request was started")
+
+    def commit_render(
+        self,
+        url: str,
+        record: dict[str, Any] | None,
+        *,
+        html: str | bytes | None,
+        renderer: dict[str, Any],
+        captured_at: str,
+        links: Iterable[dict[str, Any]] = (),
+        forms: Iterable[dict[str, Any]] = (),
+        representation: str = "rendered",
+        body_state: str = "complete",
+        body_reason: str = "none",
+        captures: Iterable[Any] = (),
+        partial_reasons: Iterable[str] = (),
+    ) -> int:
+        """Retain one render attempt and its accepted extraction atomically."""
+        from .corpus import store_rendered_document, store_response
+
+        self._assert_mutable()
+        self.preflight_capture()
+        if representation not in {"rendered", "legacy_fragment"}:
+            raise ScanError("unsupported rendered representation")
+        links = _bounded_items(links, "rendered links", MAX_EDGES_PER_PAGE)
+        forms = _bounded_items(forms, "rendered forms", 2000)
+        partial_reasons = _bounded_items(partial_reasons, "render partial reasons", 16)
+        captures = list(itertools.islice(captures, 1001))
+        if (
+            len(captures) > 1000
+            or sum(len(e.entity_bytes or b"") for e in captures) > 8 * MAX_RECORD_BYTES
+        ):
+            raise ScanError("render response observations exceed the atomic input budget")
+        if html is not None and (
+            type(html) not in {str, bytes}
+            or len(html.encode("utf-8") if isinstance(html, str) else html) > 8 * MAX_RECORD_BYTES
+        ):
+            raise ScanError("rendered document exceeds the atomic input budget")
+        for _ in _json_chunks(renderer):
+            pass
+        if record is not None:
+            for _ in _json_chunks(record):
+                pass
+        self._begin()
+        try:
+            page = self.con.execute(
+                "SELECT p.*,u.url,f.queue_ordinal FROM pages p JOIN urls u USING(url_id) JOIN frontier f USING(url_id) WHERE u.url=?",
+                (url,),
+            ).fetchone()
+            if page is None:
+                raise ScanError("rendered document has no committed static page")
+            policy = json.loads(self.con.execute("SELECT retention_json FROM scan").fetchone()[0])
+            if representation == "rendered":
+                if captures:
+                    raise ScanError("serialized DOM must not masquerade as an HTTP response")
+                document_id = store_rendered_document(
+                    self.con,
+                    logical_url=url,
+                    html=html,
+                    renderer=renderer,
+                    policy=policy,
+                    captured_at=captured_at,
+                    body_state=body_state,
+                    body_reason=body_reason,
+                )
+            else:
+                if not captures:
+                    raise ScanError("legacy fragment requires a captured navigation response")
+                document_id = None
+                for event in captures:
+                    _, document_id = store_response(
+                        self.con,
+                        event,
+                        purpose="page",
+                        policy=policy,
+                        logical_url=url,
+                        representation="legacy_fragment",
+                        renderer=renderer,
+                    )
+                self._record_session_change(captures)
+            self._hit("after_render_body")
+            if record is not None:
+                if record["representation"] != representation:
+                    raise ScanError("rendered page representation differs from its document")
+                lease = Lease(page["url_id"], url, page["crawl_depth"], page["queue_ordinal"])
+                values = self._page_row(record, lease)
+                values.pop("url_id")
+                values["page_ordinal"] = page["page_ordinal"]
+                values["document_id"] = document_id
+                self.con.execute(
+                    "UPDATE pages SET "
+                    + ",".join(name + "=?" for name in values)
+                    + " WHERE url_id=?",
+                    (*values.values(), page["url_id"]),
+                )
+                self.con.execute(
+                    "DELETE FROM links WHERE source_url_id=? AND evidence_representation=?",
+                    (page["url_id"], representation),
+                )
+                self.con.execute(
+                    "DELETE FROM forms WHERE page_url_id=? AND evidence_representation=?",
+                    (page["url_id"], representation),
+                )
+                self._write_observations(lease, document_id, representation, links, forms)
+            elif links or forms:
+                raise ScanError("unaccepted render cannot replace graph observations")
+            self._hit("after_render_page")
+            self._partial_reasons(partial_reasons)
+            self.con.execute(
+                "UPDATE scan SET evidence_revision=evidence_revision+?",
+                (len(captures) if representation == "legacy_fragment" else 1,),
+            )
+            self._sync_corpus()
+            self._hit("before_render_commit")
+            self.con.commit()
+            return document_id
         except BaseException:
             self._rollback()
             raise
@@ -1796,7 +2092,7 @@ class NativeScan:
             self.con.execute("BEGIN IMMEDIATE")
             try:
                 self.con.execute(
-                    "UPDATE scan SET lifecycle='finished', finish_reason=?, finished_at=?, corpus_partial=1 WHERE singleton=1",
+                    "UPDATE scan SET lifecycle='finished', finish_reason=?, finished_at=? WHERE singleton=1",
                     (reason, _utc()),
                 )
                 self.con.commit()

@@ -158,7 +158,8 @@ def build_server():  # -> FastMCP
 
         ``scan_out`` opts into a SQLite scan file with bounded collection and
         resume; it cannot be combined with list mode or ``out_dir``. It requires
-        raw rendering, cache off and credential-free configuration. Audit creation has an explicit
+        raw rendering and cache off. G captures bounded HTML entity bytes and separate rendered
+        DOM evidence when available; resource fetching and offline replay are unavailable. Audit creation has an explicit
         compatibility population limit and may return unavailable. Pass the
         producing source SHA in ``producer_build`` if the installed build cannot
         determine it from a clean checkout. No response bodies are retained."""

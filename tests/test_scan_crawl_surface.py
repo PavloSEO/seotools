@@ -55,9 +55,13 @@ def test_mcp_maps_the_same_scan_arguments(monkeypatch, tmp_path):
     assert captured["producer_build"] == "a" * 40
 
 
-def test_authenticated_native_mode_is_refused_before_any_capture(tmp_path, monkeypatch):
+def test_authenticated_native_mode_omits_bodies_and_records_redacted_config(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
     from seohead.crawl.settings import load
     from seohead.crawl.sqlite_adapter import crawl_to_scan
+    from seohead.storage import open_scan
+    from tests.test_scan_native import _metadata
 
     monkeypatch.setenv("TEST_TOKEN", "synthetic-test-only")
     settings = load(
@@ -66,19 +70,35 @@ def test_authenticated_native_mode_is_refused_before_any_capture(tmp_path, monke
             "http.credential_headers": [
                 {"host": "example.test", "headers": {"Authorization": "env:TEST_TOKEN"}}
             ],
+            "robots.policy": "ignore",
+            "limits.max_urls": 1,
+            "speed.min_delay_seconds": 0,
         }
     )
     path = tmp_path / "scan.sqlite"
-    with pytest.raises(ValueError, match="credential-free"):
-        crawl_to_scan(
-            "https://example.test/",
-            scan_out=str(path),
-            settings=settings,
-            producer_version="test",
-            producer_revision="a" * 40,
-            runtime_versions={},
+    body = b"<html><title>Authenticated fixture</title></html>"
+    run = crawl_to_scan(
+        "https://example.test/",
+        scan_out=str(path),
+        settings=settings,
+        producer_version="test",
+        producer_revision="a" * 40,
+        runtime_versions=_metadata()["runtime_versions"],
+        fetcher=lambda _url: SimpleNamespace(
+            status_code=200, content=body, text=body.decode(), headers={"content-type": "text/html"}
+        ),
+        sleeper=lambda _: None,
+    )
+    assert run.pages == 1
+    with open_scan(path, require_audit=False) as con:
+        assert tuple(con.execute("SELECT body_state,body_reason FROM responses").fetchone()) == (
+            "omitted",
+            "credentialed",
         )
-    assert not path.exists()
+        config = con.execute("SELECT config_json FROM scan").fetchone()[0]
+        assert "REDACTED" in config
+        assert "TEST_TOKEN" not in config and "synthetic-test-only" not in config
+        assert con.execute("SELECT COUNT(*) FROM bodies").fetchone()[0] == 0
 
 
 def test_inspection_accepts_evidence_without_promising_a_report(tmp_path, capsys):

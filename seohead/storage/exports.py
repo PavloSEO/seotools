@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from . import _LATE_PAGE_FIELDS, _PAGE_BOOLS, ScanError, open_scan, sqlite3
+from .analysis_graph import selected_links_cte
 
 _PAGE_SYSTEM_COLUMNS = {"url_id", "page_ordinal", "document_id", "url"}
 
@@ -96,8 +97,8 @@ def _page_rows(con) -> Iterable[dict[str, Any]]:
 
 def _link_rows(con) -> Iterable[dict[str, Any]]:
     for record in con.execute(
-        "SELECT l.*, s.url AS source, d.url AS destination "
-        "FROM links AS l "
+        selected_links_cte("l") + "SELECT l.*, s.url AS source, d.url AS destination "
+        "FROM l "
         "JOIN urls AS s ON s.url_id = l.source_url_id "
         "JOIN urls AS d ON d.url_id = l.destination_url_id "
         "ORDER BY l.link_id"
