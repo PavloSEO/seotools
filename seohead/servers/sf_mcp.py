@@ -231,6 +231,10 @@ def register(mcp):  # pragma: no cover - needs the SDK
             "top_checks": dict(list(s.get("by_check", {}).items())[:15]),
             "sitemap": s.get("sitemap"),
         }
+        if s.get("health_score") is None:
+            for key in ("health_score_reason", "health_score_basis", "health_score_scope"):
+                if key in s:
+                    result[key] = s[key]
         if diagnostics:
             result["input_diagnostics"] = diagnostics
         return result
