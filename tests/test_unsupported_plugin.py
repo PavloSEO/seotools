@@ -6,6 +6,7 @@ universally-supported use and must stay silent -- only genuine plugin content fi
 
 from __future__ import annotations
 
+import pytest
 from bs4 import BeautifulSoup
 
 from seohead.crawl.collect import collect_urls
@@ -37,8 +38,12 @@ def test_object_with_image_type_is_excluded():
     assert unsupported_plugin_count(soup) == 0
 
 
-def test_object_with_pdf_type_is_excluded():
-    html = '<html><body><object type="application/pdf" data="brochure.pdf"></object></body></html>'
+@pytest.mark.parametrize(
+    "type_attr",
+    ["application/pdf", " APPLICATION/PDF ", "application/pdf; version=1.7"],
+)
+def test_object_with_pdf_type_is_excluded(type_attr):
+    html = f'<html><body><object type="{type_attr}" data="brochure.pdf"></object></body></html>'
     soup = BeautifulSoup(html, features="lxml")
     assert unsupported_plugin_count(soup) == 0
 

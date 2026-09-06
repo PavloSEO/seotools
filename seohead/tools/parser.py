@@ -630,7 +630,8 @@ def unsupported_plugin_count(soup: BeautifulSoup) -> int:
                 continue
             if name == "object":
                 type_attr = (cast("str | None", tag.get("type")) or "").strip().lower()
-                if type_attr.startswith("image/") or type_attr == "application/pdf":
+                mime_essence = type_attr.split(";", 1)[0].strip()
+                if mime_essence.startswith("image/") or mime_essence == "application/pdf":
                     continue  # an SVG/raster/PDF fallback, not plugin content
             count += 1
     return count
