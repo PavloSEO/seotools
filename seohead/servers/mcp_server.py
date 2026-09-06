@@ -554,6 +554,26 @@ def build_server():  # -> FastMCP
         return _checked(handlers.report_build(audit=audit, fmt=fmt, out=out))
 
     @mcp.tool(annotations=pure, structured_output=True)
+    def seo_facts_export(sites: list[dict[str, Any]]) -> dict[str, Any]:
+        """Build one comparable facts table (schema facts.v1) across several sites from
+        crawl/site audits you already produced. Each site is
+        {label, crawl_audit?, site_audit?} -- crawl_audit is an SF Analyzer audit.json
+        (dict or path), site_audit is a seo_site_audit document (dict or path), both
+        optional but at least one is needed for real facts; a site with neither still
+        gets a full row of unavailable facts, named. Reads documents only: zero network
+        requests, zero paid calls. Every leaf is a fact with one of five states --
+        measured, absent (a true 0/[]), partial (bounded, e.g. a crawl that stopped
+        early), unavailable (the source did not answer), or not_requested (this tool
+        never asks, as for Google/Yandex index counts: no configured provider returns
+        a result count) -- plus an is_not line saying what it must not be read as.
+        This tool computes no score, rank, ratio or winner: it exports operands, not
+        quotients, so a language model can compare the sites itself. Refuses before
+        doing any work when a document's own domain does not match the label it is
+        filed under, or when two labels resolve to the exact same domain; two
+        subdomains of one registrable domain are allowed, only noted."""
+        return _checked(handlers.facts_export(sites=sites))
+
+    @mcp.tool(annotations=pure, structured_output=True)
     def seo_compare_crawls(before: Any, after: Any) -> dict[str, Any]:
         """Diff two audit documents (dict, JSON path, or scan.v1 SQLite path) into four disjoint
         sets per finding: entered (new problem on a page that existed before),

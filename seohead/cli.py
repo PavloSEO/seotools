@@ -59,6 +59,7 @@ COMMANDS = (
     "render-check",
     "site-audit",
     "report-build",
+    "facts-export",
     "keywords-expand",
     "keywords-seasonality",
     "keywords-exact",
