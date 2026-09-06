@@ -84,6 +84,7 @@ def main(argv: list[str] | None = None) -> int:
             outputs = [Path(args.out)]
             if args.format == "csv":
                 outputs.append(Path(args.out).with_suffix(".pages.csv"))
+                outputs.append(Path(args.out).with_suffix(".scope.csv"))
             if any(
                 target.exists() and source.exists() and os.path.samefile(target, source)
                 for source in inputs
