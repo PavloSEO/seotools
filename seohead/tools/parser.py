@@ -24,7 +24,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from html.parser import HTMLParser
-from typing import Any, cast
+from typing import Any, Literal, cast
 from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
@@ -37,6 +37,7 @@ from seohead.models import (
     ParseFailed,
     ParseFetched,
     ParseResult,
+    ResourceDeclaration,
 )
 from seohead.recon.net import http_client
 from seohead.tools.content_area import TEXT_EXCLUDED_TAGS, extract_area_text, resolve_content_area
@@ -77,13 +78,14 @@ _OPTION_KEYS = (
     "forms",
     "text",
     "url_sources",
+    "resource_declarations",
     "classify_links",
 )
 
 # Options that default to False rather than True: each adds cost (a resolved
 # content root, a per-link ancestor walk) that most callers of parse_html
 # never need.
-_DEFAULT_OFF_OPTIONS = ("url_sources", "classify_links")
+_DEFAULT_OFF_OPTIONS = ("url_sources", "resource_declarations", "classify_links")
 
 # URL-bearing attributes beyond a[href]: media, forms, citations, ping,
 # meta-refresh, and itemtype. This covers carriers that a crawler or auditor
@@ -819,6 +821,16 @@ def _link_cap(options: dict[str, Any] | None, key: str) -> int | None:
     return value
 
 
+def _resource_declaration_cap(options: dict[str, Any] | None, enabled: bool) -> int | None:
+    """Require a finite caller cap whenever declaration extraction is enabled."""
+    if not enabled:
+        return None
+    value = (options or {}).get("max_resource_declarations")
+    if type(value) is not int or value < 0:
+        raise ValueError("max_resource_declarations must be a non-negative integer")
+    return value
+
+
 def _link_context(
     soup: BeautifulSoup,
     *,
@@ -1165,6 +1177,49 @@ def extract_url_sources(soup: BeautifulSoup, base_url: str) -> list[dict[str, st
     return out
 
 
+def extract_resource_declarations(
+    soup: BeautifulSoup, base_url: str, *, max_declarations: int | None = None
+) -> tuple[list[ResourceDeclaration], int]:
+    """Return direct script/stylesheet occurrences and their bounded omission count.
+
+    The generic URL inventory merges repeated resolved URLs and covers many
+    carriers. Resource storage needs every direct declaration, its raw
+    attribute spelling, and document order. This helper remains pure: scope
+    and fetching belong to its caller.
+    """
+    if max_declarations is not None and (type(max_declarations) is not int or max_declarations < 0):
+        raise ValueError("max_resource_declarations must be a non-negative integer or null")
+    declarations: list[ResourceDeclaration] = []
+    omitted = 0
+    for tag in soup.find_all(["script", "link"]):
+        if _has_ancestor(tag, _INERT_LINK_CONTAINERS):
+            continue
+        if tag.name == "script":
+            kind: Literal["script", "stylesheet"] = "script"
+            attr = "src"
+        else:
+            rel_values: Any = tag.get("rel") or []
+            rels: list[Any] = [rel_values] if isinstance(rel_values, str) else list(rel_values)
+            if not any(str(rel).lower() == "stylesheet" for rel in rels):
+                continue
+            kind, attr = "stylesheet", "href"
+        raw_url = tag.get(attr)
+        if not isinstance(raw_url, str) or not raw_url.strip():
+            continue
+        try:
+            resolved = urljoin(base_url, raw_url.strip())
+            parts = urlparse(resolved)
+        except ValueError:
+            continue
+        if parts.scheme.lower() not in {"http", "https"} or not parts.netloc:
+            continue
+        if max_declarations is not None and len(declarations) >= max_declarations:
+            omitted += 1
+            continue
+        declarations.append({"kind": kind, "url": resolved, "raw_url": raw_url})
+    return declarations, omitted
+
+
 # extract_url_sources() also carries non-image carriers (script src, form
 # action, cite, itemtype, ...). "img"/"source" are always an image; any other
 # tag only qualifies via its "style" or "css" attr, i.e. a CSS url() -- which
@@ -1238,6 +1293,7 @@ def parse_html(html: str, final_url: str, options: dict[str, Any] | None = None)
     opts = _resolve_options(options)
     link_cap = _link_cap(options, "max_link_observations")
     form_cap = _link_cap(options, "max_form_observations")
+    resource_cap = _resource_declaration_cap(options, opts["resource_declarations"])
     soup = BeautifulSoup(html, features="lxml")
     # Everything that turns markup into absolute URLs resolves against the
     # document base, not the page URL: see document_base_url.
@@ -1352,6 +1408,12 @@ def parse_html(html: str, final_url: str, options: dict[str, Any] | None = None)
     # cite, meta-refresh, itemtype). It is off by default to preserve the links contract.
     if opts["url_sources"]:
         result["url_sources"] = extract_url_sources(soup, base_url)
+    if opts["resource_declarations"]:
+        declarations, omitted = extract_resource_declarations(
+            soup, base_url, max_declarations=resource_cap
+        )
+        result["resource_declarations"] = declarations
+        result["resource_declarations_omitted"] = omitted
 
     if opts["text"]:
         text = _extract_text(soup)
