@@ -70,7 +70,17 @@ def write_markdown(result: AuditResult, path: str) -> str:
         w(">")
         w("> The findings below describe the failed run, not the state of the site.")
     else:
-        w(f"**Health score: {s.get('health_score')} / 100**")
+        if s.get("health_score") is None:
+            # The aggregator withholds the score deliberately -- coverage below
+            # MIN_COVERAGE_TO_SCORE, or evidence it refuses to score from -- and records
+            # why in health_score_reason (#546). Printing the withheld value rendered the
+            # word "None" as though it were a number and dropped the only sentence that
+            # explained it, which is the opposite of the rule this analyzer holds
+            # everywhere else: an absence is stated, with its reason, never disguised.
+            reason = s.get("health_score_reason") or "the run recorded no reason"
+            w(f"> **No health score.** {_esc(reason)}.")
+        else:
+            w(f"**Health score: {s['health_score']} / 100**")
         if s.get("health_score_basis"):
             w("")
             w(f"_{_esc(s['health_score_basis'])}_")
