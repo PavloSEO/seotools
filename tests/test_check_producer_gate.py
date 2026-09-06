@@ -25,17 +25,10 @@ from seohead.sf.core import aggregate, inlinks, rules
 from seohead.sf.core.registry import CHECKS
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-CORE = ROOT / "seohead" / "sf" / "core"
+SOURCE_ROOT = ROOT / "seohead"
+CORE = SOURCE_ROOT / "sf" / "core"
 
 CTX_ID_METHODS = {"add", "skip", "add_group", "retract"}
-
-SOURCE_FILES = [
-    CORE / "rules.py",
-    CORE / "inlinks.py",
-    CORE / "heuristics.py",
-    CORE / "aggregate.py",
-    CORE / "sitemap_coverage.py",
-]
 
 # IDs that intentionally never appear in CHECKS: each names the absence of a
 # whole export/stage (context.run_rules bailing out entirely), not one check's
@@ -65,6 +58,16 @@ def _literal_check_ids(path: pathlib.Path) -> set[str]:
     return found
 
 
+def _producer_source_files(source_root: pathlib.Path = SOURCE_ROOT) -> list[pathlib.Path]:
+    """Every package source file with a literal AuditContext emission.
+
+    Producers do not all live in ``sf.core``: native crawl assembly emits
+    findings from ``servers/handlers.py`` too. Discovering call sites from the
+    package keeps a new producer from becoming a sixth hard-coded exception.
+    """
+    return [path for path in sorted(source_root.rglob("*.py")) if _literal_check_ids(path)]
+
+
 def _producer_map_ids() -> set[str]:
     """IDs reached only via a loop variable, read from the live objects rather than the AST.
 
@@ -92,7 +95,7 @@ def _unregistered(ids: set[str]) -> list[str]:
 
 def test_every_literal_check_id_is_registered_or_named():
     literal_ids: set[str] = set()
-    for path in SOURCE_FILES:
+    for path in _producer_source_files():
         literal_ids |= _literal_check_ids(path)
     unregistered = _unregistered(literal_ids | _producer_map_ids())
     assert not unregistered, f"check IDs used but missing from CHECKS: {unregistered}"
@@ -120,6 +123,23 @@ def test_gate_is_silent_on_a_genuine_check_id(tmp_path):
     fake.write_text(f'def check_real(ctx):\n    ctx.add("{real_id}")\n')
     found = _literal_check_ids(fake)
     assert _unregistered(found) == []
+
+
+def test_native_handler_producer_is_discovered():
+    handlers = SOURCE_ROOT / "servers" / "handlers.py"
+    assert handlers in _producer_source_files()
+
+
+def test_unregistered_native_handler_id_cannot_pass_the_producer_gate(tmp_path):
+    source_root = tmp_path / "seohead"
+    handlers = source_root / "servers" / "handlers.py"
+    handlers.parent.mkdir(parents=True)
+    handlers.write_text('def emit(ctx):\n    ctx.add("NOT_A_REAL_NATIVE_HANDLER_CHECK")\n')
+
+    discovered = _producer_source_files(source_root)
+    assert discovered == [handlers]
+    emitted = set().union(*(_literal_check_ids(path) for path in discovered))
+    assert _unregistered(emitted) == ["NOT_A_REAL_NATIVE_HANDLER_CHECK"]
 
 
 # -- dispatcher completeness: every public check_* function actually runs -----
