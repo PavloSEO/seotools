@@ -12,10 +12,17 @@ import socket
 
 import pytest
 
+from seohead.crawl.sql_sitemap import prepare_sitemap_reconciliation
 from seohead.crawl.sqlite_adapter import crawl_to_scan
-from seohead.servers.scan_handlers import UNMEASURABLE_OFFLINE_CHECKS, reanalyze_scan
+from seohead.servers.handlers import _audit_crawl_result
+from seohead.servers.scan_handlers import (
+    UNMEASURABLE_OFFLINE_CHECKS,
+    _rebuild_page_result,
+    reanalyze_scan,
+)
+from seohead.storage.native_scan import NativeScan
 from tests.test_scan_analysis_parity import _fixture, _settings
-from tests.test_scan_crawl_parity import _fetcher, _runtime_versions
+from tests.test_scan_crawl_parity import _fetcher, _Response, _runtime_versions
 
 
 def _build_scan(tmp_path):
@@ -104,8 +111,6 @@ def test_reanalyze_marks_output_as_reanalysis_with_provenance(tmp_path):
 
 
 def test_reanalyze_compares_against_a_saved_original_audit(tmp_path):
-    from seohead.storage.native_scan import NativeScan
-
     scan_path = _build_scan(tmp_path)
     first_pass = reanalyze_scan(scan_path, producer_build="d" * 40)
     with NativeScan.open(scan_path) as scan:
@@ -115,6 +120,80 @@ def test_reanalyze_compares_against_a_saved_original_audit(tmp_path):
 
     assert result["original_audit_available"] is True
     assert result["original_coverage"] == first_pass["coverage"]
+
+
+def test_reanalyze_preserves_stored_link_and_form_findings_offline(tmp_path, monkeypatch):
+    """The legacy compatibility helper must replay stored graph evidence (#553)."""
+    base = "http://example.test"
+    settings = _settings("complete")
+    settings["rendering"]["mode"] = "js"
+    path = tmp_path / "stored-evidence.sqlite"
+    crawl_to_scan(
+        f"{base}/",
+        scan_out=str(path),
+        settings=settings,
+        producer_version="3.0.0",
+        producer_revision="a" * 40,
+        runtime_versions=_runtime_versions(),
+        fetcher=_fetcher(
+            {
+                f"{base}/robots.txt": _Response(200, "User-agent: *\\nAllow: /\\n"),
+                f"{base}/": _Response(
+                    200,
+                    "<html><body><footer><a href='/target'>footer</a></footer>"
+                    "<a href='/mixed'>follow</a><a href='/mixed' rel='nofollow'>nofollow</a>"
+                    "<a href='http://localhost:8000/debug'>localhost</a>"
+                    "<a href='https://outside.test/' target='_blank'>outside</a>"
+                    "<a href='//cdn.example.test/lib.js'>cdn</a>"
+                    "<form action='http://insecure.test/submit' method='post'>"
+                    "<input type='password'></form></body></html>",
+                ),
+                f"{base}/target": _Response(200, "<html><body>Target</body></html>"),
+                f"{base}/mixed": _Response(200, "<html><body>Mixed</body></html>"),
+            }
+        ),
+        sleeper=lambda _seconds: None,
+    )
+    with NativeScan.open(str(path)) as scan:
+        result = _rebuild_page_result(scan)
+        with prepare_sitemap_reconciliation(scan.con, start_url=f"{base}/") as reconciliation:
+            _, before = _audit_crawl_result(
+                result,
+                settings=settings,
+                url=f"{base}/",
+                sitemap_seed={"sitemap_url": None, "sitemap_urls": [], "declared": []},
+                discovery={"mode": "spider", "directive_policy": "respect", "robots_blocked": 0},
+                stored_scan=scan,
+                stored_sitemap=reconciliation,
+                offline=True,
+            )
+
+    def _forbidden(*_args, **_kwargs):
+        raise AssertionError("reanalyze_scan attempted a network connection")
+
+    monkeypatch.setattr(socket.socket, "connect", _forbidden)
+    monkeypatch.setattr(socket, "create_connection", _forbidden)
+    monkeypatch.setattr(socket, "getaddrinfo", _forbidden)
+    monkeypatch.setattr("seohead.recon.net.http_client", _forbidden)
+    monkeypatch.setattr("seohead.crawl.sqlite_render.run_render_escalation", _forbidden)
+    after = reanalyze_scan(str(path), producer_build="b" * 40)["audit"]
+
+    expected = {
+        "INLINK_BOILERPLATE_ONLY",
+        "OUTLINK_TO_LOCALHOST",
+        "FOLLOW_AND_NOFOLLOW_INLINKS",
+        "FORM_URL_INSECURE",
+        "FORM_ON_HTTP_URL",
+        "UNSAFE_CROSS_ORIGIN_LINK",
+        "PROTOCOL_RELATIVE_LINK",
+    }
+    before_ids = {issue["check"] for issue in before["issues"]}
+    after_ids = {issue["check"] for issue in after["issues"]}
+    assert expected <= before_ids
+    assert expected <= after_ids
+    assert [issue for issue in after["issues"] if issue["check"] in expected] == [
+        issue for issue in before["issues"] if issue["check"] in expected
+    ]
 
 
 def test_reanalyze_missing_source_is_a_named_error_not_a_crash(tmp_path):
