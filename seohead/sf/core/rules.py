@@ -10,7 +10,7 @@ from __future__ import annotations
 import itertools
 import re
 import urllib.parse
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from typing import Any
 
 from seohead.tools.parser import robots_directives, uses_ajax_crawling_scheme
@@ -1189,6 +1189,61 @@ def _display_url(ctx: AuditContext, norm: str) -> str:
     return page.url if page is not None else norm
 
 
+def _series_unjudged_reason(stated: list[int | None], cycles: bool) -> str | None:
+    """Why this series cannot be judged for a broken run, or ``None`` when it can.
+
+    One clause per cause, each a statement about *this* series, because the
+    causes are not interchangeable: a stride, a two-page series and a cycle all
+    state every page number they have, so telling their operator that some URL
+    does not state its number sends them to rewrite a numbering scheme that was
+    never the problem. The clause is written to follow "N series where ...".
+    """
+    if cycles:
+        return (
+            "the series cycles back on itself, which PAGINATION_LOOP reports instead of this check"
+        )
+    # Three numbered pages is the smallest series with two steps, and two steps
+    # is the smallest run in which one of them can be "the odd one".
+    if len(stated) < 3:
+        return (
+            f"the series is only {len(stated)} pages long, and a single step cannot be "
+            "both the run and the break in it"
+        )
+    unnumbered = sum(1 for n in stated if n is None)
+    if unnumbered:
+        states = "states" if unnumbered == 1 else "state"
+        return (
+            f"{unnumbered} of its {len(stated)} URLs {states} no page number, and a "
+            "missing number is not evidence of a gap"
+        )
+    numbers = [n for n in stated if n is not None]
+    if 1 not in [b - a for a, b in itertools.pairwise(numbers)]:
+        return (
+            "its page numbers never step by one, so there is no contiguous run "
+            "to have been broken (an offset scheme such as 0, 10, 20 looks like this)"
+        )
+    return None
+
+
+def _unjudged_series_skip_reason(unjudged: list[tuple[str, str]], judged: int) -> str:
+    """One skip reason covering every series that went unjudged, grouped by cause.
+
+    Grouped rather than listed one per line because the causes are bounded and
+    the series are not: a crawl with four hundred WordPress blogs on it should
+    say so once with an example, not four hundred times.
+    """
+    by_reason: OrderedDict[str, list[str]] = OrderedDict()
+    for head, reason in unjudged:
+        by_reason.setdefault(reason, []).append(head)
+    parts = "; ".join(
+        f"{len(heads)} where {reason} (e.g. {heads[0]})" for reason, heads in by_reason.items()
+    )
+    return (
+        f'{len(unjudged)} of {len(unjudged) + judged} rel="next" series could not be '
+        f"judged: {parts}"
+    )
+
+
 def check_pagination_sequence(ctx: AuditContext) -> None:
     """PAGINATION_SEQUENCE_ERROR — a break in an otherwise contiguous page-number run.
 
@@ -1213,6 +1268,13 @@ def check_pagination_sequence(ctx: AuditContext) -> None:
     With those in place the finding is exactly the row's own words: a run that
     increments by one somewhere and then does not — 1, 2, 3, 7 — where pages 4
     to 6 are in nobody's chain.
+
+    Every series left unjudged is named with its own cause, and the count is per
+    series rather than per run. A crawl usually holds more than one series, and
+    the WordPress shape — page one at an unnumbered ``/blog/``, the rest at
+    ``/blog/page/N/`` — is *always* of the unjudgeable kind, so a run-wide "did
+    anything get judged?" guard would let the ordinary case disappear behind one
+    judgeable series elsewhere on the same site.
     """
     next_map: dict[str, str] = {}
     for page in ctx.html_pages():
@@ -1224,23 +1286,30 @@ def check_pagination_sequence(ctx: AuditContext) -> None:
         return
 
     has_predecessor = set(next_map.values())
-    evaluated = 0
-    for start in next_map:
-        if start in has_predecessor:
-            continue  # not the head of its series; the walk below covers it
+    heads = [start for start in next_map if start not in has_predecessor]
+    if not heads:
+        # Every chain closes on itself, so not one of them has a first page to
+        # walk from. PAGINATION_LOOP reports the cycles; this check reports that
+        # it never got a series to read.
+        ctx.skip(
+            "PAGINATION_SEQUENCE_ERROR",
+            'every rel="next" chain in the crawl cycles back on itself, so none of them '
+            "has a first page to walk from (PAGINATION_LOOP reports the cycles)",
+        )
+        return
+
+    judged = 0
+    unjudged: list[tuple[str, str]] = []
+    for start in heads:
         path, loops_to = series_from(next_map, start)
-        if loops_to is not None:
-            continue  # PAGINATION_LOOP owns a cycling series
         stated = [pagination_page_number(_display_url(ctx, n)) for n in path]
-        # Three numbered pages is the smallest series with two steps, and two
-        # steps is the smallest run in which one of them can be "the odd one".
-        if len(stated) < 3 or any(n is None for n in stated):
+        unjudged_reason = _series_unjudged_reason(stated, loops_to is not None)
+        if unjudged_reason is not None:
+            unjudged.append((_display_url(ctx, path[0]), unjudged_reason))
             continue
+        judged += 1
         numbers = [n for n in stated if n is not None]
         steps = [b - a for a, b in itertools.pairwise(numbers)]
-        if 1 not in steps:
-            continue  # never increments by one: not a contiguous run to begin with
-        evaluated += 1
         breaks = [
             {
                 "from": _display_url(ctx, path[i]),
@@ -1262,11 +1331,8 @@ def check_pagination_sequence(ctx: AuditContext) -> None:
                 "breaks": breaks,
             },
         )
-    if evaluated == 0:
-        ctx.skip(
-            "PAGINATION_SEQUENCE_ERROR",
-            'no rel="next" series states a page number in every one of its URLs',
-        )
+    if unjudged:
+        ctx.skip("PAGINATION_SEQUENCE_ERROR", _unjudged_series_skip_reason(unjudged, judged))
 
 
 def check_links_extra(ctx: AuditContext) -> None:

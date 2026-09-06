@@ -57,12 +57,17 @@ annotation search engines have said they no longer use for indexing.
 **4. Export All Inlinks too, because two of these are about the page's own markup.**
 
 Screaming Frog writes one All Inlinks row per link *and* one per `rel="next"`/`rel="prev"`
-declaration, typed as such. That export is the only place the complete declaration list
-exists — `Internal:All` keeps the first of each and drops the rest — so both of these read it:
+declaration, typed as such — one row per declaration, which is the shape a count needs. The
+`1` in `Internal:All`'s `rel="next" 1` header is an occurrence index, not a cap, but this
+toolkit's column map does not carry a `rel="next" 2`, so a count taken from there would be
+limited by our own column list rather than by the data. The anchor check below needs All
+Inlinks regardless, so both of these read it and both skip together without it:
 
 `PAGINATION_MULTIPLE` fires when a page declares two *different* `rel="next"` URLs (or two
-`rel="prev"` URLs). The same URL declared twice is untidy markup with one successor and is not
-reported; two different ones leave the series genuinely ambiguous.
+`rel="prev"` URLs). "Different" is judged after URL normalization, the same identity the anchor
+check uses: `/blog/page/2` and `/blog/page/2/` from two plugins are one successor spelled twice,
+which is untidy markup and not an ambiguous series. Two genuinely different URLs leave a crawler
+to pick one without telling anybody which.
 
 `PAGINATION_URL_NOT_IN_ANCHOR` fires when a declared pagination URL is not also linked from the
 same page with an ordinary `<a href>`. Google stopped using these annotations for indexing in
@@ -86,10 +91,26 @@ or a product id as often as a page index. It reports a break in a run that incre
 somewhere and then does not: 1, 2, 3, 7 leaves pages 4 to 6 in nobody's chain.
 
 What it deliberately does not report: a series starting at a number other than one (a crawl of
-a subsection looks exactly like that), a series with a stride such as `?page=0,10,20`, and any
-series where one URL does not state its number at all. Each of those is left unevaluated rather
-than reported against a numbering that would have had to be invented, and when no series in the
-crawl can be judged the check says so by name.
+a subsection looks exactly like that), a series with a stride such as `?page=0,10,20`, a series
+of only two pages, a series that cycles (`PAGINATION_LOOP` owns that one), and any series where
+one URL does not state its number at all. Each of those is left unevaluated rather than reported
+against a numbering that would have had to be invented.
+
+Each is also counted and named separately, per series rather than per run, because those causes
+are not interchangeable — a stride and a two-page series both state every number they have, and
+telling their operator that some URL states no page number would send them to rewrite a
+numbering scheme that was never the problem:
+
+```json
+[
+  {"id": "PAGINATION_SEQUENCE_ERROR", "reason": "1 of 2 rel=\"next\" series could not be judged: 1 where 1 of its 3 URLs states no page number, and a missing number is not evidence of a gap (e.g. https://example.com/blog/)"}
+]
+```
+
+That per-series count matters on ordinary sites: the WordPress shape — page one at an unnumbered
+`/blog/`, pages 2..n at `/blog/page/N/` — is always of the unjudgeable kind, so a run-wide "did
+anything get judged?" guard would let it vanish behind one judgeable series elsewhere on the
+same crawl and read as clean.
 
 **6. Confirm the links themselves resolve.**
 

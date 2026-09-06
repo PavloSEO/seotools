@@ -244,7 +244,7 @@ graph checks land in `inlinks.py` with almost no new math.
 | 12.1 | Invalid rel=next/prev | The `href` does not parse as a URL | medium | B (Internal:All: rel_next/rel_prev) | extend `check_pagination`, id `PAGINATION_BROKEN` |
 | 12.2 | Canonical chain on pagination | The whole series canonicalizes to page one — the tail is lost | medium | B (canonical x rel_next graph) | id `PAGINATION_CANONICAL_CHAIN` |
 | 12.3 | Pagination loop | rel=next forms a cycle | medium | B (graph) | id `PAGINATION_LOOP` |
-| 12.4 | Sequence gap | `/page/2` without `/page/3` while `/page/4` exists | low | B (number graph) | id `PAGINATION_SEQUENCE_GAP` |
+| 12.4 | Sequence gap | `/page/2` without `/page/3` while `/page/4` exists | low | **DONE** (issue #385) — `PAGINATION_SEQUENCE_ERROR`, over the `rel="next"` graph rather than over URL numbers alone; a series with a stride, or one whose URLs do not state a page number, is named as unjudged instead of reported | `check_pagination_sequence` |
 | 12.5 | Pagination orphan | A pagination page without internal inlinks | medium | B (Inlinks x rel_next) | id `PAGINATION_ORPHAN` |
 
 ---

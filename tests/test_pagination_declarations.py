@@ -1,11 +1,13 @@
 """PAGINATION_MULTIPLE / PAGINATION_URL_NOT_IN_ANCHOR — the declarations themselves.
 
-Issue #385 listed both as gaps for the same reason: ``Internal:All`` keeps the
-first ``rel="next"`` and ``rel="prev"`` per page and drops the rest, so neither
-"how many did this page declare" nor "is the declared URL also an anchor" could
-be answered from the column the older pagination checks read. Screaming Frog's
-All Inlinks export carries every declaration as a typed row beside every anchor,
-which is where both of these read from.
+Issue #385 listed both as gaps. Screaming Frog's All Inlinks export carries
+every declaration as its own typed row beside every anchor, which is the shape
+both of these need: one row per declaration to count them, and the anchors on
+the same page to compare them against. ``Internal:All`` numbers repeated head
+elements per occurrence rather than dropping them (its ``canonical`` /
+``canonical_2`` pair is the same idea), but this toolkit's column map carries no
+``rel="next" 2``, so a count taken there would be capped by our own column list
+rather than by the data.
 
 The silent half matters more than the firing half here: an ordinary paginated
 page that declares one successor and links it is the common case, and a check
@@ -112,6 +114,45 @@ def test_the_same_successor_declared_twice_is_one_successor(tmp_path):
         ],
     )
     assert not _fired(res, "PAGINATION_MULTIPLE")
+
+
+def test_one_successor_spelled_two_ways_is_one_successor(tmp_path):
+    """Two plugins writing the same successor with different formatting.
+
+    Regression for a de-duplication that compared raw strings while the anchor
+    half of the same function compared through ``norm_url``: ``/blog/page/2``
+    and ``/blog/page/2/`` were then one successor to one half and two to the
+    other, and the warning told the operator a crawler must guess between two
+    different successors when there is only one to guess at.
+    """
+    res = _run(
+        tmp_path,
+        [_page_row(PAGE_1, PAGE_2), _page_row(PAGE_2)],
+        [
+            ["Rel Next", PAGE_1, PAGE_2, "", "200", "true"],
+            ["Rel Next", PAGE_1, PAGE_2 + "/", "", "200", "true"],
+            ["Hyperlink", PAGE_1, PAGE_2, "Page 2", "200", "true"],
+        ],
+    )
+    assert not _fired(res, "PAGINATION_MULTIPLE")
+    # The same identity on the anchor side, so neither spelling reads as
+    # un-anchored either -- the two halves agree or neither answer is worth much.
+    assert not _fired(res, "PAGINATION_URL_NOT_IN_ANCHOR")
+
+
+def test_the_reported_url_is_the_spelling_the_page_used(tmp_path):
+    """Normalizing decides identity; it does not rewrite the evidence quoted back."""
+    res = _run(
+        tmp_path,
+        [_page_row(PAGE_1, PAGE_2), _page_row(PAGE_2), _page_row(PAGE_3)],
+        [
+            ["Rel Next", PAGE_1, PAGE_2 + "/", "", "200", "true"],
+            ["Rel Next", PAGE_1, PAGE_3, "", "200", "true"],
+            ["Hyperlink", PAGE_1, PAGE_2, "Page 2", "200", "true"],
+            ["Hyperlink", PAGE_1, PAGE_3, "Page 3", "200", "true"],
+        ],
+    )
+    assert _fired(res, "PAGINATION_MULTIPLE")[PAGE_1].details["urls"] == [PAGE_2 + "/", PAGE_3]
 
 
 def test_a_declared_url_with_no_anchor_on_the_same_page_fires(tmp_path):

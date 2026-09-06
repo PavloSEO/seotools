@@ -999,11 +999,19 @@ def check_insecure_subresources(ctx: AuditContext) -> None:
 
 # Screaming Frog types every All Inlinks row, and a page's own rel="next" /
 # rel="prev" declarations are rows in it like any other link (the same Type
-# values _NON_RESOURCE_LINK_TYPES above already names). That export is
-# therefore the only place a *complete* per-page declaration list exists:
-# Internal:All keeps the first of each in its rel="next" 1 / rel="prev" 1
-# columns and drops the rest, so "how many did this page declare" cannot be
-# answered there at all (#385).
+# values _NON_RESOURCE_LINK_TYPES above already names), one row per
+# declaration. Counting a page's declarations is therefore what that export is
+# already shaped for.
+#
+# Not because Internal:All throws the rest away. The trailing 1 in its
+# rel="next" 1 header is an occurrence index, and normalize.INTERNAL_FIELD_MAP
+# maps a second occurrence where SF writes one -- canonical / canonical_2 is
+# exactly that pair, and CANONICAL_MULTIPLE is answered from it. What the map
+# does not carry is a rel="next" 2, so a count taken from Internal:All today
+# would be capped at one by our own column list rather than by the data, and
+# could not tell "the page declared one" from "we read only the first". The
+# anchor half of this pair needs All Inlinks whatever happens, so both read it
+# and both skip together on the same named absence (#385).
 _PAGINATION_LINK_TYPES = {"rel next": 'rel="next"', "rel prev": 'rel="prev"'}
 
 _PAGINATION_DECLARATION_CHECKS = ("PAGINATION_MULTIPLE", "PAGINATION_URL_NOT_IN_ANCHOR")
@@ -1014,11 +1022,20 @@ def _pagination_declarations(
 ) -> OrderedDict[str, OrderedDict[str, list[str]]]:
     """source URL -> relation -> declared destinations, in export order.
 
-    Destinations are de-duplicated per relation: the same URL declared twice is
-    one successor written twice, which is untidy markup and not an ambiguous
-    series, and the row this feeds is about *which page comes next*.
+    Destinations are de-duplicated per relation **through** ``norm_url``, the
+    same identity ``_anchor_destinations`` and the anchor half of
+    ``check_pagination_declarations`` compare by. De-duplicating by raw string
+    instead would make ``/blog/page/2`` and ``/blog/page/2/`` one successor to
+    the anchor half and two to this one, and PAGINATION_MULTIPLE would then tell
+    the operator a crawler must guess between two different successors when
+    there is only one -- two plugins writing the same URL with different
+    formatting is untidy markup, not an ambiguous series, and the row this feeds
+    is about *which page comes next*.
+
+    The first spelling seen is the one reported, so the finding quotes markup
+    that is actually on the page rather than a normalized form of it.
     """
-    out: OrderedDict[str, OrderedDict[str, list[str]]] = OrderedDict()
+    seen: OrderedDict[str, OrderedDict[str, OrderedDict[str, str]]] = OrderedDict()
     for rec in records:
         source, dest = rec.get("source_url"), rec.get("destination_url")
         if not source or not dest:
@@ -1026,10 +1043,13 @@ def _pagination_declarations(
         relation = _PAGINATION_LINK_TYPES.get(str(rec.get("type") or "").strip().lower())
         if relation is None:
             continue
-        targets = out.setdefault(source, OrderedDict()).setdefault(relation, [])
-        if dest not in targets:
-            targets.append(dest)
-    return out
+        seen.setdefault(source, OrderedDict()).setdefault(relation, OrderedDict()).setdefault(
+            norm_url(dest), dest
+        )
+    return OrderedDict(
+        (source, OrderedDict((relation, list(t.values())) for relation, t in by_relation.items()))
+        for source, by_relation in seen.items()
+    )
 
 
 def _anchor_destinations(records: list[dict[str, Any]]) -> dict[str, set[str]]:

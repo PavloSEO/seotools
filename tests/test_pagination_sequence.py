@@ -5,8 +5,17 @@ legitimately start at a number other than one, and may be filtered, so the
 finding is a break in a run the series otherwise follows -- never a deviation
 from ``1..n``. Most of what is asserted here is therefore silence: an ordered
 series, a series starting at 4, a series with a stride, and a series whose URLs
-do not state a page number all have to stay quiet, and the last of them has to
-say out loud that it was never judged.
+do not state a page number all have to stay quiet.
+
+Silence is not the same as clean, so each of those has to say out loud that it
+was never judged, and say it with the reason that is true of *it*. The five
+causes -- a crawl whose every chain cycles, a series that cycles from its head,
+a series too short to hold a run, a URL that states no number, and a stride --
+are not interchangeable, and three of them describe series in which every URL
+does state its number. They are also counted per series rather than per run:
+the WordPress shape (page one at an unnumbered ``/blog/``, the rest at
+``/blog/page/N/``) is always unjudgeable, so on a real site the unjudged series
+is the normal case sitting beside judgeable ones, not the whole crawl.
 """
 
 from __future__ import annotations
@@ -93,11 +102,20 @@ def test_a_series_that_starts_at_four_is_not_an_error(tmp_path):
 
 def test_a_series_with_a_stride_is_left_unevaluated(tmp_path):
     """0, 10, 20 is an offset scheme, not a broken run -- and nothing here can
-    prove which, so it is not reported and not counted as evaluated either."""
+    prove which, so it is not reported and is named as unjudged instead.
+
+    The reason has to be about the stride. Every one of these URLs states its
+    page number, so a reason saying otherwise is a false statement about the
+    evidence, and it sends the operator to fix a numbering scheme that is not
+    the problem.
+    """
     urls = [f"https://example.com/catalog?page={n}" for n in (0, 10, 20)]
     res = _run(tmp_path, _chain(urls))
     assert not _fired(res)
-    assert "states a page number in every one of its URLs" in (_skip_reason(res) or "")
+    reason = _skip_reason(res) or ""
+    assert "never step by one" in reason
+    assert "state no page number" not in reason
+    assert "states no page number" not in reason
 
 
 def test_a_series_whose_urls_state_no_page_number_declares_itself_unjudged(tmp_path):
@@ -105,12 +123,12 @@ def test_a_series_whose_urls_state_no_page_number_declares_itself_unjudged(tmp_p
     urls.append("https://example.com/catalog/2026")
     res = _run(tmp_path, _chain(urls))
     assert not _fired(res)
-    assert "states a page number in every one of its URLs" in (_skip_reason(res) or "")
+    assert "3 of its 3 URLs state no page number" in (_skip_reason(res) or "")
 
 
 def test_one_unnumbered_url_leaves_the_whole_series_unjudged(tmp_path):
     """A missing number is not evidence of a gap, so the series it sits in is
-    not judged around it."""
+    not judged around it -- and the count says how much of it was unreadable."""
     urls = [
         "https://example.com/blog/page/1",
         "https://example.com/blog/latest",
@@ -118,12 +136,17 @@ def test_one_unnumbered_url_leaves_the_whole_series_unjudged(tmp_path):
     ]
     res = _run(tmp_path, _chain(urls))
     assert not _fired(res)
+    assert "1 of its 3 URLs states no page number" in (_skip_reason(res) or "")
 
 
 def test_a_two_page_series_is_not_a_run(tmp_path):
-    """One step cannot be both the run and the break in it."""
+    """One step cannot be both the run and the break in it -- and both of these
+    URLs state their number, so the reason must not claim otherwise."""
     res = _run(tmp_path, _chain(_pages(1, 6)))
     assert not _fired(res)
+    reason = _skip_reason(res) or ""
+    assert "only 2 pages long" in reason
+    assert "no page number" not in reason
 
 
 def test_a_cycling_series_is_left_to_pagination_loop(tmp_path):
@@ -133,6 +156,97 @@ def test_a_cycling_series_is_left_to_pagination_loop(tmp_path):
     res = _run(tmp_path, rows)
     assert not _fired(res)
     assert any(i.check == "PAGINATION_LOOP" for i in res.issues)
+    reason = _skip_reason(res) or ""
+    assert "cycles back on itself" in reason and "PAGINATION_LOOP" in reason
+    assert "no page number" not in reason
+
+
+def test_a_crawl_whose_every_chain_cycles_has_no_series_to_walk(tmp_path):
+    """Two pages pointing at each other leave no head to start from, so the
+    loop over heads never runs at all. That is its own cause and its own
+    sentence, not the same one a missing page number gets."""
+    a, b = _pages(1, 2)
+    res = _run(tmp_path, [_chain([a, b])[0], _chain([b, a])[0]])
+    assert not _fired(res)
+    reason = _skip_reason(res) or ""
+    assert "cycles back on itself" in reason and "first page to walk from" in reason
+    assert "no page number" not in reason
+
+
+def test_an_unjudged_series_is_named_even_when_another_one_was_judged(tmp_path):
+    """The guard is per series, not per run.
+
+    A crawl holding one judgeable series and one unjudgeable one used to report
+    the second as neither a finding nor a skip, so a series that may hold
+    exactly the gap this check exists to find read as clean. The judgeable
+    series here is deliberately in order: with it silent too, the whole check
+    would otherwise have nothing to say about a crawl it only half read.
+    """
+    judgeable = _pages(1, 2, 3, prefix="https://example.com/news/page/")
+    wordpress = [
+        "https://example.com/blog/",
+        "https://example.com/blog/page/2/",
+        "https://example.com/blog/page/3/",
+    ]
+    res = _run(tmp_path, _chain(judgeable) + _chain(wordpress))
+    assert not _fired(res)
+    reason = _skip_reason(res) or ""
+    assert reason.startswith('1 of 2 rel="next" series could not be judged')
+    assert "https://example.com/blog/" in reason
+
+
+def test_each_unjudged_cause_is_counted_and_named_on_its_own(tmp_path):
+    """Three series, three different causes, one reason that keeps them apart."""
+    stride = [f"https://example.com/catalog?page={n}" for n in (0, 10, 20)]
+    short = _pages(1, 6, prefix="https://example.com/tags/page/")
+    unnumbered = [
+        "https://example.com/blog/",
+        "https://example.com/blog/page/2/",
+        "https://example.com/blog/page/3/",
+    ]
+    res = _run(tmp_path, _chain(stride) + _chain(short) + _chain(unnumbered))
+    reason = _skip_reason(res) or ""
+    assert reason.startswith('3 of 3 rel="next" series could not be judged')
+    for clause, example in (
+        ("never step by one", stride[0]),
+        ("only 2 pages long", short[0]),
+        ("1 of its 3 URLs states no page number", unnumbered[0]),
+    ):
+        assert clause in reason, reason
+        assert example in reason, reason
+
+
+def test_a_finding_and_an_unjudged_series_report_as_a_finding(tmp_path):
+    """Where the audit contract puts a check that both fired and fell short.
+
+    ``AuditContext.skip`` refuses a check that already has findings, and that is
+    the contract, not an oversight: a check with evidence is not a skipped
+    check. So the crawl below carries the break and no skip beside it. The rule
+    this exists to serve still holds -- the check does not read as clean -- but
+    the unjudged series only gets its own sentence once nothing is firing over
+    it, which is why the per-series count above matters most on the crawls where
+    the check finds nothing.
+    """
+    broken = _pages(1, 2, 3, 7, prefix="https://example.com/news/page/")
+    wordpress = [
+        "https://example.com/blog/",
+        "https://example.com/blog/page/2/",
+        "https://example.com/blog/page/3/",
+    ]
+    res = _run(tmp_path, _chain(broken) + _chain(wordpress))
+    assert set(_fired(res)) == {broken[0]}
+    assert _skip_reason(res) is None
+
+
+def test_a_crawl_whose_series_are_all_judgeable_says_nothing(tmp_path):
+    """The skip is about series that could not be read, so a crawl with none of
+    those must not carry one."""
+    res = _run(
+        tmp_path,
+        _chain(_pages(1, 2, 3)) + _chain(_pages(1, 2, 3, prefix="https://example.com/n/page/")),
+    )
+    assert not _fired(res)
+    assert _skip_reason(res) is None
 
 
 def test_without_the_column_the_check_declares_itself_absent(tmp_path):

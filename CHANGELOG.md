@@ -6,13 +6,21 @@ All notable public changes are documented here.
 
 - Close the three pagination rows #385 left open, taking the registry from 152 to 155 checks.
   `PAGINATION_MULTIPLE` and `PAGINATION_URL_NOT_IN_ANCHOR` read the All Inlinks export, which
-  is the only place a page's complete `rel="next"`/`rel="prev"` declaration list exists --
-  `Internal:All` keeps the first of each and drops the rest -- and report a page that declares
-  two different successors, or one whose declared URL is not also an anchor on the same page.
+  carries every `rel="next"`/`rel="prev"` declaration as its own typed row beside the page's
+  anchors, and report a page that declares two different successors, or one whose declared URL
+  is not also an anchor on the same page. Successors are compared after URL normalization, the
+  same identity the anchor half uses, so `/blog/page/2` and `/blog/page/2/` from two plugins
+  are one successor spelled twice rather than an ambiguous series.
   `PAGINATION_SEQUENCE_ERROR` reports a break in a page-number run the series otherwise
   follows, per the issue's own caveat: a series may start at a number other than one, a stride
   is not a break, and a series whose URLs do not state a page number is declared unevaluated
-  rather than judged against a numbering that would have had to be invented.
+  rather than judged against a numbering that would have had to be invented. Every series left
+  unjudged is named among the run's skipped checks with the reason true of *that* series --
+  a stride, a cycle, a series too short to hold a run and an unreadable page number are four
+  different statements, and three of them describe series whose URLs all state their number.
+  The count is per series, not per run, so the ordinary WordPress shape (page one at an
+  unnumbered `/blog/`, the rest at `/blog/page/N/`) cannot disappear behind one judgeable
+  series elsewhere on the same crawl.
 
 - Fix four export-selection and run-validation defects that let an audit present a result it
   could not support (#209, #210, #215, #216). `internal_all`'s matcher required only the
