@@ -31,6 +31,7 @@ from unittest.mock import patch
 
 import pytest
 
+from seohead.crawl import link_findings
 from seohead.servers import handlers
 from seohead.sf.core import heuristics as heuristics_module
 from seohead.sf.core import inlinks as inlinks_module
@@ -88,6 +89,8 @@ def _owning_spy(check_id: str, source: str, spies: dict[str, object]):
         return spies["heuristics"]
     if source == "sitemap":
         return spies["sitemap"]
+    if source == "crawl:link_findings":
+        return spies[check_id]
     return spies["rules"]
 
 
@@ -130,6 +133,26 @@ def test_every_wired_check_is_fired_skipped_or_provably_evaluated(site, tmp_path
         patch.object(
             sitemap_module, "run_sitemap", wraps=sitemap_module.run_sitemap
         ) as spy_sitemap,
+        patch.object(
+            link_findings,
+            "outlinks_to_localhost",
+            wraps=link_findings.outlinks_to_localhost,
+        ) as spy_localhost,
+        patch.object(
+            link_findings,
+            "follow_and_nofollow_inlinks",
+            wraps=link_findings.follow_and_nofollow_inlinks,
+        ) as spy_follow_mix,
+        patch.object(
+            link_findings,
+            "form_url_insecure",
+            wraps=link_findings.form_url_insecure,
+        ) as spy_insecure_form,
+        patch.object(
+            link_findings,
+            "forms_on_http_pages_with_password",
+            wraps=link_findings.forms_on_http_pages_with_password,
+        ) as spy_http_password_form,
     ):
         result = handlers.crawl_site(
             url=f"{site}/",
@@ -155,6 +178,10 @@ def test_every_wired_check_is_fired_skipped_or_provably_evaluated(site, tmp_path
         "inlinks": spy_inlinks,
         "heuristics": spy_heuristics,
         "sitemap": spy_sitemap,
+        "OUTLINK_TO_LOCALHOST": spy_localhost,
+        "FOLLOW_AND_NOFOLLOW_INLINKS": spy_follow_mix,
+        "FORM_URL_INSECURE": spy_insecure_form,
+        "FORM_ON_HTTP_URL": spy_http_password_form,
     }
     in_scope = set(CHECKS) - _NOT_WIRED_INTO_CRAWL
     for check_id in sorted(in_scope):
