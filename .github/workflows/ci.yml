@@ -92,8 +92,9 @@ jobs:
 
           tools = asyncio.run(build_server().list_tools())
           names = {tool.name for tool in tools}
-          assert len(COMMANDS) == len(HANDLERS) == 54
-          assert len(names) == 59, sorted(names)
+          expected = {f"seo_{name}" for name in HANDLERS}
+          assert len(COMMANDS) == len(HANDLERS)
+          assert expected <= names, sorted(expected - names)
           assert {"seo_parse", "seo_site_audit", "sf_audit_run"} <= names
           print("registered MCP tools", len(names))
           PY
@@ -137,9 +138,13 @@ jobs:
             sf run --exports-dir /data/examples/exports --out /tmp/report -q
           docker run --rm --entrypoint python seohead-tools:ci -c "
           import asyncio
+          from seohead.servers.handlers import HANDLERS
           from seohead.servers.mcp_server import build_server
           tools = asyncio.run(build_server().list_tools())
-          assert len(tools) == 59, f'expected 59 MCP tools, got {len(tools)}'
+          names = {tool.name for tool in tools}
+          expected = {f'seo_{name}' for name in HANDLERS}
+          assert expected <= names, sorted(expected - names)
+          assert {'seo_parse', 'seo_site_audit', 'sf_audit_run'} <= names
           print(f'MCP tools available in the slim image: {len(tools)}')
           "
       - uses: docker/build-push-action@v7
