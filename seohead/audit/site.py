@@ -158,6 +158,30 @@ def _first_h1(facts: dict[str, Any]) -> str:
     return ""
 
 
+def _parse_results_unavailable(result: dict[str, Any]) -> bool:
+    """Return whether every item in ``parse``'s batch lacked a response.
+
+    ``parse_url`` reports a completed 4xx/5xx response with page fields and a
+    false ``ok`` value; that is still measured evidence. A transport failure is
+    instead the distinct ``ParseFailed`` shape, which has ``error`` and no
+    response fields. ``handlers.parse`` wraps those records in ``results``.
+    """
+    rows = result.get("results")
+    return (
+        bool(rows)
+        and isinstance(rows, list)
+        and all(
+            isinstance(row, dict) and row.get("ok") is False and bool(row.get("error"))
+            for row in rows
+        )
+    )
+
+
+def _page_tool_failed(tool: str, result: dict[str, Any]) -> bool:
+    """Recognize a failed page tool without recasting measured parse responses."""
+    return result.get("ok") is False or (tool == "parse" and _parse_results_unavailable(result))
+
+
 def _page_row(url: str, results: dict[str, dict[str, Any]]) -> dict[str, Any]:
     """Build one normalized page row for the Excel and Word reports."""
     parsed = results.get("parse") or {}
@@ -183,6 +207,9 @@ def _page_row(url: str, results: dict[str, dict[str, Any]]) -> dict[str, Any]:
             continue
         if data.get("ok") is False and data.get("error"):
             issues.append(f"{tool}: {data['error']}")
+        elif tool == "parse" and _parse_results_unavailable(data):
+            rows = data["results"]
+            issues.append(f"{tool}: {rows[0]['error']}")
         for finding in (data.get("findings") or [])[:5]:
             issues.append(str(finding))
     return {
@@ -340,7 +367,7 @@ def audit_site(
         failed_tools = {
             tool
             for tool, data in results.items()
-            if isinstance(data, dict) and data.get("ok") is False
+            if isinstance(data, dict) and _page_tool_failed(tool, data)
         }
         return _page_row(page_url, results), failed_tools
 

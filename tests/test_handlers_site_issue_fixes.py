@@ -1,8 +1,8 @@
-"""Regression tests for #442, #444, #487, #489.
+"""Regression tests for #442, #444, #487, #489, #582.
 
 Each covers one handler/site-audit contract violation: a documented option silently
 dropped, a billed task_id lost on a recoverable failure, a failed tool double-counted
-as both completed and unavailable, and a page-tool failure invisible to the summary.
+as both completed and unavailable, or page-level evidence lost in aggregation.
 """
 
 from __future__ import annotations
@@ -219,3 +219,67 @@ def test_page_tool_failing_on_zero_pages_produces_no_signal():
 
     assert summary["page_tools_failed"] == []
     assert summary["tools_failed"] == []
+
+
+# --- #582: parse's real batch envelope must surface transport failure ---
+
+
+def test_parse_batch_transport_failure_is_unavailable_and_critical(monkeypatch):
+    """Use the real handler envelope: parser failures do not raise from ``parse``."""
+
+    def failed_parse_url(url, _options):
+        return {"url": url, "ok": False, "error": "connection refused"}
+
+    monkeypatch.setattr("seohead.tools.parser.parse_url", failed_parse_url)
+    result = audit_site("https://example.com", limit=5, tools=_site_tools(parse=handlers.parse))
+
+    assert result["summary"]["page_tools_failed"] == [
+        {"tool": "parse", "failed_pages": 5, "pages_checked": 5}
+    ]
+    assert all(page["issues"] == ["parse: connection refused"] for page in result["pages"])
+    assert result["summary"]["findings_by_severity"]["critical"] == 5
+
+
+def test_parse_batch_completed_error_response_remains_measured(monkeypatch):
+    """A fetched 404 has evidence and must not be recast as a transport failure."""
+
+    def fetched_not_found(url, _options):
+        return {
+            "url": url,
+            "final_url": url,
+            "status_code": 404,
+            "ok": False,
+            "title": "Gone",
+            "meta_description": "",
+            "headings": {},
+            "word_count": 1,
+        }
+
+    monkeypatch.setattr("seohead.tools.parser.parse_url", fetched_not_found)
+    result = audit_site("https://example.com", limit=1, tools=_site_tools(parse=handlers.parse))
+
+    assert result["summary"]["page_tools_failed"] == []
+    assert result["pages"][0]["status"] == 404
+    assert result["pages"][0]["issues"] == []
+
+
+def test_parse_batch_success_remains_available(monkeypatch):
+    """A successful real parse envelope stays out of unavailable-check reporting."""
+
+    def fetched_page(url, _options):
+        return {
+            "url": url,
+            "final_url": url,
+            "status_code": 200,
+            "ok": True,
+            "title": "Available",
+            "meta_description": "",
+            "headings": {},
+            "word_count": 1,
+        }
+
+    monkeypatch.setattr("seohead.tools.parser.parse_url", fetched_page)
+    result = audit_site("https://example.com", limit=1, tools=_site_tools(parse=handlers.parse))
+
+    assert result["summary"]["page_tools_failed"] == []
+    assert result["pages"][0]["status"] == 200
