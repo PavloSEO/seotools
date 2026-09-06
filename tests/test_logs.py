@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import socket
 from datetime import timezone
 
 from seohead.tools.logs import (
+    GOOGLE,
+    _findings,
     _section,
     analyze_log,
     detect_bot,
     detect_format,
     parse_apache_timestamp,
+    verify_bot_rdns,
 )
 
 COMBINED = (
@@ -287,3 +291,58 @@ def test_max_lines_does_not_consume_the_rest_of_the_file():
     # the first one; stopping at 1 is the whole fix.
     assert handle.iterated == 1, "a one-line cap must not pull the file's remaining lines"
     assert result["lines"] == {"total": 1, "parsed": 1, "skipped": 0, "truncated": True}
+
+
+# ── Forward-confirmed reverse DNS (#485) ─────────────────────────────────────
+
+
+def test_verify_bot_rdns_forward_lookup_unavailable_is_not_a_mismatch(monkeypatch):
+    """A real Googlebot must not be reported as fake when forward DNS is down."""
+    monkeypatch.setattr(
+        socket,
+        "gethostbyaddr",
+        lambda ip: ("crawl-66-249-66-1.googlebot.com", [], [ip]),
+    )
+
+    def raise_forward(_hostname):
+        raise OSError("Network is unreachable")
+
+    monkeypatch.setattr(socket, "gethostbyname_ex", raise_forward)
+
+    result = verify_bot_rdns("66.249.66.1", GOOGLE)
+    assert result["verified"] is None
+    assert "forward" in result["reason"].lower()
+    assert "unavailable" in result["reason"].lower()
+
+    findings = _findings(
+        {
+            "lines": {"parsed": 1, "skipped": 0, "total": 1},
+            "by_family": {"googlebot": {"66.249.66.1": 1}},
+            "status_by_family": {},
+            "verification": {
+                "checked": True,
+                "dns_available": True,
+                "checks": [{"bot": "googlebot", "ip": "66.249.66.1", **result}],
+            },
+        }
+    )
+    assert not any("impersonating" in f for f in findings)
+
+
+def test_verify_bot_rdns_real_mismatch_still_flags(monkeypatch):
+    """A genuine forward/reverse mismatch (forward DNS worked, addresses differ) must
+    still read as an unverified bot -- the fix must not silence real mismatches."""
+    monkeypatch.setattr(
+        socket,
+        "gethostbyaddr",
+        lambda ip: ("crawl-1-2-3-4.googlebot.com", [], [ip]),
+    )
+    monkeypatch.setattr(
+        socket,
+        "gethostbyname_ex",
+        lambda hostname: (hostname, [], ["9.9.9.9"]),
+    )
+
+    result = verify_bot_rdns("1.2.3.4", GOOGLE)
+    assert result["verified"] is False
+    assert "does not resolve back to" in result["reason"]
