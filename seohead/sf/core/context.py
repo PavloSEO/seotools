@@ -180,7 +180,9 @@ class AuditContext:
             self.skipped = [s for s in self.skipped if s.id != check_id]
         return issue
 
-    def add_group(self, check_id: str, value: str | None, urls: list[str]) -> Group:
+    def add_group(self, check_id: str, value: str | None, urls: list[str]) -> Group | None:
+        if not self.enabled(check_id):
+            return None
         prefix = check_id.split("_")[0][:6].upper()
         self._group_seq += 1
         group = Group(
