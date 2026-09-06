@@ -22,8 +22,8 @@ or a Screaming Frog export already produces. ``ok`` (default True) marks
 whether the fetch succeeded; a falsy ``ok`` excludes the document entirely.
 Depending on the filter's ``scope`` a document also needs:
   raw        -- ``html``: the raw response body.
-  text       -- ``text``: the visible page text; derived from ``html`` with a
-                script/style-stripped ``get_text()`` when omitted.
+  text       -- ``text``: the visible page text; derived from ``html`` when
+                omitted, with ``content_area.TEXT_EXCLUDED_TAGS`` stripped.
   element    -- ``html`` plus the filter's ``selector`` (a CSS selector); the
                 text of every matched element, joined.
   xpath      -- ``html`` plus the filter's ``selector`` (an XPath expression);
@@ -45,15 +45,24 @@ from typing import Any
 
 from bs4 import BeautifulSoup
 
+from seohead.tools.content_area import TEXT_EXCLUDED_TAGS
+
 SCOPES: tuple[str, ...] = ("raw", "text", "element", "xpath")
 MODES: tuple[str, ...] = ("contains", "not_contains")
 KINDS: tuple[str, ...] = ("text", "regex")
 
 
 def _visible_text(html: str) -> str:
+    """Collapsed visible body text, stripped of every non-prose element.
+
+    The removed set is ``content_area.TEXT_EXCLUDED_TAGS`` whole, not a local
+    copy of it: a local copy omitted ``svg`` and ``math``, so an SVG chart label
+    or a MathML glyph counted as page copy and a ``not_contains`` rule quietly
+    failed to report an absence the operator asked about (issue #544).
+    """
     soup = BeautifulSoup(html or "", features="lxml")
     body = soup.body or soup
-    for tag in body.find_all(["script", "style", "noscript", "template"]):
+    for tag in body.find_all(list(TEXT_EXCLUDED_TAGS)):
         tag.decompose()
     return " ".join(body.get_text(" ").split())
 
