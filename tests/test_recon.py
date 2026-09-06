@@ -385,6 +385,80 @@ def test_security_findings_cover_http_downgrade_cookies_and_exposed_paths():
     assert "/.env" in joined
 
 
+class _FakeCookieHeaders:
+    def __init__(self, cookies):
+        self._cookies = cookies
+
+    def get_list(self, name):
+        return self._cookies
+
+
+class _FakeCookieResp:
+    def __init__(self, cookies):
+        self.headers = _FakeCookieHeaders(cookies)
+
+
+def test_cookie_flags_detect_secure_without_a_preceding_space():
+    found = security._cookie_flags(_FakeCookieResp(["sessionid=abc123;Secure;HttpOnly;Path=/"]))
+    assert found == [{"name": "sessionid", "secure": True, "http_only": True, "same_site": None}]
+
+
+def test_cookie_flags_still_detect_secure_with_a_preceding_space():
+    found = security._cookie_flags(_FakeCookieResp(["sessionid=abc123; Secure; HttpOnly; Path=/"]))
+    assert found[0]["secure"] is True
+
+
+def test_cookie_flags_report_insecure_when_secure_is_absent():
+    found = security._cookie_flags(_FakeCookieResp(["sessionid=abc123;HttpOnly"]))
+    assert found[0]["secure"] is False
+
+
+class _FakeProbeHeaders(dict):
+    def get_list(self, name):
+        return []
+
+    def get(self, name, default=""):
+        return dict.get(self, name, default)
+
+
+class _FakeProbeResp:
+    def __init__(self, status_code, text, headers=None):
+        self.status_code = status_code
+        self.text = text
+        self.content = text.encode()
+        self.headers = _FakeProbeHeaders(headers or {"content-type": "text/plain"})
+
+
+def test_probe_does_not_report_a_soft_404_for_svn_entries():
+    class FakeClient:
+        def get(self, url):
+            if url.endswith("/.svn/entries"):
+                return _FakeProbeResp(
+                    200,
+                    "Page not found - please check the URL",
+                    {"content-type": "text/plain; charset=utf-8"},
+                )
+            return _FakeProbeResp(404, "not found")
+
+    exposed = security._probe(FakeClient(), "https://example.com")
+    assert not any(item["path"] == "/.svn/entries" for item in exposed)
+
+
+def test_probe_still_reports_real_svn_entries_content():
+    class FakeClient:
+        def get(self, url):
+            if url.endswith("/.svn/entries"):
+                return _FakeProbeResp(
+                    200,
+                    "10\n\ndir\n0\nsvn://svn.example.com/repo\n",
+                    {"content-type": "text/plain"},
+                )
+            return _FakeProbeResp(404, "not found")
+
+    exposed = security._probe(FakeClient(), "https://example.com")
+    assert any(item["path"] == "/.svn/entries" for item in exposed)
+
+
 # ── Backlink domain matching ─────────────────────────────────────────────────
 
 
