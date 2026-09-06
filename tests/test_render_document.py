@@ -75,11 +75,17 @@ class _FakeContext:
     def __init__(self, page, **options):
         self.page = page
         self.options = options
+        self.routes = []
+        self.new_page_route_snapshots = []
         self.ws_routes = []
         self.closed = False
 
     def new_page(self):
+        self.new_page_route_snapshots.append(list(self.routes))
         return self.page
+
+    def route(self, pattern, handler):
+        self.routes.append((pattern, handler))
 
     def route_web_socket(self, pattern, handler):
         self.ws_routes.append((pattern, handler))
@@ -169,6 +175,15 @@ def test_happy_path_returns_the_rendered_html(fake_stack):
     assert result["ok"] is True
     assert result["html"] == "<html><body>rendered</body></html>"
     assert result["final_url"] == "https://example.com/"
+
+
+def test_pinned_route_is_registered_on_context_before_its_new_page(fake_stack):
+    result = render_document("https://example.com/", _rendering_config())
+
+    assert result["ok"] is True
+    assert fake_stack["context"].routes[0][0] == "**/*"
+    assert fake_stack["context"].new_page_route_snapshots == [fake_stack["context"].routes]
+    assert fake_stack["page"].routes == []
 
 
 def test_service_workers_are_blocked_by_default(fake_stack):
@@ -280,12 +295,16 @@ def test_no_screenshot_without_an_artifacts_dir(fake_stack):
     assert fake_stack["page"].screenshot_calls == []
 
 
-def test_persistent_profile_uses_launch_persistent_context(fake_stack, tmp_path):
+def test_persistent_profile_is_refused_until_pinned_cookie_continuity_is_proven(
+    fake_stack, tmp_path
+):
     config = _rendering_config(
         persistent_profile=True, persistent_profile_dir=str(tmp_path / "profile")
     )
-    render_document("https://example.com/", config)
-    assert fake_stack["chromium"].launch_persistent_calls
+    result = render_document("https://example.com/", config)
+    assert result["ok"] is False
+    assert "cookie continuity" in result["error"]
+    assert not fake_stack["chromium"].launch_persistent_calls
     assert fake_stack["chromium"].launched is False
 
 

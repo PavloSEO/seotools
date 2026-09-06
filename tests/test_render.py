@@ -292,22 +292,23 @@ def test_a_request_to_a_private_address_is_aborted():
     assert route.continued is False
 
 
-def test_a_request_to_a_public_address_continues():
+def test_fallback_browser_route_fails_closed_without_a_pinned_fulfiller():
     from seohead.tools.render import _guard_browser_route
 
     route = _FakeRoute("https://example.com/style.css")
     _guard_browser_route(route)
-    assert route.continued is True
-    assert route.aborted_with is None
+    assert route.aborted_with == "blockedbyclient"
+    assert route.continued is False
 
 
-def test_about_blob_and_data_urls_always_continue():
+def test_fallback_browser_route_never_continues_a_non_network_scheme():
     from seohead.tools.render import _guard_browser_route
 
     for scheme_url in ("about:blank", "blob:https://example.com/x", "data:text/plain;base64,aGk="):
         route = _FakeRoute(scheme_url)
         _guard_browser_route(route)
-        assert route.continued is True
+        assert route.aborted_with == "blockedbyclient"
+        assert route.continued is False
 
 
 def test_root_is_refused_rather_than_unsandboxed(monkeypatch):
@@ -354,13 +355,13 @@ def test_a_websocket_to_a_private_address_is_closed_not_connected():
     assert route.connected is False
 
 
-def test_a_websocket_to_a_public_address_is_connected():
+def test_a_websocket_is_closed_without_a_pinned_transport():
     from seohead.tools.render import _guard_websocket_route
 
     route = _FakeWebSocketRoute("wss://example.com/socket")
     _guard_websocket_route(route)
-    assert route.connected is True
-    assert route.closed is False
+    assert route.closed is True
+    assert route.connected is False
 
 
 def test_a_websocket_with_an_unsupported_scheme_is_closed():
