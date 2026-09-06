@@ -425,3 +425,44 @@ def test_explicit_null_config_is_not_treated_as_an_omitted_option(legacy_run, tm
         == 1
     )
     assert not out.exists()
+
+
+def test_import_run_merges_partial_crawl_reason_into_pages_capability(legacy_run, tmp_path):
+    """capabilities.pages.reason must mention both a partial crawl and missing legacy fields.
+
+    Positive control: crawl_partial=true plus missing late page fields must merge both causes.
+    Negative control: crawl_partial=false with the same missing fields must stay unchanged.
+    """
+    audit_path = legacy_run / "audit.json"
+    audit = json.loads(audit_path.read_text())
+    original_audit_text = audit_path.read_text()
+
+    pages_path = legacy_run / "pages.jsonl"
+    late_fields = ("content_frames", "content_frames_same_origin", "hreflang", "body_unavailable")
+    stripped_pages = "\n".join(
+        json.dumps({k: v for k, v in json.loads(line).items() if k not in late_fields})
+        for line in pages_path.read_text().splitlines()
+    )
+    pages_path.write_text(stripped_pages)
+
+    audit["run"]["crawl_partial"] = True
+    audit_path.write_text(json.dumps(audit))
+    partial_out = tmp_path / "partial.sqlite"
+    import_run(legacy_run, partial_out, producer_build=BUILD)
+    con = open_scan(partial_out)
+    capabilities = json.loads(con.execute("SELECT * FROM scan").fetchone()["capabilities_json"])
+    con.close()
+    assert capabilities["pages"]["state"] == "partial"
+    assert "legacy source is partial" in capabilities["pages"]["reason"]
+    assert "legacy page fields unavailable" in capabilities["pages"]["reason"]
+    assert capabilities["links"]["reason"] == "legacy source is partial"
+
+    audit_path.write_text(original_audit_text)
+    complete_out = tmp_path / "complete.sqlite"
+    import_run(legacy_run, complete_out, producer_build=BUILD)
+    con = open_scan(complete_out)
+    capabilities = json.loads(con.execute("SELECT * FROM scan").fetchone()["capabilities_json"])
+    con.close()
+    assert capabilities["pages"]["state"] == "partial"
+    assert capabilities["pages"]["reason"].startswith("legacy page fields unavailable:")
+    assert "legacy source is partial" not in capabilities["pages"]["reason"]

@@ -739,9 +739,12 @@ def import_run(
                 else "imported observations; original crawl scope applies",
             }
         if missing_fields:
+            fields_reason = "legacy page fields unavailable: " + ", ".join(missing_fields)
             capabilities["pages"] = {
                 "state": "partial",
-                "reason": "legacy page fields unavailable: " + ", ".join(missing_fields),
+                "reason": "; ".join([capabilities["pages"]["reason"], fields_reason])
+                if partial
+                else fields_reason,
             }
         now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         _insert(
