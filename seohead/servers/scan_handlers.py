@@ -185,6 +185,92 @@ def _has_saved_audit(scan) -> bool:
     return scan.con.execute("SELECT 1 FROM audit WHERE singleton=1").fetchone() is not None
 
 
+def resume_inputs(scan_path: str) -> dict[str, Any]:
+    """Read back what a resume must repeat: the scan's own start URL and settings.
+
+    A resume is one crawl continuing, not a second crawl aimed at the same file.
+    The frontier, scope and limits already in the artifact decide what is left to
+    fetch, so they are read from it rather than restated on a command line, where
+    a single changed value would either be refused by the writer's configuration
+    fingerprint or -- worse -- continue one crawl under another crawl's rules.
+
+    Read-only and before any request: every refusal below is decided from the
+    file alone, so a mismatched artifact costs the target site nothing.
+    """
+    from seohead.storage.native_scan import NativeScan
+
+    if not isinstance(scan_path, str) or not scan_path:
+        raise ValueError("resume requires the path of a SQLite scan artifact")
+    if not Path(scan_path).is_file():
+        raise ValueError(f"scan to resume does not exist: {scan_path}")
+    header = NativeScan.inspect(scan_path)["scan"]
+    if header["source_kind"] != "native":
+        raise ValueError(
+            f"{scan_path} is a derived {header['source_kind']} artifact, not a crawl that can "
+            "be resumed"
+        )
+    if header["lifecycle"] in {"finished", "failed"}:
+        raise ValueError(
+            f"{scan_path} is already {header['lifecycle']} "
+            f"(finish reason: {header['finish_reason']}); there is nothing left to resume"
+        )
+    settings = json.loads(header["config_json"])
+    if settings.get("http", {}).get("credential_headers"):
+        # The artifact stores credential references redacted, by design, so the
+        # settings read back from it are not the settings the interrupted run
+        # used. Continuing under them would crawl the same site unauthenticated
+        # and report the result as a continuation of an authenticated crawl.
+        raise ValueError(
+            f"{scan_path} was crawled with credential headers, which it stores only in redacted "
+            "form; a resume cannot restore them. Continue it with the original --config and "
+            "--scan-out instead of --resume"
+        )
+    return {
+        "start_url": header["start_url"],
+        "settings": settings,
+        "writer_revision": header["writer_revision"],
+    }
+
+
+def resume_scan(
+    scan_path: str,
+    *,
+    url: str | None = None,
+    producer_build: str | None = None,
+    progress: Callable[[int, int], None] | None = None,
+) -> dict[str, Any]:
+    """Continue an interrupted native scan from its stored frontier and throttle state.
+
+    Refuses, by name and before the first request, a scan written by a different
+    producing build or for a different start URL: continuing evidence collected
+    under one build's parser or from one start URL into another produces a single
+    artifact that describes neither run.
+    """
+    inputs = resume_inputs(scan_path)
+    _version, revision, _runtime = _producer_provenance(producer_build)
+    if inputs["writer_revision"] != revision:
+        raise ValueError(
+            f"{scan_path} was written by build {inputs['writer_revision']}, and this is build "
+            f"{revision}; refusing a mixed-build resume. Check out the build that wrote it, or "
+            "pass producer_build with that SHA if this source tree is that build"
+        )
+    if url is not None:
+        from seohead.recon.net import normalize_url
+
+        if normalize_url(url) != inputs["start_url"]:
+            raise ValueError(
+                f"{scan_path} was crawled from {inputs['start_url']}, not {url}; refusing to "
+                "resume one crawl as another"
+            )
+    return crawl_site_scan(
+        inputs["start_url"],
+        scan_out=scan_path,
+        settings=inputs["settings"],
+        producer_build=revision,
+        progress=progress,
+    )
+
+
 def crawl_site_scan(
     url: str,
     *,
