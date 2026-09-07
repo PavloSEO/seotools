@@ -301,11 +301,10 @@ def crawl_site_scan(
             "sitemap_urls": sitemap_seed["sitemap_urls"],
             "sitemap_seeded": len(result.seed_urls),
         }
-        from seohead.crawl.sql_sitemap import prepare_sitemap_reconciliation
-        from seohead.servers.handlers import _audit_crawl_result
-
         from dataclasses import replace
 
+        from seohead.crawl.sql_sitemap import prepare_sitemap_reconciliation
+        from seohead.servers.handlers import _audit_crawl_result
         from seohead.storage.native_audit import AuditSizeError
 
         # Collection already committed its rows and closed successfully by this point
