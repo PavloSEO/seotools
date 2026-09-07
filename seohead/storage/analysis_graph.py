@@ -6,7 +6,7 @@ import sqlite3
 from collections.abc import Callable, Iterator
 from urllib.parse import urldefrag, urlsplit
 
-from seohead.graph import AnchorGroup, InlinkCompositionRow
+from seohead.graph import AnchorGroup, DuplicateLinkGroup, InlinkCompositionRow
 
 from .analysis_paths import PathSession
 from .analysis_score import ScoreView, compute_scores
@@ -254,6 +254,48 @@ class AnalysisGraph:
             self._paths.close()
         self._paths = PathSession.open(self.con, prefix=self._prefix, seed=seed)
         return self._paths
+
+    def position_totals(self) -> dict[str, int]:
+        """Internal edges by the position recorded on them, blanks kept apart.
+
+        The empty string is returned under its own ``""`` key rather than merged
+        into any bucket: a crawl run without ``link_position.classify`` stores it
+        on every edge, and folding that into ``content`` would turn "nobody
+        looked" into "this is body copy" for the whole site.
+        """
+        self._prepare()
+        return {
+            position: count
+            for position, count in self.con.execute(
+                f"SELECT position, COUNT(*) FROM {self._edges} WHERE internal=1 GROUP BY position"
+            )
+        }
+
+    def iter_duplicate_links(self, max_repeats: int) -> Iterator[DuplicateLinkGroup]:
+        """Source pages that emit the same (destination, anchor) more than once.
+
+        Grouped on the raw source and destination spellings, not the normalized
+        keys: this is a statement about the markup one page emits, and two hrefs
+        that differ only in a trailing slash are two links written on the page even
+        where they resolve to one destination.
+        """
+        self._prepare()
+        for source, surplus in self.con.execute(
+            f"SELECT raw_src, SUM(n) - COUNT(*) AS surplus FROM ("
+            f" SELECT raw_src, raw_dst, anchor, COUNT(*) AS n FROM {self._edges} "
+            " WHERE internal=1 GROUP BY raw_src, raw_dst, anchor HAVING n > 1"
+            ") GROUP BY raw_src ORDER BY raw_src"
+        ).fetchall():
+            repeats = [
+                {"destination": destination, "anchor": anchor, "count": count}
+                for destination, anchor, count in self.con.execute(
+                    f"SELECT raw_dst, anchor, COUNT(*) AS n FROM {self._edges} "
+                    " WHERE internal=1 AND raw_src=? GROUP BY raw_dst, anchor HAVING n > 1"
+                    " ORDER BY n DESC, raw_dst LIMIT ?",
+                    (source, max_repeats),
+                )
+            ]
+            yield DuplicateLinkGroup(source, int(surplus), repeats)
 
     def iter_resources(self) -> Iterator[tuple[str, str, str]]:
         return iter(())

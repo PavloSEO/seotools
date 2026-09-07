@@ -1,17 +1,17 @@
 # SEO audit — example.com
 
-- **Generated:** 2026-09-07T13:13:53Z
+- **Generated:** 2026-09-07T13:55:42Z
 - **Input mode:** parse-exports  ·  **Profile:** full
 - **Source:** examples/exports
 - **Exports used:** internal_all, inlinks_4xx
 
 ## Health summary
 
-> **No health score.** only 74 of 157 checks could run (47% coverage); too little evidence to score.
+> **No health score.** only 74 of 161 checks could run (46% coverage); too little evidence to score.
 
-_74 of 157 checks could run; the score is not comparable to a run with full evidence_
+_74 of 161 checks could run; the score is not comparable to a run with full evidence_
 
-- Checks: **16 fired**, 83 skipped, 58 silent, 0 disabled (of 157 total)
+- Checks: **16 fired**, 87 skipped, 58 silent, 0 disabled (of 161 total)
 
 - URLs crawled: **6** (HTML: 4, indexable: 4)
 - Total issues: **21**
@@ -38,6 +38,10 @@ _74 of 157 checks could run; the score is not comparable to a run with full evid
 | `H1_MULTIPLE` | 1 | warning |
 | `HTML_BLOAT` | 1 | notice |
 | `LARGE_HTML` | 1 | warning |
+
+**Internal linking**
+
+> Not measured. no all_inlinks export (needed for the complete internal edge list).
 
 **HTML size:** median 76 KB, p90 229 KB, p95 261 KB, max 293 KB.
 
@@ -208,6 +212,8 @@ Each check below describes more than half the crawled pages. That can be true --
 | `H1_ALT_TEXT_ONLY` | no H1 alt-text evidence (native crawl only) |
 | `HEADING_BEFORE_H1` | no heading outline evidence (native crawl only) |
 | `HEADING_IN_PAGE_CHROME` | no heading outline evidence (native crawl only) |
+| `LINK_INSIDE_HEADING` | no link-placement evidence (native crawl only) |
+| `IMAGE_LINK_WITHOUT_TEXT` | no link-placement evidence (native crawl only) |
 | `CONTENT_IN_IFRAME` | no iframe inventory in this evidence |
 | `SCHEMA_VALIDATION_ERROR` | no Structured Data validation columns in Internal:All |
 | `STRUCTURED_DATA_PARSE_ERROR` | no JSON-LD found/parsed block counts (native crawl only) |
@@ -262,6 +268,8 @@ Each check below describes more than half the crawled pages. That can be true --
 | `INSECURE_SUBRESOURCE` | no all_inlinks export (needed for the resource inventory) |
 | `PAGINATION_MULTIPLE` | no all_inlinks export (needed for every rel="next"/rel="prev" declaration and the anchors beside them) |
 | `PAGINATION_URL_NOT_IN_ANCHOR` | no all_inlinks export (needed for every rel="next"/rel="prev" declaration and the anchors beside them) |
+| `DEEP_CLICK_DEPTH` | no all_inlinks export (needed for the complete internal edge list) |
+| `DUPLICATE_INTERNAL_LINK` | no all_inlinks export (needed for the complete internal edge list) |
 | `DOM_TOO_DEEP` | no stored HTML (input.html_store_dir not set) |
 | `DOM_TOO_MANY_NODES` | no stored HTML (input.html_store_dir not set) |
 | `DUPLICATE_BY_HASH` | SF native Hash column already covers this |

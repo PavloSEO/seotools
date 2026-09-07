@@ -74,6 +74,7 @@ _LATE_PAGE_FIELDS = {
     "content_frames_same_origin": "content_frames_same_origin",
     "hreflang": "hreflang_json",
     "heading_outline": "heading_outline_json",
+    "link_placement": "link_placement_json",
     "canonical_chain": "canonical_chain_json",
     "final_canonical": "final_canonical",
     "body_unavailable": "body_unavailable",
@@ -148,6 +149,47 @@ def _heading_outline(value: Any) -> None:
             "heading_outline must be an ordered list of level/text/region objects, "
             "level between 1 and 6"
         )
+
+
+def _link_placement(value: Any) -> None:
+    """Validate one page's stored link-placement evidence (#634).
+
+    ``None`` never reaches here -- an unmeasured page stores SQL NULL, and the
+    callers keep that distinction rather than collapsing it into an empty object.
+    """
+    if not isinstance(value, dict) or set(value) != {
+        "in_heading",
+        "in_heading_total",
+        "image_no_text",
+        "image_no_text_total",
+    }:
+        raise ScanError(
+            "link_placement must be an object with in_heading, in_heading_total, "
+            "image_no_text and image_no_text_total"
+        )
+    for key in ("in_heading_total", "image_no_text_total"):
+        if type(value[key]) is not int or value[key] < 0:
+            raise ScanError(f"link_placement.{key} must be a non-negative integer")
+    if not isinstance(value["in_heading"], list) or any(
+        not isinstance(item, dict)
+        or set(item) != {"level", "destination", "anchor"}
+        or type(item["level"]) is not int
+        or not 1 <= item["level"] <= 6
+        or type(item["destination"]) is not str
+        or type(item["anchor"]) is not str
+        for item in value["in_heading"]
+    ):
+        raise ScanError(
+            "link_placement.in_heading must be a list of level/destination/anchor "
+            "objects, level between 1 and 6"
+        )
+    if not isinstance(value["image_no_text"], list) or any(
+        not isinstance(item, dict)
+        or set(item) != {"destination"}
+        or type(item["destination"]) is not str
+        for item in value["image_no_text"]
+    ):
+        raise ScanError("link_placement.image_no_text must be a list of destination objects")
 
 
 def _hreflang(value: Any) -> None:
@@ -394,12 +436,19 @@ def _import_pages(con, source: Path, limitations: list[str], inputs: list[dict])
     names = {c[1] for c in _expected()[1]["pages"]} - {"url_id", "page_ordinal", "document_id"}
     names = (
         names
-        - {"redirect_chain_json", "hreflang_json", "heading_outline_json", "canonical_chain_json"}
+        - {
+            "redirect_chain_json",
+            "hreflang_json",
+            "heading_outline_json",
+            "link_placement_json",
+            "canonical_chain_json",
+        }
     ) | {
         "url",
         "redirect_chain",
         "hreflang",
         "heading_outline",
+        "link_placement",
         "canonical_chain",
     }
     for ordinal, record in enumerate(_jsonl(source / "pages.jsonl", limitations, inputs)):
@@ -420,6 +469,10 @@ def _import_pages(con, source: Path, limitations: list[str], inputs: list[dict])
         if outline is not None:
             _heading_outline(outline)
         row["heading_outline_json"] = None if outline is None else _dump(outline)
+        placement = row.pop("link_placement")
+        if placement is not None:
+            _link_placement(placement)
+        row["link_placement_json"] = None if placement is None else _dump(placement)
         canonical_chain = row.pop("canonical_chain", None)
         if canonical_chain is not None and (
             not isinstance(canonical_chain, list)

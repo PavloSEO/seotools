@@ -49,7 +49,14 @@ from typing import Any
 # for the whole run. Measured with the same instrument over 8 000 records, the empty
 # list costs the familiar 56 bytes, and a page carrying a twelve-heading outline costs
 # 3 091 bytes more than one with none -- roughly doubling a page record on a
-# heading-rich site. Field lengths affect absolute memory,
+# heading-rich site. Link placement (#634) is the second such field and much the
+# cheaper one: it is a fixed four-key dict rather than a list that grows with the
+# page, and the parser caps both lists inside it. Measured with the same instrument
+# over 8 000 records, the empty placement dict costs 303 bytes per record, and a
+# page carrying one heading link and one unlabelled image link costs about 520
+# bytes more than one carrying neither -- a constant per page, not a per-link cost,
+# which is why it is not behind link_position.classify. Field lengths affect
+# absolute memory,
 # so 5 550 bytes is an approximate combined PageRecord estimate for such a site
 # (about 2 500 where the outlines are short); the rounded totals are
 #

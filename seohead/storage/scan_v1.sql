@@ -137,6 +137,10 @@ CREATE TABLE pages (
   -- heading. Nullable, because a scan written before headings were recorded
   -- in order has no outline to state, which is not an empty outline.
   heading_outline_json TEXT,
+  -- The anchors this page wraps in an h1-h6, and the image links on it that
+  -- name nothing. Nullable, because a scan written before link placement was
+  -- recorded measured neither, which is not the same as finding none.
+  link_placement_json TEXT,
   -- List mode's bounded canonical walk: the chain it inspected and the target it
   -- settled on. Nullable, because a run that never walked canonicals recorded neither.
   canonical_chain_json TEXT,

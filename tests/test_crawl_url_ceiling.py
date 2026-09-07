@@ -30,7 +30,11 @@ from seohead.crawl.spider import LinkEdge
 # 60 -> 61 for the heading outline (#632), re-measured rather than assumed: the empty
 # list costs the same 56 bytes as the two before it, but this one is populated on every
 # HTML page, and a twelve-heading outline measured 3 091 bytes per record on top.
-FIELD_COUNTS_THE_CEILING_WAS_COMPUTED_AGAINST = {LinkEdge: 8, PageRecord: 61}
+# 61 -> 62 for link placement (#634), re-measured rather than assumed: unlike the
+# outline above, this one is a fixed-width dict whose two lists the parser caps, so
+# it costs 303 bytes per record empty and about 520 more on a page that actually has
+# a heading link and an unlabelled image link -- a constant, not a per-link cost.
+FIELD_COUNTS_THE_CEILING_WAS_COMPUTED_AGAINST = {LinkEdge: 8, PageRecord: 62}
 
 
 def test_both_crawlers_read_the_same_ceiling() -> None:

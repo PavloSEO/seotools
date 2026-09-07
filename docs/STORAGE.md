@@ -254,10 +254,10 @@ For legacy imports, the only populated `context_items` lane is
 state. These historical imported files have no retained bodies or resources and
 cannot be reanalyzed; native captures use their own validated lanes.
 
-The `pages` projection follows the prerelease `crawl.v1` `PageRecord`. Sixteen
+The `pages` projection follows the prerelease `crawl.v1` `PageRecord`. Seventeen
 later-added fields are nullable for legacy compatibility: `content_frames`,
 `content_frames_same_origin`, ordered `hreflang_json`, `heading_outline_json`,
-`body_unavailable`,
+`link_placement_json`, `body_unavailable`,
 `meta_refresh`, `http_refresh`, `meta_description_count`, `h1_alt_text`,
 `lorem_ipsum_count`, `images_total`, `images_missing_alt_attr`,
 `images_max_alt_length`, `plugin_elements`, `meta_fragment`, and
@@ -268,6 +268,13 @@ order as `{"level", "text", "region"}` objects; `region` uses the same taxonomy
 link positions do (`nav`, `header`, `sidebar`, `footer`, `content`, `other`) and
 is the empty string when the document offered no landmark and no position rule
 matched, which is an unmeasured region rather than a measured one.
+`link_placement_json` preserves the two link defects a page region cannot show:
+the anchors this page wraps in an `h1`-`h6` (`in_heading`, each with its level,
+destination and anchor text) and the image links on it that carry no anchor text,
+no `alt`, and no `aria-label` or `title` (`image_no_text`). Both lists are capped
+by the parser and each carries an `*_total` count beside it, so a truncated list
+reads as truncated rather than as the whole story. `NULL` here means the page's
+anchors were never inspected for this, which is not the same as finding none.
 `body_unavailable` records why collection could not parse a page
 body (for example, an oversized response); it does **not** describe whether this
 artifact retained that body. `meta_refresh` and `http_refresh` retain the markup

@@ -48,6 +48,15 @@ class AuditContext:
         # Native scan callers may provide a cursor-backed graph reader.  Export
         # callers leave this unset and retain the established DataFrame path.
         self.graph_access = graph_access
+        # Where the crawl actually started, when the producer knows. A native crawl
+        # does; a Screaming Frog export carries no such field, and the checks that
+        # need one fall back to Crawl Depth 0 -- but only when exactly one page has
+        # it (see inlinks._click_depth_seed). Never guessed here.
+        self.start_url: str | None = None
+        # The internal link graph's own shape, filled by
+        # inlinks.check_internal_link_graph and copied into the audit summary by
+        # aggregate(). Empty until that check has run.
+        self.internal_linking: dict[str, Any] = {}
         self.thresholds: dict[str, Any] = config.get("thresholds", {})
         self.requirements: dict[str, Any] = config.get("requirements", {})
         self.issues: list[Issue] = []

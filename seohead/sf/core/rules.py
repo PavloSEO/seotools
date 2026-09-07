@@ -452,6 +452,83 @@ def check_heading_outline(ctx: AuditContext) -> None:
         )
 
 
+# How many placement examples a finding quotes back. Enough to recognise the
+# template block, short of pasting a mega-menu into the audit.
+_PLACEMENT_EVIDENCE_ITEMS = 5
+
+
+def check_link_placement(ctx: AuditContext) -> None:
+    """LINK_INSIDE_HEADING / IMAGE_LINK_WITHOUT_TEXT — where a page's anchors sit (#634).
+
+    Neither defect is answerable from a link's page region. ``position`` says a link
+    is in ``content``; it cannot say the link is the page's own H1, and it says
+    nothing about whether the anchor contains anything a reader could read. Both
+    need the anchor's own ancestor chain and contents, which only a native crawl
+    records (``tools.parser.link_placement``); a Screaming Frog export has no such
+    column, so both checks skip there by name.
+
+    One finding per page, not per link: a masthead logo wrapped in an H1 is one
+    template to fix, and a row per occurrence would bury every other finding about
+    the page -- the same reasoning ``check_heading_outline`` applies to a chrome
+    heading.
+    """
+    if not _has_column(ctx, "link_placement"):
+        for check_id in ("LINK_INSIDE_HEADING", "IMAGE_LINK_WITHOUT_TEXT"):
+            ctx.skip(check_id, "no link-placement evidence (native crawl only)")
+        return
+    pages = ctx.indexable_html_pages()
+    for check_id in ("LINK_INSIDE_HEADING", "IMAGE_LINK_WITHOUT_TEXT"):
+        _skip_for_body_unavailable(ctx, check_id, pages)
+    unmeasured = 0
+    for page in pages:
+        placement = _rec(page).get("link_placement")
+        if not isinstance(placement, dict):
+            # A page whose HTML this run never parsed, or a scan written before
+            # placement was recorded. Neither is "no links in headings" -- count
+            # it and declare the reason below rather than pass it as clean.
+            unmeasured += 1
+            continue
+        in_heading = placement.get("in_heading") or []
+        if in_heading:
+            ctx.add(
+                "LINK_INSIDE_HEADING",
+                target_url=page.url,
+                occurrences_count=int(placement.get("in_heading_total") or len(in_heading)),
+                details={
+                    "count": int(placement.get("in_heading_total") or len(in_heading)),
+                    "levels": sorted({f"h{item['level']}" for item in in_heading}),
+                    "first_links": [
+                        {
+                            "level": item["level"],
+                            "anchor": item["anchor"],
+                            "destination": item["destination"],
+                        }
+                        for item in in_heading[:_PLACEMENT_EVIDENCE_ITEMS]
+                    ],
+                },
+            )
+        image_links = placement.get("image_no_text") or []
+        if image_links:
+            ctx.add(
+                "IMAGE_LINK_WITHOUT_TEXT",
+                target_url=page.url,
+                occurrences_count=int(placement.get("image_no_text_total") or len(image_links)),
+                details={
+                    "count": int(placement.get("image_no_text_total") or len(image_links)),
+                    "first_destinations": [
+                        item["destination"] for item in image_links[:_PLACEMENT_EVIDENCE_ITEMS]
+                    ],
+                },
+            )
+    if unmeasured:
+        for check_id in ("LINK_INSIDE_HEADING", "IMAGE_LINK_WITHOUT_TEXT"):
+            ctx.skip(
+                check_id,
+                f"{unmeasured} page(s) carry no link-placement evidence -- their anchors "
+                "were never inspected for this",
+            )
+
+
 # --------------------------------------------------------------------------
 # 7.E — canonical & directives
 # --------------------------------------------------------------------------
@@ -1975,6 +2052,7 @@ ALL_CHECKS = [
     check_descriptions,
     check_headings,
     check_heading_outline,
+    check_link_placement,
     check_canonical_directives,
     check_content,
     check_url_and_perf,

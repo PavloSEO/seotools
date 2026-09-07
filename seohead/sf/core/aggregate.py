@@ -142,6 +142,27 @@ def _withhold_graph_wide_findings(ctx: AuditContext, issues: list[Issue]) -> lis
     return [i for i in issues if i.check not in GRAPH_WIDE_FINDING_CHECKS]
 
 
+# The click-depth walk answers "how far from the start URL is this page", which
+# only the finished graph can answer: an unfetched frontier may hold the shortcut
+# that makes a page shallow. Unlike GRAPH_WIDE_FINDING_CHECKS above, this one is
+# withdrawn on a partial crawl whether or not it fired -- a partial crawl that
+# happened to flag nothing would otherwise read as "every page is within the
+# floor", which is the false clean this whole module exists to prevent.
+DEPTH_FINDING_CHECKS = frozenset({"DEEP_CLICK_DEPTH"})
+
+PARTIAL_DEPTH_REASON = (
+    "crawl is partial: a click-depth verdict cannot be proven when the crawl did "
+    "not reach every URL, since the part never fetched may hold a shorter route"
+)
+
+
+def _withhold_depth_findings(ctx: AuditContext, issues: list[Issue]) -> list[Issue]:
+    """Drop every click-depth finding and declare why, fired or not."""
+    for check_id in sorted(DEPTH_FINDING_CHECKS):
+        ctx.retract(check_id, PARTIAL_DEPTH_REASON)
+    return [i for i in issues if i.check not in DEPTH_FINDING_CHECKS]
+
+
 def _crawl_validity(
     n_pages: int, by_check: dict[str, int], urls_crawled: int
 ) -> tuple[bool, str | None]:
@@ -262,6 +283,7 @@ def aggregate(
     if crawl_partial:
         issues = _withhold_unlinked_findings(ctx, issues)
         issues = _withhold_graph_wide_findings(ctx, issues)
+        issues = _withhold_depth_findings(ctx, issues)
 
     # assign ordered ids + fingerprints (sorted for determinism)
     sev_rank = {"critical": 0, "warning": 1, "notice": 2}
@@ -405,6 +427,22 @@ def aggregate(
             f"{urls_crawled} of {urls_in_sitemap} sitemap URLs crawled — "
             "the score describes the crawled subset, not the whole site"
         )
+    # The link graph's own shape (#634): edges by position, how much of the graph
+    # is a copy of itself, and click depth from the start URL. Present whenever the
+    # measurement ran at all -- including when it could not, in which case it says
+    # so and why, because an absent block would read as a site with no depth.
+    if ctx.internal_linking:
+        internal_linking = dict(ctx.internal_linking)
+        if crawl_partial and internal_linking.get("measured"):
+            # The position and duplicate counts describe the edges that were
+            # fetched and stay true of them; the depth walk is a claim about
+            # routes through the whole site, and the unfetched frontier can
+            # still hold a shorter one.
+            internal_linking["click_depth"] = {
+                "measured": False,
+                "reason": PARTIAL_DEPTH_REASON,
+            }
+        summary["internal_linking"] = internal_linking
     if size_stats:
         summary["size_stats_bytes"] = {k: int(v) for k, v in size_stats.items() if k != "iqr"}
     if sitemap_summary:
