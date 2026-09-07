@@ -297,9 +297,13 @@ def _record_from_parsed(parsed: dict) -> dict[str, Any]:
         # parser.robots_meta_scoped): a page can be noindex for Googlebot alone,
         # and a directive named for Bingbot or Yandex must not read as global.
         "meta_robots": ", ".join(parsed.get("robots_meta_scoped") or []),
-        "og_title": _text_of(og.get("title")),
-        "og_description": _text_of(og.get("description")),
-        "og_image": _text_of(og.get("image")),
+        # Keyed by the full property name, which is the shape parser.parse_html
+        # produces and documents ({"og:title": ...}, not {"title": ...}). Asking
+        # for the unprefixed name returned None on every page, so every native
+        # crawl stored empty Open Graph and an audit read absent as blank (#646).
+        "og_title": _text_of(og.get("og:title")),
+        "og_description": _text_of(og.get("og:description")),
+        "og_image": _text_of(og.get("og:image")),
         "word_count": int(parsed.get("word_count") or 0),
         "content_frames": len(framed),
         "content_frames_same_origin": len([f for f in framed if f.get("same_origin")]),
