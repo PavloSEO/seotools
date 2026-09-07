@@ -73,6 +73,7 @@ _LATE_PAGE_FIELDS = {
     "content_frames": "content_frames",
     "content_frames_same_origin": "content_frames_same_origin",
     "hreflang": "hreflang_json",
+    "heading_outline": "heading_outline_json",
     "canonical_chain": "canonical_chain_json",
     "final_canonical": "final_canonical",
     "body_unavailable": "body_unavailable",
@@ -131,6 +132,22 @@ def _has_negative_page_counts(con) -> bool:
             + " LIMIT 1"
         ).fetchone()
     )
+
+
+def _heading_outline(value: Any) -> None:
+    if not isinstance(value, list) or any(
+        not isinstance(item, dict)
+        or set(item) != {"level", "text", "region"}
+        or type(item["level"]) is not int
+        or not 1 <= item["level"] <= 6
+        or type(item["text"]) is not str
+        or type(item["region"]) is not str
+        for item in value
+    ):
+        raise ScanError(
+            "heading_outline must be an ordered list of level/text/region objects, "
+            "level between 1 and 6"
+        )
 
 
 def _hreflang(value: Any) -> None:
@@ -375,10 +392,14 @@ def _url(con, url: str) -> int:
 
 def _import_pages(con, source: Path, limitations: list[str], inputs: list[dict]) -> None:
     names = {c[1] for c in _expected()[1]["pages"]} - {"url_id", "page_ordinal", "document_id"}
-    names = (names - {"redirect_chain_json", "hreflang_json", "canonical_chain_json"}) | {
+    names = (
+        names
+        - {"redirect_chain_json", "hreflang_json", "heading_outline_json", "canonical_chain_json"}
+    ) | {
         "url",
         "redirect_chain",
         "hreflang",
+        "heading_outline",
         "canonical_chain",
     }
     for ordinal, record in enumerate(_jsonl(source / "pages.jsonl", limitations, inputs)):
@@ -395,6 +416,10 @@ def _import_pages(con, source: Path, limitations: list[str], inputs: list[dict])
         if alternates is not None:
             _hreflang(alternates)
         row["hreflang_json"] = None if alternates is None else _dump(alternates)
+        outline = row.pop("heading_outline")
+        if outline is not None:
+            _heading_outline(outline)
+        row["heading_outline_json"] = None if outline is None else _dump(outline)
         canonical_chain = row.pop("canonical_chain", None)
         if canonical_chain is not None and (
             not isinstance(canonical_chain, list)

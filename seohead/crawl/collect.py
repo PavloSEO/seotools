@@ -145,6 +145,14 @@ class PageRecord:
     # 188 MiB. The scope-narrowing advice above MAX_URLS_CEILING applies here
     # too; this is not the field that decides the ceiling.
     hreflang: list[dict[str, str]] = field(default_factory=list)
+    # Every h1-h6 with text, in DOM order, each with its level, text and page
+    # region (#632). h1/h1_2/h2 above are the same headings read as a set, which
+    # is all a Screaming Frog export carries; a set cannot show an H2 standing
+    # before the H1, and it cannot show that the H2 is a menu label in the
+    # masthead. Region is "" when the document offered no landmark and no
+    # position rule matched -- unmeasured, not "content" (see
+    # parser.heading_outline).
+    heading_outline: list[dict[str, Any]] = field(default_factory=list)
     head_count: int = 0
     body_count: int = 0
     head_not_first: bool = False
@@ -303,6 +311,7 @@ def _record_from_parsed(parsed: dict) -> dict[str, Any]:
         "directives_outside_head": position.get("directives_outside_head"),
         "hreflang_outside_head": position.get("hreflang_outside_head"),
         "hreflang": list(parsed.get("hreflang") or []),
+        "heading_outline": list(parsed.get("heading_outline") or []),
         "head_count": int(position.get("head_count") or 0),
         "body_count": int(position.get("body_count") or 0),
         "head_not_first": bool(position.get("head_not_first")),

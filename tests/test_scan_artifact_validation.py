@@ -62,6 +62,7 @@ def test_original_bytes_fields_occurrences_and_producer_survive(legacy_run, arti
                 page.pop(key)
             page["redirect_chain"] = json.loads(page.pop("redirect_chain_json"))
             page["hreflang"] = json.loads(page.pop("hreflang_json"))
+            page["heading_outline"] = json.loads(page.pop("heading_outline_json"))
             stored_chain = page.pop("canonical_chain_json")
             page["canonical_chain"] = [] if stored_chain is None else json.loads(stored_chain)
             for key in page:
@@ -367,6 +368,7 @@ def test_schema_maps_all_current_page_and_link_fields():
         "url": "url_id",
         "redirect_chain": "redirect_chain_json",
         "hreflang": "hreflang_json",
+        "heading_outline": "heading_outline_json",
         "canonical_chain": "canonical_chain_json",
     }
     assert {mapped.get(field.name, field.name) for field in fields(PageRecord)} == page_columns - {

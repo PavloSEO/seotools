@@ -11,7 +11,7 @@
     "source": null,
     "exports_dir": "examples/exports",
     "sf_version_detected": null,
-    "generated_at": "2026-09-07T12:35:24Z",
+    "generated_at": "2026-09-07T12:58:08Z",
     "profile": "full",
     "exports_used": [
       "internal_all",
@@ -105,6 +105,14 @@
       {
         "id": "H1_ALT_TEXT_ONLY",
         "reason": "no H1 alt-text evidence (native crawl only)"
+      },
+      {
+        "id": "HEADING_BEFORE_H1",
+        "reason": "no heading outline evidence (native crawl only)"
+      },
+      {
+        "id": "HEADING_IN_PAGE_CHROME",
+        "reason": "no heading outline evidence (native crawl only)"
       },
       {
         "id": "CONTENT_IN_IFRAME",
@@ -420,9 +428,9 @@
     ],
     "health_score": null,
     "check_coverage": {
-      "checks_total": 155,
+      "checks_total": 157,
       "checks_fired": 16,
-      "checks_skipped": 80,
+      "checks_skipped": 82,
       "checks_disabled": 0,
       "checks_disabled_ids": [],
       "checks_silent": 59,
@@ -487,10 +495,10 @@
         "URL_UNDERSCORES",
         "URL_UPPERCASE"
       ],
-      "coverage": 0.484
+      "coverage": 0.478
     },
-    "health_score_reason": "only 75 of 155 checks could run (48% coverage); too little evidence to score",
-    "health_score_basis": "75 of 155 checks could run; the score is not comparable to a run with full evidence",
+    "health_score_reason": "only 75 of 157 checks could run (48% coverage); too little evidence to score",
+    "health_score_basis": "75 of 157 checks could run; the score is not comparable to a run with full evidence",
     "size_stats_bytes": {
       "count": 4,
       "median": 77500,
