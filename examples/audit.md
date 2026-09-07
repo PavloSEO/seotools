@@ -7,11 +7,11 @@
 
 ## Health summary
 
-> **No health score.** only 75 of 152 checks could run (49% coverage); too little evidence to score.
+> **No health score.** only 75 of 155 checks could run (48% coverage); too little evidence to score.
 
-_75 of 152 checks could run; the score is not comparable to a run with full evidence_
+_75 of 155 checks could run; the score is not comparable to a run with full evidence_
 
-- Checks: **16 fired**, 77 skipped, 59 silent, 0 disabled (of 152 total)
+- Checks: **16 fired**, 80 skipped, 59 silent, 0 disabled (of 155 total)
 
 - URLs crawled: **6** (HTML: 4, indexable: 4)
 - Total issues: **21**
@@ -215,6 +215,7 @@ Each check below describes more than half the crawled pages. That can be true --
 | `HTTP_REFRESH_REDIRECT` | no Refresh response header evidence (native crawl only) |
 | `PAGINATION_LOOP` | no rel="next" column in Internal:All |
 | `UNLINKED_PAGINATION_SERIES` | no rel="next" column in Internal:All |
+| `PAGINATION_SEQUENCE_ERROR` | no rel="next" column in Internal:All |
 | `LOREM_IPSUM_PLACEHOLDER` | no Lorem Ipsum evidence (native crawl only) |
 | `UNSUPPORTED_PLUGIN` | no plugin-element evidence (native crawl only) |
 | `IMG_MISSING_ALT_ATTRIBUTE` | no per-image evidence (native crawl only) |
@@ -256,6 +257,8 @@ Each check below describes more than half the crawled pages. That can be true --
 | `ONLY_NONINDEXABLE_SOURCE_INLINKS` | no all_inlinks export (needed for the complete inlink list) |
 | `DEEP_DISCOVERY_PATH` | no all_inlinks export (needed for the complete internal edge list) |
 | `INSECURE_SUBRESOURCE` | no all_inlinks export (needed for the resource inventory) |
+| `PAGINATION_MULTIPLE` | no all_inlinks export (needed for every rel="next"/rel="prev" declaration and the anchors beside them) |
+| `PAGINATION_URL_NOT_IN_ANCHOR` | no all_inlinks export (needed for every rel="next"/rel="prev" declaration and the anchors beside them) |
 | `DOM_TOO_DEEP` | no stored HTML (input.html_store_dir not set) |
 | `DOM_TOO_MANY_NODES` | no stored HTML (input.html_store_dir not set) |
 | `DUPLICATE_BY_HASH` | SF native Hash column already covers this |
