@@ -37,21 +37,25 @@ def shortest_paths_from_seed(edges: list[tuple[str, str]], seed: str) -> dict[st
     return paths
 
 
-def shortest_depths_from_seed(edges: list[tuple[str, str]], seed: str) -> dict[str, int]:
-    """Return ``{url: hops}`` for every node reachable from ``seed``.
+def bfs_tree_from_seed(
+    edges: list[tuple[str, str]], seed: str
+) -> tuple[dict[str, int], dict[str, str | None]]:
+    """Return ``({url: hops}, {url: parent})`` for every node reachable from ``seed``.
 
-    The same breadth-first walk as :func:`shortest_paths_from_seed`, keeping only
-    the distance. A depth histogram over a whole site needs one number per node,
-    not the route to it, and holding every route costs memory proportional to the
-    sum of all path lengths -- which, on a site whose archive is a chain rather
-    than a tree, is quadratic in the number of pages. The routes stay available
-    from the other function for the handful of pages a finding actually quotes.
+    The same breadth-first walk as :func:`shortest_paths_from_seed`, keeping the
+    tree rather than the routes. Holding every route costs memory proportional to
+    the *sum* of all path lengths, which on a site whose archive is a chain rather
+    than a tree is quadratic in the number of pages -- 40 000 pages at an average
+    depth in the thousands is not a list anybody can hold. The parent map is one
+    entry per node, and :func:`route_from_parents` reconstructs the handful of
+    routes a set of findings actually quotes.
     """
     adjacency: dict[str, list[str]] = {}
     for a, b in edges:
         adjacency.setdefault(a, []).append(b)
 
     depths: dict[str, int] = {seed: 0}
+    parents: dict[str, str | None] = {seed: None}
     queue: deque[str] = deque([seed])
     while queue:
         current = queue.popleft()
@@ -60,5 +64,24 @@ def shortest_depths_from_seed(edges: list[tuple[str, str]], seed: str) -> dict[s
             if neighbor in depths:
                 continue  # already reached by an earlier, equal-or-shorter path
             depths[neighbor] = depth
+            parents[neighbor] = current
             queue.append(neighbor)
-    return depths
+    return depths, parents
+
+
+def shortest_depths_from_seed(edges: list[tuple[str, str]], seed: str) -> dict[str, int]:
+    """Just the distances from :func:`bfs_tree_from_seed`."""
+    return bfs_tree_from_seed(edges, seed)[0]
+
+
+def route_from_parents(parents: dict[str, str | None], target: str) -> list[str] | None:
+    """The shortest route to ``target``, walked back up the tree, or ``None``."""
+    if target not in parents:
+        return None
+    route: list[str] = []
+    current: str | None = target
+    while current is not None:
+        route.append(current)
+        current = parents[current]
+    route.reverse()
+    return route

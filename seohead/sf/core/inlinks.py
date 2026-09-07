@@ -18,7 +18,7 @@ from seohead.graph import InlinkCompositionRow
 from seohead.tools.hreflang import code_error
 
 from .context import AuditContext
-from .crawl_path import shortest_depths_from_seed, shortest_paths_from_seed
+from .crawl_path import bfs_tree_from_seed, route_from_parents, shortest_paths_from_seed
 from .internal_linking import summarize_depth, summarize_positions, unmeasured
 from .link_score import (
     DEFAULT_DAMPING,
@@ -933,6 +933,14 @@ _MAX_DUPLICATE_REPEATS = 20
 # URL that navigation does not reach them at all.
 DEFAULT_CLICK_DEPTH_FLOOR = 10
 
+# How many URLs of a shortest route one finding quotes, and how many from each end
+# when the route is longer. The archive that prompted this check has a 3 005-hop
+# route to one article; pasting that into 23 742 findings is not evidence, it is a
+# report nobody can open. The depth is stated in full either way, and the two ends
+# identify the route -- the middle of a chain is more of the same link.
+_MAX_PATH_URLS = 20
+_PATH_END_URLS = 5
+
 
 def _internal_hyperlink_records(
     records: list[dict[str, Any]], site_host: str
@@ -1022,9 +1030,15 @@ def _emit_deep_click_depth(ctx: AuditContext, depths: dict[str, int], floor: int
         }
         route = path_for(norm_url(page.url))
         if route:
-            details["path"] = [
+            urls = [
                 ctx.page_by_norm[item].url if item in ctx.page_by_norm else item for item in route
             ]
+            if len(urls) <= _MAX_PATH_URLS:
+                details["path"] = urls
+            else:
+                details["path_start"] = urls[:_PATH_END_URLS]
+                details["path_end"] = urls[-_PATH_END_URLS:]
+                details["path_truncated"] = True
         ctx.add("DEEP_CLICK_DEPTH", target_url=page.url, details=details)
 
 
@@ -1135,9 +1149,10 @@ def _measure_click_depth(ctx: AuditContext, records, graph, floor: int) -> dict[
             reason = "all_inlinks export has no internal followed hyperlinks"
             ctx.skip("DEEP_CLICK_DEPTH", reason)
             return unmeasured(reason)
-        depths = shortest_depths_from_seed(edges, seed)
-        paths = shortest_paths_from_seed(edges, seed)
-        _emit_deep_click_depth(ctx, depths, floor, paths.get)
+        # The parent tree, never the routes themselves: one entry per node instead
+        # of one per hop of every route (see crawl_path.bfs_tree_from_seed).
+        depths, parents = bfs_tree_from_seed(edges, seed)
+        _emit_deep_click_depth(ctx, depths, floor, lambda key: route_from_parents(parents, key))
     seed_page = ctx.page_by_norm.get(seed)
     return summarize_depth(
         depths,

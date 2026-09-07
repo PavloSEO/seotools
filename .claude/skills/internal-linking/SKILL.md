@@ -36,13 +36,16 @@ different number that happens to be present.
    summary will say `unclassified: <every edge>` rather than pretend otherwise. Re-crawl
    with the flag on; do not infer positions from URL patterns.
 2. **Depth needs a start URL and a finished frontier.** The walk starts at the URL the
-   crawl actually began from. A crawl seeded from a sitemap, a URL list, or a section
-   page describes the depth of *that* starting point, not of the site; and a crawl that
+   crawl actually began from, and `click_depth.seed` names it. The toolkit cannot know
+   whether that URL is the site's root, so **you** have to look: a crawl seeded from a
+   section page, or from a URL list with no start URL at all, describes the depth of
+   *that* starting point and nothing else. Quote the seed with the histogram, always, or
+   re-crawl from the root. A crawl with no recorded start URL and more than one page
+   claiming `Crawl Depth 0` refuses to walk at all and says so. Separately, a crawl that
    stopped early (`run.crawl_partial: true` — a URL budget, a duration limit, an error
    streak, an interruption) cannot prove any page's shortest route, because the part it
-   never fetched may hold a shorter one. In both cases `DEEP_CLICK_DEPTH` is withheld by
-   name and `summary.internal_linking.click_depth.measured` is `false` with the reason.
-   Re-crawl from the site root, to completion, before reporting a depth number.
+   never fetched may hold a shorter one; there `DEEP_CLICK_DEPTH` is withheld by name,
+   whether or not it had fired, and `click_depth.measured` is `false` with the reason.
 
 **`pages.crawl_depth` is not click depth.** It records the depth at which the crawler
 happened to reach a URL. On the crawl that produced this method's field measurements,

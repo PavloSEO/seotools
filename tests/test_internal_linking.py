@@ -639,3 +639,21 @@ def test_a_finished_crawl_keeps_the_depth_verdict(tmp_path):
     assert "DEEP_CLICK_DEPTH" in {i.check for i in res.issues}
     assert "DEEP_CLICK_DEPTH" not in {s.id for s in res.skipped}
     assert res.summary["internal_linking"]["click_depth"]["measured"] is True
+
+
+def test_a_route_too_long_to_quote_is_truncated_at_both_ends_not_pasted_whole(tmp_path):
+    """The archive that prompted this check has a 3 005-hop route to one article.
+    The depth is stated in full; the route is quoted at its two ends."""
+    _urls, internal, inlinks = _chain(40)
+    res = run_audit(
+        input_mode="parse-exports",
+        exports_dir=_write(tmp_path, internal, inlinks),
+        log=lambda m: None,
+    )
+    deepest = _issues(res, "DEEP_CLICK_DEPTH")["https://example.com/p39"].details
+    assert deepest["click_depth"] == 39
+    assert "path" not in deepest
+    assert deepest["path_truncated"] is True
+    assert deepest["path_start"][0] == "https://example.com/"
+    assert deepest["path_end"][-1] == "https://example.com/p39"
+    assert len(deepest["path_start"]) == len(deepest["path_end"]) == 5
