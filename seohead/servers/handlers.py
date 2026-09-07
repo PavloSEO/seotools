@@ -214,7 +214,17 @@ def _run_render_escalation(
                 viewport=browser_cfg["viewport"],
                 **gate_kwargs,
             )
-            probed["needs_escalation"] = bool(probed.get("js_dependent"))
+            verdict = probed.get("js_dependent")
+            if verdict is None and probed.get("ok"):
+                # render_check reached no verdict -- the DOM was read at an
+                # earlier milestone than the one requested, so "no difference"
+                # may only mean "no scripts had run yet" (#642). bool(None) is
+                # False, which escalate() would read as a measured "this pattern
+                # needs no rendering". Hand it the failed-probe shape instead, so
+                # the pattern lands in patterns_unprobed with a reason (#626).
+                reason = (probed.get("findings") or [""])[0] or "the probe reached no verdict"
+                probed = dict(probed, ok=False, error=reason)
+            probed["needs_escalation"] = bool(verdict)
             return probed
 
         def render_fetch(target: str) -> dict[str, Any]:
