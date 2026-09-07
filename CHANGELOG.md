@@ -23,6 +23,40 @@ All notable public changes are documented here.
   blank in the same situations. It now falls back through the same `crawl_domain`
   resolution rather than staying empty.
 
+- Add `crawl-site --resume <scan.sqlite>` (#619). `NativeScan.resume_snapshot()`, the
+  `resume_state` table and the writer that fills it had existed since the scan artifact was
+  designed, and `crawl_to_scan` already continued an existing file -- but only for a caller
+  that reproduced the original effective settings byte for byte, and no interface offered
+  that. Pointing `--scan-out` at an interrupted artifact with any changed flag was refused as
+  a configuration mismatch, so in practice an interrupted crawl (6 516 of 34 635 pages, over
+  somebody else's site) had to start from zero. `--resume` takes the artifact and nothing
+  else: the start URL and the complete effective configuration are read back from the file,
+  because they are what the stored frontier was built under, and any other crawl-shaping flag
+  passed with it is refused rather than applied. A scan written by a different producing
+  build, recorded for a different start URL, already finished, derived from a reanalysis, or
+  crawled with credential headers it can only store redacted is refused by name from the file
+  alone, before a single request is dispatched. `crawl-site` now also prints one line to
+  stderr on exit saying whether the crawl finished or stopped early, why, and how to continue
+  it -- except after a URL or duration budget, which a resume reads back too and therefore
+  cannot pass, where the line says that instead of offering a no-op. `run.crawl_resumed`
+  remains the durable record: a resumed crawl of the offline fixture site fetches each URL
+  exactly once across both processes and produces an audit identical to an uninterrupted
+  crawl's in every field but that one.
+
+- Report an unreadable robots.txt as a fact about the site, not as an internal error (#629).
+  `EMPTY_ROBOTS` -- the stand-in `_fetch_robots` returns on every path where robots.txt could
+  not be read -- was still the parsed-robots shape from before the parser grew groups and
+  sitemaps. The success path returns `parse_robots`'s shape, and that is the only shape the
+  scan artifact's `robots_summary` context accepts, so in `--scan-out` mode a crawl aborted
+  with `native parsed robots summary is invalid` whenever robots.txt was unreachable, answered
+  429 or 5xx, redirected off-host, into a loop, past the hop budget or to a non-`text/plain`
+  body -- or was a plain 404, which is not an error at all but the RFC 9309 "no restrictions"
+  case and the most common of the seven. Both documented outcomes were lost behind that one
+  line: a missing robots.txt now crawls unrestricted again, and an unavailable one stops the
+  run with the note saying which of the six ways it failed. The legacy directory-mode crawl
+  never noticed because nothing reads the old keys. Found on a live site whose robots.txt
+  302s to a cookie-sync endpoint for any user agent it does not recognise.
+
 - Fix `escalate()` counting a failed render probe as "this pattern needs no rendering"
   (#626). It samples one URL per template pattern to decide whether that pattern needs a
   fuller, JavaScript-rendered fetch, but when every sample for a pattern failed to probe at
