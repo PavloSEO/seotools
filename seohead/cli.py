@@ -28,6 +28,7 @@ COMMANDS = (
     "scan-reanalyze",
     "log-scan",
     "compare-crawls",
+    "crawl-enrich",
     "segment-diff",
     "redirects-generate",
     "redirects-check",
@@ -217,6 +218,8 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
             kw["url"] = args.url
         if getattr(args, "urls", None):
             kw["urls"] = _split_list(args.urls)
+        if getattr(args, "urls_file", None):
+            kw["urls_file"] = args.urls_file
         for flag in (
             "config",
             "max_urls",
@@ -315,6 +318,16 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
             kw["before"] = args.before
         if getattr(args, "after", None):
             kw["after"] = args.after
+        if getattr(args, "force", False):
+            kw["force"] = True
+    elif cmd == "crawl-enrich":
+        for name in ("audit", "external_csv", "url_column", "out_urls"):
+            value = getattr(args, name, None)
+            if value:
+                kw[name] = value
+        for name in ("ignore_query", "ignore_scheme", "casefold_path"):
+            if getattr(args, name, False):
+                kw[name] = True
     elif cmd == "segment-diff":
         if getattr(args, "audit", None):
             kw["audit"] = args.audit
@@ -613,6 +626,11 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
             "--urls",
             help="comma-separated URL list: list mode, no discovery",
         )
+        _source_flag(
+            sub,
+            "--urls-file",
+            help="TXT, CSV, XLSX, or XML URL list: list mode, no discovery",
+        )
         sub.add_argument("--max-urls", type=int, help="URL budget (default 200)")
         sub.add_argument("--out-dir", help="directory for pages.jsonl and audit.json")
         sub.add_argument("--scan-out", metavar="FILE", help="opt-in SQLite scan artifact")
@@ -657,6 +675,29 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
         # every setting, and a setting added tomorrow is reachable with no CLI change at all.
         sub.add_argument("--max-depth", type=int, help=argparse.SUPPRESS)
         sub.add_argument("--min-delay", type=float, help=argparse.SUPPRESS)
+    if cmd == "compare-crawls":
+        sub.add_argument(
+            "--force",
+            action="store_true",
+            help="compare known-different effective crawl settings",
+        )
+    if cmd == "crawl-enrich":
+        _source_flag(sub, "--audit", help="crawl audit JSON or SQLite scan")
+        _source_flag(sub, "--external-csv", help="URL-keyed traffic or search CSV")
+        sub.add_argument(
+            "--url-column", default="url", help="external CSV URL column (default: url)"
+        )
+        sub.add_argument(
+            "--ignore-query", action="store_true", help="join URLs without query strings"
+        )
+        sub.add_argument("--ignore-scheme", action="store_true", help="join HTTP and HTTPS URLs")
+        sub.add_argument(
+            "--casefold-path", action="store_true", help="case-fold URL paths for the join"
+        )
+        sub.add_argument(
+            "--out-urls",
+            help="write reliable external-only URLs as a list-mode input file",
+        )
     if cmd == "site-audit":
         _source_flag(sub, "--url", help="site home page")
         _source_flag(

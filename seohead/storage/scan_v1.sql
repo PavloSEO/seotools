@@ -133,6 +133,10 @@ CREATE TABLE pages (
   directives_outside_head INTEGER CHECK (directives_outside_head IN (0,1)),
   hreflang_outside_head INTEGER CHECK (hreflang_outside_head IN (0,1)),
   hreflang_json TEXT,
+  -- List mode's bounded canonical walk: the chain it inspected and the target it
+  -- settled on. Nullable, because a run that never walked canonicals recorded neither.
+  canonical_chain_json TEXT,
+  final_canonical TEXT,
   head_count INTEGER NOT NULL,
   body_count INTEGER NOT NULL,
   head_not_first INTEGER NOT NULL CHECK (head_not_first IN (0,1)),

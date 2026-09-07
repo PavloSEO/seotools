@@ -40,7 +40,11 @@ from seohead.servers import handlers
 # load. 'sf run' has carried the same flag for the same reason.
 #
 # The rule above still stands for anything else.
-HELP_LINE_CEILING = 36
+#
+# --urls-file (#21) is list mode's file-input counterpart to --urls and wraps
+# to its own line for the same reason as --max-urls-per-second: the option
+# plus its metavar does not fit the terminal width argparse wraps against.
+HELP_LINE_CEILING = 37
 
 
 def _help_lines(capsys):
