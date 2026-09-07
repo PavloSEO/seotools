@@ -23,10 +23,7 @@ from seohead.tools.robots import parse_robots
 
 PARSED_KEYS = set(parse_robots(""))
 
-PAGE = (
-    "<html><head><title>Home</title></head><body><main><h1>Home</h1>"
-    "</main></body></html>"
-)
+PAGE = "<html><head><title>Home</title></head><body><main><h1>Home</h1></main></body></html>"
 
 
 class _Response:
@@ -59,9 +56,7 @@ UNREADABLE = {
         302, "", "text/html", {"location": "https://example.test/robots.txt"}
     ),
     "unreachable": ConnectionError("connection reset"),
-    "html_body": _Response(
-        302, "", "text/html", {"location": "https://example.test/robots-page"}
-    ),
+    "html_body": _Response(302, "", "text/html", {"location": "https://example.test/robots-page"}),
 }
 
 
@@ -86,9 +81,7 @@ def test_a_parseable_robots_still_parses():
         "User-agent: *\nDisallow: /private\nSitemap: https://example.test/sitemap.xml\n",
         "text/plain",
     )
-    parsed, _note, unavailable = _fetch_robots(
-        "https://example.test/", _transport(robots), None
-    )
+    parsed, _note, unavailable = _fetch_robots("https://example.test/", _transport(robots), None)
     assert unavailable is False
     assert parsed["groups"][0]["disallow"] == ["/private"]
     assert parsed["sitemaps"] == ["https://example.test/sitemap.xml"]
@@ -116,9 +109,7 @@ def test_a_missing_robots_txt_does_not_stop_a_scan_crawl(tmp_path, monkeypatch):
     monkeypatch.setattr(
         sqlite_adapter,
         "_fetch_robots",
-        lambda start, _fetcher, _client, wait=None: _fetch_robots(
-            start, fetch, None, wait=wait
-        ),
+        lambda start, _fetcher, _client, wait=None: _fetch_robots(start, fetch, None, wait=wait),
     )
 
     scan = tmp_path / "scan.sqlite"
