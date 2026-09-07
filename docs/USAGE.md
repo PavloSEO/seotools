@@ -24,11 +24,16 @@ unless `--urls` is given. Any format: `xlsx`, `docx`, `csv`, `md`, `json`.
 # Replace SOURCE_SHA with the actual crawler build's full source commit SHA
 seohead crawl-site --url https://example.com --max-urls 50 --scan-out native.sqlite --producer-build SOURCE_SHA
 seohead report-build --audit native.sqlite --format md --out native-report.md
+
+# if the crawl was interrupted, continue it from the artifact -- no other flag
+seohead crawl-site --resume native.sqlite --producer-build SOURCE_SHA
 ```
 
 The default crawl output remains a directory. SQLite mode keeps queue, evidence
 and runtime in one transactional scan and resumes an interrupted file under the
-same build/configuration. Native capture can retain bounded HTTP entities and
+same build/configuration: `--resume` reads the start URL and that configuration
+back from the artifact, and refuses by name when the file was written by another
+build or for another start URL. Native capture can retain bounded HTTP entities and
 separately captured DOM according to its explicit retention policy; it requires
 raw rendering, cache off and credential-free configuration. Audit creation has an explicit compatibility guard;
 check `audit_available` before requesting a report. See [STORAGE.md](STORAGE.md)
