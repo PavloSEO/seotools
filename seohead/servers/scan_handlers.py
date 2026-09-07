@@ -185,6 +185,31 @@ def _has_saved_audit(scan) -> bool:
     return scan.con.execute("SELECT 1 FROM audit WHERE singleton=1").fetchone() is not None
 
 
+# NativeScan.note_audit_unavailable rejects a reason over this many chars, and
+# neither the exception's own message nor a caller-chosen --scan-out path was ever
+# bounded with that column in mind, so the assembled reason is truncated to fit
+# after both are interpolated in, not before.
+_AUDIT_FAILURE_REASON_MAX = 500
+
+
+def _audit_failure_reason(exc: BaseException, run) -> str:
+    """Name the audit phase and the surviving artifact instead of a bare exception.
+
+    A ``KeyError``'s ``str()`` is just the key (see #627) -- everything an
+    operator needs (that collection finished, how much of it, and where to
+    re-analyse it) has to come from this message, because nothing else in
+    the failure carries it.
+    """
+    reason = (
+        f"audit phase failed unexpectedly ({type(exc).__name__}: {exc}); "
+        f"collection finished with {run.pages} pages retained in {run.path} -- "
+        "re-analyse it with `seohead scan-reanalyze`"
+    )
+    if len(reason) > _AUDIT_FAILURE_REASON_MAX:
+        reason = reason[: _AUDIT_FAILURE_REASON_MAX - 1] + "…"
+    return reason
+
+
 def crawl_site_scan(
     url: str,
     *,
@@ -279,39 +304,52 @@ def crawl_site_scan(
         from seohead.crawl.sql_sitemap import prepare_sitemap_reconciliation
         from seohead.servers.handlers import _audit_crawl_result
 
-        with prepare_sitemap_reconciliation(scan.con, start_url=url) as reconciliation:
-            _response_data, audit = _audit_crawl_result(
-                result,
-                settings=settings,
-                url=url,
-                sitemap_seed=sitemap_seed,
-                discovery=discovery,
-                out_dir=None,
-                pages_resume_path=None,
-                stored_scan=scan,
-                stored_sitemap=reconciliation,
-                dispatch_gate=run.dispatch_gate,
-            )
         from dataclasses import replace
 
         from seohead.storage.native_audit import AuditSizeError
 
-        if settings.get("rendering", {}).get("mode", "raw") != "raw":
-            current = scan.resume_snapshot(include_edges=True)
-            run = replace(
-                run,
-                partial=bool(current["scan"]["crawl_partial"]),
-                links=current["counts"]["links"],
-                forms=current["counts"]["forms"],
-                limitations=tuple(json.loads(current["scan"]["limitations_json"])),
-                corpus_partial=bool(current["scan"]["corpus_partial"]),
-                capabilities=json.loads(current["scan"]["capabilities_json"]),
-            )
-
+        # Collection already committed its rows and closed successfully by this point
+        # (``run`` above), so anything raised from here on is the *audit* misbehaving,
+        # never the crawl -- and the 600-page artifact behind #627 proves collection's
+        # own evidence survives an audit crash untouched. An operator reading a bare
+        # exception (a KeyError's str() is just the key) has no way to tell that apart
+        # from a lost crawl, so an unexpected failure here is named by phase and points
+        # at the retained, re-analysable artifact instead of propagating as-is.
         try:
+            with prepare_sitemap_reconciliation(scan.con, start_url=url) as reconciliation:
+                _response_data, audit = _audit_crawl_result(
+                    result,
+                    settings=settings,
+                    url=url,
+                    sitemap_seed=sitemap_seed,
+                    discovery=discovery,
+                    out_dir=None,
+                    pages_resume_path=None,
+                    stored_scan=scan,
+                    stored_sitemap=reconciliation,
+                    dispatch_gate=run.dispatch_gate,
+                )
+
+            if settings.get("rendering", {}).get("mode", "raw") != "raw":
+                current = scan.resume_snapshot(include_edges=True)
+                run = replace(
+                    run,
+                    partial=bool(current["scan"]["crawl_partial"]),
+                    links=current["counts"]["links"],
+                    forms=current["counts"]["forms"],
+                    limitations=tuple(json.loads(current["scan"]["limitations_json"])),
+                    corpus_partial=bool(current["scan"]["corpus_partial"]),
+                    capabilities=json.loads(current["scan"]["capabilities_json"]),
+                )
+
             scan.save_audit(audit)
         except AuditSizeError as exc:
             reason = str(exc)
+            scan.note_audit_unavailable(reason)
+            finalized = scan.finish_capture(reason=run.finish_reason)
+            return _response(run, audit_available=False, audit_reason=reason, finalized=finalized)
+        except Exception as exc:
+            reason = _audit_failure_reason(exc, run)
             scan.note_audit_unavailable(reason)
             finalized = scan.finish_capture(reason=run.finish_reason)
             return _response(run, audit_available=False, audit_reason=reason, finalized=finalized)
