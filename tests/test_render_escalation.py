@@ -415,6 +415,55 @@ def test_a_failed_probe_is_not_counted_as_a_positive_signal():
     assert result.patterns_escalated == []
 
 
+def test_a_pattern_whose_every_probe_failed_is_reported_unprobed_not_clean():
+    # #626: a browser launch failure, a timeout, or an incomplete render all surface
+    # here as probe ok:False. Before the fix, the for/else added the pattern to
+    # probed_patterns regardless, so it read exactly like a pattern that was measured
+    # and genuinely needs no rendering -- unmeasured passing itself off as clean.
+    pages = [_Page(f"https://example.com/blog/{i}") for i in range(3)]
+
+    def probe(_url):
+        return {"ok": False, "error": "Browser rendering failed: TimeoutError: 30000ms exceeded"}
+
+    result = escalate(
+        pages,
+        _config(sample_per_pattern=2),
+        probe=probe,
+        render_fetch=lambda u: (_ for _ in ()).throw(AssertionError("must not render blindly")),
+        representation_label="rendered",
+    )
+    pattern = "https://example.com/blog/*"
+    assert pattern in result.patterns_unprobed
+    assert pattern not in result.patterns_escalated
+    assert result.patterns_unprobed_reasons[pattern] == (
+        "Browser rendering failed: TimeoutError: 30000ms exceeded"
+    )
+    # Every sample for the pattern was probed (both failed), not skipped for time.
+    assert result.probe_requests == 2
+    assert result.time_budget_exhausted is False
+
+
+def test_a_pattern_that_probed_clean_is_not_reported_as_unprobed():
+    # The unchanged path: at least one successful probe still means "measured, and it
+    # genuinely does not need rendering" -- not a candidate for patterns_unprobed.
+    pages = [_Page(f"https://example.com/docs/{i}") for i in range(3)]
+
+    def probe(_url):
+        return {"ok": True, "needs_escalation": False}
+
+    result = escalate(
+        pages,
+        _config(),
+        probe=probe,
+        render_fetch=lambda u: {"ok": False},
+        representation_label="rendered",
+    )
+    pattern = "https://example.com/docs/*"
+    assert pattern not in result.patterns_unprobed
+    assert pattern not in result.patterns_unprobed_reasons
+    assert result.patterns_escalated == []
+
+
 def test_a_failed_render_fetch_leaves_the_page_static():
     pages = [_Page("https://example.com/x")]
 
