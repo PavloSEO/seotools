@@ -881,6 +881,7 @@ def _audit_crawl_result(
                 "render_counts": escalation.render_counts,
                 "patterns_partially_rendered": escalation.patterns_partially_rendered,
                 "patterns_unprobed": escalation.patterns_unprobed,
+                "patterns_unprobed_reasons": escalation.patterns_unprobed_reasons,
             }
 
         # Re-evaluated after escalation so a run that actually renders its

@@ -156,9 +156,15 @@ class EscalationResult:
     # which budget cut the run short, since one is a URL count the operator set and the
     # other is a clock the operator set, and they run out for unrelated reasons.
     time_budget_exhausted: bool = False
-    # Patterns the deadline reached before their sample was even probed -- distinct from
-    # patterns_escalated (never got a verdict at all, so they are absent from that list too).
+    # Patterns the deadline reached before their sample was even probed, and patterns whose
+    # every sample probe failed (browser launch failure, timeout, an incomplete render) --
+    # both are "no verdict", not "verdict: no rendering needed" (#626), so both land here
+    # and are absent from patterns_escalated too.
     patterns_unprobed: list[str] = field(default_factory=list)
+    # pattern -> the probe's own failure reason, for the subset of patterns_unprobed whose
+    # sample was actually probed and every probe failed. A pattern unprobed because the time
+    # budget was exhausted first has no entry here -- there was no probe result to quote.
+    patterns_unprobed_reasons: dict[str, str] = field(default_factory=dict)
     # pattern -> how many of its pages actually reached render_fetch(). A
     # pattern in patterns_escalated with no entry here got zero -- the exact
     # corruption #147 found: an escalated pattern indistinguishable in the
@@ -226,29 +232,40 @@ def escalate(
 
     escalated: set[str] = set()
     probed_patterns: set[str] = set()
+    unprobed_reasons: dict[str, str] = {}
     for pattern, sample_urls in samples.items():
         if not time_left():
             break
         needs_it = False
+        # Distinct from needs_it: a pattern with zero successful probes has no verdict at
+        # all, and must not be silently read as "verdict: no rendering needed" (#626).
+        probe_succeeded = False
+        failure_reason = ""
         for sample_url in sample_urls:
             if not time_left():
                 break
             probed = probe(sample_url)
             result.probe_requests += 1
             if not probed.get("ok"):
+                failure_reason = str(probed.get("error") or "probe failed")
                 continue
+            probe_succeeded = True
             if probed.get("empty_shell"):
                 result.empty_shell_urls.append(sample_url)
             if probed.get("needs_escalation"):
                 needs_it = True
         else:
-            probed_patterns.add(pattern)
-            if needs_it:
-                escalated.add(pattern)
+            if probe_succeeded:
+                probed_patterns.add(pattern)
+                if needs_it:
+                    escalated.add(pattern)
+            else:
+                unprobed_reasons[pattern] = failure_reason or "every probe for this pattern failed"
             continue
         break  # the inner loop above ran out of time before finishing this pattern's sample
     result.patterns_escalated = sorted(escalated)
     result.patterns_unprobed = sorted(set(samples) - probed_patterns)
+    result.patterns_unprobed_reasons = unprobed_reasons
     if not time_left():
         result.time_budget_exhausted = True
     if not escalated:
