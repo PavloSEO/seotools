@@ -128,39 +128,72 @@ def _slow_fetcher(mapping: dict, latency: float):
     return fetch
 
 
-def test_wall_clock_drops_with_concurrency_up_to_the_cap():
-    """A fixture with simulated per-request latency should crawl noticeably
-    faster at concurrency 4 than sequentially — the throughput half of #25."""
+def _overlap_watching_fetcher(mapping: dict, latency: float):
+    """A fetcher that records how many requests were in flight at once.
+
+    Concurrency is worth having because requests overlap; the wall clock is only
+    the consequence, and a consequence measured on a shared CI runner is a statement
+    about how busy that runner was. This counts the thing itself.
+    """
+    lock = threading.Lock()
+    state = {"in_flight": 0, "peak": 0}
+
+    def fetch(url: str):
+        with lock:
+            state["in_flight"] += 1
+            state["peak"] = max(state["peak"], state["in_flight"])
+        try:
+            time.sleep(latency)
+            value = mapping.get(url)
+            return FakeResponse("", status_code=404) if value is None else value
+        finally:
+            with lock:
+                state["in_flight"] -= 1
+
+    return fetch, state
+
+
+def test_requests_overlap_at_concurrency_and_never_do_sequentially():
+    """The throughput half of #25, measured as overlap rather than as elapsed time.
+
+    This used to compare two wall-clock runs and require the concurrent one to finish
+    in under 70% of the sequential one. The reasoning was that a ratio between two runs
+    on the same machine cancels out load -- but the runs happen at different moments, so
+    a scheduling spike lands on one side only, and it failed on CI against unchanged code
+    (0.504s against a 0.429s threshold). Overlap is the property concurrency actually
+    delivers; the clock is downstream of it, and only the clock was ever flaky.
+    """
     site, _ = _fanned_out_site(16)
     latency = 0.03
 
-    started = time.monotonic()
+    sequential_fetch, sequential_state = _overlap_watching_fetcher(site, latency)
     crawl_site(
         "https://example.com/",
-        fetcher=_slow_fetcher(site, latency),
+        fetcher=sequential_fetch,
         min_delay=0,
         max_urls=50,
         concurrency=1,
     )
-    sequential_elapsed = time.monotonic() - started
 
-    started = time.monotonic()
+    concurrent_fetch, concurrent_state = _overlap_watching_fetcher(site, latency)
     crawl_site(
         "https://example.com/",
-        fetcher=_slow_fetcher(site, latency),
+        fetcher=concurrent_fetch,
         min_delay=0,
         max_urls=50,
         concurrency=4,
     )
-    concurrent_elapsed = time.monotonic() - started
 
-    # Generous margin against CI scheduling noise: a purely sequential
-    # implementation would show no improvement at all (ratio ~= 1.0). Unlike an absolute
-    # timing assertion, this one is a ratio between two runs on the same machine moments
-    # apart, so machine load moves both sides together rather than only the numerator —
-    # which is why this stays a real-time measurement while the pacing test below does not
-    # (#107). Overlapping real wait time is the property, and it has no virtual equivalent.
-    assert concurrent_elapsed < sequential_elapsed * 0.7
+    assert sequential_state["peak"] == 1, (
+        f"a crawl at concurrency 1 had two requests in flight at once: {sequential_state['peak']}"
+    )
+    assert concurrent_state["peak"] > 1, (
+        "a crawl at concurrency 4 never overlapped two requests, so it is sequential "
+        "however fast it happened to run"
+    )
+    assert concurrent_state["peak"] <= 4, (
+        f"more requests in flight than the cap allows: {concurrent_state['peak']}"
+    )
 
 
 # --- politeness: the floor is shared, not multiplied by the worker count ---
