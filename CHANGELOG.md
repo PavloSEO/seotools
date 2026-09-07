@@ -19,6 +19,28 @@ All notable public changes are documented here.
   of implying it was. A pattern with at least one successful probe is unaffected: this only
   changes what happens when every probe for a pattern comes back `ok: False`.
 
+- Stop `render-check` reporting an unfinished render as a site defect (#623). When the render
+  did not complete, the rendered snapshot came back with no title, no `h1`, no canonical, zero
+  links and a fifth of the raw response's bytes -- and the comparator read that emptiness as
+  evidence about the site, emitting "the title changes after JavaScript" about a title the
+  render never read and "the canonical is injected by JavaScript" about a canonical it never
+  saw. On one live audit that was four confident wrong findings in a row, each of the kind that
+  sends a developer hunting a JavaScript bug that does not exist. The pair is now judged before
+  it is compared: when the raw response carries landmarks and the rendered document carries none
+  of them at all, at a fraction of its size, the check returns `ok: false` with
+  `reason: "incomplete_render"`, a named reason carrying both byte counts, and both snapshots
+  for inspection -- no findings, and `js_dependent: null` rather than `false`, because the run
+  does not know. `site-audit` files that in `summary.tools_failed`, where an unmeasured check
+  belongs. The detection is deliberately narrow: one surviving landmark, or a rendered document
+  at least half the raw response's size, is compared as before, and a page with no title and no
+  links on either side is measured and merely empty rather than unmeasured. A title a script
+  genuinely rewrites still fires its finding. The wait strategy copes with the ordinary cause
+  too: a site whose long-polling analytics, chat or ad scripts never let it go network-idle
+  timed the whole check out under `--wait networkidle`, and now falls back to reading the DOM at
+  `domcontentloaded` -- without a second navigation -- with `wait_reached` recording which
+  milestone the snapshot actually came from, plus a short settle for deferred scripts. A page
+  whose DOMContentLoaded never fired at all remains a rendering failure, not an incomplete one.
+
 - Give `crawl-site` a live progress line (#619, progress half). A native crawl printed its
   effective request rate and then nothing at all until it finished; on a 34 000-page site the
   only way to tell it was still working was to watch the scan file grow in `ls -la`. The line

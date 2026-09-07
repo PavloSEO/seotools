@@ -14,6 +14,7 @@ from seohead.tools.render import (
     _words,
     compare,
     detect_empty_shell,
+    incomplete_render_reason,
     render_check,
 )
 
@@ -168,6 +169,106 @@ def test_identical_images_on_both_sides_raise_no_finding():
     same = ["https://example.com/hero.png"]
     out = compare(_snap(images=same), _snap(images=same))
     assert not any("visible only after rendering" in f for f in out)
+
+
+# ── An unfinished render is not a site defect (#623) ─────────────────────────
+
+
+def _full_page(title: str) -> str:
+    """A server-rendered page: a title, a canonical, an h1, links and real copy."""
+    body = "".join(f"<p>{'pump ' * 20}</p>" for _ in range(12))
+    links = "".join(f'<a href="/rubric/{n}/">rubric {n}</a>' for n in range(30))
+    return (
+        f"<html><head><title>{title}</title>"
+        '<link rel="canonical" href="https://example.com/">'
+        f"</head><body><h1>Professions</h1>{body}{links}</body></html>"
+    )
+
+
+# The truncated document a browser hands back when the render does not finish:
+# a shell with none of the page in it.
+_TRUNCATED_RENDER = "<html><head></head><body></body></html>"
+
+
+def test_a_truncated_render_is_reported_unavailable_not_as_a_changed_title():
+    """#623: the live report said 'the title changes after JavaScript' about a
+    title the render never read, and 'the canonical is injected by JavaScript'
+    about a canonical it never saw."""
+    raw = _snapshot(_full_page("Профессия :: Profiz.ru"), BASE)
+    rendered = _snapshot(_TRUNCATED_RENDER, BASE)
+
+    out = compare(raw, rendered)
+
+    assert not any("title changes after JavaScript" in f for f in out)
+    assert not any("canonical URL is injected" in f for f in out)
+    assert len(out) == 1
+    assert "comparison is unavailable" in out[0]
+    assert "no title" in out[0] and "no internal links" in out[0]
+
+
+def test_the_unavailable_statement_is_neither_a_finding_nor_an_all_clear():
+    """Unmeasured must not read as clean either: the all-clear must not appear,
+    and no site finding may ride alongside the statement."""
+    from seohead.tools.render import ALL_CLEAR
+
+    out = compare(
+        _snap(words=1862, links=82, html_bytes=74000),
+        _snap(words=454, links=0, title="", h1="", canonical="", html_bytes=14067),
+    )
+
+    assert ALL_CLEAR not in out
+    assert len(out) == 1 and "unavailable" in out[0]
+
+
+def test_a_title_genuinely_rewritten_by_script_still_fires():
+    """The guard must not swallow the defect this check exists to catch: a full
+    rendered document whose title a script replaced."""
+    raw = _snapshot(_full_page("Loading…"), BASE)
+    rendered = _snapshot(_full_page("Buy CDM Pumps"), BASE)
+
+    out = compare(raw, rendered)
+
+    assert any("title changes after JavaScript" in f for f in out)
+    assert not any("unavailable" in f for f in out)
+
+
+def test_a_page_that_renders_away_its_links_but_keeps_a_title_is_still_compared():
+    """One landmark surviving is enough to prove the render captured the page."""
+    rendered = _snap(links=0, canonical="", h1="", html_bytes=900)
+
+    assert incomplete_render_reason(_snap(html_bytes=9000), rendered) is None
+    assert any("canonical" in f for f in compare(_snap(html_bytes=9000), rendered))
+
+
+def test_a_raw_response_with_nothing_to_lose_is_measured_not_unavailable():
+    """A page that has no title and no links on either side was measured; it is
+    merely empty, and calling it unavailable would hide a real empty page."""
+    empty = _snap(title="", h1="", canonical="", links=0, words=0, html_bytes=300)
+
+    assert (
+        incomplete_render_reason(
+            empty, _snap(title="", h1="", canonical="", links=0, html_bytes=40)
+        )
+        is None
+    )
+
+
+def test_a_rendered_document_of_comparable_size_was_captured():
+    """Byte size is half the evidence: a document as large as the raw response
+    did capture the page, whatever its markup lost."""
+    raw = _snap(html_bytes=10000)
+    rendered = _snap(title="", h1="", canonical="", links=0, html_bytes=9000)
+
+    assert incomplete_render_reason(raw, rendered) is None
+
+
+def test_the_named_reason_carries_both_byte_counts():
+    reason = incomplete_render_reason(
+        _snap(html_bytes=74000), _snap(title="", h1="", canonical="", links=0, html_bytes=14067)
+    )
+
+    assert reason is not None
+    assert "14067" in reason and "74000" in reason and "19%" in reason
 
 
 # ── Boundaries ───────────────────────────────────────────────────────────────
