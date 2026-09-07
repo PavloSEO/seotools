@@ -12,7 +12,7 @@ core through two interfaces — CLI and local MCP. It is not a general-purpose c
 | Looking for a copy-paste command | [USAGE.md](USAGE.md) — runnable examples |
 | Managing or inspecting saved scans | [STORAGE.md](STORAGE.md) — SQLite import, provenance, retained bodies, snapshots, and reviewed retention |
 | New to the toolkit | [GUIDELINE.md](GUIDELINE.md) — what it is, the first run, reading an audit honestly, the usual mistakes |
-| A native crawl stopped early | [RECOVERY.md](RECOVERY.md) — the checkpoint, the exact resume requirement, resume vs. intentional fresh start |
+| A native crawl stopped early | [RECOVERY.md](RECOVERY.md) — the two checkpoints, `--resume`, resume vs. intentional fresh start |
 | Wondering what this can do end to end | [scenarios/](scenarios/README.md) — 56 chains, each with its commands, its output, its cost and its limits |
 | Looking for a tool | [TOOLS.md](TOOLS.md) — reference for all 63 |
 | Looking for a tool's exact arguments, types, defaults, or cost | [TOOL_REFERENCE.md](TOOL_REFERENCE.md) — generated from the MCP tool definitions |
@@ -77,8 +77,8 @@ core through two interfaces — CLI and local MCP. It is not a general-purpose c
 - **[RECIPES.md](RECIPES.md)** — three agent workflows that use existing exports, bounded
   public evidence, or a user-authorized browser without pretending that provider credentials exist.
 - **[RECOVERY.md](RECOVERY.md)** — resuming a native `crawl-site` run that stopped early: the
-  `crawl_state.json` checkpoint, the identical-invocation requirement, and how to tell a
-  successful resume from an intentional fresh start.
+  `crawl_state.json` checkpoint and its identical-invocation requirement, `--resume` for a
+  SQLite scan, and how to tell a successful resume from an intentional fresh start.
 
 ### Repository contracts
 

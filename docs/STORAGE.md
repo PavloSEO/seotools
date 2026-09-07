@@ -430,12 +430,15 @@ in the scan. A different configuration or producing build refuses resume.
 
 `python -m seohead.storage inspect native.sqlite` also validates a capture with
 no audit and reports `audit_available`; report commands still require an audit.
-Repeat the same command/path to resume an interrupted scan. A finished file is
-immutable and cannot be overwritten or resumed for writing. Use a new destination
+`seohead crawl-site --resume <scan>` continues an interrupted scan from its stored
+frontier and throttle state, reading the start URL and the effective configuration
+back from the artifact rather than from the command line; repeating the original
+command with the same `--scan-out` path and identical settings resumes it too.
+A finished file is immutable and cannot be overwritten or resumed for writing. Use a new destination
 for a new run. `--scan-out` cannot be combined with `--out-dir` or URL-list mode;
 SQLite mode currently requires `cache.mode=off`. Credentials are re-supplied out
 of band and resumability is governed by the redacted credential context above. The MCP
-`seo_crawl_site` exposes the same `scan_out` and `producer_build` parameters.
+`seo_crawl_site` exposes the same `scan_out`, `resume` and `producer_build` parameters.
 Response bodies are **not retained**, including the raw start-page HTML used
 transiently by the first-run rendering gate.
 
