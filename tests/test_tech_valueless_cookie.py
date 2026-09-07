@@ -45,7 +45,9 @@ def test_dict_of_httpx_cookies_still_raises_on_a_valueless_cookie():
     """Pin the upstream behavior this fix works around."""
     resp = _response([("set-cookie", "a=1; Path=/"), ("set-cookie", "Secure; HttpOnly")])
 
-    assert list(resp.cookies) == ["a", "Secure"]
+    # Jar order is not stable across CPython versions, so compare as a set: what
+    # matters is that the valueless header becomes a named cookie at all.
+    assert set(resp.cookies) == {"a", "Secure"}
     try:
         dict(resp.cookies)
     except KeyError as exc:
