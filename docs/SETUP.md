@@ -72,6 +72,25 @@ adaptive back-off: latency widens the delay, a timeout widens it hard, and repea
 the run rather than pushing a failing origin. Rows land in `pages.jsonl` as they are collected, so
 an interrupted crawl still leaves evidence behind.
 
+While it runs, a progress line on stderr is refreshed in place:
+
+```
+crawl-site: 6516 fetched, 34635 known (18%), 9.8 req/s, 1h02m, scan 412.3 MB
+```
+
+`known` is what the crawl has found so far — pages fetched plus URLs still
+queued, capped at the URL budget — not the size of the site. A crawler
+discovers its own workload as it walks, so that denominator grows, and the
+percentage is not an estimate of when the run will finish. The scan size
+appears only with `--scan-out`, and counts the artifact's write-ahead log
+alongside the file itself — which is why it can fall at the end of a run, when
+SQLite folds that log back into the file.
+
+Piped or redirected output gets a plain line every 30 seconds instead of
+carriage-return redraws, so a log file stays readable. `-q` silences the
+progress line and the startup rate line; the JSON result on stdout is
+unaffected either way.
+
 For a migration map, analytics export, or hand-maintained set, list mode fetches
 only the supplied URLs at depth zero. `--urls-file` scans TXT, CSV, XLSX, or XML
 for absolute HTTP(S) URLs and preserves their source order; it does not infer a
