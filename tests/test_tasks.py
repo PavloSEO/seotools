@@ -369,3 +369,68 @@ def test_grouped_title_still_counts_distinct_urls_correctly():
     task = backlog["tasks"][0]
     assert task["affected_count"] == 3
     assert "3 pages" in task["title"]
+
+
+def _minimal_audit(run: dict) -> dict:
+    return {
+        "run": run,
+        "summary": {"health_score": 80},
+        "issues": [
+            {
+                "check": "MISSING_TITLE",
+                "severity": "warning",
+                "target_url": "https://example.test/a",
+                "occurrences_count": 1,
+                "source": "SF",
+            }
+        ],
+    }
+
+
+def test_heading_names_site_from_source_when_project_missing():
+    """#640: a native crawl / reanalysis run never records "project", so
+    "source" (the start URL, crawl mode) must still name the site instead
+    of leaving the stored None to reach the heading."""
+    audit = _minimal_audit(
+        {
+            "project": None,
+            "source": "https://www.profiz.ru/",
+            "generated_at": "2026-09-05T00:00:00Z",
+        }
+    )
+    md = render_tasks_md(build_tasks(audit))
+    # crawl_domain() normalizes off "www." the same way facts.py's own site
+    # fact does, so the resolved name is "profiz.ru", not "www.profiz.ru".
+    assert "# Audit Tasks — profiz.ru" in md
+    assert "None" not in md
+
+
+def test_heading_names_site_from_start_url_when_project_missing():
+    """#640: the same resolution also tries "start_url", the field name this
+    toolkit's design targets, ahead of "project"."""
+    audit = _minimal_audit(
+        {
+            "project": None,
+            "start_url": "https://shop.example.test/",
+            "generated_at": "2026-09-05T00:00:00Z",
+        }
+    )
+    md = render_tasks_md(build_tasks(audit))
+    assert "# Audit Tasks — shop.example.test" in md
+    assert "None" not in md
+
+
+def test_heading_still_uses_project_when_present():
+    """#640 negative control: a run that does carry "project" is unchanged."""
+    audit = _minimal_audit({"project": "example.test", "generated_at": "2026-09-05T00:00:00Z"})
+    md = render_tasks_md(build_tasks(audit))
+    assert "# Audit Tasks — example.test" in md
+
+
+def test_heading_falls_back_to_neutral_word_when_nothing_names_the_site():
+    """#640: a run with none of project/source/start_url still renders a
+    heading, with a neutral word rather than the stored None."""
+    audit = _minimal_audit({"generated_at": "2026-09-05T00:00:00Z"})
+    md = render_tasks_md(build_tasks(audit))
+    assert "# Audit Tasks — site" in md
+    assert "None" not in md

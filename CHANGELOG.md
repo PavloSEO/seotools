@@ -4,6 +4,25 @@ All notable public changes are documented here.
 
 ## Unreleased
 
+- Fix the task backlog heading reading "Audit Tasks — None" for any audit whose run
+  recorded no project (#640). `render_tasks_md` built the heading with
+  `src.get("project", "site")`, but `"project"` is always a present key in the backlog's
+  `source` block -- it is set at build time from `run.get("project")`, so a run with no
+  project stores the value `None` there rather than leaving the key absent, and
+  `dict.get`'s default only fires for a missing key, never for one holding `None`. A
+  native crawl and a reanalysis both leave `project` unset, so every backlog built from
+  either got the literal word "None" as its heading. The heading now falls back with
+  `or`, which does catch a stored `None`, and reaches for the site's `start_url` or
+  `source` before giving up -- the same order `seohead.reports.facts.crawl_domain`
+  already used to resolve a site's name from its `run` block, now exported and reused
+  here instead of reinvented, so a backlog built from a project-less audit names the
+  actual site instead of the word "site". `seohead.reports._normalize_sf_audit` had the
+  same latent shape one line over (`run.get("project") or ""`, at `reports/__init__.py`)
+  -- already guarded against a stored `None`, but its fallback was an empty domain rather
+  than the URL the run also knows, so the docx/md "SEO Audit: " heading it feeds went
+  blank in the same situations. It now falls back through the same `crawl_domain`
+  resolution rather than staying empty.
+
 - Fix `escalate()` counting a failed render probe as "this pattern needs no rendering"
   (#626). It samples one URL per template pattern to decide whether that pattern needs a
   fuller, JavaScript-rendered fetch, but when every sample for a pattern failed to probe at
