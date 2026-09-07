@@ -7,9 +7,10 @@ from types import SimpleNamespace
 
 import pytest
 
+from seohead import cli
 from seohead.crawl.collect import PageRecord
 from seohead.crawl.sqlite_adapter import ScanRun
-from seohead.servers import scan_handlers
+from seohead.servers import handlers, scan_handlers
 from seohead.storage import MAX_JSON_BYTES
 from seohead.storage.native_audit import AuditSizeError
 from seohead.storage.native_scan import NativeScan
@@ -83,7 +84,7 @@ def _run() -> ScanRun:
 
 @pytest.fixture
 def bridge(monkeypatch):
-    def configure(*, overflow: bool):
+    def configure(*, overflow: bool, audit_error: Exception | None = None):
         scan = _Scan(overflow=overflow)
         _Scan.current = scan
         monkeypatch.setattr("seohead.storage.native_scan.NativeScan", _Scan)
@@ -111,10 +112,13 @@ def bridge(monkeypatch):
                 seed_urls=[],
             ),
         )
-        monkeypatch.setattr(
-            "seohead.servers.handlers._audit_crawl_result",
-            lambda *_args, **_kwargs: ({}, {"schema_version": "2.0", "pages": []}),
-        )
+
+        def run_audit(*_args, **_kwargs):
+            if audit_error is not None:
+                raise audit_error
+            return ({}, {"schema_version": "2.0", "pages": []})
+
+        monkeypatch.setattr("seohead.servers.handlers._audit_crawl_result", run_audit)
         return scan
 
     return configure
@@ -132,6 +136,36 @@ def test_oversized_audit_is_named_unavailable_without_losing_native_capture(brid
 
     assert response["audit_available"] is False
     assert "budget" in response["audit_reason"]
+    assert response["urls_collected"] == 3
+    assert response["links_collected"] == 4
+    assert scan.saved is None
+    assert scan.con.audit_rows == 0
+    assert scan.unavailable == [response["audit_reason"]]
+    assert scan.finished == ["finished"]
+
+
+def test_unexpected_audit_exception_is_named_by_phase_without_losing_native_capture(bridge):
+    """Regression test for #627: a bare ``KeyError`` from the audit must not reach the
+    operator as its own ``str()`` (just the key), and must not cost the crawl its
+    already-collected, already-committed evidence.
+    """
+    scan = bridge(overflow=False, audit_error=KeyError("rel_next_2"))
+
+    response = scan_handlers.crawl_site_scan(
+        "https://example.test/",
+        scan_out="scan.sqlite",
+        settings={"robots": {"policy": "respect"}},
+        producer_build="a" * 40,
+    )
+
+    assert response["audit_available"] is False
+    assert "audit phase" in response["audit_reason"]
+    assert "KeyError" in response["audit_reason"]
+    assert "rel_next_2" in response["audit_reason"]
+    # The bug report's whole complaint: a bare exception name says nothing about
+    # collection having finished, or where its evidence still lives.
+    assert response["audit_reason"] != "'rel_next_2'"
+    assert "scan.sqlite" in response["audit_reason"]
     assert response["urls_collected"] == 3
     assert response["links_collected"] == 4
     assert scan.saved is None
@@ -188,3 +222,25 @@ def test_small_budget_refuses_only_audit_document_and_keeps_native_rows(tmp_path
         assert scan.con.execute("SELECT COUNT(*) FROM audit").fetchone()[0] == 0
 
     assert MAX_JSON_BYTES == 64 * 1024 * 1024
+
+
+def test_the_cli_exits_two_when_collection_survived_but_the_audit_did_not(monkeypatch):
+    """Neither 0 nor 1: the artifact is real, and no audit ran over it.
+
+    0 would read as "the audit ran and found this", 1 as "the command produced
+    nothing" -- and a caller gating on ``$?`` has to be able to tell a crawl worth
+    re-analysing from a crawl that is gone.
+    """
+    monkeypatch.setitem(
+        handlers.HANDLERS,
+        "crawl_site",
+        lambda **_kwargs: {
+            "scan": "scan.sqlite",
+            "urls_collected": 600,
+            "partial": True,
+            "finish_reason": "url_limit",
+            "audit_available": False,
+            "audit_reason": "audit phase failed unexpectedly (KeyError: 'rel_next_2')",
+        },
+    )
+    assert cli.main(["crawl-site", "--url", "https://example.test/"]) == 2
