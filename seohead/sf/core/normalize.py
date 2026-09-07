@@ -54,6 +54,9 @@ INTERNAL_FIELD_MAP: dict[str, list[str]] = {
     # when an image supplies it instead.
     "h1_alt_text": ["H1 Alt Text Only"],
     "h2": ["H2-1"],
+    # Native-crawl only (#632): the h1-h6 outline in DOM order -- a list of
+    # {level, text, region} objects, not a cell an export could hold.
+    "heading_outline": ["Heading Outline"],
     "h2_2": ["H2-2"],
     "meta_robots": ["Meta Robots 1"],
     "x_robots": ["X-Robots-Tag 1"],

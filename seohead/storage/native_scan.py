@@ -42,6 +42,7 @@ from seohead.storage import (
     _dump,
     _expected,
     _has_negative_page_counts,
+    _heading_outline,
     _insert,
     _objects,
     _runtime,
@@ -82,6 +83,7 @@ _FORM_KEYS = {"page", "method", "action", "has_password"}
 _PAGE_JSON_SOURCES = {
     "redirect_chain_json": "redirect_chain",
     "hreflang_json": "hreflang",
+    "heading_outline_json": "heading_outline",
     "canonical_chain_json": "canonical_chain",
 }
 
@@ -830,6 +832,7 @@ class NativeScan:
                     "content_frames",
                     "content_frames_same_origin",
                     "hreflang_json",
+                    "heading_outline_json",
                     "body_unavailable",
                 )
             ):
@@ -840,9 +843,11 @@ class NativeScan:
                 raise ScanError("native scan page scalar/body marker is invalid")
             try:
                 alternates = json.loads(page["hreflang_json"] or "[]")
+                outline = json.loads(page["heading_outline_json"] or "[]")
                 chain = json.loads(page["redirect_chain_json"])
             except (TypeError, ValueError) as exc:
                 raise ScanError("native scan page JSON is invalid") from exc
+            _heading_outline(outline)
             if (
                 not isinstance(alternates, list)
                 or any(
@@ -1499,6 +1504,8 @@ class NativeScan:
                     raise ScanError(
                         "pages.hreflang must be ordered lang/raw_href/url string objects"
                     )
+                if name == "heading_outline_json":
+                    _heading_outline(value)
                 if name in {"redirect_chain_json", "canonical_chain_json"} and (
                     not isinstance(value, list)
                     or any(not isinstance(item, dict) for item in value or [])

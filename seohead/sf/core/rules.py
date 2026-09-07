@@ -380,6 +380,78 @@ def check_headings(ctx: AuditContext) -> None:
         ctx.skip("H1_ALT_TEXT_ONLY", "no H1 alt-text evidence (native crawl only)")
 
 
+# How many heading texts a finding quotes back. Enough to recognise the block in
+# a template, short of pasting a mega-menu into the audit.
+_HEADING_EVIDENCE_TEXTS = 5
+
+
+def check_heading_outline(ctx: AuditContext) -> None:
+    """The outline as a sequence and as a map of the page (#632).
+
+    ``check_headings`` above reads h1/h1_2/h2 -- headings as an unordered set,
+    which is all a Screaming Frog export carries. A page whose DOM order is
+    ``H2, H2, ..., H1, H2`` satisfies every check there, and so does a page whose
+    H2s are all menu labels in the masthead. Both need the stored outline, which
+    only a native crawl records.
+    """
+    from seohead.tools.link_position import CHROME_POSITIONS
+
+    if not _has_column(ctx, "heading_outline"):
+        for check_id in ("HEADING_BEFORE_H1", "HEADING_IN_PAGE_CHROME"):
+            ctx.skip(check_id, "no heading outline evidence (native crawl only)")
+        return
+    pages = ctx.indexable_html_pages()
+    for check_id in ("HEADING_BEFORE_H1", "HEADING_IN_PAGE_CHROME"):
+        _skip_for_body_unavailable(ctx, check_id, pages)
+    unplaced = 0
+    for page in pages:
+        outline = _rec(page).get("heading_outline")
+        if not isinstance(outline, list) or not outline:
+            continue
+        first_h1 = next((i for i, h in enumerate(outline) if h.get("level") == 1), None)
+        # None is a page with no H1 at all (H1_MISSING's finding, not this one) and
+        # 0 is the H1 leading its own outline, which is the shape being asked for.
+        if first_h1:
+            preceding = outline[:first_h1]
+            ctx.add(
+                "HEADING_BEFORE_H1",
+                target_url=page.url,
+                details={
+                    "count": len(preceding),
+                    "levels": sorted({f"h{h['level']}" for h in preceding}),
+                    "first_texts": [h["text"] for h in preceding[:_HEADING_EVIDENCE_TEXTS]],
+                },
+            )
+        chrome = [h for h in outline if h.get("region") in CHROME_POSITIONS]
+        if chrome:
+            # One finding per page, not per heading: a masthead with eighteen
+            # menu labels is one template to fix, and eighteen rows of it would
+            # bury every other finding about the page.
+            ctx.add(
+                "HEADING_IN_PAGE_CHROME",
+                target_url=page.url,
+                details={
+                    "count": len(chrome),
+                    "regions": sorted({str(h["region"]) for h in chrome}),
+                    "first_headings": [
+                        {"region": h["region"], "level": h["level"], "text": h["text"]}
+                        for h in chrome[:_HEADING_EVIDENCE_TEXTS]
+                    ],
+                },
+            )
+        # A region of "" is a heading the parser could not place: the document
+        # named no content landmark and no position rule matched it, so calling
+        # it content would be a verdict nobody measured (see parser.heading_outline).
+        if any(not h.get("region") for h in outline):
+            unplaced += 1
+    if unplaced:
+        ctx.skip(
+            "HEADING_IN_PAGE_CHROME",
+            f"{unplaced} page(s) with no content landmark and no matching position rule "
+            "-- no heading region could be determined",
+        )
+
+
 # --------------------------------------------------------------------------
 # 7.E — canonical & directives
 # --------------------------------------------------------------------------
@@ -1902,6 +1974,7 @@ ALL_CHECKS = [
     check_titles,
     check_descriptions,
     check_headings,
+    check_heading_outline,
     check_canonical_directives,
     check_content,
     check_url_and_perf,

@@ -80,6 +80,23 @@ class HreflangAlternate(TypedDict):
     url: str
 
 
+class HeadingRef(TypedDict):
+    """One `<h1>`-`<h6>` in document order, with where on the page it sits (issue #632).
+
+    ``level`` and ``text`` are what the eight existing heading checks read as an
+    unordered set; keeping them in a sequence is what lets a check ask whether a
+    heading precedes the page's first H1. ``region`` reuses the link-position
+    taxonomy (``seohead.tools.link_position.POSITIONS``) so "in the header"
+    means the same thing about a heading as it already does about a link, and is
+    ``""`` when the document offered nothing to place the heading against --
+    unmeasured, which is neither chrome nor content.
+    """
+
+    level: int
+    text: str
+    region: str
+
+
 class FrameInfo(TypedDict):
     """One `<iframe>` extracted from a page (issue #360).
 
@@ -197,6 +214,11 @@ class ParsedPage(_ParsedPageOptional):
     og: dict[str, str]
     twitter: dict[str, str]
     headings: dict[str, list[str]]
+    # The same headings as a sequence rather than a set: every h1-h6 with text,
+    # in DOM order, each carrying its level, text and page region (#632). The
+    # grouping above answers "which levels exist and how many"; only this
+    # answers "in what order" and "where on the page".
+    heading_outline: list[HeadingRef]
     jsonld: list[Any]
     jsonld_invalid: list[dict[str, Any]]
     links: list[LinkInfo]

@@ -1,17 +1,17 @@
 # SEO audit — example.com
 
-- **Generated:** 2026-09-07T12:35:26Z
+- **Generated:** 2026-09-07T12:58:18Z
 - **Input mode:** parse-exports  ·  **Profile:** full
 - **Source:** examples/exports
 - **Exports used:** internal_all, inlinks_4xx
 
 ## Health summary
 
-> **No health score.** only 74 of 155 checks could run (48% coverage); too little evidence to score.
+> **No health score.** only 74 of 157 checks could run (47% coverage); too little evidence to score.
 
-_74 of 155 checks could run; the score is not comparable to a run with full evidence_
+_74 of 157 checks could run; the score is not comparable to a run with full evidence_
 
-- Checks: **16 fired**, 81 skipped, 58 silent, 0 disabled (of 155 total)
+- Checks: **16 fired**, 83 skipped, 58 silent, 0 disabled (of 157 total)
 
 - URLs crawled: **6** (HTML: 4, indexable: 4)
 - Total issues: **21**
@@ -206,6 +206,8 @@ Each check below describes more than half the crawled pages. That can be true --
 | `DESC_MULTIPLE` | no meta description count evidence (native crawl only) |
 | `H2_MISSING` | requirements.require_h2 is false; the check was not evaluated |
 | `H1_ALT_TEXT_ONLY` | no H1 alt-text evidence (native crawl only) |
+| `HEADING_BEFORE_H1` | no heading outline evidence (native crawl only) |
+| `HEADING_IN_PAGE_CHROME` | no heading outline evidence (native crawl only) |
 | `CONTENT_IN_IFRAME` | no iframe inventory in this evidence |
 | `SCHEMA_VALIDATION_ERROR` | no Structured Data validation columns in Internal:All |
 | `STRUCTURED_DATA_PARSE_ERROR` | no JSON-LD found/parsed block counts (native crawl only) |
