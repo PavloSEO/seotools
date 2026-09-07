@@ -147,6 +147,16 @@ class ScanError(ValueError):
     """The input cannot be used as a supported, consistent scan artifact."""
 
 
+class ScanBackpressure(ScanError):
+    """A bounded WAL checkpoint stayed blocked by a live reader.
+
+    Separate from a plain ScanError because it says nothing is wrong with the
+    artifact: WAL readers never block a writer, they only keep the log from
+    being truncated. A caller that can slow down should wait for the reader
+    instead of ending its run.
+    """
+
+
 def _runtime() -> None:
     if sqlite3 is None:
         raise ScanError(
