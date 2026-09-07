@@ -89,7 +89,12 @@ def _rules_for(parsed: ParsedRobots, user_agent: str) -> RobotsGroup:
     for group in parsed["groups"]:
         group_best = -1
         has_star = False
-        for token in (u.lower().strip() for u in group["user_agents"]):
+        # A blank value -- a bare "User-agent:", or a name that an inline comment
+        # swallowed -- names no crawler at all. Left in, it was a zero-length
+        # prefix of every agent, so it matched all of them and, counting as a
+        # named match, outranked the file's real "*" group for every crawler the
+        # file never mentions.
+        for token in (t for t in (u.lower().strip() for u in group["user_agents"]) if t):
             if token == "*":
                 has_star = True
                 continue
