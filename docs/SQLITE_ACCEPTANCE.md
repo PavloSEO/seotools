@@ -146,7 +146,7 @@ closure of #354/#98: it is what this fixture measured on this machine.
 
 | Field | Value |
 |---|---|
-| Source revision | `341f63b13e28b6e1eade407a8f1c572d1d8d3fe5`, `source_dirty: false` |
+| Source revision | `341f63b13e28b6e1eade407a8f1c572d1d8d3fe5`, `source_dirty: false`. This is the revision the run measured, not necessarily the current tip: the retained manifest also records a SHA-256 for every profiled source file, so a later rerun that disagrees can be traced to the file that changed |
 | Platform | `macOS-26.6.2-arm64-arm-64bit-Mach-O` |
 | Python / SQLite | 3.14.6 / 3.53.3 |
 | RSS units | macOS `ru_maxrss` is bytes; the profiler normalizes to MiB and records Linux KiB separately |
