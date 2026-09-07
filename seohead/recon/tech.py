@@ -569,6 +569,34 @@ def _match(
     return None
 
 
+def response_cookies(resp: Any) -> tuple[dict[str, str], list[str]]:
+    """Read a response's cookies without letting one malformed header end the run.
+
+    ``dict(resp.cookies)`` cannot be used: a ``Set-Cookie`` header carrying no
+    ``name=value`` pair at all (``Set-Cookie: Secure; HttpOnly``) is parsed by
+    ``http.cookiejar`` into ``Cookie(name='Secure', value=None)``, and
+    ``httpx.Cookies.__getitem__`` raises ``KeyError`` for a valueless entry — so the
+    conversion fails on a name the mapping's own iterator produced, and one malformed
+    header from the site aborts a fingerprint that would otherwise have succeeded.
+
+    Walking the jar keeps the name and gives it an empty value rather than dropping
+    it: several fingerprints match on cookie name alone, and discarding the entry
+    would silently lose that signal. The names of such entries are returned separately
+    so the malformed header stays a reported fact about the site instead of being
+    quietly normalized away.
+    """
+    cookies: dict[str, str] = {}
+    malformed: list[str] = []
+    for cookie in resp.cookies.jar:
+        if cookie.value is None:
+            malformed.append(cookie.name)
+            # A well-formed cookie of the same name, in either order, wins.
+            cookies.setdefault(cookie.name, "")
+        else:
+            cookies[cookie.name] = cookie.value
+    return cookies, sorted(set(malformed))
+
+
 def detect_tech(url: str, timeout: float = 25.0) -> dict[str, Any]:
     """Fetch one page and detect technologies with a single request."""
     target = normalize_url(url)
@@ -587,10 +615,12 @@ def detect_tech(url: str, timeout: float = 25.0) -> dict[str, Any]:
     except Exception as exc:
         return {"ok": False, "url": target, "error": str(exc)}
 
+    cookies, malformed_cookies = response_cookies(resp)
     return analyze_tech(
         html,
         headers=dict(resp.headers),
-        cookies=dict(resp.cookies),
+        cookies=cookies,
+        malformed_cookies=malformed_cookies,
         url=target,
         final_url=str(resp.url),
         status_code=resp.status_code,
@@ -602,6 +632,7 @@ def analyze_tech(
     *,
     headers: dict[str, str] | None = None,
     cookies: dict[str, str] | None = None,
+    malformed_cookies: list[str] | None = None,
     url: str = "",
     final_url: str | None = None,
     status_code: int | None = None,
@@ -614,9 +645,15 @@ def analyze_tech(
     just for this check. ``rendered`` records whether ``html`` is the raw response
     body or a post-script DOM snapshot — several tags are visible in one and not
     the other, and :func:`tag_coverage` needs to know which it is looking at.
+
+    ``malformed_cookies`` names the cookies the site sent without a value (see
+    :func:`response_cookies`). They are matched like any other cookie name, with an
+    empty value, and reported in the result so the malformed header reads as a fact
+    about the site rather than disappearing.
     """
     headers = {k.lower(): v for k, v in (headers or {}).items()}
     cookies = dict(cookies or {})
+    malformed = sorted(set(malformed_cookies or []))
     html = html[:MAX_HTML_BYTES]
     page_url = final_url or url
     html_low = html.lower()
@@ -727,6 +764,10 @@ def analyze_tech(
         "by_category": by_category,
         "scripts_total": len(scripts),
         "third_party_hosts": third_party,
+        # Cookie names the site sent with no value at all. They took part in matching
+        # with an empty value; listing them keeps a malformed Set-Cookie header
+        # visible instead of letting it read as an ordinary cookie.
+        "malformed_cookies": malformed,
         "external_db": external_report,
         # Every row a coverage report builds from this must carry how it was
         # measured: a tag invisible in static markup may still fire for a real
@@ -736,7 +777,7 @@ def analyze_tech(
             "representation": "rendered_dom" if rendered else "static_markup",
             "script_executed": rendered,
         },
-        "findings": _findings(by_category, third_party),
+        "findings": _findings(by_category, third_party, malformed),
     }
 
 
@@ -749,8 +790,19 @@ def _host(src: str) -> str:
         return ""
 
 
-def _findings(by_category: dict[str, list[dict[str, Any]]], third_party: list[str]) -> list[str]:
+def _findings(
+    by_category: dict[str, list[dict[str, Any]]],
+    third_party: list[str],
+    malformed_cookies: list[str] | None = None,
+) -> list[str]:
     out: list[str] = []
+    if malformed_cookies:
+        noun = "header" if len(malformed_cookies) == 1 else "headers"
+        out.append(
+            f"The site sent {len(malformed_cookies)} Set-Cookie {noun} with no name=value "
+            f"pair ({', '.join(malformed_cookies[:5])}); each name was matched with an empty "
+            "value, and clients may discard such a header outright."
+        )
     if not by_category.get("cms") and not by_category.get("framework"):
         out.append(
             "No CMS or framework was detected; the site may be custom-built or "
