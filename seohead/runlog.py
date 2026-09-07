@@ -127,11 +127,21 @@ def safe_arguments(arguments: dict[str, Any] | None) -> dict[str, Any]:
     return out
 
 
+# Arguments an interface adds for display only. They change what the operator sees
+# during a run and nothing about what the run does, so they must not change its
+# identity: a crawl and the same crawl with -q are the same call, and a journal
+# that says otherwise cannot answer "have I already done this" (#619).
+DISPLAY_ONLY_ARGUMENTS = frozenset({"progress"})
+
+
 def fingerprint(tool: str, arguments: dict[str, Any] | None) -> str:
     """Stable identity for "the same call again", for later reuse decisions."""
-    payload = json.dumps(
-        {"tool": tool, "arguments": safe_arguments(arguments)}, sort_keys=True, ensure_ascii=False
-    )
+    identity = {
+        name: value
+        for name, value in safe_arguments(arguments).items()
+        if name not in DISPLAY_ONLY_ARGUMENTS
+    }
+    payload = json.dumps({"tool": tool, "arguments": identity}, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
