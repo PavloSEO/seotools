@@ -1201,6 +1201,14 @@ def main(argv: list[str] | None = None) -> int:
         # disagree with each other should stop rather than publish them. 2, not 1, so a
         # caller can tell "the run contradicts itself" from "the command failed".
         return 2
+    if isinstance(result, dict) and result.get("audit_available") is False:
+        # A scan whose collection finished but whose audit did not (a budget it exceeded,
+        # evidence it could not reconstruct, or an unexpected exception -- #627) is neither
+        # a clean run nor a failed one: the artifact is real and re-analysable, so exiting 0
+        # would read as "audit ran clean" and exiting 1 would read as "nothing was produced".
+        # Same 2 as the log-scan contradiction above -- a caller gating on `$?` still needs a
+        # third answer besides those two.
+        return 2
     if handlers.handler_failed(result):
         # The handler could not complete its check (bad input, an unreachable host, a
         # missing dependency) and said so in the JSON rather than raising. A pipeline
