@@ -4,6 +4,19 @@ All notable public changes are documented here.
 
 ## Unreleased
 
+- Add a check-verdict coverage gate (#98): `test_check_producer_gate.py` proved every check
+  ID is registered and every `check_*` function is dispatched, but said nothing about whether
+  a check's conclusion was ever proven true against markup that actually has the defect, and
+  stays silent on markup that does not -- exactly the gap that let #94, #95 and #96 pass every
+  existing test while still misfiring on live sites. `test_check_verdict_coverage.py` scans
+  `tests/` structurally (AST, not a fixed call-site list) for both halves per check, and fails
+  the build for any check newly added to the registry without a two-sided test or a named,
+  reasoned exemption. Of the 152 checks in the registry, 88 already had two-sided proof; a new
+  `test_check_verdict_gaps.py` closes 22 more of the cheaply-testable gaps the scan surfaced
+  (title/description length and duplication, H1 duplication, H2 presence, URL hygiene,
+  directive and markup checks, response codes, and the two native-filter-export checks). The
+  remaining 64 are named, not hidden, in the gate's `KNOWN_UNCOVERED` ratchet -- shrink that
+  list as coverage lands; it must never grow to admit a check added after this gate existed.
 - Fix a robots.txt group-selection defect that let a blank `User-agent` value void a site's
   default policy (#566). A bare `User-agent:` line, or one whose bot name an inline comment
   swallowed (`User-agent: # old bot rule`), parsed to an empty token. `_rules_for` treated that
