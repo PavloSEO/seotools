@@ -80,9 +80,10 @@ Everything else in this toolkit reads one of those two.
 
 A third file, `crawl_state.json`, lands in the same directory as a checkpoint — invisible in a
 run that finishes, and the whole story when one does not. If the process is interrupted partway
-through, rerunning the identical command resumes from it instead of starting over. See
-[RECOVERY.md](RECOVERY.md) for the exact requirement and how to tell a resume from an
-intentional fresh start.
+through, rerunning the identical command resumes from it instead of starting over. A
+`--scan-out` run checkpoints inside the scan artifact instead, and resumes with
+`crawl-site --resume <scan>`. See [RECOVERY.md](RECOVERY.md) for both routes, the exact
+requirement of each, and how to tell a resume from an intentional fresh start.
 
 ---
 
