@@ -220,8 +220,25 @@ responses, end the run rather than continuing at the same rate. A single 429 is 
 overload signal rather than a retryable blip — it is the server explicitly asking for less. A
 numeric `Retry-After` raises the delay to at least what was asked.
 
-`Crawl-delay` from robots.txt is honoured as a **floor** beneath the configured delay: the site's
-request can raise politeness and can never lower it.
+When robots.txt supplies `Crawl-delay` or a valid `Request-rate: requests/seconds`, the crawler
+uses the stricter interval before fetching declared sitemaps and every later request. The stored
+`crawl_delay_applied` value is that effective robots-derived interval; the parsed robots context
+retains the two directives separately.
+
+The shared request budget covers robots, sitemap discovery and audit rechecks, page requests,
+retries, redirects, captured resources, and browser HTTP routes. Robots directives can raise
+the configured delay floor, never lower it.
+
+Rendering launches Chromium with its sandbox enabled and refuses root execution. HTTP routes,
+including popup requests, are fulfilled through the same validated, pinned HTTP transport;
+Chromium does not continue those requests through its own DNS resolver. Browser cookies and
+cross-origin restrictions are preserved. Service workers are blocked.
+
+The renderer supports GET, HEAD, and OPTIONS, with a 5 MiB limit on each response's encoded
+HTTP body. A blocked WebSocket, unsupported method, refused destination, or exceeded response
+limit makes the render explicitly unavailable. Persistent browser profiles are currently
+unavailable; requesting one returns a named error without opening its directory. Stored DOM
+limits and credential-sensitive retention rules still apply separately.
 
 `robots.policy` accepts `respect` (obey), `report_only` (fetch it, report what it would block, crawl
 anyway — the honest audit setting), and `ignore` (do not fetch it at all).

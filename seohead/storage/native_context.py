@@ -211,12 +211,14 @@ def validate_context(
         if payload["fetch_state"] != "fetched" and parsed != {"groups": [], "sitemaps": []}:
             raise ScanError("unavailable robots summary cannot invent parsed rules")
         for group in parsed["groups"]:
-            if not isinstance(group, dict) or set(group) != {
+            legacy_keys = {
                 "user_agents",
                 "allow",
                 "disallow",
                 "crawl_delay",
-            }:
+            }
+            current_keys = legacy_keys | {"request_rate_delay"}
+            if not isinstance(group, dict) or set(group) not in (legacy_keys, current_keys):
                 raise ScanError("native robots group shape is invalid")
             if any(
                 not isinstance(group[key], list)
@@ -229,6 +231,13 @@ def validate_context(
                 type(delay) not in (int, float) or not math.isfinite(delay) or delay < 0
             ):
                 raise ScanError("native robots delay must be finite and nonnegative")
+            rate_delay = group.get("request_rate_delay")
+            if rate_delay is not None and (
+                type(rate_delay) not in (int, float)
+                or not math.isfinite(rate_delay)
+                or rate_delay <= 0
+            ):
+                raise ScanError("native robots request-rate delay must be finite and positive")
         return
     if item["kind"] != "robots_blocked_url":
         raise ScanError(
