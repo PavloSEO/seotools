@@ -24,6 +24,24 @@ All notable public changes are documented here.
   region, so `HEADING_BEFORE_H1` still answers for those pages. A Screaming Frog export carries
   no outline at all, and both checks skip there by name.
 
+- Stop losing a completed crawl's audit to a fixed 30-second inspection budget on reopen
+  (#631). `NativeScan.open()` reads a native scan's header through `inspect()`, which also
+  runs `PRAGMA quick_check` and `PRAGMA foreign_key_check` over the whole database -- a real
+  safety check, but one whose cost scales with the artifact while the budget did not. A
+  3.5-hour, 40 920-page crawl finished collecting everything it set out to collect and then
+  produced no audit at all, because reopening the resulting 1 GB artifact needed roughly 48
+  seconds of validation against a budget fixed at 30. Worse, the failure gave no reason to
+  suspect a budget: the deadline abort surfaces from SQLite as a bare
+  `sqlite3.OperationalError("interrupted")`, and that was wrapped verbatim into `cannot
+  inspect native scan: interrupted`, indistinguishable from a genuinely corrupt file. Both
+  are fixed. The default budget is now derived from the artifact's size (a 30-second floor
+  for small files, plus a generous per-byte allowance well under the ~22 MB/s measured
+  validation rate, since this is a ceiling against a hung read and not a performance target)
+  -- an explicit `timeout_seconds` from a caller still overrides it. And a deadline abort now
+  raises a `ScanError` that names the budget, the elapsed time and the artifact's size, so an
+  operator can tell a slow large file from a corrupt one instead of reading "interrupted" as
+  something they did wrong.
+
 - Add `crawl-site --resume <scan.sqlite>` (#619). `NativeScan.resume_snapshot()`, the
   `resume_state` table and the writer that fills it had existed since the scan artifact was
   designed, and `crawl_to_scan` already continued an existing file -- but only for a caller
