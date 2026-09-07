@@ -54,20 +54,19 @@ has budget. `UNLINKED_PAGINATION_SERIES` flags a series reachable *only* by foll
 `rel="next"`, never by an ordinary hyperlink: a discovery path that depends entirely on an
 annotation search engines have said they no longer use for indexing.
 
-**4. Export All Inlinks too, because two of these are about the page's own markup.**
-
-Screaming Frog writes one All Inlinks row per link *and* one per `rel="next"`/`rel="prev"`
-declaration, typed as such — one row per declaration, which is the shape a count needs. The
-`1` in `Internal:All`'s `rel="next" 1` header is an occurrence index, not a cap, but this
-toolkit's column map does not carry a `rel="next" 2`, so a count taken from there would be
-limited by our own column list rather than by the data. The anchor check below needs All
-Inlinks regardless, so both of these read it and both skip together without it:
+**4. Export All Inlinks too, because the anchor check needs a page's own link inventory.**
 
 `PAGINATION_MULTIPLE` fires when a page declares two *different* `rel="next"` URLs (or two
 `rel="prev"` URLs). "Different" is judged after URL normalization, the same identity the anchor
 check uses: `/blog/page/2` and `/blog/page/2/` from two plugins are one successor spelled twice,
 which is untidy markup and not an ambiguous series. Two genuinely different URLs leave a crawler
-to pick one without telling anybody which.
+to pick one without telling anybody which. This one has a light path: Screaming Frog numbers a
+repeated declaration by occurrence rather than dropping it, the same way `Canonical Link
+Element 2` answers `CANONICAL_MULTIPLE`, and `Internal:All`'s `rel="next" 2` / `rel="prev" 2`
+columns are read first — a second occurrence there is enough evidence on its own, with no All
+Inlinks export needed. Only a profile whose `Internal:All` was written without those columns
+falls back to reading All Inlinks for this one, the same export the anchor check below always
+needs.
 
 `PAGINATION_URL_NOT_IN_ANCHOR` fires when a declared pagination URL is not also linked from the
 same page with an ordinary `<a href>`. Google stopped using these annotations for indexing in

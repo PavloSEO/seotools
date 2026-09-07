@@ -5,12 +5,15 @@ All notable public changes are documented here.
 ## Unreleased
 
 - Close the three pagination rows #385 left open, taking the registry from 152 to 155 checks.
-  `PAGINATION_MULTIPLE` and `PAGINATION_URL_NOT_IN_ANCHOR` read the All Inlinks export, which
-  carries every `rel="next"`/`rel="prev"` declaration as its own typed row beside the page's
-  anchors, and report a page that declares two different successors, or one whose declared URL
-  is not also an anchor on the same page. Successors are compared after URL normalization, the
-  same identity the anchor half uses, so `/blog/page/2` and `/blog/page/2/` from two plugins
-  are one successor spelled twice rather than an ambiguous series.
+  `PAGINATION_MULTIPLE` and `PAGINATION_URL_NOT_IN_ANCHOR` report a page that declares two
+  different successors, or one whose declared URL is not also an anchor on the same page.
+  Successors are compared after URL normalization, the same identity the anchor half uses, so
+  `/blog/page/2` and `/blog/page/2/` from two plugins are one successor spelled twice rather
+  than an ambiguous series. `PAGINATION_URL_NOT_IN_ANCHOR` needs a page's whole link inventory
+  and reads the All Inlinks export for it; `PAGINATION_MULTIPLE` does not, and now reads the
+  lighter `Internal:All` `rel="next" 2` / `rel="prev" 2` occurrence columns first, the same way
+  `CANONICAL_MULTIPLE` already answers from `Canonical Link Element 2` — All Inlinks is only a
+  fallback for a profile whose `Internal:All` was written without those columns.
   `PAGINATION_SEQUENCE_ERROR` reports a break in a page-number run the series otherwise
   follows, per the issue's own caveat: a series may start at a number other than one, a stride
   is not a break, and a series whose URLs do not state a page number is declared unevaluated

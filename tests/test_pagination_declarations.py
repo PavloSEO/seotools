@@ -209,6 +209,51 @@ def test_a_trailing_slash_difference_is_not_a_missing_anchor(tmp_path):
     assert not _fired(res, "PAGINATION_URL_NOT_IN_ANCHOR")
 
 
+def test_a_second_rel_next_column_fires_multiple_without_all_inlinks(tmp_path):
+    """PAGINATION_MULTIPLE's light path: Internal:All's own occurrence-2 column
+    is enough on its own, the same way canonical_2 answers CANONICAL_MULTIPLE.
+
+    Regression: the check used to treat the heavier All Inlinks export as the
+    only possible source and skipped PAGINATION_MULTIPLE outright whenever
+    that export was absent, even though Internal:All already said enough.
+    """
+    d = tmp_path / "exports"
+    d.mkdir()
+    with open(d / "internal_all.csv", "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(INTERNAL_COLS + ['rel="next" 2'])
+        w.writerows(
+            [
+                _page_row(PAGE_1, PAGE_2) + [PAGE_3],
+                _page_row(PAGE_2) + [""],
+                _page_row(PAGE_3) + [""],
+            ]
+        )
+    res = run_audit(input_mode="parse-exports", exports_dir=str(d), log=lambda m: None)
+    fired = _fired(res, "PAGINATION_MULTIPLE")
+    assert set(fired) == {PAGE_1}
+    assert fired[PAGE_1].details == {"relation": 'rel="next"', "urls": [PAGE_2, PAGE_3]}
+    # PAGINATION_URL_NOT_IN_ANCHOR still needs the anchors only All Inlinks has.
+    assert "no all_inlinks export" in (_skip_reason(res, "PAGINATION_URL_NOT_IN_ANCHOR") or "")
+    assert _skip_reason(res, "PAGINATION_MULTIPLE") is None
+
+
+def test_a_second_rel_next_column_the_same_url_stays_silent(tmp_path):
+    d = tmp_path / "exports"
+    d.mkdir()
+    with open(d / "internal_all.csv", "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(INTERNAL_COLS + ['rel="next" 2'])
+        w.writerows(
+            [
+                _page_row(PAGE_1, PAGE_2) + [PAGE_2],
+                _page_row(PAGE_2) + [""],
+            ]
+        )
+    res = run_audit(input_mode="parse-exports", exports_dir=str(d), log=lambda m: None)
+    assert not _fired(res, "PAGINATION_MULTIPLE")
+
+
 def test_without_the_export_both_declare_themselves_absent(tmp_path):
     res = _run(tmp_path, [_page_row(PAGE_1, PAGE_2), _page_row(PAGE_2)])
     for check in ("PAGINATION_MULTIPLE", "PAGINATION_URL_NOT_IN_ANCHOR"):

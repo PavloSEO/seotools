@@ -1000,18 +1000,20 @@ def check_insecure_subresources(ctx: AuditContext) -> None:
 # Screaming Frog types every All Inlinks row, and a page's own rel="next" /
 # rel="prev" declarations are rows in it like any other link (the same Type
 # values _NON_RESOURCE_LINK_TYPES above already names), one row per
-# declaration. Counting a page's declarations is therefore what that export is
-# already shaped for.
+# declaration. That export is also the only place PAGINATION_URL_NOT_IN_ANCHOR
+# can be answered from at all, because it needs the page's anchors, not just
+# its declarations -- Internal:All carries no anchor inventory whatever its
+# column list covers.
 #
-# Not because Internal:All throws the rest away. The trailing 1 in its
-# rel="next" 1 header is an occurrence index, and normalize.INTERNAL_FIELD_MAP
-# maps a second occurrence where SF writes one -- canonical / canonical_2 is
-# exactly that pair, and CANONICAL_MULTIPLE is answered from it. What the map
-# does not carry is a rel="next" 2, so a count taken from Internal:All today
-# would be capped at one by our own column list rather than by the data, and
-# could not tell "the page declared one" from "we read only the first". The
-# anchor half of this pair needs All Inlinks whatever happens, so both read it
-# and both skip together on the same named absence (#385).
+# PAGINATION_MULTIPLE does not actually need that heavy export: SF numbers a
+# repeated head element by occurrence rather than dropping it -- canonical /
+# canonical_2 is that pair, and CANONICAL_MULTIPLE (check_canonical_extra)
+# reads it straight off Internal:All -- and normalize.INTERNAL_FIELD_MAP now
+# carries the same rel_next_2 / rel_prev_2 pair. Two declarations are enough
+# to answer "did this page declare more than one successor", so the light
+# check below reads Internal:All first and only asks the heavier All Inlinks
+# export when that column is missing (an older SF profile, or a native crawl
+# that does not fill occurrence-2 head columns at all).
 _PAGINATION_LINK_TYPES = {"rel next": 'rel="next"', "rel prev": 'rel="prev"'}
 
 _PAGINATION_DECLARATION_CHECKS = ("PAGINATION_MULTIPLE", "PAGINATION_URL_NOT_IN_ANCHOR")
@@ -1070,6 +1072,43 @@ def _anchor_destinations(records: list[dict[str, Any]]) -> dict[str, set[str]]:
     return out
 
 
+def _light_pagination_multiple(ctx: AuditContext) -> bool:
+    """PAGINATION_MULTIPLE from Internal:All's occurrence-2 columns alone.
+
+    Mirrors ``check_canonical_extra``'s CANONICAL_MULTIPLE: the mere presence
+    of a second occurrence is the finding, whatever its value happens to be.
+    Returns whether the light columns exist at all, so the caller knows
+    whether it can skip the heavier All Inlinks read for this check.
+    """
+    from .normalize import INTERNAL_FIELD_MAP, find_column
+
+    if ctx.internal_df is None:
+        return False
+    has_light_column = any(
+        find_column(ctx.internal_df, INTERNAL_FIELD_MAP[field]) is not None
+        for field in ("rel_next_2", "rel_prev_2")
+    )
+    if not has_light_column:
+        return False
+    for page in ctx.html_pages():
+        rec = _rec(page)
+        for relation, first_field, second_field in (
+            ('rel="next"', "rel_next", "rel_next_2"),
+            ('rel="prev"', "rel_prev", "rel_prev_2"),
+        ):
+            first, second = rec.get(first_field), rec.get(second_field)
+            if not first or not second:
+                continue
+            if norm_url(first) == norm_url(second):
+                continue
+            ctx.add(
+                "PAGINATION_MULTIPLE",
+                target_url=page.url,
+                details={"relation": relation, "urls": [first, second]},
+            )
+    return True
+
+
 def check_pagination_declarations(ctx: AuditContext) -> None:
     """PAGINATION_MULTIPLE / PAGINATION_URL_NOT_IN_ANCHOR — the declarations themselves.
 
@@ -1084,9 +1123,19 @@ def check_pagination_declarations(ctx: AuditContext) -> None:
     over: no export, no Type column to tell a declaration from an anchor, no
     declarations in it at all.
     """
+    # PAGINATION_MULTIPLE's light path is independent of every precondition
+    # below -- it reads Internal:All's occurrence-2 columns, not All Inlinks --
+    # so it runs first and, when it has the columns to answer from, PAGINATION_
+    # MULTIPLE is no longer among the checks a missing/short All Inlinks export
+    # skips.
+    light_ran = _light_pagination_multiple(ctx)
+    skip_checks = (
+        ("PAGINATION_URL_NOT_IN_ANCHOR",) if light_ran else _PAGINATION_DECLARATION_CHECKS
+    )
+
     records = _all_inlink_records(ctx)
     if records is None and _graph_access(ctx) is None:
-        for check_id in _PAGINATION_DECLARATION_CHECKS:
+        for check_id in skip_checks:
             ctx.skip(
                 check_id,
                 'no all_inlinks export (needed for every rel="next"/rel="prev" '
@@ -1100,7 +1149,7 @@ def check_pagination_declarations(ctx: AuditContext) -> None:
     # reach the same verdict as an export written without the column, which is
     # also what the two routes' parity contract requires of every check.
     if records is None or not any(rec.get("type") for rec in records):
-        for check_id in _PAGINATION_DECLARATION_CHECKS:
+        for check_id in skip_checks:
             ctx.skip(
                 check_id,
                 "the link inventory carries no link type (needed to tell a "
@@ -1109,7 +1158,7 @@ def check_pagination_declarations(ctx: AuditContext) -> None:
         return
     declarations = _pagination_declarations(records)
     if not declarations:
-        for check_id in _PAGINATION_DECLARATION_CHECKS:
+        for check_id in skip_checks:
             ctx.skip(check_id, 'all_inlinks export contains no rel="next"/rel="prev" rows')
         return
 
@@ -1124,13 +1173,14 @@ def check_pagination_declarations(ctx: AuditContext) -> None:
         )
 
     for source, by_relation in declarations.items():
-        for relation, targets in by_relation.items():
-            if len(targets) > 1:
-                ctx.add(
-                    "PAGINATION_MULTIPLE",
-                    target_url=source,
-                    details={"relation": relation, "urls": targets},
-                )
+        if not light_ran:
+            for relation, targets in by_relation.items():
+                if len(targets) > 1:
+                    ctx.add(
+                        "PAGINATION_MULTIPLE",
+                        target_url=source,
+                        details={"relation": relation, "urls": targets},
+                    )
         if not anchors:
             continue
         linked = anchors.get(norm_url(source), set())

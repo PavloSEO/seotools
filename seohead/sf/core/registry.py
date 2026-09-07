@@ -725,7 +725,7 @@ CHECKS: dict[str, dict[str, Any]] = {
     },
     "PAGINATION_MULTIPLE": {
         "severity": "warning",
-        "source": "inlinks:All Inlinks",
+        "source": "SF-derived",
         "message": 'The page declares more than one rel="next" (or more than one rel="prev") URL',
         "fix": 'Declare exactly one rel="next" and one rel="prev" URL per page; two different '
         "successors leave the series ambiguous, and a crawler picks one of them without "
