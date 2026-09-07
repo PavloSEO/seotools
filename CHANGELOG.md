@@ -4,6 +4,22 @@ All notable public changes are documented here.
 
 ## Unreleased
 
+- Keep a finished collection when the audit that follows it crashes (#627). A native crawl of
+  a live site spent twenty minutes gathering 600 pages into a `--scan-out` artifact and then
+  printed `error: 'rel_next_2'` -- a `KeyError`'s `str()` is the key and nothing else. No
+  phase, no traceback, and no sign that every page it had collected was sitting complete and
+  re-analysable in the file. Collection commits its rows and closes before the audit begins,
+  so anything raised after that point is the analyzer misbehaving and never the crawl; an
+  unexpected exception there is now named by phase, carries the exception's type as well as
+  its message, and points at the retained artifact and the command that re-analyses it,
+  exactly as the oversized-audit path already did. The run reports `audit_available: false`
+  with that reason rather than exiting on the exception, and `crawl-site` exits 2 for it --
+  the same third answer the log-scan contradiction already uses, because 0 would read as "the
+  audit ran and found this" and 1 as "the command produced nothing", and neither is true of a
+  crawl whose evidence survived. The `KeyError` itself did not reproduce: the same command
+  against the same site on current main completed, so this changes what happens when an audit
+  fails, not what made that one fail.
+
 - Stop losing a completed crawl's audit to a fixed 30-second inspection budget on reopen
   (#631). `NativeScan.open()` reads a native scan's header through `inspect()`, which also
   runs `PRAGMA quick_check` and `PRAGMA foreign_key_check` over the whole database -- a real
