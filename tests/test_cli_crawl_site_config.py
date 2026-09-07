@@ -44,7 +44,13 @@ from seohead.servers import handlers
 # --urls-file (#21) is list mode's file-input counterpart to --urls and wraps
 # to its own line for the same reason as --max-urls-per-second: the option
 # plus its metavar does not fit the terminal width argparse wraps against.
-HELP_LINE_CEILING = 37
+#
+# --resume (#619) is an input source, the case the rule above already allows:
+# it names where this crawl's input comes from -- an artifact holding the
+# frontier, the settings and the start URL -- rather than configuring how the
+# crawl behaves. It cannot be a --config setting for the same reason --url
+# cannot: --config is one of the things it supplies.
+HELP_LINE_CEILING = 41
 
 
 def _help_lines(capsys):

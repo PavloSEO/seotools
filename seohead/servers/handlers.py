@@ -479,6 +479,7 @@ def crawl_site(
     scan_out: str | None = None,
     producer_build: str | None = None,
     overrides: dict[str, Any] | None = None,
+    resume: str | None = None,
 ) -> dict[str, Any]:
     """Crawl a site from a start URL, or fetch an explicit list, then audit it.
 
@@ -498,7 +499,47 @@ def crawl_site(
     re-fetches it to check the sitemap protocol's own limits and whether
     robots.txt declares it; with none given, those checks skip by name
     rather than guess at a default sitemap location.
+
+    ``resume`` names an interrupted SQLite scan artifact to continue instead of
+    describing a new crawl. It is the whole input: the start URL and every
+    crawler setting are read back from the artifact, because they are what the
+    stored frontier was built under. Passing any other crawl-shaping argument
+    alongside it is therefore an error rather than an override -- see
+    ``seohead.servers.scan_handlers.resume_scan`` for the refusals decided
+    before the first request.
     """
+    if resume is not None:
+        # ``is not None`` rather than truthiness: --min-delay 0 and --max-urls 0 are
+        # settings the caller stated, and silently accepting them here would let a
+        # resume run under a value it then refuses to apply.
+        conflicting = [
+            name
+            for name, value in (
+                ("urls", urls),
+                ("urls_file", urls_file),
+                ("config", config),
+                ("max_urls", max_urls),
+                ("max_depth", max_depth),
+                ("min_delay", min_delay),
+                ("concurrency", concurrency),
+                ("robots", robots),
+                ("out_dir", out_dir),
+                ("sitemap", sitemap),
+                ("overrides", overrides),
+            )
+            if value is not None and value != "" and value not in ([], {})
+        ]
+        if scan_out is not None and scan_out != resume:
+            conflicting.append("scan_out")
+        if conflicting:
+            raise ValueError(
+                "resume continues the crawl its artifact already describes and reads every "
+                "setting from it; it cannot be combined with " + ", ".join(sorted(conflicting))
+            )
+        from seohead.servers.scan_handlers import resume_scan
+
+        return resume_scan(resume, url=url, producer_build=producer_build)
+
     import contextlib
     import os
 

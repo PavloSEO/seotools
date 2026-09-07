@@ -9,6 +9,16 @@ tell a successful resume apart from an intentional fresh start.
 > `crawl-site` got killed (Ctrl-C, an OOM, a closed laptop lid) partway through. Can I pick up
 > where it left off, or do I have to refetch the whole site?
 
+## Which checkpoint you have
+
+There are two, one per output mode, and they resume differently:
+
+| You ran | The checkpoint | How to resume |
+|---|---|---|
+| `--out-dir ./run` | `./run/crawl_state.json` | rerun the identical command — see the rest of this page |
+| `--scan-out scan.sqlite` | the scan artifact itself | `seohead crawl-site --resume scan.sqlite` — see [the SQLite scan section](#a-sqlite-scan-crawl-site---resume) |
+| neither | none | there is nothing to resume; the run starts over |
+
 ## The checkpoint
 
 Every crawl with an output directory writes `crawl_state.json` there as it runs — the frontier
@@ -30,8 +40,8 @@ seohead crawl-site --url https://example.com --config ./crawl.json --out-dir ./r
 ```
 
 If it stops early — Ctrl-C, a crash, the process killed — run that identical line again.
-Nothing about resuming is automatic beyond that: there is no separate `--resume` flag, because
-the checkpoint's own presence and matching fingerprint *are* the resume decision.
+Nothing about resuming a directory run is automatic beyond that: `--resume` does not apply to it,
+because the checkpoint's own presence and matching fingerprint *are* the resume decision here.
 
 ## Reading the result: resume, or intentional fresh start
 
@@ -61,12 +71,63 @@ start URL, exactly like a first run, and that is the correct behaviour, not a de
 Inspect `run.crawl_resumed` and `run.crawl_finish_reason` in `./run/audit.json` after the second
 run. Use `seohead log-scan --run ./run` to find contradictions among the run's recorded facts.
 
+## A SQLite scan: `crawl-site --resume`
+
+A `--scan-out` run keeps no `crawl_state.json`. The artifact *is* the checkpoint: the frontier,
+the throttle state, the start URL and the complete effective configuration are all inside it, in
+the same transaction as the evidence. So a resume takes the file and nothing else:
+
+```bash
+seohead crawl-site --url https://example.com --config ./crawl.json --scan-out ./scan.sqlite
+# killed at 6 516 of 34 635 pages
+seohead crawl-site --resume ./scan.sqlite
+```
+
+No `--url`, no `--config`, no `--max-urls`. That is not shorthand — the start URL and every
+setting are read back from the file, because they are what the stored frontier was built under.
+Passing one alongside `--resume` is refused rather than applied: a resume that took its scope or
+its limits from a second command line would continue one crawl under another crawl's rules.
+
+Before a single request leaves the machine, a resume refuses by name:
+
+| Refusal | When |
+|---|---|
+| `refusing a mixed-build resume` (naming both SHAs) | the artifact was written by a different source revision than the one running now |
+| `refusing to resume one crawl as another` | a `--url` was passed and it is not the start URL the artifact records |
+| `already finished` / `already failed` | the artifact reached a terminal lifecycle; a finished scan is immutable |
+| `a resume cannot restore them` | the crawl used credential headers, which the artifact stores only redacted |
+| `is a derived reanalysis artifact` | the file came from `scan reanalyze`, not from a crawl |
+
+Pass `--producer-build <sha>` to name the build explicitly when this checkout cannot be verified
+as the one that wrote the file.
+
+On exit, `crawl-site` prints one line to stderr saying which of the two happened:
+
+```text
+crawl-site: finished; 34635 URLs fetched (this run continued an earlier one)
+crawl-site: stopped early (origin stopped responding or refused repeatedly); 6516 URLs fetched. Continue it with: seohead crawl-site --resume ./scan.sqlite
+```
+
+A crawl that stopped at a budget it was given is the one case with no resume to offer, and the
+line says that instead of suggesting one — `limits.max_urls` and `limits.max_crawl_seconds` are
+part of the configuration a resume reads back, so continuing under them stops at the same place:
+
+```text
+crawl-site: stopped early (url limit reached (200)); 200 URLs fetched. The URL budget (limits.max_urls) was reached, and a resume continues under it: raise it and crawl to a new scan to go further
+```
+
+The same distinction is in the JSON on stdout (`partial`, `finish_reason`, `resumed`) and in the
+stored audit (`run.crawl_resumed`, `run.crawl_finish_reason`), so a resumed run never reads as a
+completed one and a partial run never reads as a whole site.
+
 ## What resuming does and does not promise
 
 An identical retry reuses recorded completed page results and continues with the queued frontier.
 `crawl_state.json`'s `seen` set is discovery state, not proof that each URL was persisted as a
 completed page result. A request still in flight when an interruption or circuit breaker stops
-the crawl, and whose result was not recorded, may be repeated on the retry.
+the crawl, and whose result was not recorded, may be repeated on the retry. The same holds for a
+SQLite scan: a committed page is never fetched twice, but a lease that was in flight when the
+process died is requeued, because nothing was recorded for it.
 
 ## What it cannot answer
 

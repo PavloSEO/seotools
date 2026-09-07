@@ -144,6 +144,7 @@ def build_server():  # -> FastMCP
         scan_out: str | None = None,
         producer_build: str | None = None,
         overrides: dict[str, Any] | None = None,
+        resume: str | None = None,
     ) -> dict[str, Any]:
         """Crawl a site from a start URL by following links, or fetch an explicit
         ``urls`` list instead of following links at all, then audit the result
@@ -185,7 +186,14 @@ def build_server():  # -> FastMCP
         network recording are excluded. Offline reanalysis is unavailable. Audit
         creation has a finite population/output limit and may return unavailable
         while preserving the scan. Supply ``producer_build`` when source provenance
-        cannot be determined from a clean checkout."""
+        cannot be determined from a clean checkout.
+
+        ``resume`` names an interrupted ``scan_out`` artifact to continue from its
+        stored frontier and throttle state. It is the whole input: the start URL
+        and every crawler setting are read back from the file, since they are what
+        that frontier was built under, so no other crawl argument may accompany it.
+        A scan written by a different producing build, for a different start URL,
+        or already finished is refused by name before the first request."""
         return _checked(
             handlers.crawl_site(
                 url=url or None,
@@ -202,6 +210,7 @@ def build_server():  # -> FastMCP
                 scan_out=scan_out,
                 producer_build=producer_build,
                 overrides=overrides,
+                resume=resume,
             )
         )
 
