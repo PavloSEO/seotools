@@ -106,6 +106,22 @@ WAL_CHECKPOINT_WAIT_SECONDS = 30.0
 _WAL_WAIT_NOTE = "a write waited for a reader to release the bounded WAL checkpoint"
 BACKUP_TIMEOUT_SECONDS = 60.0
 FINALIZATION_TIMEOUT_SECONDS = 10.0
+# inspect()'s integrity pass (PRAGMA quick_check + PRAGMA foreign_key_check) scans the
+# whole database, so its cost is O(file size), not O(header). Measured on a 1073 MB
+# artifact (issue #631): 48.13s, i.e. ~22 MB/s. This is a ceiling against a hung read,
+# not a performance target, so the budgeted rate is set well below the measured one
+# rather than near it: 4 MiB/s, which grants that same 1073 MB artifact 256s where it
+# needed 48 -- roughly five times the time it actually took.
+INSPECT_MIN_TIMEOUT_SECONDS = 30.0
+INSPECT_BYTES_PER_SECOND = 4 * 1024 * 1024
+
+
+def _default_inspect_timeout(size_bytes: int) -> float:
+    """Derive inspect()'s deadline from the artifact instead of a fixed constant.
+
+    See INSPECT_BYTES_PER_SECOND above for the measurement this rate comes from.
+    """
+    return max(INSPECT_MIN_TIMEOUT_SECONDS, size_bytes / INSPECT_BYTES_PER_SECOND)
 
 
 def _native_config(value: Any, *, recorded: bool = False) -> dict[str, Any]:
@@ -501,21 +517,43 @@ class NativeScan:
             raise
 
     @classmethod
-    def inspect(cls, path: str | Path, *, timeout_seconds: float = 30.0) -> dict[str, Any]:
+    def inspect(cls, path: str | Path, *, timeout_seconds: float | None = None) -> dict[str, Any]:
         """Validate an unfinished native scan read-only; it is not a report reader."""
         _runtime()
         source = Path(path).resolve()
+        if timeout_seconds is None:
+            # The validation this budget bounds (see _validate_native) is O(file
+            # size), so derive the default from the artifact instead of a fixed
+            # constant -- an explicit timeout_seconds from a caller still wins.
+            try:
+                size_bytes = source.stat().st_size
+            except OSError:
+                size_bytes = 0
+            timeout_seconds = _default_inspect_timeout(size_bytes)
         if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
             raise ScanError("native inspection timeout must be positive")
         con: sqlite3.Connection | None = None
+        start = time.monotonic()
+        timed_out = False
         try:
             con = sqlite3.connect(source.as_uri() + "?mode=ro", uri=True, timeout=5)
             con.row_factory = sqlite3.Row
             con.execute("PRAGMA trusted_schema=OFF")
             con.execute("PRAGMA query_only=ON")
             con.execute("PRAGMA foreign_keys=ON")
-            deadline = time.monotonic() + timeout_seconds
-            con.set_progress_handler(lambda: int(time.monotonic() > deadline), 10_000)
+            deadline = start + timeout_seconds
+
+            def _past_deadline() -> int:
+                # Runs inside sqlite3's progress handler; a plain nonlocal flag
+                # is enough to tell "we cancelled this on purpose" apart from
+                # any other sqlite3.OperationalError in the except branch below.
+                nonlocal timed_out
+                if time.monotonic() > deadline:
+                    timed_out = True
+                    return 1
+                return 0
+
+            con.set_progress_handler(_past_deadline, 10_000)
             con.execute("BEGIN")
             cls._validate_native(con)
             scan = dict(con.execute("SELECT * FROM scan WHERE singleton=1").fetchone())
@@ -534,6 +572,19 @@ class NativeScan:
                 },
             }
         except (OSError, sqlite3.Error, ValueError, TypeError, KeyError) as exc:
+            if timed_out:
+                elapsed = time.monotonic() - start
+                try:
+                    size_bytes = source.stat().st_size
+                    size_desc = f"{size_bytes} bytes"
+                except OSError:
+                    size_desc = "unknown size"
+                raise ScanError(
+                    "native scan inspection exceeded its "
+                    f"{timeout_seconds:.1f}s budget after {elapsed:.1f}s "
+                    f"(artifact: {size_desc}); pass a larger timeout_seconds "
+                    "for a large or slow-to-read artifact"
+                ) from exc
             raise ScanError(f"cannot inspect native scan: {exc}") from exc
         finally:
             if con is not None:
