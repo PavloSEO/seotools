@@ -20,6 +20,23 @@ All notable public changes are documented here.
   that arrives undecoded anyway aborts the request and names itself, because passing it through
   would reproduce the bug in silence. The byte cap now counts decoded bytes, which is the body
   the renderer sees -- a compression bomb previously passed the cap compressed.
+- Read Open Graph off a native crawl by the key the parser actually writes (#646).
+  `parse_html` stores each tag under its full property name -- `{"og:title": ...}`, as its own
+  docstring says -- and `crawl/collect.py` asked the same dict for `"title"`, `"description"` and
+  `"image"`. `dict.get` answered `None` every time, so `og_title`, `og_description` and `og_image`
+  were empty on every page of every native crawl ever run: 0 of 40 920 pages carried one on the
+  run that surfaced this, on a site whose pages do publish Open Graph. That is the repository's
+  central rule inverted -- an unmeasured field read as a measured one -- and it travelled, because
+  `crawl/evidence.py` projects those columns into `OG:Title`, `OG:Description` and `OG:Image` of
+  the Internal:All frame, so a check saw blank on a native crawl and the real value on a Screaming
+  Frog export of the same site. `check_og`'s honesty contract hid the damage rather than showing
+  it: with no OG column populated anywhere it skipped, so a site with Open Graph audited
+  identically to a site without it. The parser is unchanged; only the read side moved. A new
+  `tests/test_open_graph_seam.py` crawls two loopback fixture sites and follows the value from
+  parser to `pages.jsonl` to the `pages` table of the scan artifact to the `OG:*` frame columns,
+  crawls a second site with no Open Graph to hold "empty because absent" apart from "empty because
+  unread", and pins the parser's key shape in the same file -- the failure was two correct modules
+  disagreeing about a key name with no test spanning both.
 - Answer "is this site linked well, and where is it linked badly", taking the registry from 157
   to 161 checks and adding an `internal-linking` skill (#634). The pieces existed -- every edge
   with its position, anchor and nofollow flag in the `links` table, `ORPHAN_PAGE`,
