@@ -78,6 +78,29 @@ All notable public changes are documented here.
   exactly once across both processes and produces an audit identical to an uninterrupted
   crawl's in every field but that one.
 
+- Stop `render-check` calling an unrendered page clean, and stop it discarding raw-HTML
+  evidence with a failed render (#642). Two consequences of #623's guard, both in
+  `render.py`. First, a render that timed out at its load milestone falls back to reading the
+  DOM at `domcontentloaded` -- sound in itself -- but when no script had run by then the
+  rendered DOM equalled the raw HTML, the comparator found nothing, and the run reported
+  `ok: True`, `js_dependent: False` and the single finding "Raw HTML and rendered DOM are
+  materially equivalent; JavaScript rendering does not determine SEO-visible content", graded
+  a notice, about a page nobody had rendered. `wait_reached` recorded the truth, but the site
+  audit carries findings text and nothing else into its report, so the truth never arrived.
+  A run that fell back to an earlier milestone now says so in the findings list itself,
+  withholds the all-clear, and reports `js_dependent: None` -- this run does not know --
+  instead of `False`. It fired under the default `--wait load`, not only under an explicitly
+  requested `networkidle`. Second, the guard returned its single "the comparison is
+  unavailable" statement before reaching the empty-shell branch, and `render_check`'s early
+  return omitted the `empty_shell` key altogether -- so an empty single-page-application
+  mount point, which `detect_empty_shell()` reads out of the raw server response and which
+  needs no browser at all, was thrown away together with the render that failed. Since an
+  SPA shell is exactly the page whose render times out, the finding was lost precisely where
+  it mattered. A finding derived from the raw half now survives an unfinished render; only
+  findings derived from the rendered half are suppressed. In a crawl, a render probe that
+  reached no verdict now lands in `patterns_unprobed` with its reason (#626's channel)
+  rather than counting as a pattern measured and found not to need rendering.
+
 - Report an unreadable robots.txt as a fact about the site, not as an internal error (#629).
   `EMPTY_ROBOTS` -- the stand-in `_fetch_robots` returns on every path where robots.txt could
   not be read -- was still the parsed-robots shape from before the parser grew groups and
