@@ -18,7 +18,7 @@ core through two interfaces — CLI and local MCP. It is not a general-purpose c
 | Looking for a tool's exact arguments, types, defaults, or cost | [TOOL_REFERENCE.md](TOOL_REFERENCE.md) — generated from the MCP tool definitions |
 | Looking for a check the SF audit runs | [CHECKS.md](CHECKS.md) — all 149, generated from the registry |
 | Wondering how this compares to a licensed crawler | [COVERAGE_SF_ISSUES.md](COVERAGE_SF_ISSUES.md) — all 320 published issues, each with a status |
-| Looking for a method, not a command | [SKILLS.md](SKILLS.md) — map of the 22 skills |
+| Looking for a method, not a command | [SKILLS.md](SKILLS.md) — map of the 23 skills |
 | Looking for a no-key workflow | [RECIPES.md](RECIPES.md) — exports, traffic decline, bounded live audit |
 | About to change code | [ARCHITECTURE.md](ARCHITECTURE.md) — layers and invariants |
 | Naming a new module or test file | [NAMING.md](NAMING.md) — what a name must say, and what is deliberately left alone |
@@ -40,7 +40,7 @@ core through two interfaces — CLI and local MCP. It is not a general-purpose c
   definitions in `seohead/servers/mcp_server.py` and `sf_mcp.py`
   (`scripts/generate_tool_reference.py`); `tests/test_docs_drift.py` fails the
   build if it drifts.
-- **[CHECKS.md](CHECKS.md)** — the 157 checks the SF crawl audit runs: what each fires
+- **[CHECKS.md](CHECKS.md)** — the 161 checks the SF crawl audit runs: what each fires
   on, what evidence it needs, and the fix that ships with the finding. Generated
   from `seohead/sf/core/registry.py` (`scripts/generate_checks_reference.py`);
   `tests/test_docs_drift.py` fails the build if it drifts from the registry.

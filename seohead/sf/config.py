@@ -111,6 +111,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "low_text_ratio_pct": 10,
         "url_max_chars": 115,
         "crawl_depth_max": 4,
+        "click_depth_max": 10,
         "orphan_inlinks_min": 1,
         "response_time_max_s": 1.5,
         "large_html_abs_kb": 200,

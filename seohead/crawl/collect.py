@@ -33,7 +33,7 @@ from seohead.crawl.settings import (
 )
 from seohead.crawl.throttle import MAX_DELAY_S, DispatchGate, Throttle
 from seohead.recon.net import UA, BlockedRedirectError, http_client, pinned_target, validate_url
-from seohead.tools.parser import parse_html, uses_ajax_crawling_scheme
+from seohead.tools.parser import empty_link_placement, parse_html, uses_ajax_crawling_scheme
 from seohead.tools.robots import is_allowed, match_path, parse_robots
 
 SCHEMA_VERSION = "crawl.v1"
@@ -153,6 +153,14 @@ class PageRecord:
     # position rule matched -- unmeasured, not "content" (see
     # parser.heading_outline).
     heading_outline: list[dict[str, Any]] = field(default_factory=list)
+    # The two link defects a page region cannot show: anchors wrapped in an
+    # h1-h6, and image links with no anchor text and no alt (#634). Both lists
+    # inside are capped by the parser, so this costs a small constant per page
+    # rather than growing with the link count -- which is why, like the heading
+    # outline above, it is not behind link_position.classify. A record whose
+    # HTML was never parsed (an error, a non-HTML response) keeps the empty
+    # default, which is true of a document with no anchors in it.
+    link_placement: dict[str, Any] = field(default_factory=empty_link_placement)
     head_count: int = 0
     body_count: int = 0
     head_not_first: bool = False
@@ -312,6 +320,7 @@ def _record_from_parsed(parsed: dict) -> dict[str, Any]:
         "hreflang_outside_head": position.get("hreflang_outside_head"),
         "hreflang": list(parsed.get("hreflang") or []),
         "heading_outline": list(parsed.get("heading_outline") or []),
+        "link_placement": parsed.get("link_placement") or empty_link_placement(),
         "head_count": int(position.get("head_count") or 0),
         "body_count": int(position.get("body_count") or 0),
         "head_not_first": bool(position.get("head_not_first")),

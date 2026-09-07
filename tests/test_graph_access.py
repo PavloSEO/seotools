@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from seohead.graph import AnchorGroup, InlinkCompositionRow
+from seohead.graph import AnchorGroup, DuplicateLinkGroup, InlinkCompositionRow
 from seohead.sf.config import load_config
 from seohead.sf.core.context import AuditContext
 from seohead.sf.core.inlinks import run_inlinks
@@ -73,7 +73,26 @@ class _Graph:
                     return (seed, "a", "b", "c", "d", "https://example.test/source", target)
                 return None
 
+            def iter_depths(self):
+                yield (seed, 0)
+                yield ("https://example.test/source", 5)
+                yield ("https://example.test/target", 6)
+
         return _Paths()
+
+    def position_totals(self):
+        # One classified edge and one the crawl never classified -- the pair the
+        # summary has to keep apart.
+        return {"content": 1, "": 1}
+
+    def iter_duplicate_links(self, _max_repeats):
+        yield DuplicateLinkGroup(
+            source_url="https://example.test/source",
+            surplus_total=1,
+            repeats=[
+                {"destination": "https://example.test/target", "anchor": "click here", "count": 2}
+            ],
+        )
 
     def iter_resources(self):
         return iter(())
@@ -122,7 +141,14 @@ def test_native_graph_access_runs_existing_inlink_emissions_without_all_inlinks_
         "ONLY_NOFOLLOW_INLINKS",
         "ONLY_NONINDEXABLE_SOURCE_INLINKS",
         "DEEP_DISCOVERY_PATH",
+        "DUPLICATE_INTERNAL_LINK",
     } <= checks
+    # The stored-graph backend answers the whole-graph summary too, and keeps the
+    # unclassified edge out of every position bucket.
+    assert ctx.internal_linking["by_position"] == {"content": 1}
+    assert ctx.internal_linking["unclassified"] == 1
+    assert ctx.internal_linking["duplicate_edges"] == 1
+    assert ctx.internal_linking["click_depth"]["max"] == 6
     skipped = {item.id: item.reason for item in ctx.skipped}
     assert "Type column" in skipped["INSECURE_SUBRESOURCE"]
     anchor = next(issue for issue in ctx.issues if issue.check == "GENERIC_ANCHOR_TEXT")
@@ -137,6 +163,9 @@ def test_export_context_without_graph_access_keeps_existing_all_inlinks_skips():
     skipped = {item.id: item.reason for item in ctx.skipped}
     assert "all_inlinks" in skipped["LOW_LINK_SCORE"]
     assert "all_inlinks" in skipped["DEEP_DISCOVERY_PATH"]
+    assert "all_inlinks" in skipped["DEEP_CLICK_DEPTH"]
+    assert "all_inlinks" in skipped["DUPLICATE_INTERNAL_LINK"]
+    assert "DUPLICATE_INTERNAL_LINK" not in {issue.check for issue in ctx.issues}
 
 
 def test_native_graph_with_no_internal_edges_skips_before_seed_lookup():
@@ -148,3 +177,5 @@ def test_native_graph_with_no_internal_edges_skips_before_seed_lookup():
     run_inlinks(ctx)
     skipped = {item.id: item.reason for item in ctx.skipped}
     assert skipped["DEEP_DISCOVERY_PATH"] == "all_inlinks export has no internal hyperlinks"
+    assert skipped["DEEP_CLICK_DEPTH"] == "all_inlinks export has no internal hyperlinks"
+    assert ctx.internal_linking["measured"] is False

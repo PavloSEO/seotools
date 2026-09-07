@@ -166,6 +166,12 @@ def _row(
         # objects rather than a string because there is no SF column to imitate --
         # an export has none of this, so the outline checks skip there.
         "Heading Outline": record.heading_outline,
+        # Native-crawl only (#634): the anchors this page wraps in a heading and
+        # the image links on it that name nothing. Carried as the parsed object
+        # for the same reason the outline above is -- an export has no such
+        # column, so both placement checks skip there by name. None means link
+        # parsing never ran, which the checks read as unmeasured.
+        "Link Placement": record.link_placement,
         "Canonical Link Element 1": record.canonical,
         "Meta Robots 1": record.meta_robots,
         "X-Robots-Tag 1": record.x_robots,

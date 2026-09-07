@@ -42,6 +42,57 @@ def _kb(n: Any) -> str:
         return "—"
 
 
+def _write_internal_linking(w, block: dict[str, Any] | None) -> None:
+    """Render the link graph's shape: click depth, positions, repeated edges (#634).
+
+    Printed with the health summary rather than among the findings, because it is
+    not a list of defects -- it is the four or five numbers that say whether the
+    site is a tree, a flat list, or a chain, and every finding below reads
+    differently once they are known. A measurement that could not be taken prints
+    its reason: silence here would read as a site with no depth.
+    """
+    if not block:
+        return
+    w("**Internal linking**")
+    w("")
+    if not block.get("measured"):
+        w(f"> Not measured. {_esc(block.get('reason') or 'no reason recorded')}.")
+        w("")
+        return
+    depth = block.get("click_depth") or {}
+    if depth.get("measured"):
+        within = depth.get("within") or {}
+        w(f"- Click depth from `{_code(depth.get('seed'))}`, over {depth.get('edges')}:")
+        w(
+            f"  within 3 clicks **{within.get('3', 0)}**, within 5 **{within.get('5', 0)}**, "
+            f"within 10 **{within.get('10', 0)}**, maximum **{depth.get('max')}**"
+        )
+        w(
+            f"- Reachable by internal links: **{depth.get('reachable')}** of "
+            f"{depth.get('pages')} HTML pages "
+            f"({depth.get('unreachable')} reached by no link at all)"
+        )
+        w(f"- Depth floor used for `DEEP_CLICK_DEPTH`: **{depth.get('floor_used')}**")
+    else:
+        w(f"- Click depth not measured: {_esc(depth.get('reason') or 'no reason recorded')}.")
+    positions = block.get("by_position") or {}
+    unclassified = block.get("unclassified", 0)
+    total = block.get("edges_total", 0)
+    if positions:
+        shown = ", ".join(f"{name} {count}" for name, count in positions.items())
+        w(f"- Internal edges by position: {shown}")
+    w(
+        f"- Unclassified edges (position never recorded): **{unclassified}** of {total}. "
+        "Never counted as content."
+    )
+    w(
+        f"- Repeated edges (same source, destination and anchor): "
+        f"**{block.get('duplicate_edges', 0)}** "
+        f"({(block.get('duplicate_fraction') or 0.0) * 100:.1f}% of all internal edges)"
+    )
+    w("")
+
+
 def write_markdown(result: AuditResult, path: str) -> str:
     lines: list[str] = []
     w = lines.append
@@ -128,6 +179,7 @@ def write_markdown(result: AuditResult, path: str) -> str:
             severity = check_severity.get(check, check_meta(check)["severity"])
             w(f"| `{check}` | {count} | {severity} |")
         w("")
+    _write_internal_linking(w, s.get("internal_linking"))
     if "size_stats_bytes" in s:
         ss = s["size_stats_bytes"]
         w(

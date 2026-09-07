@@ -18,7 +18,8 @@ from seohead.graph import InlinkCompositionRow
 from seohead.tools.hreflang import code_error
 
 from .context import AuditContext
-from .crawl_path import shortest_paths_from_seed
+from .crawl_path import shortest_depths_from_seed, shortest_paths_from_seed
+from .internal_linking import summarize_depth, summarize_positions, unmeasured
 from .link_score import (
     DEFAULT_DAMPING,
     DEFAULT_MAX_ITERATIONS,
@@ -919,6 +920,233 @@ def check_discovery_path(ctx: AuditContext) -> None:
     _emit_discovery_paths(ctx, paths.get)
 
 
+# How many repeated (destination, anchor) pairs one DUPLICATE_INTERNAL_LINK finding
+# lists. A template emitting one duplicated block repeats every link in it, and the
+# first handful identify the block as surely as all two hundred would.
+_MAX_DUPLICATE_REPEATS = 20
+
+# The default click-depth floor, used when no config supplies one. Ten, not the
+# four ``crawl_depth_max`` uses for DEEP_CRAWL_DEPTH: that threshold answers "is
+# this deeper than the site's own depth budget", and a site with a long, healthy
+# paginated archive trips it everywhere. This one answers the different, coarser
+# question the depth histogram exists for -- which pages are so far from the start
+# URL that navigation does not reach them at all.
+DEFAULT_CLICK_DEPTH_FLOOR = 10
+
+
+def _internal_hyperlink_records(
+    records: list[dict[str, Any]], site_host: str
+) -> list[dict[str, Any]]:
+    """Rows describing a hyperlink to this site, nofollow ones included.
+
+    ``_internal_hyperlink_edges`` above drops nofollow rows, and rightly: it feeds
+    passes about link equity and reachability. This one feeds descriptions of the
+    markup -- where links sit, which of them are written twice -- and a nofollow
+    link is as much a part of the template as any other.
+    """
+    kept: list[dict[str, Any]] = []
+    for rec in records:
+        source, dest = rec.get("source_url"), rec.get("destination_url")
+        if not source or not dest:
+            continue
+        link_type = rec.get("type")
+        if link_type is not None and str(link_type).strip().lower() != "hyperlink":
+            continue
+        dest_host = urllib.parse.urlparse(dest).netloc.lower()
+        if dest_host and dest_host != site_host:
+            continue
+        kept.append(rec)
+    return kept
+
+
+def _click_depth_seed(ctx: AuditContext) -> tuple[str | None, str]:
+    """The URL the click-depth walk starts from, or the reason there is none.
+
+    The crawl's own recorded start URL is the only trustworthy seed. Crawl Depth 0
+    is the fallback for a Screaming Frog export, which records no start URL of its
+    own -- and it is only usable when exactly one page carries it. A sitemap-seeded
+    native crawl records 0 for every seeded URL (33 471 of 40 920 pages on the site
+    this was measured against), so picking "a page at depth 0" would silently walk
+    from an arbitrary article and report a depth histogram of the wrong site.
+    """
+    start = getattr(ctx, "start_url", None)
+    if start:
+        return norm_url(start), ""
+    roots = [page for page in ctx.pages if _rec(page).get("crawl_depth") == 0]
+    if not roots:
+        return None, (
+            "the run recorded no crawl start URL and no page is at Crawl Depth 0, "
+            "so there is no page to walk the link graph from"
+        )
+    if len(roots) > 1:
+        return None, (
+            f"the run recorded no crawl start URL and {len(roots)} pages carry Crawl "
+            "Depth 0, so that column cannot identify where the crawl began"
+        )
+    return norm_url(roots[0].url), ""
+
+
+def _emit_duplicate_links(ctx: AuditContext, groups) -> int:
+    """One finding per source page that writes the same link twice. Returns the surplus."""
+    surplus_total = 0
+    for group in groups:
+        surplus_total += group.surplus_total
+        page = ctx.page_by_norm.get(norm_url(group.source_url))
+        ctx.add(
+            "DUPLICATE_INTERNAL_LINK",
+            target_url=page.url if page is not None else group.source_url,
+            occurrences_count=group.surplus_total,
+            details={
+                # No threshold here, and that is deliberate: "written more than
+                # once" is a count, not a judgement calibrated against a number
+                # somebody chose.
+                "surplus_links": group.surplus_total,
+                "repeats": group.repeats,
+            },
+        )
+    return surplus_total
+
+
+def _emit_deep_click_depth(ctx: AuditContext, depths: dict[str, int], floor: int, path_for) -> None:
+    """Flag indexable pages further from the start URL than the configured floor."""
+    for page in ctx.indexable_html_pages():
+        depth = depths.get(norm_url(page.url))
+        if depth is None or depth <= floor:
+            continue
+        details: dict[str, Any] = {
+            "click_depth": depth,
+            # Named in every finding: the verdict is "deeper than this number",
+            # and the number is configuration, not a property of the site.
+            "floor_used": floor,
+            "threshold": "thresholds.click_depth_max",
+        }
+        route = path_for(norm_url(page.url))
+        if route:
+            details["path"] = [
+                ctx.page_by_norm[item].url if item in ctx.page_by_norm else item for item in route
+            ]
+        ctx.add("DEEP_CLICK_DEPTH", target_url=page.url, details=details)
+
+
+def check_internal_link_graph(ctx: AuditContext) -> None:
+    """DEEP_CLICK_DEPTH / DUPLICATE_INTERNAL_LINK, and the graph summary both read (#634).
+
+    One pass over the complete edge inventory produces three things a per-edge
+    check cannot: the distribution of edges by page position, how many edges are
+    repeats of another edge, and how many clicks from the crawl's start URL each
+    page is. The numbers land in ``ctx.internal_linking`` for the audit summary;
+    the two checks above are the verdicts drawn from them.
+
+    ``DEEP_CLICK_DEPTH`` is not ``DEEP_DISCOVERY_PATH`` with a different name.
+    That check reads Screaming Frog's own Crawl Depth column to pick a seed and
+    flags anything past ``crawl_depth_max``, the same budget ``DEEP_CRAWL_DEPTH``
+    uses. This one refuses to start unless the run recorded where the crawl
+    actually began (see ``_click_depth_seed``), and its floor is the separate,
+    coarser ``click_depth_max`` -- the depth past which navigation has stopped
+    reaching a page at all, rather than the depth past which a site's own budget
+    is exceeded.
+    """
+    floor = int(ctx.thresholds.get("click_depth_max", DEFAULT_CLICK_DEPTH_FLOOR))
+    records = _all_inlink_records(ctx)
+    graph = _graph_access(ctx) if records is None else None
+    if records is None and graph is None:
+        reason = "no all_inlinks export (needed for the complete internal edge list)"
+        for check_id in ("DEEP_CLICK_DEPTH", "DUPLICATE_INTERNAL_LINK"):
+            ctx.skip(check_id, reason)
+        ctx.internal_linking = unmeasured(reason)
+        return
+
+    if graph is not None:
+        if not graph.has_internal_hyperlinks:
+            reason = "all_inlinks export has no internal hyperlinks"
+            for check_id in ("DEEP_CLICK_DEPTH", "DUPLICATE_INTERNAL_LINK"):
+                ctx.skip(check_id, reason)
+            ctx.internal_linking = unmeasured(reason)
+            return
+        positions = summarize_positions(graph.position_totals())
+        surplus = _emit_duplicate_links(ctx, graph.iter_duplicate_links(_MAX_DUPLICATE_REPEATS))
+    else:
+        internal = _internal_hyperlink_records(records, _site_host(ctx))
+        if not internal:
+            reason = "all_inlinks export has no internal hyperlinks"
+            for check_id in ("DEEP_CLICK_DEPTH", "DUPLICATE_INTERNAL_LINK"):
+                ctx.skip(check_id, reason)
+            ctx.internal_linking = unmeasured(reason)
+            return
+        totals: Counter = Counter((rec.get("link_position") or "") for rec in internal)
+        positions = summarize_positions(dict(totals))
+        surplus = _emit_duplicate_links(
+            ctx, _duplicate_groups_from_records(internal, _MAX_DUPLICATE_REPEATS)
+        )
+
+    ctx.internal_linking = {
+        "measured": True,
+        **positions,
+        "duplicate_edges": surplus,
+        "duplicate_fraction": (
+            round(surplus / positions["edges_total"], 4) if positions["edges_total"] else 0.0
+        ),
+        "click_depth": _measure_click_depth(ctx, records, graph, floor),
+    }
+
+
+def _duplicate_groups_from_records(records: list[dict[str, Any]], max_repeats: int):
+    """The export-side twin of ``AnalysisGraph.iter_duplicate_links``."""
+    from seohead.graph import DuplicateLinkGroup
+
+    by_source: OrderedDict[str, Counter] = OrderedDict()
+    for rec in records:
+        source = rec["source_url"]
+        pair = (rec["destination_url"], (rec.get("anchor") or "").strip())
+        by_source.setdefault(source, Counter())[pair] += 1
+    for source, pairs in by_source.items():
+        repeated = [(pair, count) for pair, count in pairs.items() if count > 1]
+        if not repeated:
+            continue
+        repeated.sort(key=lambda item: (-item[1], item[0][0]))
+        yield DuplicateLinkGroup(
+            source,
+            sum(count - 1 for _pair, count in repeated),
+            [
+                {"destination": destination, "anchor": anchor, "count": count}
+                for (destination, anchor), count in repeated[:max_repeats]
+            ],
+        )
+
+
+def _measure_click_depth(ctx: AuditContext, records, graph, floor: int) -> dict[str, Any]:
+    """Walk the followed internal graph from the start URL; emit and describe."""
+    seed, reason = _click_depth_seed(ctx)
+    if seed is None:
+        ctx.skip("DEEP_CLICK_DEPTH", reason)
+        return unmeasured(reason)
+    page_keys = sorted({norm_url(page.url) for page in ctx.html_pages()})
+    if graph is not None:
+        session = graph.begin_paths(seed)
+        if session is None:
+            reason = "all_inlinks export has no internal hyperlinks"
+            ctx.skip("DEEP_CLICK_DEPTH", reason)
+            return unmeasured(reason)
+        depths = dict(session.iter_depths())
+        _emit_deep_click_depth(ctx, depths, floor, session.path_to)
+    else:
+        edges = _internal_hyperlink_edges(records, _site_host(ctx))
+        if not edges:
+            reason = "all_inlinks export has no internal followed hyperlinks"
+            ctx.skip("DEEP_CLICK_DEPTH", reason)
+            return unmeasured(reason)
+        depths = shortest_depths_from_seed(edges, seed)
+        paths = shortest_paths_from_seed(edges, seed)
+        _emit_deep_click_depth(ctx, depths, floor, paths.get)
+    seed_page = ctx.page_by_norm.get(seed)
+    return summarize_depth(
+        depths,
+        page_keys,
+        seed=seed_page.url if seed_page is not None else seed,
+        floor=floor,
+    )
+
+
 # Rows Screaming Frog's All Inlinks export uses for a page's own directives
 # rather than an actual fetched resource — never "insecure subresources".
 _NON_RESOURCE_LINK_TYPES = frozenset(
@@ -1211,3 +1439,6 @@ def run_inlinks(ctx: AuditContext) -> None:
     check_discovery_path(ctx)
     check_insecure_subresources(ctx)
     check_pagination_declarations(ctx)
+    # Last: it opens its own path session over the stored graph, and opening one
+    # closes whichever session check_discovery_path above is still holding.
+    check_internal_link_graph(ctx)

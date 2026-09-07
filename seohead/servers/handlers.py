@@ -987,6 +987,12 @@ def _audit_crawl_result(
     exports.missing = list(evidence["missing"])
 
     ctx = AuditContext(exports, load_config(None))
+    # Where this crawl actually began. A native crawl knows; nothing else does,
+    # and pages.crawl_depth is not a substitute -- a sitemap-seeded crawl records
+    # 0 for every seeded URL, so the click-depth walk would start from an
+    # arbitrary page (#634). A URL-list run has no start URL and must say so
+    # rather than invent one.
+    ctx.start_url = start_norm if url else None
     ctx.skip_unsupported(set(exports.frames))
     run_rules(ctx)
     # Same pipeline the Screaming Frog export path runs (seohead/sf/core/audit.py)

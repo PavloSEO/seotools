@@ -4,6 +4,43 @@ All notable public changes are documented here.
 
 ## Unreleased
 
+- Answer "is this site linked well, and where is it linked badly", taking the registry from 157
+  to 161 checks and adding an `internal-linking` skill (#634). The pieces existed -- every edge
+  with its position, anchor and nofollow flag in the `links` table, `ORPHAN_PAGE`,
+  `INLINK_BOILERPLATE_ONLY`, `LINK_SCORE` -- and nothing turned them into an answer about the
+  graph. A 40 920-page audit carried the wrong headline for hours because of it: 66% of the
+  sitemap was reported unreachable by internal links, a figure produced by subtracting a crawl's
+  URL count from the sitemap's, which measures "the crawler did not get there". Walking the
+  artifact's own 5 252 235 edges from the home page put reachability at 91.9%. The real defect
+  was depth: 23 742 pages -- 58% of the site -- were more than ten clicks from the home page, and
+  the deepest was 3 005, because the archive is a linked list of "next post" links rather than a
+  tree. Click depth is now the headline the audit prints. `summary.internal_linking` carries the
+  histogram, the maximum, the reachable/unreachable split, internal edges by page position, and
+  how many edges repeat another edge, and `audit.md` renders it beside the health summary. The
+  walk starts at the URL the crawl actually began from, never at `pages.crawl_depth`: that column
+  records where the crawler happened to reach a URL, and a sitemap-seeded crawl records 0 for
+  most of a site, so a walk seeded from it describes somewhere else. When no start URL was
+  recorded and more than one page claims depth 0, the measurement refuses to run and says which.
+- Four checks read those numbers. `DEEP_CLICK_DEPTH` fires on an indexable page whose shortest
+  route from the start URL exceeds `thresholds.click_depth_max` (default 10, and every finding
+  names the number it used). `DUPLICATE_INTERNAL_LINK` fires on a page that writes the same
+  destination and anchor more than once: on the site above, 509 744 of 1 134 307 edges -- 44.9%
+  -- were repeats, and they were one masthead emitted twice with the second copy removed by
+  JavaScript, a template defect that had taken a hand-written script to find. `LINK_INSIDE_HEADING`
+  and `IMAGE_LINK_WITHOUT_TEXT` need what a link's page region cannot carry -- the anchor's own
+  ancestor chain and contents -- so a native crawl now records a small, capped per-page
+  `link_placement_json` beside the heading outline, and both checks skip by name on a Screaming
+  Frog export rather than run clean on nothing.
+- The honesty rules the rest of the analyzer holds apply throughout. An edge with no recorded
+  position is counted as `unclassified` and never folded into `content`: `link_position.classify`
+  defaults to off, which leaves that on every edge, and a run in that state must read as "nobody
+  looked" rather than as a site whose links are all body copy. A position absent from the
+  distribution is reported as "no edges classified here", not as a region the site lacks -- rules
+  are tried in order and a menu inside `<header>` matches `nav` first. A partial crawl withdraws
+  the click-depth verdict whether or not it fired, because a frontier never fetched may hold the
+  shorter route, and a check silently finding nothing would read as "every page is within the
+  floor".
+
 - Stop reporting a requirement-gated check as clean when it was never evaluated (#635).
   `H2_MISSING` only fires when a configuration sets `requirements.require_h2`, and the default
   is false, so on an ordinary run its branch is unreachable. It left no trace of that: coverage

@@ -57,6 +57,9 @@ INTERNAL_FIELD_MAP: dict[str, list[str]] = {
     # Native-crawl only (#632): the h1-h6 outline in DOM order -- a list of
     # {level, text, region} objects, not a cell an export could hold.
     "heading_outline": ["Heading Outline"],
+    # Native-crawl only (#634): where this page's own anchors sit -- the ones
+    # inside a heading, and the image links that name nothing.
+    "link_placement": ["Link Placement"],
     "h2_2": ["H2-2"],
     "meta_robots": ["Meta Robots 1"],
     "x_robots": ["X-Robots-Tag 1"],

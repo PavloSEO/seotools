@@ -35,3 +35,30 @@ def shortest_paths_from_seed(edges: list[tuple[str, str]], seed: str) -> dict[st
             paths[neighbor] = [*paths[current], neighbor]
             queue.append(neighbor)
     return paths
+
+
+def shortest_depths_from_seed(edges: list[tuple[str, str]], seed: str) -> dict[str, int]:
+    """Return ``{url: hops}`` for every node reachable from ``seed``.
+
+    The same breadth-first walk as :func:`shortest_paths_from_seed`, keeping only
+    the distance. A depth histogram over a whole site needs one number per node,
+    not the route to it, and holding every route costs memory proportional to the
+    sum of all path lengths -- which, on a site whose archive is a chain rather
+    than a tree, is quadratic in the number of pages. The routes stay available
+    from the other function for the handful of pages a finding actually quotes.
+    """
+    adjacency: dict[str, list[str]] = {}
+    for a, b in edges:
+        adjacency.setdefault(a, []).append(b)
+
+    depths: dict[str, int] = {seed: 0}
+    queue: deque[str] = deque([seed])
+    while queue:
+        current = queue.popleft()
+        depth = depths[current] + 1
+        for neighbor in adjacency.get(current, ()):
+            if neighbor in depths:
+                continue  # already reached by an earlier, equal-or-shorter path
+            depths[neighbor] = depth
+            queue.append(neighbor)
+    return depths

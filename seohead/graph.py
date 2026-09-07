@@ -32,8 +32,24 @@ class InlinkCompositionRow:
     source_examples: list[str]
 
 
+@dataclass(frozen=True)
+class DuplicateLinkGroup:
+    """One source page repeating the same (destination, anchor) more than once.
+
+    ``surplus_total`` counts the repeats beyond the first occurrence of each pair,
+    which is what "how much of this page's link graph is a copy of itself" means;
+    ``repeats`` lists the pairs themselves, capped by the caller.
+    """
+
+    source_url: str
+    surplus_total: int
+    repeats: list[dict[str, Any]]
+
+
 class PathSession(Protocol):
     def path_to(self, target: str) -> tuple[str, ...] | None: ...
+
+    def iter_depths(self) -> Iterator[tuple[str, int]]: ...
 
 
 class GraphAccess(Protocol):
@@ -59,5 +75,9 @@ class GraphAccess(Protocol):
     ) -> Iterator[InlinkCompositionRow]: ...
 
     def begin_paths(self, seed: str) -> PathSession | None: ...
+
+    def position_totals(self) -> dict[str, int]: ...
+
+    def iter_duplicate_links(self, max_repeats: int) -> Iterator[DuplicateLinkGroup]: ...
 
     def iter_resources(self) -> Iterator[tuple[str, str, str]]: ...
