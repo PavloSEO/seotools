@@ -4,6 +4,22 @@ All notable public changes are documented here.
 
 ## Unreleased
 
+- `render-check` measures compressed sites again instead of calling them broken (#650). The
+  pinned render route read the origin with httpx's undecoded stream and handed those bytes to
+  Playwright together with the origin's `content-encoding`. `route.fulfill` never applies a
+  content coding to the body it is given, so Chromium parsed gzip as `text/html` and built a DOM
+  out of the compressed stream: no title, no h1, no canonical, no links, and a rendered size
+  equal to the transfer. Every site that compresses its HTML -- nearly all of them -- came back
+  `ok: false, reason: incomplete_render`, and the message blamed the render, suggesting
+  `--wait domcontentloaded` or a longer `--timeout` when the render had finished perfectly.
+  `seohead.tech` reported 22 435 rendered bytes against 121 793 raw; it now reports 123 048 with
+  the real title and 31 links. The route now reads the decoded entity, drops `content-encoding`
+  from what it forwards (`content-length` was already dropped as hop-by-hop, so Playwright states
+  the length of the body it actually received), and asks the origin only for the codings this
+  client can decode rather than forwarding Chromium's own invitation to `br` and `zstd`. A coding
+  that arrives undecoded anyway aborts the request and names itself, because passing it through
+  would reproduce the bug in silence. The byte cap now counts decoded bytes, which is the body
+  the renderer sees -- a compression bomb previously passed the cap compressed.
 - Answer "is this site linked well, and where is it linked badly", taking the registry from 157
   to 161 checks and adding an `internal-linking` skill (#634). The pieces existed -- every edge
   with its position, anchor and nofollow flag in the `links` table, `ORPHAN_PAGE`,
