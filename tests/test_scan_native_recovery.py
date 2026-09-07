@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+import json
 import signal
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
 import pytest
 
-from seohead.storage import ScanError
+from seohead.storage import ScanBackpressure, ScanError
 from seohead.storage.native_scan import NativeScan
 from tests.test_scan_native import _metadata, _record, _runtime
 
@@ -246,19 +248,80 @@ def test_claims_cannot_exceed_the_inflight_window(tmp_path):
         assert scan.claim(100)[0].url == "https://example.test/next"
 
 
-def test_wal_backpressure_stops_before_more_work_and_recovers(tmp_path, monkeypatch):
+def _open_reader(path):
+    """Hold a read transaction the way scan-inspect does while a crawl runs."""
+    # check_same_thread only lets the test release the reader from a helper
+    # thread; the read transaction itself is what the writer has to survive.
+    reader = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, check_same_thread=False)
+    reader.execute("BEGIN")
+    reader.execute("SELECT COUNT(*) FROM pages").fetchone()
+    return reader
+
+
+def _limitations(scan):
+    return json.loads(scan.con.execute("SELECT limitations_json FROM scan").fetchone()[0])
+
+
+def test_wal_backpressure_waits_for_a_reader_instead_of_ending_the_crawl(tmp_path, monkeypatch):
+    """A read-only reader must not be able to end a running crawl (issue #618)."""
     import seohead.storage.native_scan as native
 
     path = tmp_path / "scan.sqlite"
     with NativeScan.create(path, **_metadata()) as scan:
         scan.con.execute("PRAGMA busy_timeout=50")
-        reader = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
-        reader.execute("BEGIN")
-        reader.execute("SELECT COUNT(*) FROM pages").fetchone()
         scan.enqueue([("https://example.test/", 0)])
+        assert native._WAL_WAIT_NOTE not in _limitations(scan)
+        reader = _open_reader(path)
         monkeypatch.setattr(native, "WAL_BACKPRESSURE_BYTES", 1)
-        with pytest.raises(ScanError, match="WAL backpressure"):
+        releaser = threading.Thread(target=lambda: (time.sleep(0.25), reader.close()))
+        releaser.start()
+        try:
+            leases = scan.claim(1)
+        finally:
+            releaser.join()
+        assert [lease.url for lease in leases] == ["https://example.test/"]
+        assert native._WAL_WAIT_NOTE in _limitations(scan)
+
+
+def test_wal_backpressure_without_a_reader_stays_fatal(tmp_path, monkeypatch):
+    """An oversized log nothing is holding is still a storage failure, not a wait."""
+    import seohead.storage.native_scan as native
+
+    path = tmp_path / "scan.sqlite"
+    with NativeScan.create(path, **_metadata()) as scan:
+        scan.enqueue([("https://example.test/", 0)])
+        # A bound no WAL can meet: even a freshly truncated log stays "oversized",
+        # so the checkpoint succeeds, nothing is blocking, and the bound is real.
+        monkeypatch.setattr(native, "WAL_BACKPRESSURE_BYTES", -1)
+        monkeypatch.setattr(native, "WAL_CHECKPOINT_WAIT_SECONDS", 0.05)
+        with pytest.raises(ScanError, match="could not reduce the bounded log") as caught:
             scan.claim(1)
-        assert scan.con.execute("SELECT state FROM frontier").fetchone()[0] == "queued"
-        reader.close()
+        assert not isinstance(caught.value, ScanBackpressure)
+
+
+def test_persistent_wal_backpressure_leaves_the_scan_interrupted(tmp_path, monkeypatch):
+    """A reader that outlasts the wait must not leave a partial capture running."""
+    import seohead.storage.native_scan as native
+
+    path = tmp_path / "scan.sqlite"
+    with NativeScan.create(path, **_metadata()) as scan:
+        scan.con.execute("PRAGMA busy_timeout=50")
+        scan.enqueue([("https://example.test/", 0)])
+        reader = _open_reader(path)
+        try:
+            monkeypatch.setattr(native, "WAL_BACKPRESSURE_BYTES", 1)
+            monkeypatch.setattr(native, "WAL_CHECKPOINT_WAIT_SECONDS", 0.05)
+            with pytest.raises(ScanBackpressure, match="kept the bounded log"):
+                scan.claim(1)
+            assert scan.con.execute("SELECT state FROM frontier").fetchone()[0] == "queued"
+            # The marker has to be writable under the very pressure that stopped
+            # the run, or 6 516 pages read as a scan that is merely still running.
+            scan.interrupt("storage backpressure: reader held the checkpoint")
+            lifecycle, reason, crawl_partial = scan.con.execute(
+                "SELECT lifecycle,finish_reason,crawl_partial FROM scan"
+            ).fetchone()
+            assert (lifecycle, crawl_partial) == ("interrupted", 1)
+            assert "backpressure" in reason
+        finally:
+            reader.close()
         assert scan.claim(1)[0].url == "https://example.test/"

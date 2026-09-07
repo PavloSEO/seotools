@@ -39,7 +39,7 @@ from seohead.crawl.spider import (
 from seohead.crawl.throttle import Throttle
 from seohead.models import ParsedRobots
 from seohead.recon.net import UA, http_client, normalize_url
-from seohead.storage import MAX_RECORD_BYTES, ScanError
+from seohead.storage import MAX_RECORD_BYTES, ScanBackpressure, ScanError
 from seohead.storage.native_scan import NativeScan
 from seohead.tools.robots import is_allowed, match_path, politeness_delay
 
@@ -604,7 +604,18 @@ def crawl_to_scan(
                 break
             remaining = limit - counts["pages"]
             scan.preflight_capture()
-            leases = scan.claim(min(throttle.concurrency, remaining))
+            try:
+                leases = scan.claim(min(throttle.concurrency, remaining))
+            except ScanBackpressure as exc:
+                # The storage layer already waited out the reader for as long as
+                # it may. Stop collecting rather than raising: the pages already
+                # committed are sound, and the artifact says why it is short.
+                partial, finish_reason = True, "storage_backpressure"
+                scan.interrupt(f"storage backpressure: {exc}")
+                break
+            except (ScanError, sqlite3.Error) as exc:
+                _storage_failure(scan, exc)
+                raise ScanError(f"native scan storage failure: {exc}") from exc
             if not leases:
                 # Handler owns audit/no-audit finalization after its bounded
                 # compatibility bridge decides whether it may materialize.
@@ -841,7 +852,7 @@ def crawl_to_scan(
                 if partial:
                     break
 
-        if finish_reason != "errors":
+        if finish_reason not in {"errors", "storage_backpressure"}:
             from .sqlite_resources import capture_resources
 
             capture_resources(
