@@ -649,6 +649,7 @@ def _print_crawl_outcome(result: Any) -> None:
             line += " (this run continued an earlier one)"
     print(line, file=sys.stderr)
 
+
 def _crawl_progress(kwargs: dict[str, Any]) -> CrawlProgress | None:
     """Build the live progress line for a crawl-site run, or None when it has no place to go.
 
