@@ -553,6 +553,31 @@ def _print_config_help() -> None:
     print("* changes what the audit finds; recorded in the run manifest.")
 
 
+def _crawl_overrides(kwargs: dict[str, Any]) -> dict[str, Any]:
+    """The overrides a crawl-site run will resolve, in the precedence the handler applies.
+
+    Shared by everything here that has to know what a run's settings resolve to
+    before the run happens: two copies of this precedence would be two chances
+    for the number printed to describe a run that is not the one about to
+    happen -- worse than printing nothing, because it is believed.
+    """
+    overrides = dict(kwargs.get("overrides") or {})
+    # Only a named argument that was actually given wins. Updating with None
+    # would erase a --set or --max-urls-per-second value and silently fall
+    # back to the default, which is how a rate cap becomes a no-op.
+    for path, value in (
+        ("limits.max_urls", kwargs.get("max_urls")),
+        ("limits.max_depth", kwargs.get("max_depth")),
+        ("speed.min_delay_seconds", kwargs.get("min_delay")),
+        ("speed.concurrency", kwargs.get("concurrency")),
+        ("robots.policy", kwargs.get("robots")),
+        ("output.dir", kwargs.get("out_dir")),
+    ):
+        if value is not None:
+            overrides[path] = value
+    return overrides
+
+
 def _print_effective_rate(kwargs: dict[str, Any]) -> None:
     """Print the worst-case requests/second a crawl-site run permits, before it runs.
 
@@ -569,26 +594,43 @@ def _print_effective_rate(kwargs: dict[str, Any]) -> None:
         # The same overrides the handler will resolve, in the same precedence, or
         # the printed rate describes a run that is not the one about to happen --
         # which is worse than printing nothing, because it is believed.
-        overrides = dict(kwargs.get("overrides") or {})
-        # Only a named argument that was actually given wins. Updating with None
-        # would erase a --set or --max-urls-per-second value and silently fall
-        # back to the default, which is how a rate cap becomes a no-op.
-        for path, value in (
-            ("limits.max_urls", kwargs.get("max_urls")),
-            ("limits.max_depth", kwargs.get("max_depth")),
-            ("speed.min_delay_seconds", kwargs.get("min_delay")),
-            ("speed.concurrency", kwargs.get("concurrency")),
-            ("robots.policy", kwargs.get("robots")),
-            ("output.dir", kwargs.get("out_dir")),
-        ):
-            if value is not None:
-                overrides[path] = value
-        resolved = crawl_config.load(kwargs.get("config"), overrides=overrides)
+        resolved = crawl_config.load(kwargs.get("config"), overrides=_crawl_overrides(kwargs))
     except crawl_config.ConfigError:
         return  # the handler call below reports the same error to the user
     rate = crawl_config.effective_request_rate(resolved)
     shown = "unbounded" if rate == float("inf") else f"{rate:.2f} req/s"
     print(f"crawl-site: effective worst-case request rate to one host: {shown}", file=sys.stderr)
+
+
+def _crawl_progress(kwargs: dict[str, Any]) -> Any:
+    """Build the live progress line for a crawl-site run, or None when it has no place to go.
+
+    The budget it prints against is the one this run will actually apply, read
+    back from the same resolved settings ``_print_effective_rate`` uses -- a
+    percentage computed against the default 200 on a run configured for 40 000
+    would be a number the operator has no way to know is wrong.
+
+    A configuration this run cannot load returns None rather than raising: the
+    handler call that follows reports that error properly, and a progress line
+    is never worth turning a clear message into a traceback.
+    """
+    from seohead.crawl import settings as crawl_config
+    from seohead.crawl.progress import CrawlProgress
+
+    try:
+        resolved = crawl_config.load(kwargs.get("config"), overrides=_crawl_overrides(kwargs))
+    except crawl_config.ConfigError:
+        return None
+    stream = sys.stderr
+    return CrawlProgress(
+        stream,
+        budget=resolved["limits"]["max_urls"],
+        # A pipe or a log file gets periodic whole lines instead of redraws.
+        # getattr, because a captured or replaced stderr need not be a real file
+        # object at all, and a missing isatty means "assume not a terminal".
+        tty=bool(getattr(stream, "isatty", lambda: False)()),
+        artifact_path=kwargs.get("scan_out"),
+    )
 
 
 def _read_donors(path: str) -> list[str]:
@@ -651,6 +693,12 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
             "--config-help",
             action="store_true",
             help="list every crawler configuration setting",
+        )
+        sub.add_argument(
+            "-q",
+            "--quiet",
+            action="store_true",
+            help="no progress or rate line on stderr; stdout unchanged",
         )
         sub.add_argument(
             "--max-urls-per-second",
@@ -1049,9 +1097,19 @@ def main(argv: list[str] | None = None) -> int:
         handler_name, kwargs = _build_kwargs(cmd, args)
         report_fmt = kwargs.pop("_report", None)
         report_out = kwargs.pop("_out", None)
-        if cmd == "crawl-site":
+        progress = None
+        if cmd == "crawl-site" and not getattr(args, "quiet", False):
             _print_effective_rate(kwargs)
-        result = handlers.HANDLERS[handler_name](**kwargs)
+            progress = _crawl_progress(kwargs)
+            kwargs["progress"] = progress
+        try:
+            result = handlers.HANDLERS[handler_name](**kwargs)
+        finally:
+            # Closed whatever happened: an interrupted or failed crawl must not
+            # leave the operator's shell prompt printed over half a progress
+            # line, and the error message below is worth reading.
+            if progress is not None:
+                progress.close()
         if report_fmt and isinstance(result, dict) and result.get("ok"):
             # Build an optional report from the in-memory audit result. This keeps the structured
             # document identical while avoiding a manual JSON handoff between two commands.

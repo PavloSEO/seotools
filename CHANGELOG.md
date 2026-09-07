@@ -4,6 +4,23 @@ All notable public changes are documented here.
 
 ## Unreleased
 
+- Give `crawl-site` a live progress line (#619, progress half). A native crawl printed its
+  effective request rate and then nothing at all until it finished; on a 34 000-page site the
+  only way to tell it was still working was to watch the scan file grow in `ls -la`. The line
+  now refreshes in place on a TTY with pages fetched, the URLs known so far, the percentage of
+  that set, the current request rate over a trailing window, elapsed time, and the scan
+  artifact's size when `--scan-out` is writing one. What it deliberately does not do is imply a
+  total it cannot know: a crawler discovers its own workload, so the denominator is
+  `fetched + queued` capped at the URL budget, it is labelled `known` rather than `total`, and a
+  header line printed once says the frontier is still growing and that the percentage is not an
+  estimate of when the run will finish. An unmeasurable rate reads as `rate n/a`, never as
+  `0.0 req/s`. Both numbers come from the crawl's own structures -- for a SQLite scan, from the
+  same `resume_snapshot` query the collection loop steers by -- so what is on screen is what the
+  artifact holds at that moment rather than a parallel tally that can drift from it. A non-TTY
+  (a pipe, a log file, CI) gets a plain line every 30 seconds instead of carriage-return
+  redraws, and a new `-q`/`--quiet` silences both the progress line and the startup rate line
+  while leaving the JSON result on stdout untouched.
+
 - Add a check-verdict coverage gate (#98): `test_check_producer_gate.py` proved every check
   ID is registered and every `check_*` function is dispatched, but said nothing about whether
   a check's conclusion was ever proven true against markup that actually has the defect, and

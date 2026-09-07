@@ -345,12 +345,21 @@ def crawl_to_scan(
     fetcher: Callable[[str], Any] | None = None,
     sleeper: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
+    progress: Callable[[int, int], None] | None = None,
 ) -> ScanRun:
     """Collect a cache-off native crawl into one explicit scan artifact.
 
     Handler/CLI/MCP wiring is deliberately outside this module.  Callers pass
     the already loaded settings and producer provenance, so there is no second
     configuration path here.
+
+    ``progress``, when given, is called with ``(fetched, queued)`` once per
+    frontier batch and once more when collection ends.  Both numbers come from
+    the artifact's own ``resume_snapshot`` -- the same query the loop uses to
+    decide whether to keep going -- so what an operator is shown is what the
+    scan file on disk actually holds at that moment, never a separate in-memory
+    tally that could drift from it.  It is called between batches, where no
+    request is in flight, so the count is never a mid-write reading.
     """
     if settings["cache"]["mode"] != "off":
         raise ValueError(
@@ -579,6 +588,8 @@ def crawl_to_scan(
         while True:
             snapshot = scan.resume_snapshot()
             counts = snapshot["counts"]
+            if progress is not None:
+                progress(counts["pages"], counts["queued"] + counts["inflight"])
             if counts["pages"] >= limit:
                 if counts["queued"] or counts["inflight"]:
                     partial, finish_reason = True, "url_limit"
@@ -846,6 +857,11 @@ def crawl_to_scan(
         if start_page_gate is None:
             start_page_gate = retained_start_gate(scan, settings, content_area_config)
         outcome = scan.resume_snapshot(include_edges=True)
+        if progress is not None:
+            # The last word on this run, read after collection has stopped: a
+            # crawl that ended on the URL budget still has a queue, and saying
+            # so is the difference between "finished" and "stopped early".
+            progress(outcome["counts"]["pages"], outcome["counts"]["queued"])
         return ScanRun(
             path=str(scan.path),
             pages=outcome["counts"]["pages"],
