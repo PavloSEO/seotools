@@ -227,6 +227,24 @@ CHECKS: dict[str, dict[str, Any]] = {
         "message": "H2 exceeds the configured length threshold",
         "fix": "Shorten the H2 while retaining what it introduces.",
     },
+    "HEADING_BEFORE_H1": {
+        "severity": "notice",
+        "source": "crawl:heading_outline",
+        "message": "One or more headings appear before the page's first H1 in DOM order",
+        "fix": "Move the H1 above the headings that precede it, or demote those headings to "
+        "plain text or a non-heading element. A parser reading the outline meets them "
+        "before it meets the page's subject, and a snippet built from early page text "
+        "quotes them instead of the page.",
+    },
+    "HEADING_IN_PAGE_CHROME": {
+        "severity": "notice",
+        "source": "crawl:heading_outline",
+        "message": "A heading sits in the page chrome (header, nav, sidebar or footer) rather "
+        "than in the content",
+        "fix": "Mark template furniture up as what it is -- a menu label or a widget title is "
+        "not a heading of this document, and repeating it on every page pushes the "
+        "page's own headings down its outline.",
+    },
     # 7.E — canonical & directives
     "CANONICAL_MISSING": {
         "severity": "warning",

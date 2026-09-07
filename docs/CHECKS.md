@@ -6,7 +6,7 @@ Generated from `seohead/sf/core/registry.py` — do not edit by hand. Regenerate
 python scripts/generate_checks_reference.py
 ```
 
-**155 checks.** Severity, evidence and fix all come from the same `CHECKS` dict the rule engine reads, so this table cannot say something the engine disagrees with.
+**157 checks.** Severity, evidence and fix all come from the same `CHECKS` dict the rule engine reads, so this table cannot say something the engine disagrees with.
 
 - **Fires on** — what the check id means, in the registry's own words.
 - **Evidence** — the `source` tag: which export or module has to be present for the check to run at all; its absence is why a check comes back `skipped` instead of a silent pass.
@@ -65,6 +65,8 @@ python scripts/generate_checks_reference.py
 | `H2_MISSING` | notice | SF-derived | Page has an H1 but no H2 headings | Add meaningful H2 subheadings where needed to structure the content. |
 | `H2_DUPLICATE` | notice | SF-derived | H2 is duplicated across multiple URLs | Use a unique, page-specific H2 on each URL, or accept it for a shared boilerplate subheading that is genuinely meant to repeat. |
 | `H2_TOO_LONG` | notice | SF-derived | H2 exceeds the configured length threshold | Shorten the H2 while retaining what it introduces. |
+| `HEADING_BEFORE_H1` | notice | crawl:heading_outline | One or more headings appear before the page's first H1 in DOM order | Move the H1 above the headings that precede it, or demote those headings to plain text or a non-heading element. A parser reading the outline meets them before it meets the page's subject, and a snippet built from early page text quotes them instead of the page. |
+| `HEADING_IN_PAGE_CHROME` | notice | crawl:heading_outline | A heading sits in the page chrome (header, nav, sidebar or footer) rather than in the content | Mark template furniture up as what it is -- a menu label or a widget title is not a heading of this document, and repeating it on every page pushes the page's own headings down its outline. |
 
 ## 7.E — canonical & directives
 

@@ -558,6 +558,58 @@ def _extract_headings(soup: BeautifulSoup) -> dict[str, list[str]]:
     return headings
 
 
+# Content roots the document (or the operator) actually named. The two body
+# fallbacks are deliberately absent: when the content root is the whole
+# <body>, "not chrome" carries no information, because every heading on the
+# page descends from it whether it is content or furniture.
+_NAMED_CONTENT_STRATEGIES = frozenset(
+    {"include_selector", "root_selector", "auto_main", "auto_role_main", "auto_article"}
+)
+
+_HEADING_TAGS = ("h1", "h2", "h3", "h4", "h5", "h6")
+
+
+def heading_outline(
+    soup: BeautifulSoup,
+    *,
+    content_area_config: dict[str, Any] | None = None,
+    position_rules: Any = None,
+) -> list[dict[str, Any]]:
+    """Every h1-h6 with text, in DOM order, with its level, text and page region (#632).
+
+    ``_extract_headings`` above groups the same headings by level, which is what
+    the registry's eight heading checks read. Grouping discards order, so no
+    check can see an H2 standing before the H1, and it discards place, so a menu
+    label in the masthead counts as one of the page's headings.
+
+    The region reuses ``link_position``'s taxonomy rather than inventing a
+    second one for the same parts of a page: a rule match is taken as it stands,
+    and anything no rule matched is settled against the content root only when
+    the document named one (``<main>``, ``[role=main]``, ``<article>``, or a
+    configured selector). Otherwise the region is ``""`` -- not measured -- since
+    calling a heading "content" purely because it sits somewhere in ``<body>``
+    would report an unanswered question as a clean answer.
+    """
+    from seohead.tools.content_area import find_content_root
+    from seohead.tools.link_position import content_or_other, matched_position, rules_from_config
+
+    content_root, strategy = find_content_root(soup, content_area_config)
+    named_root = content_root if strategy in _NAMED_CONTENT_STRATEGIES else None
+    rules = rules_from_config(position_rules)
+    outline: list[dict[str, Any]] = []
+    for tag in soup.find_all(_HEADING_TAGS):
+        if _has_ancestor(tag, _INERT_LINK_CONTAINERS):
+            continue  # a <template>'s heading is never in the rendered document
+        text = collapse_whitespace(tag.get_text(" "))
+        if not text:
+            continue  # matches _extract_headings: a heading with no text is not one
+        region = matched_position(tag, rules=rules)
+        if not region and named_root is not None:
+            region = content_or_other(tag, named_root)
+        outline.append({"level": int(tag.name[1]), "text": text, "region": region})
+    return outline
+
+
 def h1_alt_only_text(soup: BeautifulSoup) -> str | None:
     """The alt text of an H1 whose own text is empty, when an image supplies it (#385).
 
@@ -1540,6 +1592,21 @@ def parse_html(html: str, final_url: str, options: dict[str, Any] | None = None)
 
     result["headings"] = _extract_headings(soup) if opts["headings"] else {}
     result["h1_alt_only_text"] = h1_alt_only_text(soup) if opts["headings"] else None
+    # Not gated on classify_links the way link positions are: that flag exists
+    # because a large crawl holds one entry per anchor, and a page has orders of
+    # magnitude fewer headings than links -- the same reasoning that leaves form
+    # extraction ungated below.
+    result["heading_outline"] = (
+        heading_outline(
+            soup,
+            content_area_config=options.get("content_area") if isinstance(options, dict) else None,
+            position_rules=options.get("link_position_rules")
+            if isinstance(options, dict)
+            else None,
+        )
+        if opts["headings"]
+        else []
+    )
     # jsonld stays what it has always been — the blocks that parsed — and the
     # ones that did not are reported beside it rather than dropped.
     if opts["jsonld"]:

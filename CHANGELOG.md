@@ -4,6 +4,26 @@ All notable public changes are documented here.
 
 ## Unreleased
 
+- Read the heading outline as a sequence and as a map of the page, taking the registry from 155
+  to 157 checks (#632). The eight existing heading checks judge headings as a set: they can say
+  a page has one H1 and four H2s, and nothing more. So a page whose DOM order is `H2, H2, ..., H1,
+  H2` satisfied every one of them, and so did a page whose H2s were all menu labels in its
+  masthead -- found on a live site as an article template with eighteen headings standing before
+  its own H1, reported as clean on headings. What was missing was the evidence, not the rule:
+  `pages` stored `h1`, `h1_2` and `h2` -- three strings with neither order nor place. A native
+  crawl now records the whole `h1`-`h6` outline in DOM order, each heading with its level, text
+  and page region, in a new nullable `heading_outline_json` column, and `HEADING_BEFORE_H1` and
+  `HEADING_IN_PAGE_CHROME` read it. The region reuses the taxonomy link classification already
+  uses (`nav`, `header`, `sidebar`, `footer`, `content`, `other`), so "in the header" means the
+  same thing about a heading as it already does about a link. A heading no position rule matched
+  is placed against the content area only when the document named one -- a `<main>`,
+  a `[role=main]`, an `<article>` or a configured selector; where the content root falls back to
+  the whole `<body>`, calling a heading "content" would mean nothing more than "somewhere on the
+  page", so the region is recorded as unmeasured and the page is named among the run's skipped
+  checks with that reason rather than passed as clean or flagged as a defect. Order needs no
+  region, so `HEADING_BEFORE_H1` still answers for those pages. A Screaming Frog export carries
+  no outline at all, and both checks skip there by name.
+
 - Stop `render-check` reporting an unfinished render as a site defect (#623). When the render
   did not complete, the rendered snapshot came back with no title, no `h1`, no canonical, zero
   links and a fifth of the raw response's bytes -- and the comparator read that emptiness as
