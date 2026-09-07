@@ -89,6 +89,7 @@ _LATE_PAGE_FIELDS = {
     "plugin_elements": "plugin_elements",
     "meta_fragment": "meta_fragment",
     "ajax_scheme_outlinks": "ajax_scheme_outlinks",
+    "og_url": "og_url",
 }
 _PAGE_NONNEGATIVE_INTS = {
     "ajax_scheme_outlinks",
