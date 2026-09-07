@@ -391,9 +391,7 @@ def _import_pages(con, source: Path, limitations: list[str], inputs: list[dict])
             or any(not isinstance(hop, dict) for hop in canonical_chain)
         ):
             raise ScanError("pages.canonical_chain must be a list of objects")
-        row["canonical_chain_json"] = (
-            None if canonical_chain is None else _dump(canonical_chain)
-        )
+        row["canonical_chain_json"] = None if canonical_chain is None else _dump(canonical_chain)
         row["url_id"] = _url(con, row.pop("url"))
         row["page_ordinal"] = ordinal
         chain = row.pop("redirect_chain")

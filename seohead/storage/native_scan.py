@@ -1368,9 +1368,7 @@ class NativeScan:
         source_names = {"url"}
         for name in columns:
             if name not in {"url_id", "page_ordinal", "document_id"}:
-                source_names.add(
-                    _PAGE_JSON_SOURCES.get(name, name)
-                )
+                source_names.add(_PAGE_JSON_SOURCES.get(name, name))
         if set(record) - source_names:
             raise ScanError(f"page record has unknown fields: {sorted(set(record) - source_names)}")
         for name in _PAGE_NONNEGATIVE_INTS:

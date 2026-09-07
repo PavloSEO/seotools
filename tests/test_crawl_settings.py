@@ -129,6 +129,13 @@ def test_free_form_headers_are_a_leaf_not_a_branch(tmp_path):
     assert cfg.load(str(path))["http"]["headers"]["Accept-Language"] == "de"
 
 
+@pytest.mark.parametrize("name", ["Authorization", "cookie", "X-API-Key", "X-Auth-Token"])
+def test_generic_headers_refuse_credentials_without_echoing_their_values(name):
+    with pytest.raises(cfg.ConfigError, match="credential_headers") as exc_info:
+        cfg.load(overrides={"http.headers": {name: "dummy-inline-value"}})
+    assert "dummy-inline-value" not in str(exc_info.value)
+
+
 @pytest.mark.parametrize(
     "override,message",
     [
@@ -407,6 +414,17 @@ def test_credential_values_are_redacted_from_the_manifest(monkeypatch):
     assert entry["host"] == "example.com"
     assert entry["headers"]["Authorization"] == "REDACTED"
     assert "s3cr3t" not in json.dumps(manifest)
+
+
+def test_manifest_redacts_credentials_from_a_legacy_generic_header_mapping():
+    legacy = cfg.load()
+    legacy["http"]["headers"] = {
+        "Authorization": "dummy-inline-value",
+        "Accept-Language": "de",
+    }
+    manifest = cfg.manifest(legacy)
+    assert manifest["http.headers"] == {"Authorization": "REDACTED", "Accept-Language": "de"}
+    assert legacy["http"]["headers"]["Authorization"] == "dummy-inline-value"
 
 
 # ── rendering (#18) ──────────────────────────────────────────────────────────

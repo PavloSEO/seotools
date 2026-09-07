@@ -4,6 +4,17 @@ All notable public changes are documented here.
 
 ## Unreleased
 
+- Fix a robots.txt group-selection defect that let a blank `User-agent` value void a site's
+  default policy (#566). A bare `User-agent:` line, or one whose bot name an inline comment
+  swallowed (`User-agent: # old bot rule`), parsed to an empty token. `_rules_for` treated that
+  token like any other literal name: it is a zero-length prefix of every agent, so it matched
+  all of them, and because it counted as a *named* match it outranked the file's real
+  `User-agent: *` group for every crawler the file never mentions. A robots.txt whose only
+  substantive rule was `User-agent: * / Disallow: /` therefore read as fully crawlable -- both
+  in the AI-bots access report and in the live crawler's own fetch gating, which calls the same
+  `is_allowed`. Blank tokens are now skipped, so such a group names nobody and the wildcard
+  group applies; the most specific named group still wins, and a robots.txt naming nobody still
+  means everything is allowed.
 - Fix four export-selection and run-validation defects that let an audit present a result it
   could not support (#209, #210, #215, #216). `internal_all`'s matcher required only the
   filename token `internal`, so a partial per-type Internal tab (e.g. `internal_html.csv`,

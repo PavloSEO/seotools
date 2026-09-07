@@ -6,7 +6,7 @@ Generated from the MCP tool definitions in `seohead/servers/mcp_server.py` and `
 python scripts/generate_tool_reference.py
 ```
 
-**63 core tools** (`seohead <command>` / `seo_<command>` on the MCP server) plus **5 crawl-audit tools** (`sf_<command>`, driven by `seohead sf ...`) — 68 in total.
+**64 core tools** (`seohead <command>` / `seo_<command>` on the MCP server) plus **5 crawl-audit tools** (`sf_<command>`, driven by `seohead sf ...`) — 69 in total.
 
 Every tool shares one contract: JSON in, JSON out. A target that could not be reached comes back as `{"ok": false, "error": "..."}` instead of raising, so an unreachable site is data, not a crash.
 
@@ -85,12 +85,13 @@ DNS, browser, provider, or cache-miss fallback is permitted.
 
 MCP name: `seo_crawl_site`
 
-Crawl a site from a start URL by following links, or fetch an explicit ``urls`` list instead of following links at all, then audit the result through the same checks used for Screaming Frog exports. One of ``url`` or ``urls`` is required. Same host only when following links, politeness adapts to the origin. Checks whose evidence a native crawl cannot produce are reported as skipped, never as clean.
+Crawl a site from a start URL by following links, or fetch an explicit ``urls`` list instead of following links at all, then audit the result through the same checks used for Screaming Frog exports. One of ``url`` or ``urls``/``urls_file`` is required. Same host only when following links, politeness adapts to the origin. Checks whose evidence a native crawl cannot produce are reported as skipped, never as clean.
 
 | Argument | Type | Default |
 |---|---|---|
 | `url` | `str` | `''` |
 | `urls` | `list[str] | None` | `None` |
+| `urls_file` | `str | None` | `None` |
 | `sitemap` | `str | None` | `None` |
 | `config` | `str | None` | `None` |
 | `max_urls` | `int | None` | `None` |
@@ -107,10 +108,11 @@ Crawl a site from a start URL by following links, or fetch an explicit ``urls`` 
 
 **Behavior and failure modes**
 
-Pass ``urls`` instead of ``url`` for list mode: fetch exactly that set,
+Pass ``urls`` or a local ``urls_file`` instead of ``url`` for list mode: fetch exactly that set,
 depth 0, no link discovery -- the migration-audit shape (a redirect map,
-a Search Console export). ``max_depth`` and ``concurrency`` have nothing
-to discover in that mode and are ignored.
+a Search Console export). ``urls_file`` scans TXT, CSV, XLSX, or XML for
+absolute HTTP(S) URLs in source order. ``max_depth`` and ``concurrency``
+have nothing to discover in that mode and are ignored.
 
 ``robots`` is "respect" (obey), "report_only" (fetch robots.txt, crawl
 anyway, and report what a compliant crawler would have missed) or
@@ -591,14 +593,33 @@ Build one comparable facts table (schema facts.v1) across several sites from cra
 
 MCP name: `seo_compare_crawls`
 
-Diff two audit documents (dict, JSON path, or scan.v1 SQLite path) into four disjoint sets per finding: entered (new problem on a page that existed before), left (the page is still crawled and no longer matches — a real fix), appeared (a genuinely new page with a finding), disappeared (the page is not in this crawl at all, so a missing finding proves nothing). "left" and "disappeared" look identical in a naive diff and mean opposite things. Warns when the two runs used different results-affecting settings, since part of the difference may be the configuration rather than the site.
+Diff two audit documents (dict, JSON path, or scan.v1 SQLite path) into four disjoint sets per finding: entered (new problem on a page that existed before), left (the page is still crawled and no longer matches — a real fix), appeared (a genuinely new page with a finding), disappeared (the page is not in this crawl at all, so a missing finding proves nothing). "left" and "disappeared" look identical in a naive diff and mean opposite things. Refuses a known difference in results-affecting settings unless ``force`` is true; partial-crawl warnings remain attached to the historical result.
 
 | Argument | Type | Default |
 |---|---|---|
 | `before` | `Any` | `required` |
 | `after` | `Any` | `required` |
+| `force` | `bool` | `False` |
 
 **Cost** — network: no · writes files: no · idempotent: yes · spends money: no
+
+### `crawl-enrich`
+
+MCP name: `seo_crawl_enrich`
+
+Join an existing audit or scan to an offline URL-keyed CSV without a provider call. Matched rows retain both page and external data; crawl-only, external-only, and unkeyable rows remain separate. A completed crawl can write same-origin external-only URLs to ``out_urls`` for `crawl-site --urls-file`; a partial crawl never labels them as orphan URLs.
+
+| Argument | Type | Default |
+|---|---|---|
+| `audit` | `Any` | `required` |
+| `external_csv` | `str` | `required` |
+| `url_column` | `str` | `'url'` |
+| `ignore_query` | `bool` | `False` |
+| `ignore_scheme` | `bool` | `False` |
+| `casefold_path` | `bool` | `False` |
+| `out_urls` | `str | None` | `None` |
+
+**Cost** — network: yes · writes files: yes · idempotent: no · spends money: no
 
 ### `segment-diff`
 

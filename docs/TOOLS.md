@@ -1,6 +1,6 @@
 # Tool reference
 
-63 + 5 tools, reachable identically from the CLI and from MCP. One
+64 + 5 tools, reachable identically from the CLI and from MCP. One
 implementation, two faces: `seohead <command>` in the terminal and
 `seo_<command>` on the MCP server (`seohead mcp`). Five more `sf_*` tools cover
 the Screaming Frog crawl audit workflow specifically — see that section below
