@@ -221,12 +221,12 @@ def test_a_second_rel_next_column_fires_multiple_without_all_inlinks(tmp_path):
     d.mkdir()
     with open(d / "internal_all.csv", "w", encoding="utf-8-sig", newline="") as f:
         w = csv.writer(f)
-        w.writerow(INTERNAL_COLS + ['rel="next" 2'])
+        w.writerow([*INTERNAL_COLS, 'rel="next" 2'])
         w.writerows(
             [
-                _page_row(PAGE_1, PAGE_2) + [PAGE_3],
-                _page_row(PAGE_2) + [""],
-                _page_row(PAGE_3) + [""],
+                [*_page_row(PAGE_1, PAGE_2), PAGE_3],
+                [*_page_row(PAGE_2), ""],
+                [*_page_row(PAGE_3), ""],
             ]
         )
     res = run_audit(input_mode="parse-exports", exports_dir=str(d), log=lambda m: None)
@@ -243,11 +243,11 @@ def test_a_second_rel_next_column_the_same_url_stays_silent(tmp_path):
     d.mkdir()
     with open(d / "internal_all.csv", "w", encoding="utf-8-sig", newline="") as f:
         w = csv.writer(f)
-        w.writerow(INTERNAL_COLS + ['rel="next" 2'])
+        w.writerow([*INTERNAL_COLS, 'rel="next" 2'])
         w.writerows(
             [
-                _page_row(PAGE_1, PAGE_2) + [PAGE_2],
-                _page_row(PAGE_2) + [""],
+                [*_page_row(PAGE_1, PAGE_2), PAGE_2],
+                [*_page_row(PAGE_2), ""],
             ]
         )
     res = run_audit(input_mode="parse-exports", exports_dir=str(d), log=lambda m: None)

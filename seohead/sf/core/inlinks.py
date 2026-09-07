@@ -1129,9 +1129,7 @@ def check_pagination_declarations(ctx: AuditContext) -> None:
     # MULTIPLE is no longer among the checks a missing/short All Inlinks export
     # skips.
     light_ran = _light_pagination_multiple(ctx)
-    skip_checks = (
-        ("PAGINATION_URL_NOT_IN_ANCHOR",) if light_ran else _PAGINATION_DECLARATION_CHECKS
-    )
+    skip_checks = ("PAGINATION_URL_NOT_IN_ANCHOR",) if light_ran else _PAGINATION_DECLARATION_CHECKS
 
     records = _all_inlink_records(ctx)
     if records is None and _graph_access(ctx) is None:
