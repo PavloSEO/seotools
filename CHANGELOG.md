@@ -4,6 +4,13 @@ All notable public changes are documented here.
 
 ## Unreleased
 
+Entries for merged, unreleased work live one file per change in `changelog.d/`, not here:
+`python scripts/build_changelog.py` folds them in between the markers below at release
+time, so two branches never edit this file and can never conflict over it (#638).
+
+<!-- changelog.d: assembled entries start -->
+<!-- changelog.d: assembled entries end -->
+
 - `render-check` measures compressed sites again instead of calling them broken (#650). The
   pinned render route read the origin with httpx's undecoded stream and handed those bytes to
   Playwright together with the origin's `content-encoding`. `route.fulfill` never applies a

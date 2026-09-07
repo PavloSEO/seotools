@@ -92,3 +92,13 @@ notice in `THIRD_PARTY_NOTICES.md`.
 4. Add the MCP tool with accurate side-effect annotations.
 5. Add offline tests for success, failure, limits, and missing dependencies.
 6. Update `docs/TOOLS.md`, the README capability count, and any provider cost or safety notes.
+7. Add the changelog entry as `changelog.d/<issue>.md`, never by editing `CHANGELOG.md`.
+
+## Changelog entries
+
+Entries live one file per change under `changelog.d/`, named for the issue the change closes
+(`changelog.d/638.md`), and are folded into `CHANGELOG.md` at release time by
+`python scripts/build_changelog.py`. A branch that edits `CHANGELOG.md` conflicts with every
+other branch that landed before it; a branch that adds its own file never can (#638). The
+fragment holds the entry verbatim -- top-level `- ` bullets with their continuation lines, no
+heading -- so prose is not reformatted on the way in. See CONTRIBUTING.md for the naming rules.
