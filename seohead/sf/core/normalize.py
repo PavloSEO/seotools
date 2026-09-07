@@ -63,6 +63,14 @@ INTERNAL_FIELD_MAP: dict[str, list[str]] = {
     "amphtml": ["amphtml Link Element", "AMP HTML"],
     "rel_next": ['rel="next" 1', "rel=next 1"],
     "rel_prev": ['rel="prev" 1', "rel=prev 1"],
+    # The same occurrence-index convention Screaming Frog uses for a repeated
+    # canonical (canonical_2 above) or H1 (h1_2 below): a second rel="next"/
+    # rel="prev" declaration on one page gets its own numbered column instead
+    # of being dropped. That is enough evidence, on its own, to say a page
+    # declared two different successors -- PAGINATION_MULTIPLE's light path
+    # reads these instead of the heavier All Inlinks export.
+    "rel_next_2": ['rel="next" 2', "rel=next 2"],
+    "rel_prev_2": ['rel="prev" 2', "rel=prev 2"],
     "size_bytes": ["Size (bytes)", "Size (Bytes)", "Size"],
     "transferred_bytes": ["Transferred (bytes)", "Transferred (Bytes)"],
     "word_count": ["Word Count"],

@@ -631,8 +631,18 @@ and 8 MiB of JSON; the page record is limited to 8 MiB and the complete commit
 input to 64 MiB. Oversized input is refused atomically. The collector adapter must
 record any deliberately retained prefix as partial evidence; this core does not
 silently truncate observations. A WAL above 64 MiB triggers a bounded checkpoint
-before accepting more work; a blocking reader causes explicit backpressure.
-Do not actively write in a network filesystem or cloud-synchronized directory.
+before accepting more work. A reader holding a read transaction makes that
+checkpoint answer busy, so the write retries it with a backoff for up to 30
+seconds and records the wait in the artifact's limitations: reading a scan while
+it is collected is what `scan-list` and `scan-inspect` are for, and a WAL reader
+that cannot block the writer must not be able to end its run either. Only a
+checkpoint still blocked at that deadline is backpressure: the collector stops
+claiming work and leaves `lifecycle=interrupted` with
+`finish_reason=storage_backpressure` instead of raising, and a write that hits it
+between pages still leaves the same interrupted header with its reason. Marking a
+run interrupted is never itself refused for WAL pressure, so a partial capture
+cannot read as one still running. Do not actively write in a network filesystem
+or cloud-synchronized directory.
 
 `snapshot()` admits space for the logical database, observed WAL/SHM, a temporary
 margin, and a 1 GiB reserve. It uses a bounded Backup API operation, validates the

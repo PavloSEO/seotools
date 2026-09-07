@@ -15,7 +15,7 @@ import pytest
 from seohead.crawl import sqlite_adapter
 from seohead.crawl.settings import load
 from seohead.crawl.sqlite_adapter import crawl_to_scan
-from seohead.storage import ScanError
+from seohead.storage import ScanBackpressure, ScanError
 from seohead.storage.native_scan import NativeScan
 
 
@@ -869,3 +869,59 @@ def test_partial_observation_reason_reaches_the_caller(tmp_path, tag, count, rea
     assert reason in output["limitations"]
     stored = NativeScan.inspect(tmp_path / "scan.sqlite")["scan"]
     assert output["limitations"] == json.loads(stored["limitations_json"])
+
+
+def _run(tmp_path, fetcher, **overrides):
+    return crawl_to_scan(
+        "https://example.test/",
+        scan_out=str(tmp_path / "scan.sqlite"),
+        settings=load(overrides={"speed.min_delay_seconds": 0, **overrides}),
+        producer_version="3.0.0",
+        producer_revision="a" * 40,
+        runtime_versions={
+            "python": "test",
+            "sqlite": "test",
+            "httpx": "test",
+            "lxml": "test",
+            "beautifulsoup4": "test",
+        },
+        fetcher=fetcher,
+        sleeper=lambda _seconds: None,
+    )
+
+
+def _offline(url):
+    if url.endswith("/robots.txt"):
+        return _Response(200, "User-agent: SEOHEAD-Tools\nAllow: /\n")
+    return _Response(200, "<html><head><title>page</title></head><body>page</body></html>")
+
+
+def test_backpressure_that_outlasts_the_wait_stops_the_crawl_with_a_recorded_reason(
+    tmp_path, monkeypatch
+):
+    """Issue #618: a blocked checkpoint ends collection with a reason, not an abort."""
+
+    def blocked(self, limit):
+        raise ScanBackpressure("WAL backpressure: a reader kept the bounded log")
+
+    monkeypatch.setattr(NativeScan, "claim", blocked)
+    run = _run(tmp_path, _offline)
+    assert (run.lifecycle, run.finish_reason, run.partial) == (
+        "interrupted",
+        "storage_backpressure",
+        True,
+    )
+    header = NativeScan.inspect(str(tmp_path / "scan.sqlite"))["scan"]
+    # The artifact, not just the console, has to say why it is short.
+    assert header["lifecycle"] == "interrupted"
+    assert "backpressure" in header["finish_reason"]
+
+
+def test_a_crawl_without_backpressure_finishes_and_claims_no_interruption(tmp_path):
+    """The wait-and-record path stays silent when no reader ever blocks a checkpoint."""
+    run = _run(tmp_path, _offline)
+    assert (run.lifecycle, run.finish_reason, run.partial) == ("running", "finished", False)
+    assert run.pages == 1
+    header = NativeScan.inspect(str(tmp_path / "scan.sqlite"))["scan"]
+    assert header["finish_reason"] != "storage_backpressure"
+    assert not any("WAL checkpoint" in note for note in json.loads(header["limitations_json"]))

@@ -8,6 +8,7 @@ import platform
 import re
 import sqlite3
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -236,6 +237,7 @@ def resume_scan(
     *,
     url: str | None = None,
     producer_build: str | None = None,
+    progress: Callable[[int, int], None] | None = None,
 ) -> dict[str, Any]:
     """Continue an interrupted native scan from its stored frontier and throttle state.
 
@@ -265,6 +267,7 @@ def resume_scan(
         scan_out=scan_path,
         settings=inputs["settings"],
         producer_build=revision,
+        progress=progress,
     )
 
 
@@ -275,8 +278,15 @@ def crawl_site_scan(
     settings: dict[str, Any],
     sitemap: str | None = None,
     producer_build: str | None = None,
+    progress: Callable[[int, int], None] | None = None,
 ) -> dict[str, Any]:
-    """Collect a native scan, then audit its SQL graph with finite page/output bounds."""
+    """Collect a native scan, then audit its SQL graph with finite page/output bounds.
+
+    ``progress`` is forwarded to the collector untouched; see
+    ``seohead.crawl.sqlite_adapter.crawl_to_scan``. It covers collection only --
+    the audit that follows reads an artifact that has stopped growing, so a
+    progress line over it would report a crawl that is already over.
+    """
     if not isinstance(url, str) or not url:
         raise ValueError("url is required for a SQLite scan crawl")
     if not isinstance(scan_out, str) or not scan_out:
@@ -311,6 +321,7 @@ def crawl_site_scan(
         runtime_versions=runtime_versions,
         initial_sitemaps=initial_sitemaps(sitemap),
         seed_loader=seed_loader,
+        progress=progress,
     )
     with NativeScan.open(run.path) as scan:
         snapshot = scan.resume_snapshot(include_edges=True)

@@ -39,6 +39,13 @@ from seohead.servers import handlers
 # invert it, and a decimal point in the wrong place is somebody's site under
 # load. 'sf run' has carried the same flag for the same reason.
 #
+# -q/--quiet is neither an input source nor a setting: it turns off output this
+# command writes to stderr, which no config key can reach because the config
+# describes the crawl, not the terminal it runs in. It is the same flag, spelled
+# the same way, that 'sf run' has always had -- an operator who pipes one of
+# these two commands should not have to learn that the other silences itself
+# differently. Its help text is one line for exactly this ceiling's sake.
+#
 # The rule above still stands for anything else.
 #
 # --urls-file (#21) is list mode's file-input counterpart to --urls and wraps
@@ -50,7 +57,11 @@ from seohead.servers import handlers
 # frontier, the settings and the start URL -- rather than configuring how the
 # crawl behaves. It cannot be a --config setting for the same reason --url
 # cannot: --config is one of the things it supplies.
-HELP_LINE_CEILING = 41
+#
+# -q/--quiet (#619, progress half) is the one line above that: it turns the crawl's
+# stderr off, and that is not a crawler setting either -- it says what this process
+# prints, not what it fetches.
+HELP_LINE_CEILING = 42
 
 
 def _help_lines(capsys):

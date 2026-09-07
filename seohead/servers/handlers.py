@@ -480,6 +480,7 @@ def crawl_site(
     producer_build: str | None = None,
     overrides: dict[str, Any] | None = None,
     resume: str | None = None,
+    progress: Callable[[int, int], None] | None = None,
 ) -> dict[str, Any]:
     """Crawl a site from a start URL, or fetch an explicit list, then audit it.
 
@@ -507,6 +508,13 @@ def crawl_site(
     alongside it is therefore an error rather than an override -- see
     ``seohead.servers.scan_handlers.resume_scan`` for the refusals decided
     before the first request.
+    ``progress`` is a live-progress callback taking ``(fetched, queued)``. It
+    is an interface-layer concern rather than a crawler setting -- only a
+    caller with a terminal has anywhere to put a progress line -- so it is a
+    plain callable here and has no place in ``config`` or the run manifest.
+    List mode is not covered: its workload is the list, known in full before
+    the first request, and the honest report of a known total is a different
+    line than this one (see ``seohead.crawl.progress``).
     """
     if resume is not None:
         # ``is not None`` rather than truthiness: --min-delay 0 and --max-urls 0 are
@@ -538,7 +546,7 @@ def crawl_site(
             )
         from seohead.servers.scan_handlers import resume_scan
 
-        return resume_scan(resume, url=url, producer_build=producer_build)
+        return resume_scan(resume, url=url, producer_build=producer_build, progress=progress)
 
     import contextlib
     import os
@@ -601,6 +609,7 @@ def crawl_site(
             settings=settings,
             sitemap=sitemap,
             producer_build=producer_build,
+            progress=progress,
         )
     dispatch_gate = None
     if url:
@@ -711,6 +720,7 @@ def crawl_site(
             crawl_redirects=settings["discovery"]["redirects"]["crawl"],
             capture_link_attributes=settings["link_attributes"]["capture"],
             dispatch_gate=dispatch_gate,
+            progress=progress,
         )
         # Nothing left to resume into, so the private sidecar (used only when the
         # human-readable export was off) would otherwise linger as a hidden, ever

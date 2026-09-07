@@ -223,6 +223,9 @@ def test_cli_resume_reaches_the_handler_without_a_url_or_stdin(tmp_path, monkeyp
 
     assert cli.main(["crawl-site", "--resume", scan]) == 0
 
+    # The progress line rides along because a resumed crawl is exactly the long run
+    # worth watching; nothing else does, and no --url was invented from the artifact.
+    assert seen.pop("progress") is not None
     assert seen == {"resume": scan}
     # The pre-run rate line describes flags a resume refuses, so it is not printed;
     # the outcome line is, because that is the question a long run leaves open.

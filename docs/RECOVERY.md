@@ -51,7 +51,7 @@ Check these fields after the second run, in this order:
 |---|---|---|
 | `resumed` | top-level result / `run.crawl_resumed` in `audit.json` | `true` if `crawl_state.json` matched and was loaded; `false` if the crawl started over |
 | `discovery.resume_note` | top-level result | the exact reason — resumed with a queue/seen count, or why not |
-| `finish_reason` | top-level result / `run.crawl_finish_reason` in `audit.json` | `finished`, or why the crawl stopped: `interrupted`, `errors`, `url_limit`, `duration_limit`, `robots_unavailable` |
+| `finish_reason` | top-level result / `run.crawl_finish_reason` in `audit.json` | `finished`, or why the crawl stopped: `interrupted`, `errors`, `url_limit`, `duration_limit`, `robots_unavailable`, `storage_backpressure` |
 
 A successful resume looks like:
 

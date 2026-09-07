@@ -15,17 +15,17 @@ here is written about *our own* behaviour.
 
 | Status | Count | Meaning |
 |---|---:|---|
-| check | 123 | a registry check finds it |
+| check | 125 | a registry check finds it |
 | tool | 33 | a command outside the crawl registry finds it |
-| partial | 16 | we find part of it; the missing part is stated |
-| gap | 12 | we should find it and do not |
+| partial | 17 | we find part of it; the missing part is stated |
+| gap | 9 | we should find it and do not |
 | out of scope | 136 | a decision, with its reason |
 | **total** | **320** | |
 
 108 of the out-of-scope entries are two whole categories declined as single
 decisions — accessibility and AMP, each explained in its own section below. Of the
-remaining 212 issues, **156 are found today**, 16 are
-found in part, 12 are gaps worth closing, and
+remaining 212 issues, **158 are found today**, 17 are
+found in part, 9 are gaps worth closing, and
 28 need something we have decided not to build.
 
 A gap is not a defect. It is a named, deliberate absence — which is the only kind worth
@@ -179,12 +179,12 @@ having, because the alternative is an absence nobody has noticed.
 
 | Issue | Status | Found by | Note |
 |---|---|---|---|
-| Pagination URL Not In Anchor Tag | gap | — | rel=next/prev targets are not cross-checked against the anchor list |
+| Pagination URL Not In Anchor Tag | check | `PAGINATION_URL_NOT_IN_ANCHOR` |  |
 | Non-200 Pagination URLs | check | `PAGINATION_NONINDEXABLE` |  |
 | Unlinked Pagination URLs | check | `UNLINKED_PAGINATION_SERIES` |  |
-| Multiple Pagination URLs | gap | — | multiple rel=next declarations are not counted |
+| Multiple Pagination URLs | check | `PAGINATION_MULTIPLE` |  |
 | Pagination Loop | check | `PAGINATION_LOOP` |  |
-| Sequence Error | gap | — | the numeric order of a series is not validated |
+| Sequence Error | partial | `PAGINATION_SEQUENCE_ERROR` | only a run that increments by one somewhere is judged: a series with a stride, or one whose URLs do not state a page number, is left unevaluated rather than reported against a numbering we would have had to invent -- and is then named, with the reason true of that series, among the run's skipped checks |
 | Non-Indexable | check | `PAGINATION_NONINDEXABLE` |  |
 
 ## Directives

@@ -97,7 +97,19 @@ def _redact(value: Any) -> Any:
         return shown
     if isinstance(value, dict):
         return {k: _redact(v) for k, v in value.items()}
-    return value
+    if isinstance(value, (bool, int, float, type(None))):
+        return value
+    if isinstance(value, os.PathLike):
+        return _redact(os.fspath(value))
+    # Anything else is not JSON: a callable an interface handed the handler (a
+    # progress line's callback, #619), a file handle, an object. Its type name,
+    # not str(value), because most objects' str carries a memory address, and an
+    # address would give the same call a different fingerprint every run. Naming
+    # the type keeps the entry honest -- the argument was given, and this is
+    # what it was -- where returning the object unchanged makes json.dumps raise
+    # inside fingerprint(), which fails the whole run rather than degrading one
+    # journal entry.
+    return f"<{type(value).__name__}>"
 
 
 def safe_arguments(arguments: dict[str, Any] | None) -> dict[str, Any]:
@@ -115,11 +127,21 @@ def safe_arguments(arguments: dict[str, Any] | None) -> dict[str, Any]:
     return out
 
 
+# Arguments an interface adds for display only. They change what the operator sees
+# during a run and nothing about what the run does, so they must not change its
+# identity: a crawl and the same crawl with -q are the same call, and a journal
+# that says otherwise cannot answer "have I already done this" (#619).
+DISPLAY_ONLY_ARGUMENTS = frozenset({"progress"})
+
+
 def fingerprint(tool: str, arguments: dict[str, Any] | None) -> str:
     """Stable identity for "the same call again", for later reuse decisions."""
-    payload = json.dumps(
-        {"tool": tool, "arguments": safe_arguments(arguments)}, sort_keys=True, ensure_ascii=False
-    )
+    identity = {
+        name: value
+        for name, value in safe_arguments(arguments).items()
+        if name not in DISPLAY_ONLY_ARGUMENTS
+    }
+    payload = json.dumps({"tool": tool, "arguments": identity}, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 

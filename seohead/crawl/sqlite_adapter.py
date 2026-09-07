@@ -39,7 +39,7 @@ from seohead.crawl.spider import (
 from seohead.crawl.throttle import Throttle
 from seohead.models import ParsedRobots
 from seohead.recon.net import UA, http_client, normalize_url
-from seohead.storage import MAX_RECORD_BYTES, ScanError
+from seohead.storage import MAX_RECORD_BYTES, ScanBackpressure, ScanError
 from seohead.storage.native_scan import NativeScan
 from seohead.tools.robots import is_allowed, match_path, politeness_delay
 
@@ -345,12 +345,21 @@ def crawl_to_scan(
     fetcher: Callable[[str], Any] | None = None,
     sleeper: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
+    progress: Callable[[int, int], None] | None = None,
 ) -> ScanRun:
     """Collect a cache-off native crawl into one explicit scan artifact.
 
     Handler/CLI/MCP wiring is deliberately outside this module.  Callers pass
     the already loaded settings and producer provenance, so there is no second
     configuration path here.
+
+    ``progress``, when given, is called with ``(fetched, queued)`` once per
+    frontier batch and once more when collection ends.  Both numbers come from
+    the artifact's own ``resume_snapshot`` -- the same query the loop uses to
+    decide whether to keep going -- so what an operator is shown is what the
+    scan file on disk actually holds at that moment, never a separate in-memory
+    tally that could drift from it.  It is called between batches, where no
+    request is in flight, so the count is never a mid-write reading.
     """
     if settings["cache"]["mode"] != "off":
         raise ValueError(
@@ -579,6 +588,8 @@ def crawl_to_scan(
         while True:
             snapshot = scan.resume_snapshot()
             counts = snapshot["counts"]
+            if progress is not None:
+                progress(counts["pages"], counts["queued"] + counts["inflight"])
             if counts["pages"] >= limit:
                 if counts["queued"] or counts["inflight"]:
                     partial, finish_reason = True, "url_limit"
@@ -593,7 +604,18 @@ def crawl_to_scan(
                 break
             remaining = limit - counts["pages"]
             scan.preflight_capture()
-            leases = scan.claim(min(throttle.concurrency, remaining))
+            try:
+                leases = scan.claim(min(throttle.concurrency, remaining))
+            except ScanBackpressure as exc:
+                # The storage layer already waited out the reader for as long as
+                # it may. Stop collecting rather than raising: the pages already
+                # committed are sound, and the artifact says why it is short.
+                partial, finish_reason = True, "storage_backpressure"
+                scan.interrupt(f"storage backpressure: {exc}")
+                break
+            except (ScanError, sqlite3.Error) as exc:
+                _storage_failure(scan, exc)
+                raise ScanError(f"native scan storage failure: {exc}") from exc
             if not leases:
                 # Handler owns audit/no-audit finalization after its bounded
                 # compatibility bridge decides whether it may materialize.
@@ -830,7 +852,7 @@ def crawl_to_scan(
                 if partial:
                     break
 
-        if finish_reason != "errors":
+        if finish_reason not in {"errors", "storage_backpressure"}:
             from .sqlite_resources import capture_resources
 
             capture_resources(
@@ -846,6 +868,17 @@ def crawl_to_scan(
         if start_page_gate is None:
             start_page_gate = retained_start_gate(scan, settings, content_area_config)
         outcome = scan.resume_snapshot(include_edges=True)
+        if progress is not None:
+            # The last word on this run, read after collection has stopped: a
+            # crawl that ended on the URL budget still has a queue, and saying
+            # so is the difference between "finished" and "stopped early".
+            # Leases still marked inflight are outstanding work too -- an
+            # interrupted run recovers them on resume, so they are counted here
+            # exactly as they are in the loop above.
+            progress(
+                outcome["counts"]["pages"],
+                outcome["counts"]["queued"] + outcome["counts"]["inflight"],
+            )
         return ScanRun(
             path=str(scan.path),
             pages=outcome["counts"]["pages"],

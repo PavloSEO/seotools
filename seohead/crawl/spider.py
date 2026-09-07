@@ -642,6 +642,7 @@ def crawl_site(
     crawl_redirects: bool = True,
     capture_link_attributes: bool = False,
     dispatch_gate: DispatchGate | None = None,
+    progress: Callable[[int, int], None] | None = None,
 ) -> SpiderResult:
     """Crawl one host breadth-first from ``start_url``, within ``scope``.
 
@@ -712,6 +713,14 @@ def crawl_site(
     protocol-relative-link detection — the two findings that need them — report nothing
     rather than a false clean result. ``nofollow`` is unaffected either way: it is derived
     from rel at parse time regardless of this setting.
+    ``progress``, when given, is called with ``(fetched, queued)`` -- pages
+    already recorded, and URLs discovered but not yet fetched -- once before the
+    first request and again after every page (after every batch, when
+    concurrent). Both numbers are read straight from the structures the crawl
+    itself walks, so a caller displaying them is displaying the crawl's own
+    state rather than a parallel tally that can drift from it. It is called from
+    the loop, not a timer: a crawl blocked on one slow response reports nothing
+    new until that response lands, which is what is actually true of it.
     """
     start = normalize_url(start_url)
     host = (urlsplit(start).hostname or "").lower() if start else ""
@@ -1066,7 +1075,16 @@ def crawl_site(
             handle_links(parsed, url, depth)
             return False
 
+        def report_progress() -> None:
+            """Hand the caller the crawl's own counters, or do nothing when nobody asked."""
+            if progress is not None:
+                progress(len(result.pages), len(queue))
+
         stopped = False
+        # Reported before the first request too: on a slow origin the operator
+        # otherwise waits out the whole first fetch with nothing on screen, and
+        # cannot tell a crawl that started from one that hung on robots.txt.
+        report_progress()
         if max_concurrency <= 1:
             # The plain sequential path: one request, wait for the response,
             # then the next. Kept byte-for-byte separate from the batched path
@@ -1087,6 +1105,10 @@ def crawl_site(
                 result.max_depth_reached = max(result.max_depth_reached, depth)
 
                 if robots_blocks(url):
+                    # The URL was counted as queued when it was discovered, so leaving
+                    # without a report keeps it in the operator's denominator forever:
+                    # a finished crawl then signs off short of 100%, reading as stalled.
+                    report_progress()
                     continue
 
                 try:
@@ -1112,6 +1134,7 @@ def crawl_site(
                     result.finish_reason = "interrupted"
                     break
                 stopped = after_fetch(url, depth, record, parsed)
+                report_progress()
         else:
             gate = dispatch_gate
 
@@ -1181,6 +1204,7 @@ def crawl_site(
                         result.max_depth_reached = max(result.max_depth_reached, d)
 
                     if not to_fetch:
+                        report_progress()  # same reason as the sequential path above
                         continue
 
                     # Futures are submitted up front and then consumed in the
@@ -1252,6 +1276,11 @@ def crawl_site(
                         result.stopped_reason = "interrupted"
                         result.finish_reason = "interrupted"
                         stopped = True
+                    # Once per batch, after every requeue has been folded back
+                    # in: mid-batch the queue is briefly short of URLs that are
+                    # about to return to it, and reporting there would show a
+                    # frontier that never existed.
+                    report_progress()
 
         if state_path:
             if result.finish_reason == "finished":
