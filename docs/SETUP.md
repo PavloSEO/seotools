@@ -83,7 +83,8 @@ queued, capped at the URL budget — not the size of the site. A crawler
 discovers its own workload as it walks, so that denominator grows, and the
 percentage is not an estimate of when the run will finish. The scan size
 appears only with `--scan-out`, and counts the artifact's write-ahead log
-alongside the file itself.
+alongside the file itself — which is why it can fall at the end of a run, when
+SQLite folds that log back into the file.
 
 Piped or redirected output gets a plain line every 30 seconds instead of
 carriage-return redraws, so a log file stays readable. `-q` silences the

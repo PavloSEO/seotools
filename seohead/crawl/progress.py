@@ -188,7 +188,13 @@ class CrawlProgress:
         return (last_fetched - first_fetched) / span if span > 0 else None
 
     def _artifact_bytes(self) -> int | None:
-        """Bytes the scan artifact occupies, or None when no artifact is being written."""
+        """Bytes the scan artifact occupies, or None when no artifact is being written.
+
+        The figure can fall at the end of a run: SQLite checkpoints the WAL back
+        into the file and the sidecar goes away, so a crawl that showed 960 KB
+        mid-run finishes at 240 KB. That is the artifact getting smaller, not
+        evidence being lost.
+        """
         if not self.artifact_path:
             return None
         total = 0
