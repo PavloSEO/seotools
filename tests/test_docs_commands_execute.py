@@ -130,6 +130,18 @@ def _seed_workdir(tmp_path: Path, base_url: str) -> None:
     original_dir = tmp_path / "original"
     original_dir.mkdir()
     shutil.copy(ROOT / "tests" / "doc_fixtures" / "site" / "image.png", original_dir / "image.png")
+    # docs/SETUP.md's list-mode chain (#21): a redirect map to feed --urls-file, a
+    # traffic export to join with crawl-enrich, and the follow-up URL list its
+    # --out-urls would have written -- each doc line runs standalone in its own
+    # tmp_path, not chained to the command before it, so every input it names must
+    # already exist.
+    from openpyxl import Workbook
+
+    workbook = Workbook()
+    workbook.active.append([f"{base_url}/page"])
+    workbook.save(tmp_path / "redirect-map.xlsx")
+    (tmp_path / "gsc.csv").write_text(f"url,clicks\n{base_url}/page,10\n", encoding="utf-8")
+    (tmp_path / "not-observed.txt").write_text(f"{base_url}/page\n", encoding="utf-8")
 
 
 def _seed_scan_inputs(tmp_path: Path) -> None:

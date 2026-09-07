@@ -39,6 +39,11 @@ from typing import Any
 # added for the AJAX-crawling-scheme checks (#386), are empty strings and zeros by
 # default and measure no further allocation either -- the 56-field and 58-field
 # records were measured side by side with one instrument and came back identical.
+# List mode's canonical walk (#21) then added two more: final_canonical is another
+# empty string and costs nothing, but canonical_chain is a list, and an empty list
+# per record is not free. Measured the same way, 8 000 records with distinct URLs:
+# 2 116 bytes at 58 fields, 2 172 at 60 -- one more 56-byte empty-list increment,
+# the same figure the hreflang list cost. The totals below carry it.
 # Field lengths affect absolute memory,
 # so 2 456 bytes is an approximate combined PageRecord estimate; the rounded totals are
 #
@@ -98,6 +103,9 @@ DEFAULTS: dict[str, Any] = {
         # scope.include_patterns regex. Empty means every segment is in scope.
         "segments_only": [],
     },
+    # Post-crawl grouping is distinct from scope.segments: scope controls
+    # discovery, while analysis rules classify already collected evidence.
+    "analysis": {"segments": []},
     "sitemaps": {
         # Seed the crawl from the sitemap declared in robots.txt (the
         # ``Sitemap:`` directive) when no explicit sitemap URL is given.
@@ -124,6 +132,9 @@ DEFAULTS: dict[str, Any] = {
         # hop exists. Off by default because it is extra requests per redirect
         # a plain status check does not need.
         "resolve_redirect_destination": False,
+        # Canonical-chain equivalent: inspect canonical targets without making
+        # them list-mode pages or relaxing depth zero.
+        "resolve_canonical_destination": False,
     },
     "limits": {
         "max_urls": 200,
@@ -315,6 +326,7 @@ RESULTS_AFFECTING: frozenset[str] = frozenset(
         # breakdown even when nothing is excluded.
         "scope.segments",
         "scope.segments_only",
+        "analysis.segments",
         # Seeding from the sitemap changes which URLs are fetched at all.
         "sitemaps.auto_discover",
         "discovery.hyperlinks.store",
@@ -323,6 +335,7 @@ RESULTS_AFFECTING: frozenset[str] = frozenset(
         "discovery.external.store",
         "discovery.follow_nofollow",
         "discovery.resolve_redirect_destination",
+        "discovery.resolve_canonical_destination",
         # Every limit truncates the corpus, and a truncated crawl produces false
         # "not linked from anywhere" conclusions.
         "limits.max_urls",
@@ -429,6 +442,10 @@ DESCRIPTIONS: dict[str, str] = {
         "every segment is in scope. Subsumes a subfolder-only or single-subdomain "
         "crawl without an ad-hoc scope.include_patterns regex."
     ),
+    "analysis.segments": (
+        "Post-crawl segment rules: [{'name': ..., 'rules': [{'op': 'eq|prefix|contains|regex|in|segment', "
+        "'field': ..., 'value': ...}]}]. Rules may use page fields or another segment."
+    ),
     "sitemaps.auto_discover": (
         "Seed the crawl from the sitemap declared in robots.txt when no explicit "
         "sitemap URL is given."
@@ -442,6 +459,10 @@ DESCRIPTIONS: dict[str, str] = {
         "List mode only: follow a fetched redirect past its first hop to where it actually "
         "lands, recording every hop. Depth stays 0; this is a per-URL chain walk, not link "
         "discovery."
+    ),
+    "discovery.resolve_canonical_destination": (
+        "List mode only: follow a fetched page's canonical declaration through a bounded "
+        "chain, recording every inspected target without adding it to the page population."
     ),
     "limits.max_urls": (
         "Maximum number of URLs the crawl will fetch. Values above "
@@ -805,6 +826,8 @@ def validate(config: dict[str, Any]) -> None:
             )
 
     _validate_segments(config["scope"])
+    if not isinstance(config["analysis"]["segments"], list):
+        raise ConfigError("analysis.segments must be a list")
     _validate_http_headers(config["http"])
     _validate_credential_headers(config["http"])
     _validate_rendering(config["rendering"])

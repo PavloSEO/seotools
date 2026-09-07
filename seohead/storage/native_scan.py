@@ -75,6 +75,15 @@ _LINK_KEYS = {
     "raw_href",
 }
 _FORM_KEYS = {"page", "method", "action", "has_password"}
+# Page fields the record carries as Python objects and the pages table stores as JSON
+# text. Spelled once: the same map was written out at three call sites below, and a
+# fourth entry (the canonical walk, #21) had to reach all of them to be stored at all.
+_PAGE_JSON_SOURCES = {
+    "redirect_chain_json": "redirect_chain",
+    "hreflang_json": "hreflang",
+    "canonical_chain_json": "canonical_chain",
+}
+
 _OPTIONAL_PAGE_SOURCES = {
     "status_code",
     "response_time",
@@ -1359,11 +1368,7 @@ class NativeScan:
         source_names = {"url"}
         for name in columns:
             if name not in {"url_id", "page_ordinal", "document_id"}:
-                source_names.add(
-                    {"redirect_chain_json": "redirect_chain", "hreflang_json": "hreflang"}.get(
-                        name, name
-                    )
-                )
+                source_names.add(_PAGE_JSON_SOURCES.get(name, name))
         if set(record) - source_names:
             raise ScanError(f"page record has unknown fields: {sorted(set(record) - source_names)}")
         for name in _PAGE_NONNEGATIVE_INTS:
@@ -1381,15 +1386,13 @@ class NativeScan:
         for name, column in columns.items():
             if name in {"url_id", "page_ordinal", "document_id"}:
                 continue
-            source = {"redirect_chain_json": "redirect_chain", "hreflang_json": "hreflang"}.get(
-                name, name
-            )
+            source = _PAGE_JSON_SOURCES.get(name, name)
             if source not in record:
                 raise ScanError(f"pages.{source}: current native record field is missing")
             value = record[source]
             if value is None and source not in _OPTIONAL_PAGE_SOURCES:
                 raise ScanError(f"pages.{source}: current native record field cannot be null")
-            if name in {"redirect_chain_json", "hreflang_json"}:
+            if name in _PAGE_JSON_SOURCES:
                 if name == "hreflang_json" and (
                     not isinstance(value, list)
                     or any(
@@ -1402,11 +1405,11 @@ class NativeScan:
                     raise ScanError(
                         "pages.hreflang must be ordered lang/raw_href/url string objects"
                     )
-                if name == "redirect_chain_json" and (
+                if name in {"redirect_chain_json", "canonical_chain_json"} and (
                     not isinstance(value, list)
                     or any(not isinstance(item, dict) for item in value or [])
                 ):
-                    raise ScanError("pages.redirect_chain must be an ordered object list")
+                    raise ScanError(f"pages.{source} must be an ordered object list")
                 value = _dump(value)
             elif name in _PAGE_BOOLS and value is not None:
                 if type(value) is not bool:

@@ -62,6 +62,8 @@ def test_original_bytes_fields_occurrences_and_producer_survive(legacy_run, arti
                 page.pop(key)
             page["redirect_chain"] = json.loads(page.pop("redirect_chain_json"))
             page["hreflang"] = json.loads(page.pop("hreflang_json"))
+            stored_chain = page.pop("canonical_chain_json")
+            page["canonical_chain"] = [] if stored_chain is None else json.loads(stored_chain)
             for key in page:
                 if key == "head_not_first" or key.endswith("_outside_head"):
                     page[key] = None if page[key] is None else bool(page[key])
@@ -361,7 +363,12 @@ def test_schema_maps_all_current_page_and_link_fields():
     from seohead.storage import _expected
 
     page_columns = {column[1] for column in _expected()[1]["pages"]}
-    mapped = {"url": "url_id", "redirect_chain": "redirect_chain_json", "hreflang": "hreflang_json"}
+    mapped = {
+        "url": "url_id",
+        "redirect_chain": "redirect_chain_json",
+        "hreflang": "hreflang_json",
+        "canonical_chain": "canonical_chain_json",
+    }
     assert {mapped.get(field.name, field.name) for field in fields(PageRecord)} == page_columns - {
         "page_ordinal",
         "document_id",

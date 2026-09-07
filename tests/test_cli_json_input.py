@@ -51,6 +51,13 @@ def test_compare_crawls_json_only_input_dispatches(monkeypatch, capsys):
     assert captured["after"] == {"pages": []}
 
 
+def test_compare_crawls_force_flag_reaches_the_handler(monkeypatch, capsys):
+    captured = _capture(monkeypatch, "compare_crawls")
+    rc = cli.main(["compare-crawls", "--before", "before.json", "--after", "after.json", "--force"])
+    assert rc == 0
+    assert captured["force"] is True
+
+
 def test_log_scan_flag_still_works_and_overrides_json(monkeypatch, capsys):
     """Path flags remain supported and take precedence over --input, per the issue's acceptance
     criteria — the flag path must not have regressed while fixing the JSON-only path."""

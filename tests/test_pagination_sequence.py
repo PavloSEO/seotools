@@ -75,6 +75,10 @@ def test_a_run_that_skips_pages_fires_and_names_the_break(tmp_path):
     urls = _pages(1, 2, 3, 7)
     res = _run(tmp_path, _chain(urls))
     fired = _fired(res)
+    # Named here rather than only inside _fired: the verdict-coverage gate reads a
+    # check's evidence from the test body, and evidence hidden in a helper is
+    # evidence a reader cannot see either.
+    assert "PAGINATION_SEQUENCE_ERROR" in {issue.check for issue in res.issues}
     assert set(fired) == {urls[0]}
     details = fired[urls[0]].details
     assert details["page_numbers"] == [1, 2, 3, 7]
@@ -89,6 +93,7 @@ def test_a_query_parameter_series_is_read_the_same_way(tmp_path):
 
 def test_an_ordered_run_stays_silent(tmp_path):
     res = _run(tmp_path, _chain(_pages(1, 2, 3, 4)))
+    assert "PAGINATION_SEQUENCE_ERROR" not in {issue.check for issue in res.issues}
     assert not _fired(res)
     assert _skip_reason(res) is None
 
