@@ -103,9 +103,9 @@ this skill.
    seohead sf run --exports-dir ./exports --out ./report --tasks
    ```
 
-2. **Read the four numbers, in this order.** They are all in one block:
+2. **Read the block, in this order.** Every number this method needs is in it:
    ```bash
-   python3 -c "import json,sys; print(json.dumps(json.load(open('./run/audit.json'))['summary']['internal_linking'], indent=2))"
+   python3 -c "import json; print(json.dumps(json.load(open('./run/audit.json'))['summary']['internal_linking'], indent=2))"
    ```
    - `click_depth.within` — pages within 3, 5 and 10 clicks of the start URL;
    - `click_depth.max` — the deepest page's shortest route;
@@ -189,8 +189,10 @@ above make avoidable:
   site the real figure was 91.9% reachable.
 - **"Maximum depth 4"**, read from `pages.crawl_depth`. The column records where the
   crawler reached a URL, not the shortest link route; the real maximum was 3 005.
-- **"Content links: 91% — the site is fine"**, from a crawl with no classification, where
-  every edge was in fact unclassified. An empty position must never be counted as content.
+- **A position distribution quoted from a crawl that never classified anything.** Every
+  edge carries an empty position there, and an empty position is not `content`. The block
+  reports the whole graph under `unclassified`; the answer is "not measured, re-crawl with
+  `link_position.classify`", never a percentage.
 - **"The site has no header links"**, from a distribution where `header` does not appear.
   First match wins, and a menu inside `<header>` is `nav`.
 - **"No orphans, so internal linking is healthy"**, on a site with 23 742 pages past ten
