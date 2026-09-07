@@ -44,12 +44,16 @@ from seohead.crawl.settings import (
     resolve_credential_headers,
 )
 from seohead.crawl.throttle import MAX_CONCURRENCY_CEILING, MAX_DELAY_S, DispatchGate, Throttle
+from seohead.models import ParsedRobots
 from seohead.recon.net import UA, http_client, normalize_url, registrable_domain
 from seohead.tools.robots import is_allowed, match_path, parse_robots, politeness_delay
 
 MAX_DEPTH_CEILING = 20
 ROBOTS_TOKEN = "SEOHEAD-Tools"
-EMPTY_ROBOTS = {"allow": [], "disallow": [], "groups": [], "crawl_delay": None}
+# The same shape ``parse_robots`` returns, because this stands in for its result on
+# every path where robots.txt could not be read: a different shape here is not an
+# empty ruleset, it is a ruleset the scan artifact refuses to store (#629).
+EMPTY_ROBOTS: ParsedRobots = {"groups": [], "sitemaps": []}
 # RFC 9309 §2.3.1.2 asks crawlers to follow "at least five consecutive redirects"
 # before giving up on robots.txt — this is that number, not an arbitrary one.
 MAX_ROBOTS_REDIRECTS = 5

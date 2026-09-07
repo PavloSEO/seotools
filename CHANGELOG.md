@@ -24,6 +24,20 @@ All notable public changes are documented here.
   exactly once across both processes and produces an audit identical to an uninterrupted
   crawl's in every field but that one.
 
+- Report an unreadable robots.txt as a fact about the site, not as an internal error (#629).
+  `EMPTY_ROBOTS` -- the stand-in `_fetch_robots` returns on every path where robots.txt could
+  not be read -- was still the parsed-robots shape from before the parser grew groups and
+  sitemaps. The success path returns `parse_robots`'s shape, and that is the only shape the
+  scan artifact's `robots_summary` context accepts, so in `--scan-out` mode a crawl aborted
+  with `native parsed robots summary is invalid` whenever robots.txt was unreachable, answered
+  429 or 5xx, redirected off-host, into a loop, past the hop budget or to a non-`text/plain`
+  body -- or was a plain 404, which is not an error at all but the RFC 9309 "no restrictions"
+  case and the most common of the seven. Both documented outcomes were lost behind that one
+  line: a missing robots.txt now crawls unrestricted again, and an unavailable one stops the
+  run with the note saying which of the six ways it failed. The legacy directory-mode crawl
+  never noticed because nothing reads the old keys. Found on a live site whose robots.txt
+  302s to a cookie-sync endpoint for any user agent it does not recognise.
+
 - Fix `escalate()` counting a failed render probe as "this pattern needs no rendering"
   (#626). It samples one URL per template pattern to decide whether that pattern needs a
   fuller, JavaScript-rendered fetch, but when every sample for a pattern failed to probe at
