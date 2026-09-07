@@ -543,7 +543,13 @@ def build_server():  # -> FastMCP
         returns dual_crawl (schema dualcrawl.v1): per-URL image/link evidence seen by only
         the raw pass or only the rendered pass, a separate question from the raw/rendered
         diff above. Requires Playwright; if it is missing the tool says so and gives the
-        install command instead of failing."""
+        install command instead of failing. A render that did not finish — a document
+        with no title, no h1, no canonical and no links, far smaller than the raw
+        response — comes back as ok:false with reason "incomplete_render" and both
+        snapshots, never as findings about the site: an unmeasured page is not a defect.
+        A requested wait milestone that times out (networkidle on a site with long-polling
+        scripts) falls back to reading the DOM at domcontentloaded, recorded in
+        wait_reached."""
         return _checked(handlers.render_check(url=url, viewport=viewport, wait=wait))
 
     @mcp.tool(annotations=fetch, structured_output=True)
