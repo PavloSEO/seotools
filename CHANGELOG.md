@@ -4,6 +4,20 @@ All notable public changes are documented here.
 
 ## Unreleased
 
+- Keep fingerprinting a page whose site sends a valueless `Set-Cookie` header (#651). A header
+  with no `name=value` pair at all -- `Set-Cookie: Secure; HttpOnly`, which `emall.by` sends
+  beside two well-formed cookies -- becomes `Cookie(name='Secure', value=None)` in the jar, and
+  `httpx.Cookies.__getitem__` raises `KeyError` for it. `dict(resp.cookies)` therefore failed on
+  a name the mapping's own iterator had produced: `tech-detect` exited 1 with a bare
+  `error: 'Secure'` and no JSON on stdout for a page that had been fetched successfully, MCP
+  `seo_tech_detect` raised the `KeyError` to its caller, and `site-audit` quietly came back with
+  its entire technology section missing. `detect_tech` now walks the cookie jar instead. A
+  valueless name is kept with an empty value rather than dropped, because several fingerprints
+  (`BITRIX_SM_GUEST_ID`, `craft_session`, `wfvt_`) match on cookie name alone and dropping the
+  entry would lose that signal -- but it is never silently normalized into an ordinary cookie:
+  the names are reported in `malformed_cookies` and named in a finding, so a header the site
+  sent broken stays a fact about the site. A response with only well-formed cookies is
+  unaffected and reports an empty list.
 - `render-check` measures compressed sites again instead of calling them broken (#650). The
   pinned render route read the origin with httpx's undecoded stream and handed those bytes to
   Playwright together with the origin's `content-encoding`. `route.fulfill` never applies a
