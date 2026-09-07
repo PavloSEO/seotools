@@ -292,3 +292,49 @@ def test_timeout_keeps_partial_child_output(monkeypatch, tmp_path):
         analysis._run_child("whole", tmp_path / "missing.sqlite", 1, 30, retain_dir=retained)
     assert (retained / "1-pages-30-links-whole.stdout.log").read_bytes() == b"partial stdout"
     assert (retained / "1-pages-30-links-whole.stderr.log").read_bytes() == b"progress"
+
+
+def test_published_acceptance_limits_match_the_code_they_describe():
+    """The acceptance record quotes four limits; each must still be the real one.
+
+    docs/SQLITE_ACCEPTANCE.md publishes measured numbers beside the budgets and
+    ceilings that decide whether a run is blocked. If one of those moves in code
+    and not in the document, a reader would grade a new measurement against a
+    limit that no longer exists -- which is exactly how a blocked result comes to
+    read as a clean one.
+    """
+    from seohead.storage import MAX_JSON_BYTES
+
+    text = (release.ROOT / "docs" / "SQLITE_ACCEPTANCE.md").read_text(encoding="utf-8")
+    budgets = analysis.MEMORY_BUDGETS_MIB
+
+    # Anchored on the run-conditions rows rather than searched for anywhere in the
+    # file, so an edited budget cannot be masked by the same number appearing in a
+    # sentence of prose further down.
+    expected = {
+        "declared budgets row": (
+            f"| Declared budgets | edge growth <= {budgets['edge_growth']} MiB, "
+            f"whole-path peak <= {budgets['whole_peak']} MiB |"
+        ),
+        "per-stage ceiling row": (
+            f"| Per-stage ceiling | {analysis.STAGE_TIMEOUT_SECONDS} seconds;"
+        ),
+        "saved-audit ceiling": f"saved JSON limit ({MAX_JSON_BYTES} bytes)",
+    }
+    missing = {name: value for name, value in expected.items() if value not in text}
+    assert not missing, f"docs/SQLITE_ACCEPTANCE.md no longer states: {missing}"
+
+
+def test_the_measured_record_states_both_blocking_results_and_the_criteria_it_missed():
+    """A published capacity record must not quietly become a passing one.
+
+    The run behind this document was blocked twice, and both outcomes are load
+    bearing: they are what an owner reviews. A later edit that drops them, or that
+    turns every acceptance row into 'Met', should fail here rather than ship.
+    """
+    text = (release.ROOT / "docs" / "SQLITE_ACCEPTANCE.md").read_text(encoding="utf-8")
+
+    assert "complete audit exceeds the saved JSON limit" in text
+    assert "33,930 of 50,000 pages" in text
+    assert "**Not met" in text, "the acceptance table no longer records an unmet criterion"
+    assert "Partly met" in text, "the acceptance table no longer records a partial criterion"

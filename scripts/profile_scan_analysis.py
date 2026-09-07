@@ -47,6 +47,11 @@ from seohead.storage import open_scan, read_audit
 from seohead.storage.analysis_graph import AnalysisGraph
 from seohead.storage.native_scan import NativeScan
 
+# Published beside every measured number in docs/SQLITE_ACCEPTANCE.md, so a budget
+# or ceiling that moves here must move there too; the release test compares them.
+MEMORY_BUDGETS_MIB = {"edge_growth": 128, "whole_peak": 2048}
+STAGE_TIMEOUT_SECONDS = 900
+
 
 class ProfileTimeout(RuntimeError):
     """A timed-out child with an optional consistent partial artifact."""
@@ -588,11 +593,13 @@ def _run_child(
                 ).write_bytes(data)
 
     try:
-        completed = subprocess.run(command, check=True, text=True, capture_output=True, timeout=900)
+        completed = subprocess.run(
+            command, check=True, text=True, capture_output=True, timeout=STAGE_TIMEOUT_SECONDS
+        )
     except subprocess.TimeoutExpired as exc:
         retain_logs(exc.stdout, exc.stderr)
         raise ProfileTimeout(
-            f"analysis profile child exceeded 900 seconds: {stage}",
+            f"analysis profile child exceeded {STAGE_TIMEOUT_SECONDS} seconds: {stage}",
             _retain_partial_artifact(database, stage, pages, edges, retain_dir),
         ) from exc
     except subprocess.CalledProcessError as exc:
@@ -714,15 +721,25 @@ def main() -> None:
                 float(samples[1]["peak_rss_mib"]) - float(samples[0]["peak_rss_mib"]), 2
             )
     violations = [
-        {"stage": stage, "metric": "edge_growth_mib", "limit": 128, "observed": deltas[stage]}
+        {
+            "stage": stage,
+            "metric": "edge_growth_mib",
+            "limit": MEMORY_BUDGETS_MIB["edge_growth"],
+            "observed": deltas[stage],
+        }
         for stage in ("collector", "graph", "audit", "whole")
-        if stage in deltas and deltas[stage] > 128
+        if stage in deltas and deltas[stage] > MEMORY_BUDGETS_MIB["edge_growth"]
     ]
     for row in results:
         peak = row.get("whole", {}).get("peak_rss_mib")
-        if peak is not None and float(peak) > 2048:
+        if peak is not None and float(peak) > MEMORY_BUDGETS_MIB["whole_peak"]:
             violations.append(
-                {"stage": "whole", "metric": "peak_rss_mib", "limit": 2048, "observed": peak}
+                {
+                    "stage": "whole",
+                    "metric": "peak_rss_mib",
+                    "limit": MEMORY_BUDGETS_MIB["whole_peak"],
+                    "observed": peak,
+                }
             )
     print(
         json.dumps(
@@ -738,7 +755,7 @@ def main() -> None:
                 "results": results,
                 "rss_delta_mib": deltas,
                 "observed_memory_budget_violations": violations,
-                "memory_budgets_mib": {"edge_growth": 128, "whole_peak": 2048},
+                "memory_budgets_mib": MEMORY_BUDGETS_MIB,
                 "whole_pipeline_rss_delta_mib": deltas.get("whole"),
             },
             indent=2,
