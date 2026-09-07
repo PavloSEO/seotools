@@ -541,6 +541,25 @@ def test_sf_audit_normalization_preserves_issue_evidence():
     assert finding["locations"] == SF_AUDIT["issues"][0]["locations"]
 
 
+def test_sf_audit_domain_falls_back_to_source_when_project_missing():
+    """#640: reports/__init__.py:300 has the same latent shape tasks.py did —
+    a native crawl or reanalysis never records "project", so the "domain"
+    field handed to the docx/md headings must not go blank when "source"
+    (the start URL) already names the site."""
+    from seohead.reports import _normalize_sf_audit
+
+    audit = dict(SF_AUDIT)
+    audit["run"] = {"project": None, "source": "https://www.profiz.ru/"}
+    assert _normalize_sf_audit(audit)["domain"] == "profiz.ru"
+
+
+def test_sf_audit_domain_still_uses_project_when_present():
+    """#640 negative control: a run that does carry "project" is unchanged."""
+    from seohead.reports import _normalize_sf_audit
+
+    assert _normalize_sf_audit(SF_AUDIT)["domain"] == "example.test"
+
+
 def test_xlsx_findings_sheet_carries_located_evidence(tmp_path):
     """#220: the documented developer handoff (xlsx) must show where a broken link lives."""
     from openpyxl import load_workbook

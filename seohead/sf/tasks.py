@@ -12,6 +12,7 @@ import hashlib
 import os
 from typing import Any
 
+from ..reports.facts import crawl_domain
 from .config import DEFAULT_CONFIG
 from .core.registry import check_meta
 
@@ -77,6 +78,11 @@ def build_tasks(audit: dict[str, Any], config: dict[str, Any] | None = None) -> 
         "schema_version": "1.0",
         "source": {
             "project": run.get("project"),
+            # Resolved once here, from the same start_url -> source -> project
+            # order facts.py uses for its own site-domain fact (#640), so the
+            # heading names the actual site instead of the literal string
+            # "None" whenever a native crawl or reanalysis left "project" unset.
+            "site_name": crawl_domain(run) or None,
             "generated_at": run.get("generated_at"),
             "health_score": summary.get("health_score"),
             "crawl_valid": run.get("crawl_valid", True),
@@ -218,7 +224,12 @@ def _esc(value: Any) -> str:
 
 def render_tasks_md(backlog: dict[str, Any]) -> str:
     src = backlog["source"]
-    lines = [f"# Audit Tasks — {src.get('project', 'site')}", ""]
+    # `dict.get`'s default never fires here: "project" is always a present key
+    # (set at build time from `run.get("project")`), so a missing project
+    # stores `None` rather than leaving the key absent. `or` catches that
+    # stored `None` where `.get(..., default)` cannot (#640).
+    site_name = src.get("project") or src.get("site_name") or "site"
+    lines = [f"# Audit Tasks — {site_name}", ""]
     # A failed crawl says so before anything else: the tasks below describe the
     # failed run, and a reader must not take them for a picture of the site.
     if src.get("crawl_valid") is False:

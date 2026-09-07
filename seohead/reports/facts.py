@@ -157,7 +157,7 @@ def _stamped(key: str, built: dict[str, Any]) -> dict[str, Any]:
     return {**built, "is_not": _IS_NOT.get(key, "")}
 
 
-def _crawl_domain(run: Mapping[str, Any]) -> str:
+def crawl_domain(run: Mapping[str, Any]) -> str:
     """The domain a crawl audit's ``run`` block was produced for.
 
     ``start_url`` is the field name this toolkit's design targets; the audits
@@ -165,6 +165,10 @@ def _crawl_domain(run: Mapping[str, Any]) -> str:
     ``source`` (a full URL, crawl mode) or ``project`` (already a bare
     domain, parse-exports mode). All three are tried, in that order of
     preference for "most literally a URL to take a host from".
+
+    Public (no leading underscore) because :mod:`seohead.sf.tasks` reuses this
+    same resolution for its backlog heading rather than inventing a second,
+    weaker one (#640).
     """
     for key in ("start_url", "source"):
         value = run.get(key)
@@ -199,7 +203,7 @@ def _load_document(path_or_doc: Any, label: str, field: str) -> tuple[dict[str, 
     if kind == "site-audit":
         doc_domain = normalize_domain(str(document.get("domain") or ""))
     else:
-        doc_domain = _crawl_domain(document.get("run") or {})
+        doc_domain = crawl_domain(document.get("run") or {})
 
     label_domain = normalize_domain(label)
     file_name = path_or_doc if isinstance(path_or_doc, str) else f"<inline {field}>"

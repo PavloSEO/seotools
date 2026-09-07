@@ -1,6 +1,6 @@
 # SEO audit — example.com
 
-- **Generated:** 2026-09-07T12:35:21Z
+- **Generated:** 2026-09-07T12:58:08Z
 - **Input mode:** parse-exports  ·  **Profile:** full
 - **Source:** examples/exports
 - **Exports used:** internal_all, inlinks_4xx
