@@ -61,6 +61,23 @@ ALL_CLEAR = (
     "rendering does not determine SEO-visible content"
 )
 
+# A render that did not finish returns a document with none of the landmarks the
+# raw response carries, at a small fraction of its size. Compared naively, that
+# emptiness reads as the site deleting its own title and canonical (#623). The
+# ratio is deliberately generous: a page whose rendered DOM is at least half the
+# raw response's size was captured, whatever else it did.
+INCOMPLETE_RENDER_BYTE_RATIO = 0.5
+
+# Named reason and machine-readable code for that state. It is neither a clean
+# result nor a finding: it says this run did not measure the page.
+INCOMPLETE_RENDER_CODE = "incomplete_render"
+RENDER_UNAVAILABLE = (
+    "The rendered DOM was not captured, so the raw-versus-rendered comparison "
+    "is unavailable: {reason}. Nothing about this page's JavaScript dependence "
+    "follows from this run -- re-run it, if needed with --wait domcontentloaded "
+    "or a longer --timeout"
+)
+
 _SCRIPT_STYLE_RE = re.compile(
     r"<(script|style|noscript)\b[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL
 )
@@ -392,6 +409,45 @@ def _snapshot(html: str, url: str) -> dict[str, Any]:
     }
 
 
+def incomplete_render_reason(raw: dict[str, Any], rendered: dict[str, Any]) -> str | None:
+    """Name why a rendered snapshot cannot be compared, or return ``None``.
+
+    A browser that fails mid-navigation still hands back a document, and that
+    document is nearly empty. Comparing it against a full raw response produces
+    confident nonsense -- "the title changes after JavaScript" from a title the
+    render never read, "the canonical is injected by JavaScript" from a
+    canonical the render never saw (#623, four such findings in a row on one
+    live site). The pair is therefore judged before it is compared.
+
+    The evidence for "this did not capture the page" is the *conjunction*: the
+    raw response carries landmarks (a title, or internal links), the rendered
+    document carries none of them at all -- no title, no h1, no canonical, no
+    internal link -- and it is a fraction of the raw response's size. A page
+    that genuinely renders to nothing keeps at least one of those, and a page
+    with no title and no links on either side is measured and merely empty, not
+    unmeasured. Returning ``None`` therefore means "compare these", never "this
+    page is fine".
+    """
+    if not isinstance(raw, dict) or not isinstance(rendered, dict):
+        return None
+    if rendered.get("title") or rendered.get("h1") or rendered.get("canonical"):
+        return None
+    if int(rendered.get("links") or 0) > 0:
+        return None
+    # Nothing was lost if the raw response had nothing to lose.
+    if not raw.get("title") and int(raw.get("links") or 0) == 0:
+        return None
+    raw_bytes = int(raw.get("html_bytes") or 0)
+    rendered_bytes = int(rendered.get("html_bytes") or 0)
+    if raw_bytes <= 0 or rendered_bytes >= raw_bytes * INCOMPLETE_RENDER_BYTE_RATIO:
+        return None
+    return (
+        "the rendered document has no title, no h1, no canonical and no internal links, "
+        f"at {rendered_bytes} bytes against the raw response's {raw_bytes} "
+        f"({rendered_bytes / raw_bytes:.0%})"
+    )
+
+
 def compare(
     raw: dict[str, Any], rendered: dict[str, Any], raw_html: str = "", shell: str | None = None
 ) -> list[str]:
@@ -399,7 +455,15 @@ def compare(
 
     This pure function uses neither the network nor a browser, allowing complete
     offline tests while the Playwright layer remains a thin adapter.
+
+    A pair whose rendered half never captured the page yields the single
+    ``RENDER_UNAVAILABLE`` statement and no site findings: an unfinished
+    measurement is not evidence about the site.
     """
+    unavailable = incomplete_render_reason(raw, rendered)
+    if unavailable:
+        return [RENDER_UNAVAILABLE.format(reason=unavailable)]
+
     out: list[str] = []
 
     if shell:
@@ -468,12 +532,54 @@ def compare(
     return out
 
 
+class _NeverRaised(Exception):
+    """Stands in for Playwright's ``TimeoutError`` when it cannot be imported."""
+
+
+# Deferred and lazily-hydrating scripts write the DOM after the navigation
+# milestone resolves. Half a second is enough for that on the pages this check
+# was misreading, and short enough not to change the cost of a render.
+SETTLE_MS = 500
+
+
+def _capture_dom(
+    page: Any,
+    target: str,
+    wait: str,
+    timeout: float,
+    settle_ms: int,
+    navigation_timeout: type[BaseException],
+) -> str:
+    """Navigate, settle, and report the load milestone actually reached.
+
+    A site with long-polling third-party scripts -- analytics, chat, ads -- may
+    never go network-idle and may not fire ``load`` either. That is ordinary,
+    and losing the whole check to it is worse than capturing the DOM slightly
+    earlier. ``DOMContentLoaded`` has normally fired long before the timeout, so
+    ``wait_for_load_state`` returns at once and the page is read without being
+    fetched a second time. When it genuinely never fired there is no document to
+    read, and the timeout propagates unchanged.
+    """
+    try:
+        page.goto(target, wait_until=wait, timeout=timeout * 1000)
+        reached = wait
+    except navigation_timeout:
+        if wait == "domcontentloaded":
+            raise
+        page.wait_for_load_state("domcontentloaded", timeout=timeout * 1000)
+        reached = "domcontentloaded"
+    if settle_ms > 0:
+        page.wait_for_timeout(settle_ms)
+    return reached
+
+
 def render_check(
     url: str,
     timeout: float = 30.0,
     wait: str = "load",
     viewport: str = "desktop",
     *,
+    settle_ms: int = SETTLE_MS,
     request_gate: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     """Compare a server response with the DOM produced after JavaScript executes.
@@ -485,7 +591,17 @@ def render_check(
     sites because analytics, chat, and advertising keep connections open, turning
     a useful render check into a timeout. Search-engine rendering does not require
     complete network silence either. Callers may still request ``networkidle``
-    when a particular application genuinely needs it.
+    when a particular application genuinely needs it -- and when that milestone
+    times out the DOM is still read at ``domcontentloaded`` rather than the whole
+    check being lost, with ``wait_reached`` recording which milestone the
+    snapshot actually came from. ``settle_ms`` is a short pause after that
+    milestone for deferred scripts to write the DOM.
+
+    When the browser hands back a document that never captured the page, the
+    result is ``ok: False`` with a named reason (``reason:
+    "incomplete_render"``) and both snapshots for inspection -- never findings
+    about the site, which is what an unfinished render used to be reported as
+    (#623).
     """
     if not url or not str(url).strip():
         return {"ok": False, "error": "URL is required"}
@@ -499,6 +615,10 @@ def render_check(
             "error": "Playwright is required",
             "install": "pip install 'seohead[render]' && python -m playwright install chromium",
         }
+    try:
+        from playwright.sync_api import TimeoutError as navigation_timeout
+    except ImportError:  # a harness may expose only sync_playwright
+        navigation_timeout = _NeverRaised
     try:
         validate_url(target)
     except ValueError as exc:
@@ -563,7 +683,9 @@ def render_check(
                     "**/*", lambda ws_route: _guard_websocket_route(ws_route, limitations)
                 )
                 page = context.new_page()
-                page.goto(target, wait_until=wait, timeout=timeout * 1000)
+                wait_reached = _capture_dom(
+                    page, target, wait, timeout, settle_ms, navigation_timeout
+                )
                 rendered_html = page.content()
                 rendered_url = page.url
                 metrics = page.evaluate(_METRICS_JS)
@@ -588,6 +710,30 @@ def render_check(
     # Merge in what only getComputedStyle can see: a background-image an
     # external stylesheet declares, absent from both HTML strings above.
     rendered["images"] = sorted(set(rendered["images"]) | set(computed_backgrounds))
+    # An unfinished render is an unmeasured page, not a broken site: report it
+    # the way every other unavailable measurement here is reported -- ok: False
+    # with a named reason -- and emit no findings from it at all (#623). Both
+    # snapshots ride along so the reason can be checked rather than believed.
+    incomplete = incomplete_render_reason(raw, rendered)
+    if incomplete:
+        return {
+            "ok": False,
+            "url": target,
+            "final_url": final_url,
+            "status": status,
+            "viewport": viewport,
+            "user_agent": UA,
+            "reason": INCOMPLETE_RENDER_CODE,
+            "error": RENDER_UNAVAILABLE.format(reason=incomplete),
+            "raw": raw,
+            "rendered": rendered,
+            "wait": wait,
+            "wait_reached": wait_reached,
+            "settle_ms": settle_ms,
+            # Neither True nor False: this run does not know.
+            "js_dependent": None,
+            "metrics_lab": metrics,
+        }
     shell = detect_empty_shell(raw_html)
     findings = compare(raw, rendered, raw_html, shell)
     # Its own report section, not merged into "findings": #21's compare()
@@ -617,6 +763,13 @@ def render_check(
         "raw": raw,
         "rendered": rendered,
         "empty_shell": shell,
+        # Which milestone the rendered snapshot actually came from: a site with
+        # long-polling scripts never reaches networkidle, and a report should be
+        # able to say the DOM was read at domcontentloaded instead of assuming
+        # the requested milestone was the one that happened.
+        "wait": wait,
+        "wait_reached": wait_reached,
+        "settle_ms": settle_ms,
         # Keep the summary aligned with findings: five widget words do not make a
         # page JavaScript-dependent, while findings use a 30% materiality threshold.
         "js_dependent": findings != [ALL_CLEAR],

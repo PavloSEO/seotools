@@ -74,6 +74,7 @@ Returned fields:
 | `empty_shell` | ID of an empty single-page application container, if present |
 | `js_dependent` | whether the page depends on scripts in any way |
 | `metrics_lab` | TTFB, FCP, **LCP**, **CLS**, load, and weight—**lab data**, not field data |
+| `wait` / `wait_reached` | the load milestone requested, and the one the snapshot actually came from — they differ when a requested `networkidle` timed out and the DOM was read at `domcontentloaded` instead |
 | `findings` | ready-to-use written conclusions |
 | `dual_crawl` | schema `dualcrawl.v1` — per-URL image/link evidence found by only the raw pass or only the rendered pass, so "this page changed" (the fields above) stays distinct from "raw and rendered disagree about what this page contains" |
 
@@ -88,6 +89,7 @@ Returned fields:
 | "canonical is injected by a script" | critical | the directive must not depend on rendering |
 | "Schema.org appears only after JS" | warning | rich results are uncertain |
 | "rendering changes nothing" | okay | SSR works; no further investigation is needed |
+| `ok: false` with `reason: "incomplete_render"` | not a finding | the render did not capture the page: report the check as blocked and re-run it, do not read the snapshots as a diff |
 
 ## Alert Threshold
 The tool raises an alert at **30% and above**; a 5% increase is a widget, not a problem.
@@ -108,6 +110,9 @@ Change this only for a specific case:
 ```bash
 seohead render-check --url https://example.com --wait networkidle
 ```
+If the requested milestone times out anyway, the check no longer dies with it: the DOM
+is read at `domcontentloaded` after a short settle, and `wait_reached` says so — read that
+field before comparing two runs, because they were captured at different milestones.
 
 ## Boundaries
 - **One run, one page.** Rendering an entire site is an SF crawl with JS Rendering
@@ -140,6 +145,15 @@ seohead render-check --url https://example.com --wait networkidle
   root container combined with a small raw/rendered diff usually means the
   fetch failed before JS executed (timeout, bot-block, redirect) rather than
   a healthy page — re-run before reporting a clean result.
+- **`ok: false` with `reason: "incomplete_render"` is not a site finding.**
+  The tool detects the wholly failed case for you: a rendered document with
+  no title, no `h1`, no canonical and no internal links, far smaller than the
+  raw response, is reported as unavailable with a named reason instead of the
+  false "the title changes after JavaScript" and "the canonical is injected
+  by JavaScript" it used to emit (#623). `js_dependent` is `null` there — the
+  run does not know, which is neither clean nor a defect. Re-run it (a longer
+  `--timeout`, or `--wait domcontentloaded`) and report the check as blocked
+  until it completes. Never quote the truncated snapshot as evidence.
 
 ## Definition of done
 - [ ] `render-check` has been run for the URL(s) in scope, with `--viewport
@@ -153,6 +167,8 @@ seohead render-check --url https://example.com --wait networkidle
   in the conclusion delivered to the user.
 - [ ] If Playwright was missing, that is reported as a blocked precondition,
   not silently skipped.
+- [ ] Any URL that returned `reason: "incomplete_render"` is reported as an
+  unmeasured page and re-run, never written up as a JavaScript finding.
 
 ## Cost
 One `seohead render-check --url ...` invocation per page (two if both mobile

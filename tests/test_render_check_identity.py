@@ -42,16 +42,28 @@ class _FakeHttpClient:
 
 
 class _FakePage:
-    def __init__(self, html):
+    def __init__(self, html, goto_error=None):
         self.html = html
         self.url = "https://example.com/"
         self.routes = []
+        self.goto_error = goto_error
+        self.goto_calls = []
+        self.load_states = []
+        self.settled_ms = []
 
     def route(self, pattern, handler):
         self.routes.append((pattern, handler))
 
     def goto(self, _url, wait_until=None, timeout=None):
-        pass
+        self.goto_calls.append(wait_until)
+        if self.goto_error is not None:
+            raise self.goto_error
+
+    def wait_for_load_state(self, state, timeout=None):
+        self.load_states.append(state)
+
+    def wait_for_timeout(self, milliseconds):
+        self.settled_ms.append(milliseconds)
 
     def content(self):
         return self.html
@@ -119,6 +131,39 @@ class _FakePlaywright:
         return False
 
 
+def _install_stack(monkeypatch, raw_html, rendered_html, *, goto_error=None, timeout_error=None):
+    """Point ``render_module`` at a fake browser and a fake origin, and hand back the parts.
+
+    ``timeout_error`` is the class the fake ``playwright.sync_api`` exposes as
+    ``TimeoutError``; leaving it unset is the harness the identity tests already
+    used, and also covers a module that exposes only ``sync_playwright``.
+    """
+    page = _FakePage(rendered_html, goto_error=goto_error)
+    context = _FakeContext(page)
+    browser = _FakeBrowser(context)
+    chromium = _FakeChromium(browser)
+    pw = _FakePlaywright(chromium)
+
+    fake_playwright = types.ModuleType("playwright")
+    fake_sync_api = types.ModuleType("playwright.sync_api")
+    fake_sync_api.sync_playwright = lambda: pw
+    if timeout_error is not None:
+        fake_sync_api.TimeoutError = timeout_error
+    fake_playwright.sync_api = fake_sync_api
+    monkeypatch.setitem(sys.modules, "playwright", fake_playwright)
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", fake_sync_api)
+
+    monkeypatch.setattr(
+        render_module,
+        "http_client",
+        lambda _timeout, **_kwargs: (_FakeHttpClient(_FakeResponse(raw_html)), True),
+    )
+    monkeypatch.setattr(render_module, "validate_url", lambda url: url)
+    monkeypatch.setattr(render_module, "_refuse_if_root", lambda: None)
+
+    return {"page": page, "context": context, "browser": browser, "chromium": chromium}
+
+
 @pytest.fixture
 def fake_stack(monkeypatch):
     """A raw fetch and a rendered fetch of two script-free documents -- shaped after #199's
@@ -134,28 +179,7 @@ def fake_stack(monkeypatch):
         + "chromium " * 220
         + "</p></body></html>"
     )
-    page = _FakePage(rendered_html)
-    context = _FakeContext(page)
-    browser = _FakeBrowser(context)
-    chromium = _FakeChromium(browser)
-    pw = _FakePlaywright(chromium)
-
-    fake_playwright = types.ModuleType("playwright")
-    fake_sync_api = types.ModuleType("playwright.sync_api")
-    fake_sync_api.sync_playwright = lambda: pw
-    fake_playwright.sync_api = fake_sync_api
-    monkeypatch.setitem(sys.modules, "playwright", fake_playwright)
-    monkeypatch.setitem(sys.modules, "playwright.sync_api", fake_sync_api)
-
-    monkeypatch.setattr(
-        render_module,
-        "http_client",
-        lambda _timeout, **_kwargs: (_FakeHttpClient(_FakeResponse(raw_html)), True),
-    )
-    monkeypatch.setattr(render_module, "validate_url", lambda url: url)
-    monkeypatch.setattr(render_module, "_refuse_if_root", lambda: None)
-
-    return {"page": page, "context": context, "browser": browser, "chromium": chromium}
+    return _install_stack(monkeypatch, raw_html, rendered_html)
 
 
 def test_the_rendered_browser_context_shares_the_raw_fetchs_user_agent(fake_stack):
@@ -321,3 +345,118 @@ def test_render_check_gates_each_raw_redirect_and_pinned_browser_request(monkeyp
     assert len(gate_calls) == 3
     assert route.fulfilled[0]["body"] == b"<html><body>pinned response</body></html>"
     assert all(client.is_closed for client in clients)
+
+
+# ── An unfinished render is unavailable, not a site defect (#623) ────────────
+
+
+class _FakeTimeoutError(Exception):
+    """Stands in for ``playwright.sync_api.TimeoutError``."""
+
+
+_RAW_PAGE = (
+    "<html><head><title>Профессия :: Profiz.ru</title>"
+    '<link rel="canonical" href="https://example.com/"></head><body><h1>Rubric</h1>'
+    + "<p>"
+    + "text " * 400
+    + "</p>"
+    + "".join(f'<a href="/sr/rubric/{n}/">rubric {n}</a>' for n in range(40))
+    + "</body></html>"
+)
+
+# What the browser hands back when the render never finishes: a document with
+# none of the page in it, at a fraction of the raw response's size.
+_TRUNCATED_RENDER = "<html><head></head><body><div></div></body></html>"
+
+
+def test_an_unfinished_render_is_reported_unavailable_with_a_named_reason(monkeypatch):
+    """#623: this exact pair produced 'the title changes after JavaScript' and
+    'the canonical is injected by JavaScript' on a live site, four times over."""
+    _install_stack(monkeypatch, _RAW_PAGE, _TRUNCATED_RENDER)
+
+    result = render_check("https://example.com/sr/rubric/1/")
+
+    assert result["ok"] is False
+    assert result["reason"] == "incomplete_render"
+    assert "comparison is unavailable" in result["error"]
+    assert "findings" not in result
+    # Not measured is not clean, and not a defect either.
+    assert result["js_dependent"] is None
+    # Both snapshots ride along so the reason can be checked, not just believed.
+    assert result["raw"]["title"] == "Профессия :: Profiz.ru"
+    assert result["rendered"]["title"] == ""
+
+
+def test_a_completed_render_still_reports_findings_and_a_verdict(monkeypatch):
+    """The guard must not turn every render into an unavailable measurement: a
+    page whose title a script genuinely rewrote still fires its finding."""
+    rendered = _RAW_PAGE.replace("Профессия :: Profiz.ru", "Rewritten by script")
+    _install_stack(monkeypatch, _RAW_PAGE, rendered)
+
+    result = render_check("https://example.com/sr/rubric/1/")
+
+    assert result["ok"] is True
+    assert "reason" not in result
+    assert result["js_dependent"] is True
+    assert any("title changes after JavaScript" in f for f in result["findings"])
+
+
+def test_a_milestone_that_never_arrives_falls_back_to_domcontentloaded(monkeypatch):
+    """A site with long-polling analytics or chat never goes network-idle. That
+    is ordinary: read the DOM at domcontentloaded rather than lose the check."""
+    stack = _install_stack(
+        monkeypatch,
+        _RAW_PAGE,
+        _RAW_PAGE,
+        goto_error=_FakeTimeoutError("Timeout 30000ms exceeded"),
+        timeout_error=_FakeTimeoutError,
+    )
+
+    result = render_check("https://example.com/", wait="networkidle")
+
+    assert result["ok"] is True
+    assert result["wait"] == "networkidle"
+    assert result["wait_reached"] == "domcontentloaded"
+    assert stack["page"].load_states == ["domcontentloaded"]
+    # One navigation, not two: the document is already there to be read.
+    assert stack["page"].goto_calls == ["networkidle"]
+
+
+def test_a_document_that_never_loaded_at_all_stays_a_rendering_failure(monkeypatch):
+    """The fallback recovers a late page, not a page that never arrived."""
+
+    def never_loaded(_state, timeout=None):
+        raise _FakeTimeoutError("Timeout 30000ms exceeded")
+
+    stack = _install_stack(
+        monkeypatch,
+        _RAW_PAGE,
+        _RAW_PAGE,
+        goto_error=_FakeTimeoutError("Timeout 30000ms exceeded"),
+        timeout_error=_FakeTimeoutError,
+    )
+    monkeypatch.setattr(stack["page"], "wait_for_load_state", never_loaded)
+
+    result = render_check("https://example.com/", wait="networkidle")
+
+    assert result["ok"] is False
+    assert "Browser rendering failed" in result["error"]
+    assert result.get("reason") != "incomplete_render"
+
+
+def test_the_dom_is_read_after_a_short_settle(monkeypatch):
+    """Deferred scripts write the DOM after the milestone resolves."""
+    stack = _install_stack(monkeypatch, _RAW_PAGE, _RAW_PAGE)
+
+    result = render_check("https://example.com/")
+
+    assert result["settle_ms"] == render_module.SETTLE_MS
+    assert stack["page"].settled_ms == [render_module.SETTLE_MS]
+
+
+def test_the_settle_can_be_switched_off(monkeypatch):
+    stack = _install_stack(monkeypatch, _RAW_PAGE, _RAW_PAGE)
+
+    render_check("https://example.com/", settle_ms=0)
+
+    assert stack["page"].settled_ms == []

@@ -61,6 +61,36 @@ about what this page contains" (`dual_crawl`) — see `js-render-check`.
 Zero links raw and 34 rendered is the whole finding: every crawler that does not execute
 JavaScript sees a dead end.
 
+## When the render itself did not finish
+
+A browser that fails mid-navigation still returns a document, and that document is nearly
+empty. Compared naively against a full raw response it reads as the site deleting its own
+metadata — "the title changes after JavaScript" from a title the render never read (#623).
+So the pair is judged before it is compared: a rendered document with no title, no `h1`, no
+canonical and no internal links, at a fraction of the raw response's byte size, did not
+capture the page.
+
+```json
+{
+  "ok": false,
+  "reason": "incomplete_render",
+  "error": "The rendered DOM was not captured, so the raw-versus-rendered comparison is unavailable: ...",
+  "js_dependent": null
+}
+```
+
+No `findings` are emitted from that state, and `js_dependent` is `null` rather than `false`:
+the run does not know. Both snapshots are returned so the reason can be checked. In
+`site-audit` this lands in `summary.tools_failed`, where an unmeasured check belongs, not in
+the findings list.
+
+A wait milestone that never arrives is the ordinary cause. A site with long-polling
+analytics, chat or ad scripts never goes network-idle, so `--wait networkidle` times out
+where the page is in fact complete; when that happens the DOM is read at `domcontentloaded`
+instead of the check being lost, and `wait_reached` records which milestone the snapshot
+actually came from. A short settle after the milestone gives deferred scripts time to write
+the DOM.
+
 ## What it costs
 
 A headless browser per rendered URL — seconds each, not milliseconds, and real memory. That is

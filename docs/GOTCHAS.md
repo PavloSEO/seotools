@@ -49,7 +49,15 @@ input. Sources are the current code contracts, provider documentation, and
 
 - **`networkidle` may never arrive on a live commercial site** because analytics, chats, ads,
   or WebSockets can keep connections open. Hence `--wait load` is the default; request
-  `networkidle` explicitly only when the target makes it meaningful.
+  `networkidle` explicitly only when the target makes it meaningful. If a requested milestone
+  times out, `render-check` reads the DOM at `domcontentloaded` instead of losing the check and
+  records that in `wait_reached` — two runs compared against each other should be captured at
+  the same milestone.
+- **An empty rendered snapshot is not a JavaScript finding.** A render that did not finish
+  returns a document with no title, no `h1`, no canonical and no links. `render-check` detects
+  that (`ok: false`, `reason: "incomplete_render"`, `js_dependent: null`) rather than reporting
+  the site as rewriting its own metadata; re-run it, and never quote the truncated snapshot as
+  a diff.
 - **Playwright metrics are lab numbers** — `metrics_lab`, one browser, one
   machine. They are not field Core Web Vitals; naming them that way in a
   client report sets up a contradiction with Search Console.
