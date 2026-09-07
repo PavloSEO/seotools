@@ -195,7 +195,16 @@ body at a time. The native fetch clamp is a 64 MiB hard limit: a larger response
 is marked truncated rather than retained, even if a configured policy limit is
 larger; rendering fails rather than silently keeping an over-limit DOM. `off`,
 `no-store`, credentialed, unsupported, failed, truncated, and budget-exhausted
-captures each retain their named state/reason. Native SQLite mode requires
+captures each retain their named state/reason. A rendered DOM is credentialed when
+the run was configured to send a credential header through `http.credential_headers`
+or to reuse a persistent browser profile, never because the browser sent back a
+cookie the site itself set: a session cookie is the ordinary state of the web, and
+reading one as the operator's credential discarded the DOM of every page that set
+one and then loaded a same-origin subresource. A crawl reports how many rendered
+DOMs it retained and the reasons it dropped the rest in `rendered_bodies`, because a
+`partial` capability flag is the same word for one missing DOM and for all of them;
+those counts are derived from the artifact, so a finished scan still answers the
+question. Native SQLite mode requires
 `cache.mode=off` before collection; it never changes or deletes the old directory
 cache, which remains part of the directory workflow.
 

@@ -156,6 +156,10 @@ def _response(run, *, audit_available: bool, audit_reason: str, finalized: bool)
         "audit_reason": audit_reason,
         "finalized": finalized,
         "limitations": list(run.limitations),
+        # Named in the result, not only as a "partial" capability flag: a rendered
+        # corpus reduced to nothing by a cookie the site set is not a caveat, and
+        # nothing else in the response says how many DOMs are gone (#656).
+        "rendered_bodies": dict(run.rendered_bodies),
     }
     if run.capabilities is not None:
         response.update(corpus_partial=run.corpus_partial, capabilities=run.capabilities)
@@ -416,6 +420,8 @@ def crawl_site_scan(
                 )
 
             if settings.get("rendering", {}).get("mode", "raw") != "raw":
+                from seohead.storage.corpus import rendered_body_retention
+
                 current = scan.resume_snapshot(include_edges=True)
                 run = replace(
                     run,
@@ -425,6 +431,10 @@ def crawl_site_scan(
                     limitations=tuple(json.loads(current["scan"]["limitations_json"])),
                     corpus_partial=bool(current["scan"]["corpus_partial"]),
                     capabilities=json.loads(current["scan"]["capabilities_json"]),
+                    # Rendered documents are written by the escalation that just
+                    # ran, not by the collector, so this is the first point where
+                    # the corpus can be asked how many DOMs it kept (#656).
+                    rendered_bodies=rendered_body_retention(scan.con),
                 )
 
             scan.save_audit(audit)

@@ -1032,15 +1032,18 @@ def render_document(
     engine_version = "unknown"
     browser_limitations: list[str] = []
 
-    def _capture_request(request: Any) -> None:
-        if max_html_bytes is None:
-            return
-        headers = request.all_headers()
-        if any(
-            headers.get(name)
-            for name in ("authorization", "cookie", "proxy-authorization", "x-api-key")
-        ):
-            observed_policy["credentials_used"] = True
+    # There is deliberately no request hook beside _capture_response. Reading the
+    # browser's own wire headers upgraded credentials_used the moment any request
+    # carried Cookie:, and a browser carries back whatever the site's own
+    # Set-Cookie gave it -- so a page that sets a session cookie and then asks for
+    # one same-origin subresource, which is the ordinary shape of the web, had its
+    # serialized DOM stored as credentialed on a run with nothing configured at all
+    # (#656, the rendering lane's half of #647). What this run was configured to
+    # send is already what sqlite_render._policy_facts derives and passes in as
+    # policy_facts -- http.credential_headers, or a persistent browser profile --
+    # and the wire has nothing to add to it: this renderer builds its own network
+    # client with no credential of its own, so a sensitive header can only reach a
+    # request through one of those two, or from the site itself.
 
     def _capture_response(response: Any) -> None:
         if max_html_bytes is None:
@@ -1098,7 +1101,6 @@ def render_document(
                 )
                 page = context.new_page()
                 if max_html_bytes is not None:
-                    page.on("request", _capture_request)
                     page.on("response", _capture_response)
                 page.on("console", _on_console)
                 page.goto(

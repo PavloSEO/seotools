@@ -72,6 +72,11 @@ class ScanRun:
     start_page_gate: dict[str, Any] | None = None
     corpus_partial: bool = True
     capabilities: dict[str, Any] | None = None
+    # How many rendered DOMs the corpus kept, and why it dropped the rest (#656).
+    # Filled in after render escalation, which runs past this collector; a
+    # capability flag cannot carry it, because "partial" is the same word for one
+    # missing DOM and for all of them.
+    rendered_bodies: dict[str, Any] = field(default_factory=dict)
     # Runtime-only orchestration state.  It is intentionally not written to
     # the scan artifact: locks and callbacks cannot survive a process, while
     # one in-process handler must carry its budget through audit follow-ups.
