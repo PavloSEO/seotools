@@ -114,6 +114,48 @@ _HOP_BY_HOP_HEADERS = frozenset(
     }
 )
 
+# ``route.fulfill`` writes the body it is handed straight into the renderer: it
+# never applies a declared ``Content-Encoding``. Forwarding the origin's
+# compression header alongside a body this route has already decoded would hand
+# Chromium gzip bytes labelled ``text/html`` and produce a DOM made of the
+# compressed stream (#650). The header describes a transfer coding that ends
+# here, so it is dropped exactly like the hop-by-hop set above; ``content-length``
+# is already in that set, which leaves Playwright to state the decoded length.
+_TRANSFER_CODING_HEADERS = frozenset({"content-encoding"})
+
+# Fallback advertised when the client cannot state its own decodable set. httpx
+# decodes these two without any optional dependency.
+_BASELINE_ENCODINGS = "gzip, deflate"
+
+
+def _decodable_encodings(client: Any) -> str:
+    """Return the content codings this HTTP client can actually decode.
+
+    httpx builds its own ``Accept-Encoding`` from the decoders it has -- which
+    grows to ``br`` and ``zstd`` when brotli/zstandard are installed and shrinks
+    when they are not. Reading it back is what keeps the coding this route asks
+    for and the coding it can decode from ever disagreeing.
+    """
+    headers = getattr(client, "headers", None)
+    getter = getattr(headers, "get", None)
+    advertised = getter("accept-encoding") if getter is not None else None
+    return str(advertised) if advertised else _BASELINE_ENCODINGS
+
+
+def _undecoded_coding(content_encoding: str, decodable: str) -> str:
+    """Name a coding the origin applied that this client did not decode.
+
+    httpx passes an unrecognised coding through untouched rather than failing,
+    so a non-compliant origin can still answer in a coding nobody asked for.
+    Naming it aborts the request instead of rendering the compressed stream.
+    """
+    supported = {item.strip().lower().split(";")[0] for item in decodable.split(",")}
+    for item in (content_encoding or "").split(","):
+        coding = item.strip().lower()
+        if coding and coding != "identity" and coding not in supported:
+            return coding
+    return ""
+
 
 def _guard_browser_route(route) -> None:
     """Fail closed if a pinned HTTP fulfiller was not installed."""
@@ -150,8 +192,15 @@ def _pinned_browser_route(
             headers = {
                 name: value
                 for name, value in request.all_headers().items()
-                if name.lower() not in _HOP_BY_HOP_HEADERS
+                if name.lower() not in _HOP_BY_HOP_HEADERS and name.lower() != "accept-encoding"
             }
+            # Chromium invites codings this transport may not own a decoder for
+            # (it asks for br and zstd), and the reply has to be decoded here
+            # before Playwright sees it. Asking only for what this client can
+            # decode keeps the origin from answering in a coding that would
+            # reach the renderer unparsed.
+            decodable = _decodable_encodings(client)
+            headers["accept-encoding"] = decodable
             cookies = getattr(client, "cookies", None)
             if cookies is not None:
                 cookies.clear()
@@ -167,7 +216,10 @@ def _pinned_browser_route(
                         continue
                     if lowered == "access-control-allow-origin":
                         has_cors_header = True
-                    if lowered not in _HOP_BY_HOP_HEADERS:
+                    if (
+                        lowered not in _HOP_BY_HOP_HEADERS
+                        and lowered not in _TRANSFER_CODING_HEADERS
+                    ):
                         response_name = response_header_names.setdefault(lowered, name)
                         if response_name in response_headers:
                             response_headers[response_name] += f", {value}"
@@ -180,14 +232,27 @@ def _pinned_browser_route(
                 request_origin = f"{request_parts.scheme}://{request_parts.netloc}"
                 if origin and origin != request_origin and not has_cors_header:
                     response_headers["access-control-allow-origin"] = ""
-                raw = bytearray()
-                for chunk in response.iter_raw():
-                    if len(raw) + len(chunk) > max_response_bytes:
+                undecoded = _undecoded_coding(
+                    response.headers.get("content-encoding", ""), decodable
+                )
+                if undecoded:
+                    abort(
+                        route,
+                        f"browser response content coding {undecoded} is undecodable "
+                        "by pinned rendering",
+                    )
+                    return
+                # Decoded bytes, not transferred ones: this is the body Chromium
+                # is handed, so it is also the body the cap has to measure -- a
+                # compression bomb would otherwise pass the cap compressed.
+                body = bytearray()
+                for chunk in response.iter_bytes():
+                    if len(body) + len(chunk) > max_response_bytes:
                         abort(route, "browser response exceeds pinned rendering byte limit")
                         return
-                    raw.extend(chunk)
+                    body.extend(chunk)
                 route.fulfill(
-                    status=response.status_code, headers=response_headers, body=bytes(raw)
+                    status=response.status_code, headers=response_headers, body=bytes(body)
                 )
         except Exception as exc:
             abort(route, f"pinned browser request failed: {type(exc).__name__}: {exc}")
