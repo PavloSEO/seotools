@@ -776,3 +776,61 @@ def test_the_crawl_passes_its_own_user_agent_to_the_rendered_fetch(monkeypatch, 
     handlers._run_render_escalation(result, settings["rendering"], settings)
 
     assert seen.get("user_agent") == "AcmeAudit/2.0"
+
+
+def test_a_probe_that_reached_no_verdict_leaves_its_pattern_unprobed(monkeypatch):
+    """#642: render_check returns ok:True with js_dependent None when the DOM was
+    read at an earlier milestone than the one requested -- it measured nothing.
+    ``bool(None)`` is False, which escalate() would otherwise record as a pattern
+    that was probed and genuinely needs no rendering. It routes through #626's
+    unprobed channel instead of acquiring a verdict it does not have.
+    """
+    from seohead.crawl.spider import SpiderResult
+    from seohead.servers import handlers
+    from seohead.tools import render as render_tool
+
+    monkeypatch.setattr(
+        render_tool,
+        "render_check",
+        lambda *a, **k: {
+            "ok": True,
+            "js_dependent": None,
+            "empty_shell": None,
+            "findings": ["The requested load milestone was never reached"],
+        },
+    )
+    settings = crawl_config.load(overrides={"rendering.mode": "js"})
+    result = SpiderResult()
+    result.pages = [_Page("https://example.com/app/1")]
+
+    escalated = handlers._run_render_escalation(result, settings["rendering"], settings)
+
+    pattern = "https://example.com/app/*"
+    assert pattern in escalated.patterns_unprobed
+    assert pattern not in escalated.patterns_escalated
+    assert escalated.patterns_unprobed_reasons[pattern] == (
+        "The requested load milestone was never reached"
+    )
+
+
+def test_a_probe_that_reached_a_negative_verdict_still_counts_as_probed(monkeypatch):
+    """The other direction: a run that reached its milestone and found no
+    JavaScript dependence has measured the pattern, and must keep saying so."""
+    from seohead.crawl.spider import SpiderResult
+    from seohead.servers import handlers
+    from seohead.tools import render as render_tool
+
+    monkeypatch.setattr(
+        render_tool,
+        "render_check",
+        lambda *a, **k: {"ok": True, "js_dependent": False, "empty_shell": None},
+    )
+    settings = crawl_config.load(overrides={"rendering.mode": "js"})
+    result = SpiderResult()
+    result.pages = [_Page("https://example.com/docs/1")]
+
+    escalated = handlers._run_render_escalation(result, settings["rendering"], settings)
+
+    assert escalated.patterns_unprobed == []
+    assert escalated.patterns_unprobed_reasons == {}
+    assert escalated.patterns_escalated == []
