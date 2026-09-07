@@ -39,7 +39,12 @@ PAGE = (
 
 
 def _brotli(body: bytes) -> bytes:
-    import brotli
+    # httpx accepts either binding, so the fixture has to compress with whichever
+    # one made it advertise ``br``.
+    try:
+        import brotli
+    except ImportError:  # pragma: no cover - depends on which binding is installed
+        import brotlicffi as brotli
 
     return brotli.compress(body)
 
