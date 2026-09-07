@@ -610,7 +610,7 @@ def build_server():  # -> FastMCP
         true; partial-crawl warnings remain attached to the historical result."""
         return _checked(handlers.compare_crawls(before=before, after=after, force=force))
 
-    @mcp.tool(annotations=create_files_from_web, structured_output=True)
+    @mcp.tool(annotations=create_files, structured_output=True)
     def seo_crawl_enrich(
         audit: Any,
         external_csv: str,

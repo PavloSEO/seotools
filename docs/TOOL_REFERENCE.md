@@ -619,7 +619,7 @@ Join an existing audit or scan to an offline URL-keyed CSV without a provider ca
 | `casefold_path` | `bool` | `False` |
 | `out_urls` | `str | None` | `None` |
 
-**Cost** — network: yes · writes files: yes · idempotent: no · spends money: no
+**Cost** — network: no · writes files: yes · idempotent: no · spends money: no
 
 ### `segment-diff`
 
