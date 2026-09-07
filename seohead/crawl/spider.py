@@ -1105,6 +1105,10 @@ def crawl_site(
                 result.max_depth_reached = max(result.max_depth_reached, depth)
 
                 if robots_blocks(url):
+                    # The URL was counted as queued when it was discovered, so leaving
+                    # without a report keeps it in the operator's denominator forever:
+                    # a finished crawl then signs off short of 100%, reading as stalled.
+                    report_progress()
                     continue
 
                 try:
@@ -1200,6 +1204,7 @@ def crawl_site(
                         result.max_depth_reached = max(result.max_depth_reached, d)
 
                     if not to_fetch:
+                        report_progress()  # same reason as the sequential path above
                         continue
 
                     # Futures are submitted up front and then consumed in the

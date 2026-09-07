@@ -42,17 +42,21 @@ def _page(title: str, *links: str) -> _Response:
 
 
 # Six fetchable URLs discovered over three link hops, so a crawl of it reports
-# progress several times with a frontier that is still growing at each one.
+# progress several times with a frontier that is still growing at each one --
+# plus one link robots disallows. That last one is the whole point: a queued URL
+# the crawl never fetches is what left a finished run reporting 87%, and a
+# fixture where nothing is ever excluded cannot fail the assertions below.
 FIXTURE_SITE = {
     "https://example.test/robots.txt": _Response(
-        200, "User-agent: *\nAllow: /\n", {"content-type": "text/plain"}
+        200, "User-agent: *\nDisallow: /private/\n", {"content-type": "text/plain"}
     ),
-    "https://example.test/": _page("Home", "/a", "/b"),
+    "https://example.test/": _page("Home", "/a", "/b", "/private/page"),
     "https://example.test/a": _page("A", "/a1", "/a2"),
     "https://example.test/b": _page("B", "/b1"),
     "https://example.test/a1": _page("A1"),
     "https://example.test/a2": _page("A2"),
     "https://example.test/b1": _page("B1"),
+    "https://example.test/private/page": _page("Private"),
 }
 
 
@@ -114,7 +118,9 @@ def test_every_reported_count_matches_what_the_scan_artifact_holds(tmp_path):
     assert samples, "the crawl reported no progress at all"
     drifted = [(reported, actual) for reported, actual in samples if reported != actual]
     assert not drifted, f"reported page counts that the artifact did not hold: {drifted}"
-    assert samples[-1][0] == run.pages == len(FIXTURE_SITE) - 1  # robots.txt is not a page
+    # robots.txt is not a page, and the disallowed link is never fetched: the artifact
+    # holds what the crawl collected, not what it discovered.
+    assert samples[-1][0] == run.pages == len(FIXTURE_SITE) - 2
 
 
 def test_the_reported_count_moves_rather_than_sitting_still(tmp_path):
@@ -124,6 +130,8 @@ def test_the_reported_count_moves_rather_than_sitting_still(tmp_path):
 
     assert reported == sorted(reported), f"fetched count went backwards: {reported}"
     assert len(set(reported)) > 2, f"progress barely moved across the crawl: {reported}"
+    # Six fetchable pages: the fixture also carries a robots-disallowed link, which
+    # is reported but never fetched.
     assert reported[0] == 0 and reported[-1] == 6
 
 
@@ -152,8 +160,16 @@ def test_the_spider_reports_its_own_pages_and_frontier(tmp_path):
     )
 
     assert samples[0] == (0, 1), "the start URL was not on the frontier before the first fetch"
+    # The last word matters more than the rest: a crawl that emptied its frontier must
+    # say so, or a finished run signs off short of 100% and reads as stalled. The
+    # fixture's robots-disallowed link is what makes this assertion able to fail.
     assert samples[-1] == (len(result.pages), 0)
-    assert [fetched for fetched, _ in samples] == list(range(len(result.pages) + 1))
+    fetched_counts = [fetched for fetched, _ in samples]
+    assert fetched_counts == sorted(fetched_counts), "the fetched count went backwards"
+    assert fetched_counts[-1] == len(result.pages)
+    # A skipped URL reports without advancing the fetched count, so the sequence
+    # repeats a value rather than stepping one per report.
+    assert len(samples) > len(result.pages) + 1
 
 
 # ── an honest percentage ─────────────────────────────────────────────────────

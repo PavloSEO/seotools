@@ -75,7 +75,7 @@ an interrupted crawl still leaves evidence behind.
 While it runs, a progress line on stderr is refreshed in place:
 
 ```
-crawl-site: 6516 fetched, 34635 known (18%), 9.8 req/s, 1h02m, scan 412.3 MB
+crawl-site: 6516 fetched, 34635 known (18%), 9.8 req/s, 11m05s
 ```
 
 `known` is what the crawl has found so far — pages fetched plus URLs still
