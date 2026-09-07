@@ -31,7 +31,7 @@ from seohead.crawl.settings import (
     checked_url_budget,
     resolve_credential_headers,
 )
-from seohead.crawl.throttle import MAX_DELAY_S, Throttle
+from seohead.crawl.throttle import MAX_DELAY_S, DispatchGate, Throttle
 from seohead.recon.net import UA, BlockedRedirectError, http_client, pinned_target, validate_url
 from seohead.tools.parser import parse_html, uses_ajax_crawling_scheme
 from seohead.tools.robots import is_allowed, match_path, parse_robots
@@ -203,6 +203,10 @@ class PageRecord:
     # to a non-empty redirect_url would wrongly suggest.
     redirect_chain: list[dict[str, Any]] = field(default_factory=list)
     final_url: str = ""
+    # Canonical targets are inspected only when list mode explicitly asks for a
+    # bounded chain walk; they never become discovered list-mode pages.
+    canonical_chain: list[dict[str, Any]] = field(default_factory=list)
+    final_canonical: str = ""
 
     @property
     def is_html(self) -> bool:
@@ -820,6 +824,7 @@ def _robots_blocks(
     fetcher: Callable[[str], Any] | None,
     user_agent: str,
     robots_token: str,
+    wait: Callable[[], None] | None = None,
 ) -> bool:
     """True when the URL's host disallows it for ``robots_token``.
 
@@ -837,6 +842,8 @@ def _robots_blocks(
         robots_url = f"{parts.scheme}://{parts.netloc}/robots.txt"
         text = ""
         try:
+            if wait is not None:
+                wait()
             response = (
                 fetcher(robots_url)
                 if fetcher
@@ -863,7 +870,7 @@ def _resolve_redirect_destination(
     retry_on_timeout: int,
     parse_options: dict[str, Any] | None,
     cache: ResponseCache | None,
-    sleeper: Callable[[float], None],
+    wait: Callable[[], None],
     capture_observer: Callable[[Any], None] | None = None,
     capture_max_bytes: int | None = None,
     headers_for_url: Callable[[str], dict[str, str] | None] | None = None,
@@ -894,7 +901,7 @@ def _resolve_redirect_destination(
             retry_on_timeout=retry_on_timeout,
             parse_options=parse_options,
             cache=cache,
-            wait=(lambda: sleeper(throttle.delay)) if throttle.delay else None,
+            wait=wait,
             **(
                 {"capture_observer": capture_observer, "capture_max_bytes": capture_max_bytes}
                 if capture_observer is not None
@@ -908,6 +915,59 @@ def _resolve_redirect_destination(
     record.redirect_chain = chain
     if chain:
         record.final_url = chain[-1]["url"]
+
+
+def _resolve_canonical_destination(
+    record: PageRecord,
+    *,
+    client: Any,
+    fetcher: Callable[[str], Any] | None,
+    throttle: Throttle,
+    extra_headers: dict[str, str] | None,
+    user_agent: str,
+    max_response_bytes: int,
+    retry_on_timeout: int,
+    parse_options: dict[str, Any] | None,
+    cache: ResponseCache | None,
+    sleeper: Callable[[float], None],
+) -> None:
+    """Follow canonical declarations as bounded per-row evidence.
+
+    The initial list row remains the only collected page. Each extra fetch
+    exists solely to inspect the target's own canonical declaration, just as
+    redirect resolution walks a response chain without treating a hop as link
+    discovery. A repeated target or the shared chain cap stops the walk.
+    """
+    visited = {record.url}
+    current = record.canonical
+    chain: list[dict[str, Any]] = []
+    while current and current not in visited and len(chain) < MAX_REDIRECT_CHAIN_HOPS:
+        visited.add(current)
+        hop, _ = fetch_one(
+            current,
+            client=client,
+            fetcher=fetcher,
+            throttle=throttle,
+            extra_headers=extra_headers,
+            user_agent=user_agent,
+            max_response_bytes=max_response_bytes,
+            retry_on_timeout=retry_on_timeout,
+            parse_options=parse_options,
+            cache=cache,
+            wait=(lambda: sleeper(throttle.delay)) if throttle.delay else None,
+        )
+        chain.append(
+            {
+                "url": hop.url,
+                "status_code": hop.status_code,
+                "canonical": hop.canonical,
+                "error": hop.error,
+            }
+        )
+        current = hop.canonical
+    record.canonical_chain = chain
+    if chain:
+        record.final_canonical = chain[-1]["url"]
 
 
 def collect_urls(
@@ -935,6 +995,7 @@ def collect_urls(
     robots_policy: str = "ignore",
     robots_token: str = "*",
     resolve_redirect_destination: bool = False,
+    resolve_canonical_destination: bool = False,
 ) -> CrawlResult:
     """Fetch an explicit list of URLs in the order given.
 
@@ -960,14 +1021,29 @@ def collect_urls(
     way — see #21. ``"respect"`` drops a disallowed URL from ``pages``
     entirely (into ``robots_blocked`` instead); ``"report_only"`` fetches it
     anyway and only records that it would have been blocked.
+
+    ``resolve_canonical_destination`` is the canonical equivalent of the
+    redirect option: it follows a page's canonical declaration through a
+    bounded chain without adding any target to ``result.pages``.
     """
     limit = checked_url_budget(max_urls)
     result = CrawlResult()
     throttle = Throttle(min_delay=min_delay, max_delay=max_delay_seconds, adaptive=adaptive)
+    dispatch_gate = DispatchGate(throttle, sleeper, clock)
     started = clock()
 
     seen: set[str] = set()
     robots_cache: dict[tuple[str, str], Any] = {}
+
+    def headers_for_url(target: str) -> dict[str, str] | None:
+        headers = dict(extra_request_headers or {})
+        if credential_headers:
+            headers.update(
+                resolve_credential_headers(credential_headers, urlsplit(target).hostname or "")
+                or {}
+            )
+        return headers or None
+
     with contextlib.ExitStack() as stack:
         handle = None
         if out_path:
@@ -1012,17 +1088,14 @@ def collect_urls(
                 fetcher=fetcher,
                 user_agent=user_agent,
                 robots_token=robots_token,
+                wait=dispatch_gate.wait_turn,
             ):
                 result.robots_blocked.append(url)
                 if robots_policy == "respect":
                     continue  # report_only still fetches it below
 
-            host = (urlsplit(url).hostname or "").lower()
             # http.headers goes on every request; a credential is bound to one host.
-            extra_headers = dict(extra_request_headers or {})
-            if credential_headers:
-                extra_headers.update(resolve_credential_headers(credential_headers, host) or {})
-            extra_headers = extra_headers or None
+            extra_headers = headers_for_url(url)
             record, _ = fetch_one(
                 url,
                 client=client,
@@ -1034,10 +1107,25 @@ def collect_urls(
                 retry_on_timeout=retry_on_timeout,
                 parse_options=parse_options,
                 cache=cache,
-                wait=(lambda: sleeper(throttle.delay)) if throttle.delay else None,
+                wait=dispatch_gate.wait_turn,
             )
             if resolve_redirect_destination and record.redirect_url:
                 _resolve_redirect_destination(
+                    record,
+                    client=client,
+                    fetcher=fetcher,
+                    throttle=throttle,
+                    extra_headers=extra_headers,
+                    user_agent=user_agent,
+                    max_response_bytes=max_response_bytes,
+                    retry_on_timeout=retry_on_timeout,
+                    parse_options=parse_options,
+                    cache=cache,
+                    wait=dispatch_gate.wait_turn,
+                    headers_for_url=headers_for_url,
+                )
+            if resolve_canonical_destination and record.canonical:
+                _resolve_canonical_destination(
                     record,
                     client=client,
                     fetcher=fetcher,

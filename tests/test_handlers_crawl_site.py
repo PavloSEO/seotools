@@ -6,6 +6,8 @@ itself is replaced with a fake."""
 import dataclasses
 import json
 
+import pytest
+
 import seohead.crawl.spider as spider_mod
 from seohead.crawl.collect import PageRecord
 from seohead.crawl.spider import LinkEdge, SpiderResult
@@ -38,6 +40,38 @@ def test_no_out_dir_means_no_state_path(monkeypatch):
     monkeypatch.setattr(spider_mod, "crawl_site", fake)
     handlers.crawl_site(url="https://example.com/")
     assert captured["state_path"] is None
+
+
+def test_urls_file_enters_the_existing_list_collector_in_source_order(tmp_path, monkeypatch):
+    """A file is an input source for list mode, never a second discovery mode."""
+    source = tmp_path / "urls.txt"
+    source.write_text("https://example.com/first\nhttps://example.com/second\n")
+    captured = {}
+
+    def fake(urls, **kwargs):
+        captured["urls"] = urls
+        captured.update(kwargs)
+        from seohead.crawl.collect import CrawlResult
+
+        return CrawlResult()
+
+    import seohead.crawl.collect as collect_mod
+
+    monkeypatch.setattr(collect_mod, "collect_urls", fake)
+    result = handlers.crawl_site(urls_file=str(source))
+
+    assert captured["urls"] == ["https://example.com/first", "https://example.com/second"]
+    assert result["discovery"]["mode"] == "list"
+
+
+def test_urls_file_is_not_ambiguous_with_another_crawl_input(tmp_path):
+    source = tmp_path / "urls.txt"
+    source.write_text("https://example.com/first\n")
+
+    import pytest
+
+    with pytest.raises(ValueError, match="cannot be combined"):
+        handlers.crawl_site(url="https://example.com/", urls_file=str(source))
 
 
 def test_finish_reason_and_resumed_reach_the_handler_output(monkeypatch):
@@ -822,6 +856,67 @@ def test_segments_summary_reports_page_and_issue_counts_per_segment(tmp_path, mo
     # its own page's segment rather than being pooled into one undifferentiated count.
     assert out["segments"]["blog"]["issues"] >= 1
     assert out["segments"]["default"]["issues"] >= 1
+
+
+def test_analysis_segments_use_post_crawl_fields_and_dependencies(tmp_path, monkeypatch):
+    """#21 segments are analysis rules, separate from discovery scope rules."""
+    config = tmp_path / "crawl.json"
+    config.write_text(
+        json.dumps(
+            {
+                "analysis": {
+                    "segments": [
+                        {
+                            "name": "broken",
+                            "rules": [{"op": "eq", "field": "status_code", "value": 404}],
+                        },
+                        {
+                            "name": "broken-pages",
+                            "rules": [{"op": "segment", "value": "broken"}],
+                        },
+                    ]
+                }
+            }
+        )
+    )
+
+    def fake(*args, **kwargs):
+        result = SpiderResult()
+        result.pages = [
+            PageRecord(url="https://example.com/missing", status_code=404),
+            PageRecord(url="https://example.com/ok", status_code=200),
+        ]
+        return result
+
+    monkeypatch.setattr(spider_mod, "crawl_site", fake)
+    out = handlers.crawl_site(url="https://example.com/", config=str(config))
+
+    assert out["segments"]["broken"]["pages"] == 1
+    assert out["segments"]["broken-pages"]["pages"] == 0
+
+
+def test_analysis_segment_cycle_is_refused_before_a_crawl_starts(tmp_path, monkeypatch):
+    config = tmp_path / "crawl.json"
+    config.write_text(
+        json.dumps(
+            {
+                "analysis": {
+                    "segments": [
+                        {"name": "a", "rules": [{"op": "segment", "value": "b"}]},
+                        {"name": "b", "rules": [{"op": "segment", "value": "a"}]},
+                    ]
+                }
+            }
+        )
+    )
+    monkeypatch.setattr(
+        spider_mod,
+        "crawl_site",
+        lambda *args, **kwargs: pytest.fail("cycle validation must run before collection"),
+    )
+
+    with pytest.raises(ValueError, match="circular segment dependency"):
+        handlers.crawl_site(url="https://example.com/", config=str(config))
 
 
 def test_a_no_target_issue_still_counts_in_the_segment_sum(tmp_path, monkeypatch):

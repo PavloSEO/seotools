@@ -36,6 +36,7 @@ from seohead.storage import (
     FORMAT_VERSION,
     MAX_RECORD_BYTES,
     USER_VERSION,
+    ScanBackpressure,
     ScanError,
     _config,
     _dump,
@@ -75,6 +76,15 @@ _LINK_KEYS = {
     "raw_href",
 }
 _FORM_KEYS = {"page", "method", "action", "has_password"}
+# Page fields the record carries as Python objects and the pages table stores as JSON
+# text. Spelled once: the same map was written out at three call sites below, and a
+# fourth entry (the canonical walk, #21) had to reach all of them to be stored at all.
+_PAGE_JSON_SOURCES = {
+    "redirect_chain_json": "redirect_chain",
+    "hreflang_json": "hreflang",
+    "canonical_chain_json": "canonical_chain",
+}
+
 _OPTIONAL_PAGE_SOURCES = {
     "status_code",
     "response_time",
@@ -89,6 +99,11 @@ MAX_EDGES_PER_PAGE = 20_000
 MAX_PAGE_COMMIT_ITEMS = 20_000
 SNAPSHOT_RESERVE_BYTES = 1024 * 1024 * 1024
 WAL_BACKPRESSURE_BYTES = 64 * 1024 * 1024
+# How long a write may wait for a reader to release a blocked WAL checkpoint.
+# A read transaction on a scan is ordinary use of this lane and normally ends
+# in milliseconds, so the wait only has to outlast one reader, not a session.
+WAL_CHECKPOINT_WAIT_SECONDS = 30.0
+_WAL_WAIT_NOTE = "a write waited for a reader to release the bounded WAL checkpoint"
 BACKUP_TIMEOUT_SECONDS = 60.0
 FINALIZATION_TIMEOUT_SECONDS = 10.0
 
@@ -917,22 +932,60 @@ class NativeScan:
         if self.failpoint is not None:
             self.failpoint(name)
 
-    def _begin(self) -> None:
-        self._enforce_wal_bound()
+    def _begin(self, *, enforce_wal_bound: bool = True) -> None:
+        waited = self._enforce_wal_bound() if enforce_wal_bound else False
         self.con.execute("BEGIN IMMEDIATE")
         self.con.execute("DELETE FROM audit")
+        if waited:
+            # Say so in the artifact itself: a run that quietly stalls for half a
+            # minute per write is the silence this registry exists to break. The
+            # note is diagnostic, so a full registry drops it rather than turning
+            # a survived pause into a failed write.
+            with contextlib.suppress(ScanError):
+                self._note(_WAL_WAIT_NOTE)
 
-    def _enforce_wal_bound(self) -> None:
+    def _enforce_wal_bound(self) -> bool:
+        """Checkpoint an oversized WAL, waiting out readers; True if it waited.
+
+        ``TRUNCATE`` answers busy while any reader holds a read transaction, and
+        reading a scan while it is written is what this lane is for -- scan-list
+        and scan-inspect do it deliberately, and a WAL reader cannot block the
+        writer. Retrying inside a bounded deadline lets such a reader finish
+        instead of ending a multi-hour crawl on one unlucky instant. A checkpoint
+        still blocked at the deadline is backpressure the caller may wait on; a
+        WAL that stays oversized with nothing blocking it remains fatal.
+        """
         wal = self.path.with_name(self.path.name + "-wal")
         if not wal.exists() or wal.stat().st_size <= WAL_BACKPRESSURE_BYTES:
-            return
-        checkpoint = self.con.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
-        if wal.exists() and wal.stat().st_size > WAL_BACKPRESSURE_BYTES:
-            busy, _log, _checkpointed = checkpoint
-            raise ScanError(
-                "WAL backpressure: checkpoint could not reduce the bounded log"
-                + (" because a reader is active" if busy else "")
+            return False
+        # Poll the checkpoint ourselves instead of letting the connection's busy
+        # timeout absorb each attempt, so the deadline below is the only bound.
+        prior_timeout = self.con.execute("PRAGMA busy_timeout").fetchone()[0]
+        self.con.execute("PRAGMA busy_timeout=0")
+        deadline = time.monotonic() + WAL_CHECKPOINT_WAIT_SECONDS
+        delay = 0.01
+        waited = False
+        try:
+            while True:
+                busy, _log, _checkpointed = self.con.execute(
+                    "PRAGMA wal_checkpoint(TRUNCATE)"
+                ).fetchone()
+                if not wal.exists() or wal.stat().st_size <= WAL_BACKPRESSURE_BYTES:
+                    return waited
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                time.sleep(min(delay, remaining))
+                delay = min(delay * 2, 0.5)
+                waited = True
+        finally:
+            self.con.execute(f"PRAGMA busy_timeout={prior_timeout}")
+        if busy:
+            raise ScanBackpressure(
+                "WAL backpressure: a reader kept the bounded log from being "
+                f"checkpointed for {WAL_CHECKPOINT_WAIT_SECONDS:g}s"
             )
+        raise ScanError("WAL backpressure: checkpoint could not reduce the bounded log")
 
     def _rollback(self) -> None:
         if self.con.in_transaction:
@@ -1128,6 +1181,17 @@ class NativeScan:
             self._rollback()
             raise
 
+    def _note(self, note: str) -> None:
+        """Add one deduplicated note to the bounded limitation registry."""
+        notes = json.loads(
+            self.con.execute("SELECT limitations_json FROM scan WHERE singleton=1").fetchone()[0]
+        )
+        if note not in notes:
+            if len(notes) >= 64:
+                raise ScanError("native scan limitation registry is full")
+            notes.append(note)
+        self.con.execute("UPDATE scan SET limitations_json=? WHERE singleton=1", (_dump(notes),))
+
     def note_audit_unavailable(self, reason: str) -> None:
         """Keep a missing analyzer result distinct from incomplete collection."""
         self._assert_mutable()
@@ -1135,19 +1199,7 @@ class NativeScan:
             raise ScanError("audit availability reason must be a short nonempty string")
         self._begin()
         try:
-            notes = json.loads(
-                self.con.execute("SELECT limitations_json FROM scan WHERE singleton=1").fetchone()[
-                    0
-                ]
-            )
-            note = "audit unavailable: " + reason
-            if note not in notes:
-                if len(notes) >= 64:
-                    raise ScanError("native scan limitation registry is full")
-                notes.append(note)
-            self.con.execute(
-                "UPDATE scan SET limitations_json=? WHERE singleton=1", (_dump(notes),)
-            )
+            self._note("audit unavailable: " + reason)
             self.con.commit()
         except BaseException:
             self._rollback()
@@ -1359,11 +1411,7 @@ class NativeScan:
         source_names = {"url"}
         for name in columns:
             if name not in {"url_id", "page_ordinal", "document_id"}:
-                source_names.add(
-                    {"redirect_chain_json": "redirect_chain", "hreflang_json": "hreflang"}.get(
-                        name, name
-                    )
-                )
+                source_names.add(_PAGE_JSON_SOURCES.get(name, name))
         if set(record) - source_names:
             raise ScanError(f"page record has unknown fields: {sorted(set(record) - source_names)}")
         for name in _PAGE_NONNEGATIVE_INTS:
@@ -1381,15 +1429,13 @@ class NativeScan:
         for name, column in columns.items():
             if name in {"url_id", "page_ordinal", "document_id"}:
                 continue
-            source = {"redirect_chain_json": "redirect_chain", "hreflang_json": "hreflang"}.get(
-                name, name
-            )
+            source = _PAGE_JSON_SOURCES.get(name, name)
             if source not in record:
                 raise ScanError(f"pages.{source}: current native record field is missing")
             value = record[source]
             if value is None and source not in _OPTIONAL_PAGE_SOURCES:
                 raise ScanError(f"pages.{source}: current native record field cannot be null")
-            if name in {"redirect_chain_json", "hreflang_json"}:
+            if name in _PAGE_JSON_SOURCES:
                 if name == "hreflang_json" and (
                     not isinstance(value, list)
                     or any(
@@ -1402,11 +1448,11 @@ class NativeScan:
                     raise ScanError(
                         "pages.hreflang must be ordered lang/raw_href/url string objects"
                     )
-                if name == "redirect_chain_json" and (
+                if name in {"redirect_chain_json", "canonical_chain_json"} and (
                     not isinstance(value, list)
                     or any(not isinstance(item, dict) for item in value or [])
                 ):
-                    raise ScanError("pages.redirect_chain must be an ordered object list")
+                    raise ScanError(f"pages.{source} must be an ordered object list")
                 value = _dump(value)
             elif name in _PAGE_BOOLS and value is not None:
                 if type(value) is not bool:
@@ -2064,8 +2110,11 @@ class NativeScan:
         return limit
 
     def interrupt(self, reason: str) -> None:
+        # Recording why a run stopped must not be gated on the condition that
+        # stopped it: the WAL bound refuses *more work*, and refusing this one
+        # header row would leave a partial capture reading as a running one.
         self._assert_mutable()
-        self._begin()
+        self._begin(enforce_wal_bound=False)
         try:
             self.con.execute(
                 "UPDATE scan SET lifecycle='interrupted', finish_reason=?, crawl_partial=1 WHERE singleton=1",

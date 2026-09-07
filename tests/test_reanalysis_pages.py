@@ -27,6 +27,7 @@ def test_every_page_field_has_an_explicit_replay_source():
     parsed = set(_record_from_parsed({}))
     reconstructed = {
         "redirect_chain",
+        "canonical_chain",
         "representation",
         "body_unavailable",
         "jsonld_blocks_found",

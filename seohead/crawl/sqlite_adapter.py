@@ -9,6 +9,7 @@ SQLite link semantics cannot drift.
 from __future__ import annotations
 
 import dataclasses
+import inspect
 import itertools
 import json
 import sqlite3
@@ -38,10 +39,9 @@ from seohead.crawl.spider import (
 from seohead.crawl.throttle import Throttle
 from seohead.models import ParsedRobots
 from seohead.recon.net import UA, http_client, normalize_url
-from seohead.storage import MAX_RECORD_BYTES, ScanError
+from seohead.storage import MAX_RECORD_BYTES, ScanBackpressure, ScanError
 from seohead.storage.native_scan import NativeScan
-from seohead.tools.robots import crawl_delay as robots_crawl_delay
-from seohead.tools.robots import is_allowed, match_path
+from seohead.tools.robots import is_allowed, match_path, politeness_delay
 
 MAX_LINK_OBSERVATIONS = 20_000
 MAX_FORM_OBSERVATIONS = 2_000
@@ -72,6 +72,10 @@ class ScanRun:
     start_page_gate: dict[str, Any] | None = None
     corpus_partial: bool = True
     capabilities: dict[str, Any] | None = None
+    # Runtime-only orchestration state.  It is intentionally not written to
+    # the scan artifact: locks and callbacks cannot survive a process, while
+    # one in-process handler must carry its budget through audit follow-ups.
+    dispatch_gate: _DispatchGate | None = None
 
 
 @dataclass
@@ -336,17 +340,26 @@ def crawl_to_scan(
     runtime_versions: dict[str, str],
     seed_urls: Iterable[str] = (),
     initial_sitemaps: tuple[tuple[str, str], ...] = (),
-    seed_loader: Callable[[NativeScan, Callable[[Iterable[str]], None]], None] | None = None,
+    seed_loader: Callable[..., None] | None = None,
     content_area_config: dict[str, Any] | None = None,
     fetcher: Callable[[str], Any] | None = None,
     sleeper: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
+    progress: Callable[[int, int], None] | None = None,
 ) -> ScanRun:
     """Collect a cache-off native crawl into one explicit scan artifact.
 
     Handler/CLI/MCP wiring is deliberately outside this module.  Callers pass
     the already loaded settings and producer provenance, so there is no second
     configuration path here.
+
+    ``progress``, when given, is called with ``(fetched, queued)`` once per
+    frontier batch and once more when collection ends.  Both numbers come from
+    the artifact's own ``resume_snapshot`` -- the same query the loop uses to
+    decide whether to keep going -- so what an operator is shown is what the
+    scan file on disk actually holds at that moment, never a separate in-memory
+    tally that could drift from it.  It is called between batches, where no
+    request is in flight, so the count is never a mid-write reading.
     """
     if settings["cache"]["mode"] != "off":
         raise ValueError(
@@ -364,6 +377,7 @@ def crawl_to_scan(
         max_concurrency=settings["speed"]["concurrency"],
         adaptive=settings["speed"]["adaptive"],
     )
+    dispatch_gate = _DispatchGate(throttle, sleeper, clock)
     started = clock()
     timeouts = server_errors = max_depth = 0
     elapsed_before = 0.0
@@ -446,7 +460,9 @@ def crawl_to_scan(
             )
             robots_state = "not_fetched"
         else:
-            robots, robots_note, robots_unavailable = _fetch_robots(start, fetcher, client)
+            robots, robots_note, robots_unavailable = _fetch_robots(
+                start, fetcher, client, wait=dispatch_gate.wait_turn
+            )
             robots_state = "unavailable" if robots_unavailable else "fetched"
         if saved_robots is None:
             scan.write_context(
@@ -490,12 +506,14 @@ def crawl_to_scan(
                 limitations=tuple(json.loads(outcome["scan"]["limitations_json"])),
                 corpus_partial=bool(outcome["scan"]["corpus_partial"]),
                 capabilities=json.loads(outcome["scan"]["capabilities_json"]),
+                dispatch_gate=dispatch_gate,
             )
-        asked_delay = robots_crawl_delay(cast(ParsedRobots, robots), robots_token)
-        if asked_delay and asked_delay > throttle.min_delay:
-            throttle.min_delay = asked_delay
-            throttle.delay = max(throttle.delay, asked_delay)
-            robots_delay = asked_delay
+        asked_delay = politeness_delay(cast(ParsedRobots, robots), robots_token)
+        if asked_delay is not None:
+            robots_delay = max(throttle.min_delay, asked_delay)
+            if asked_delay > throttle.min_delay:
+                throttle.min_delay = asked_delay
+                throttle.delay = max(throttle.delay, asked_delay)
         if existing:
             snapshot = scan.resume_snapshot()
             max_depth, elapsed_before, timeouts, server_errors, robots_delay = _restore_runtime(
@@ -550,16 +568,28 @@ def crawl_to_scan(
             if seed_loader is None:
                 emit_seeds(seed_urls)
             else:
-                seed_loader(scan, emit_seeds)
+                signature = inspect.signature(seed_loader)
+                try:
+                    signature.bind(scan, emit_seeds, request_gate=dispatch_gate.wait_turn)
+                except TypeError:
+                    # Seed loaders predate shared dispatch pacing. Bind before
+                    # calling so a TypeError raised inside the callback cannot
+                    # be mistaken for an incompatible signature and replay its
+                    # side effects.
+                    signature.bind(scan, emit_seeds)
+                    seed_loader(scan, emit_seeds)
+                else:
+                    seed_loader(scan, emit_seeds, request_gate=dispatch_gate.wait_turn)
 
         frontier_state = scan.resume_snapshot()["counts"]
         if frontier_state.get("queued", 0) or frontier_state.get("inflight", 0):
             scan.begin_collection()
 
-        dispatch_gate = _DispatchGate(throttle, sleeper, clock)
         while True:
             snapshot = scan.resume_snapshot()
             counts = snapshot["counts"]
+            if progress is not None:
+                progress(counts["pages"], counts["queued"] + counts["inflight"])
             if counts["pages"] >= limit:
                 if counts["queued"] or counts["inflight"]:
                     partial, finish_reason = True, "url_limit"
@@ -574,7 +604,18 @@ def crawl_to_scan(
                 break
             remaining = limit - counts["pages"]
             scan.preflight_capture()
-            leases = scan.claim(min(throttle.concurrency, remaining))
+            try:
+                leases = scan.claim(min(throttle.concurrency, remaining))
+            except ScanBackpressure as exc:
+                # The storage layer already waited out the reader for as long as
+                # it may. Stop collecting rather than raising: the pages already
+                # committed are sound, and the artifact says why it is short.
+                partial, finish_reason = True, "storage_backpressure"
+                scan.interrupt(f"storage backpressure: {exc}")
+                break
+            except (ScanError, sqlite3.Error) as exc:
+                _storage_failure(scan, exc)
+                raise ScanError(f"native scan storage failure: {exc}") from exc
             if not leases:
                 # Handler owns audit/no-audit finalization after its bounded
                 # compatibility bridge decides whether it may materialize.
@@ -705,7 +746,7 @@ def crawl_to_scan(
                             retry_on_timeout=settings["http"]["retry_on_timeout"],
                             parse_options=parse_options,
                             cache=None,
-                            sleeper=sleeper,
+                            wait=dispatch_gate.wait_turn,
                             capture_observer=(
                                 lambda observation, captured=captures: _append_capture(
                                     captured, observation
@@ -811,15 +852,33 @@ def crawl_to_scan(
                 if partial:
                     break
 
-        if finish_reason != "errors":
+        if finish_reason not in {"errors", "storage_backpressure"}:
             from .sqlite_resources import capture_resources
 
             capture_resources(
-                scan, settings, client=client, fetcher=fetcher, clock=clock, sleeper=sleeper
+                scan,
+                settings,
+                client=client,
+                fetcher=fetcher,
+                clock=clock,
+                sleeper=sleeper,
+                throttle=throttle,
+                dispatch_gate=dispatch_gate,
             )
         if start_page_gate is None:
             start_page_gate = retained_start_gate(scan, settings, content_area_config)
         outcome = scan.resume_snapshot(include_edges=True)
+        if progress is not None:
+            # The last word on this run, read after collection has stopped: a
+            # crawl that ended on the URL budget still has a queue, and saying
+            # so is the difference between "finished" and "stopped early".
+            # Leases still marked inflight are outstanding work too -- an
+            # interrupted run recovers them on resume, so they are counted here
+            # exactly as they are in the loop above.
+            progress(
+                outcome["counts"]["pages"],
+                outcome["counts"]["queued"] + outcome["counts"]["inflight"],
+            )
         return ScanRun(
             path=str(scan.path),
             pages=outcome["counts"]["pages"],
@@ -831,6 +890,7 @@ def crawl_to_scan(
             resumed=existing,
             limitations=tuple(json.loads(outcome["scan"]["limitations_json"])),
             start_page_gate=start_page_gate,
+            dispatch_gate=dispatch_gate,
             corpus_partial=bool(outcome["scan"]["corpus_partial"]),
             capabilities=json.loads(outcome["scan"]["capabilities_json"]),
         )

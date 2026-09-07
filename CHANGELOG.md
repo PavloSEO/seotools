@@ -4,6 +4,56 @@ All notable public changes are documented here.
 
 ## Unreleased
 
+- Give `crawl-site` a live progress line (#619, progress half). A native crawl printed its
+  effective request rate and then nothing at all until it finished; on a 34 000-page site the
+  only way to tell it was still working was to watch the scan file grow in `ls -la`. The line
+  now refreshes in place on a TTY with pages fetched, the URLs known so far, the percentage of
+  that set, the current request rate over a trailing window, elapsed time, and the scan
+  artifact's size when `--scan-out` is writing one. What it deliberately does not do is imply a
+  total it cannot know: a crawler discovers its own workload, so the denominator is
+  `fetched + queued` capped at the URL budget, it is labelled `known` rather than `total`, and a
+  header line printed once says the frontier is still growing and that the percentage is not an
+  estimate of when the run will finish. An unmeasurable rate reads as `rate n/a`, never as
+  `0.0 req/s`. Both numbers come from the crawl's own structures -- for a SQLite scan, from the
+  same `resume_snapshot` query the collection loop steers by -- so what is on screen is what the
+  artifact holds at that moment rather than a parallel tally that can drift from it. A non-TTY
+  (a pipe, a log file, CI) gets a plain line every 30 seconds instead of carriage-return
+  redraws, and a new `-q`/`--quiet` silences both the progress line and the startup rate line
+  while leaving the JSON result on stdout untouched.
+
+- Close the three pagination rows #385 left open, taking the registry from 152 to 155 checks.
+  `PAGINATION_MULTIPLE` and `PAGINATION_URL_NOT_IN_ANCHOR` report a page that declares two
+  different successors, or one whose declared URL is not also an anchor on the same page.
+  Successors are compared after URL normalization, the same identity the anchor half uses, so
+  `/blog/page/2` and `/blog/page/2/` from two plugins are one successor spelled twice rather
+  than an ambiguous series. `PAGINATION_URL_NOT_IN_ANCHOR` needs a page's whole link inventory
+  and reads the All Inlinks export for it; `PAGINATION_MULTIPLE` does not, and now reads the
+  lighter `Internal:All` `rel="next" 2` / `rel="prev" 2` occurrence columns first, the same way
+  `CANONICAL_MULTIPLE` already answers from `Canonical Link Element 2` — All Inlinks is only a
+  fallback for a profile whose `Internal:All` was written without those columns.
+  `PAGINATION_SEQUENCE_ERROR` reports a break in a page-number run the series otherwise
+  follows, per the issue's own caveat: a series may start at a number other than one, a stride
+  is not a break, and a series whose URLs do not state a page number is declared unevaluated
+  rather than judged against a numbering that would have had to be invented. Every series left
+  unjudged is named among the run's skipped checks with the reason true of *that* series --
+  a stride, a cycle, a series too short to hold a run and an unreadable page number are four
+  different statements, and three of them describe series whose URLs all state their number.
+  The count is per series, not per run, so the ordinary WordPress shape (page one at an
+  unnumbered `/blog/`, the rest at `/blog/page/N/`) cannot disappear behind one judgeable
+  series elsewhere on the same crawl.
+- Add a check-verdict coverage gate (#98): `test_check_producer_gate.py` proved every check
+  ID is registered and every `check_*` function is dispatched, but said nothing about whether
+  a check's conclusion was ever proven true against markup that actually has the defect, and
+  stays silent on markup that does not -- exactly the gap that let #94, #95 and #96 pass every
+  existing test while still misfiring on live sites. `test_check_verdict_coverage.py` scans
+  `tests/` structurally (AST, not a fixed call-site list) for both halves per check, and fails
+  the build for any check newly added to the registry without a two-sided test or a named,
+  reasoned exemption. Of the 152 checks in the registry, 88 already had two-sided proof; a new
+  `test_check_verdict_gaps.py` closes 22 more of the cheaply-testable gaps the scan surfaced
+  (title/description length and duplication, H1 duplication, H2 presence, URL hygiene,
+  directive and markup checks, response codes, and the two native-filter-export checks). The
+  remaining 64 are named, not hidden, in the gate's `KNOWN_UNCOVERED` ratchet -- shrink that
+  list as coverage lands; it must never grow to admit a check added after this gate existed.
 - Fix a robots.txt group-selection defect that let a blank `User-agent` value void a site's
   default policy (#566). A bare `User-agent:` line, or one whose bot name an inline comment
   swallowed (`User-agent: # old bot rule`), parsed to an empty token. `_rules_for` treated that

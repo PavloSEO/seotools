@@ -122,17 +122,36 @@ def preflight(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
     return warnings
 
 
-def compare(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
+def compare(
+    before: dict[str, Any], after: dict[str, Any], *, force: bool = False
+) -> dict[str, Any]:
     """Diff two audit.json documents into the four sets, per check.
 
     Both documents must carry ``pages`` and ``issues`` in the shape this
     toolkit produces; a document missing either is refused by name rather than
     silently treated as empty, because an empty crawl and an unreadable one
-    must not look the same in the result.
+    must not look the same in the result. A known difference between the two
+    effective crawl configurations is also refused unless the caller passes
+    ``force=True``: a changed robots policy or URL budget is not evidence that
+    the site itself changed. Warnings about a partial crawl remain result data;
+    they do not erase the historical observations or recategorize them.
     """
     for label, audit in (("before", before), ("after", after)):
         if "pages" not in audit or "issues" not in audit:
             raise CompareError(f"{label} is not an audit.json document (missing pages or issues)")
+
+    before_cfg = before.get("run", {}).get("crawl_config")
+    after_cfg = after.get("run", {}).get("crawl_config")
+    if before_cfg is not None and after_cfg is not None and before_cfg != after_cfg and not force:
+        changed = sorted(
+            key
+            for key in set(before_cfg) | set(after_cfg)
+            if before_cfg.get(key) != after_cfg.get(key)
+        )
+        raise CompareError(
+            "results-affecting settings differ between the two runs: "
+            f"{', '.join(changed)}; pass force=True only when this comparison is intended"
+        )
 
     before_urls = _crawled_urls(before)
     after_urls = _crawled_urls(after)

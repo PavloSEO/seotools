@@ -100,10 +100,11 @@ def _scan_records(path):
                     "url": "url",
                     "redirect_chain": "redirect_chain_json",
                     "hreflang": "hreflang_json",
+                    "canonical_chain": "canonical_chain_json",
                 }.get(field.name, field.name)
                 value = row[source]
-                if source in {"redirect_chain_json", "hreflang_json"}:
-                    value = json.loads(value)
+                if source in {"redirect_chain_json", "hreflang_json", "canonical_chain_json"}:
+                    value = json.loads(value) if value is not None else []
                 elif field.name in bools and value is not None:
                     value = bool(value)
                 data[field.name] = value

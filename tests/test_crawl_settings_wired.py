@@ -10,6 +10,11 @@ Settings already covered elsewhere by key name rather than by dotted path
 ``limits.max_crawl_seconds`` ->
 tests/test_crawl_resume.py::test_max_seconds_stops_the_crawl_with_a_duration_finish_reason
 (wired by the resumable-crawl work, not by this file).
+``analysis.segments`` ->
+tests/test_handlers_crawl_site.py::test_analysis_segments_use_post_crawl_fields_and_dependencies
+(wired by the segments work, #21).
+``discovery.resolve_canonical_destination`` ->
+tests/test_crawl_list_mode.py (the canonical-chain-walk tests, #21).
 """
 
 from __future__ import annotations
@@ -417,12 +422,14 @@ def test_sitemaps_auto_discover_configured_seeds_without_an_explicit_sitemap_arg
     from seohead.servers import handlers
 
     monkeypatch.setattr(
-        robots_tool, "check_robots", lambda url: {"sitemaps": ["https://example.com/sitemap.xml"]}
+        robots_tool,
+        "check_robots",
+        lambda url, **_kwargs: {"sitemaps": ["https://example.com/sitemap.xml"]},
     )
     monkeypatch.setattr(
         sitemap_tool,
         "crawl",
-        lambda url, concurrency=3: {"urls": [{"loc": "https://example.com/a"}]},
+        lambda url, concurrency=3, **_kwargs: {"urls": [{"loc": "https://example.com/a"}]},
     )
     captured: dict = {}
 

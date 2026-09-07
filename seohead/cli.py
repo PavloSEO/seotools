@@ -15,9 +15,12 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from seohead import __version__, runlog
+
+if TYPE_CHECKING:  # imported for the annotation only; the CLI keeps its imports lazy
+    from seohead.crawl.progress import CrawlProgress
 from seohead.servers import handlers
 
 # command -> handler kwarg builder. Each maps CLI namespace + --input dict -> kwargs.
@@ -28,6 +31,7 @@ COMMANDS = (
     "scan-reanalyze",
     "log-scan",
     "compare-crawls",
+    "crawl-enrich",
     "segment-diff",
     "redirects-generate",
     "redirects-check",
@@ -217,6 +221,8 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
             kw["url"] = args.url
         if getattr(args, "urls", None):
             kw["urls"] = _split_list(args.urls)
+        if getattr(args, "urls_file", None):
+            kw["urls_file"] = args.urls_file
         for flag in (
             "config",
             "max_urls",
@@ -315,6 +321,16 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
             kw["before"] = args.before
         if getattr(args, "after", None):
             kw["after"] = args.after
+        if getattr(args, "force", False):
+            kw["force"] = True
+    elif cmd == "crawl-enrich":
+        for name in ("audit", "external_csv", "url_column", "out_urls"):
+            value = getattr(args, name, None)
+            if value:
+                kw[name] = value
+        for name in ("ignore_query", "ignore_scheme", "casefold_path"):
+            if getattr(args, name, False):
+                kw[name] = True
     elif cmd == "segment-diff":
         if getattr(args, "audit", None):
             kw["audit"] = args.audit
@@ -540,6 +556,31 @@ def _print_config_help() -> None:
     print("* changes what the audit finds; recorded in the run manifest.")
 
 
+def _crawl_overrides(kwargs: dict[str, Any]) -> dict[str, Any]:
+    """The overrides a crawl-site run will resolve, in the precedence the handler applies.
+
+    Shared by everything here that has to know what a run's settings resolve to
+    before the run happens: two copies of this precedence would be two chances
+    for the number printed to describe a run that is not the one about to
+    happen -- worse than printing nothing, because it is believed.
+    """
+    overrides = dict(kwargs.get("overrides") or {})
+    # Only a named argument that was actually given wins. Updating with None
+    # would erase a --set or --max-urls-per-second value and silently fall
+    # back to the default, which is how a rate cap becomes a no-op.
+    for path, value in (
+        ("limits.max_urls", kwargs.get("max_urls")),
+        ("limits.max_depth", kwargs.get("max_depth")),
+        ("speed.min_delay_seconds", kwargs.get("min_delay")),
+        ("speed.concurrency", kwargs.get("concurrency")),
+        ("robots.policy", kwargs.get("robots")),
+        ("output.dir", kwargs.get("out_dir")),
+    ):
+        if value is not None:
+            overrides[path] = value
+    return overrides
+
+
 def _print_effective_rate(kwargs: dict[str, Any]) -> None:
     """Print the worst-case requests/second a crawl-site run permits, before it runs.
 
@@ -556,26 +597,43 @@ def _print_effective_rate(kwargs: dict[str, Any]) -> None:
         # The same overrides the handler will resolve, in the same precedence, or
         # the printed rate describes a run that is not the one about to happen --
         # which is worse than printing nothing, because it is believed.
-        overrides = dict(kwargs.get("overrides") or {})
-        # Only a named argument that was actually given wins. Updating with None
-        # would erase a --set or --max-urls-per-second value and silently fall
-        # back to the default, which is how a rate cap becomes a no-op.
-        for path, value in (
-            ("limits.max_urls", kwargs.get("max_urls")),
-            ("limits.max_depth", kwargs.get("max_depth")),
-            ("speed.min_delay_seconds", kwargs.get("min_delay")),
-            ("speed.concurrency", kwargs.get("concurrency")),
-            ("robots.policy", kwargs.get("robots")),
-            ("output.dir", kwargs.get("out_dir")),
-        ):
-            if value is not None:
-                overrides[path] = value
-        resolved = crawl_config.load(kwargs.get("config"), overrides=overrides)
+        resolved = crawl_config.load(kwargs.get("config"), overrides=_crawl_overrides(kwargs))
     except crawl_config.ConfigError:
         return  # the handler call below reports the same error to the user
     rate = crawl_config.effective_request_rate(resolved)
     shown = "unbounded" if rate == float("inf") else f"{rate:.2f} req/s"
     print(f"crawl-site: effective worst-case request rate to one host: {shown}", file=sys.stderr)
+
+
+def _crawl_progress(kwargs: dict[str, Any]) -> CrawlProgress | None:
+    """Build the live progress line for a crawl-site run, or None when it has no place to go.
+
+    The budget it prints against is the one this run will actually apply, read
+    back from the same resolved settings ``_print_effective_rate`` uses -- a
+    percentage computed against the default 200 on a run configured for 40 000
+    would be a number the operator has no way to know is wrong.
+
+    A configuration this run cannot load returns None rather than raising: the
+    handler call that follows reports that error properly, and a progress line
+    is never worth turning a clear message into a traceback.
+    """
+    from seohead.crawl import settings as crawl_config
+    from seohead.crawl.progress import CrawlProgress
+
+    try:
+        resolved = crawl_config.load(kwargs.get("config"), overrides=_crawl_overrides(kwargs))
+    except crawl_config.ConfigError:
+        return None
+    stream = sys.stderr
+    return CrawlProgress(
+        stream,
+        budget=resolved["limits"]["max_urls"],
+        # A pipe or a log file gets periodic whole lines instead of redraws.
+        # getattr, because a captured or replaced stderr need not be a real file
+        # object at all, and a missing isatty means "assume not a terminal".
+        tty=bool(getattr(stream, "isatty", lambda: False)()),
+        artifact_path=kwargs.get("scan_out"),
+    )
 
 
 def _read_donors(path: str) -> list[str]:
@@ -613,6 +671,11 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
             "--urls",
             help="comma-separated URL list: list mode, no discovery",
         )
+        _source_flag(
+            sub,
+            "--urls-file",
+            help="TXT, CSV, XLSX, or XML URL list: list mode, no discovery",
+        )
         sub.add_argument("--max-urls", type=int, help="URL budget (default 200)")
         sub.add_argument("--out-dir", help="directory for pages.jsonl and audit.json")
         sub.add_argument("--scan-out", metavar="FILE", help="opt-in SQLite scan artifact")
@@ -633,6 +696,12 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
             "--config-help",
             action="store_true",
             help="list every crawler configuration setting",
+        )
+        sub.add_argument(
+            "-q",
+            "--quiet",
+            action="store_true",
+            help="no progress or rate line on stderr; stdout unchanged",
         )
         sub.add_argument(
             "--max-urls-per-second",
@@ -657,6 +726,29 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
         # every setting, and a setting added tomorrow is reachable with no CLI change at all.
         sub.add_argument("--max-depth", type=int, help=argparse.SUPPRESS)
         sub.add_argument("--min-delay", type=float, help=argparse.SUPPRESS)
+    if cmd == "compare-crawls":
+        sub.add_argument(
+            "--force",
+            action="store_true",
+            help="compare known-different effective crawl settings",
+        )
+    if cmd == "crawl-enrich":
+        _source_flag(sub, "--audit", help="crawl audit JSON or SQLite scan")
+        _source_flag(sub, "--external-csv", help="URL-keyed traffic or search CSV")
+        sub.add_argument(
+            "--url-column", default="url", help="external CSV URL column (default: url)"
+        )
+        sub.add_argument(
+            "--ignore-query", action="store_true", help="join URLs without query strings"
+        )
+        sub.add_argument("--ignore-scheme", action="store_true", help="join HTTP and HTTPS URLs")
+        sub.add_argument(
+            "--casefold-path", action="store_true", help="case-fold URL paths for the join"
+        )
+        sub.add_argument(
+            "--out-urls",
+            help="write reliable external-only URLs as a list-mode input file",
+        )
     if cmd == "site-audit":
         _source_flag(sub, "--url", help="site home page")
         _source_flag(
@@ -1008,9 +1100,19 @@ def main(argv: list[str] | None = None) -> int:
         handler_name, kwargs = _build_kwargs(cmd, args)
         report_fmt = kwargs.pop("_report", None)
         report_out = kwargs.pop("_out", None)
-        if cmd == "crawl-site":
+        progress = None
+        if cmd == "crawl-site" and not getattr(args, "quiet", False):
             _print_effective_rate(kwargs)
-        result = handlers.HANDLERS[handler_name](**kwargs)
+            progress = _crawl_progress(kwargs)
+            kwargs["progress"] = progress
+        try:
+            result = handlers.HANDLERS[handler_name](**kwargs)
+        finally:
+            # Closed whatever happened: an interrupted or failed crawl must not
+            # leave the operator's shell prompt printed over half a progress
+            # line, and the error message below is worth reading.
+            if progress is not None:
+                progress.close()
         if report_fmt and isinstance(result, dict) and result.get("ok"):
             # Build an optional report from the in-memory audit result. This keeps the structured
             # document identical while avoiding a manual JSON handoff between two commands.

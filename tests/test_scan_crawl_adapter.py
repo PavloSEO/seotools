@@ -15,7 +15,7 @@ import pytest
 from seohead.crawl import sqlite_adapter
 from seohead.crawl.settings import load
 from seohead.crawl.sqlite_adapter import crawl_to_scan
-from seohead.storage import ScanError
+from seohead.storage import ScanBackpressure, ScanError
 from seohead.storage.native_scan import NativeScan
 
 
@@ -75,6 +75,162 @@ def test_sqlite_adapter_accepts_js_config_and_collects_raw_html_with_an_offline_
         "outlinks": 0,
         "external_outlinks": 0,
     }
+
+
+def test_sqlite_adapter_paces_robots_redirects_before_page_dispatch(tmp_path):
+    now = [0.0]
+    calls = []
+
+    def fetcher(url):
+        calls.append((now[0], url))
+        if url.endswith("/robots.txt"):
+            return _Response(302, "", {"location": "/robots-1.txt"})
+        if url.endswith("/robots-1.txt"):
+            return _Response(200, "User-agent: *\nAllow: /\n", {"content-type": "text/plain"})
+        return _Response(200, "<html><body>page</body></html>")
+
+    crawl_to_scan(
+        "https://example.test/",
+        scan_out=str(tmp_path / "paced.sqlite"),
+        settings=load(overrides={"speed.min_delay_seconds": 1.0, "limits.max_urls": 1}),
+        producer_version="3.0.0",
+        producer_revision="a" * 40,
+        runtime_versions={
+            "python": "test",
+            "sqlite": "test",
+            "httpx": "test",
+            "lxml": "test",
+            "beautifulsoup4": "test",
+        },
+        fetcher=fetcher,
+        sleeper=lambda seconds: now.__setitem__(0, now[0] + seconds),
+        clock=lambda: now[0],
+    )
+    assert calls == [
+        (0.0, "https://example.test/robots.txt"),
+        (1.0, "https://example.test/robots-1.txt"),
+        (2.0, "https://example.test/"),
+    ]
+
+
+def test_sqlite_adapter_keeps_sitemap_page_and_resource_requests_on_one_gate(tmp_path):
+    now = [0.0]
+    calls = []
+
+    def fetcher(url):
+        calls.append((now[0], url))
+        if url.endswith("/robots.txt"):
+            return _Response(200, "User-agent: *\nAllow: /\n", {"content-type": "text/plain"})
+        if url.endswith("app.js"):
+            return _Response(200, "window.app=true", {"content-type": "application/javascript"})
+        return _Response(
+            200,
+            '<html><head><script src="/app.js"></script></head><body>page</body></html>',
+        )
+
+    def seed_loader(_scan, _emit_seeds, *, request_gate):
+        request_gate()
+        calls.append((now[0], "sitemap"))
+
+    crawl_to_scan(
+        "https://example.test/",
+        scan_out=str(tmp_path / "paced-all.sqlite"),
+        settings=load(
+            overrides={
+                "speed.min_delay_seconds": 1.0,
+                "limits.max_urls": 1,
+                "resources.fetch": True,
+            }
+        ),
+        producer_version="3.0.0",
+        producer_revision="a" * 40,
+        runtime_versions={
+            "python": "test",
+            "sqlite": "test",
+            "httpx": "test",
+            "lxml": "test",
+            "beautifulsoup4": "test",
+        },
+        seed_loader=seed_loader,
+        fetcher=fetcher,
+        sleeper=lambda seconds: now.__setitem__(0, now[0] + seconds),
+        clock=lambda: now[0],
+    )
+
+    assert calls == [
+        (0.0, "https://example.test/robots.txt"),
+        (1.0, "sitemap"),
+        (2.0, "https://example.test/"),
+        (3.0, "https://example.test/app.js"),
+    ]
+
+
+def test_sqlite_adapter_accepts_legacy_two_argument_seed_loader(tmp_path):
+    calls = []
+
+    def fetcher(url):
+        calls.append(url)
+        if url.endswith("/robots.txt"):
+            return _Response(200, "User-agent: *\nAllow: /\n", {"content-type": "text/plain"})
+        return _Response(200, "<html><body>page</body></html>")
+
+    def seed_loader(_scan, emit_seeds):
+        emit_seeds(())
+
+    run = crawl_to_scan(
+        "https://example.test/",
+        scan_out=str(tmp_path / "legacy-seed-loader.sqlite"),
+        settings=load(overrides={"limits.max_urls": 1}),
+        producer_version="3.0.0",
+        producer_revision="a" * 40,
+        runtime_versions={
+            "python": "test",
+            "sqlite": "test",
+            "httpx": "test",
+            "lxml": "test",
+            "beautifulsoup4": "test",
+        },
+        seed_loader=seed_loader,
+        fetcher=fetcher,
+        sleeper=lambda _seconds: None,
+    )
+
+    assert run.pages == 1
+    assert calls == ["https://example.test/robots.txt", "https://example.test/"]
+
+
+def test_sqlite_adapter_does_not_reinvoke_a_failing_gate_aware_seed_loader(tmp_path):
+    calls = []
+
+    def seed_loader(_scan, _emit_seeds, *, request_gate):
+        calls.append(request_gate)
+        raise TypeError("loader body failed")
+
+    def fetcher(url):
+        if url.endswith("/robots.txt"):
+            return _Response(200, "User-agent: *\nAllow: /\n", {"content-type": "text/plain"})
+        pytest.fail("the seed hook should fail before page dispatch")
+
+    with pytest.raises(TypeError, match="loader body failed"):
+        crawl_to_scan(
+            "https://example.test/",
+            scan_out=str(tmp_path / "failing-seed-loader.sqlite"),
+            settings=load(overrides={"limits.max_urls": 1}),
+            producer_version="3.0.0",
+            producer_revision="a" * 40,
+            runtime_versions={
+                "python": "test",
+                "sqlite": "test",
+                "httpx": "test",
+                "lxml": "test",
+                "beautifulsoup4": "test",
+            },
+            seed_loader=seed_loader,
+            fetcher=fetcher,
+            sleeper=lambda _seconds: None,
+        )
+
+    assert len(calls) == 1
 
 
 class _Response:
@@ -713,3 +869,59 @@ def test_partial_observation_reason_reaches_the_caller(tmp_path, tag, count, rea
     assert reason in output["limitations"]
     stored = NativeScan.inspect(tmp_path / "scan.sqlite")["scan"]
     assert output["limitations"] == json.loads(stored["limitations_json"])
+
+
+def _run(tmp_path, fetcher, **overrides):
+    return crawl_to_scan(
+        "https://example.test/",
+        scan_out=str(tmp_path / "scan.sqlite"),
+        settings=load(overrides={"speed.min_delay_seconds": 0, **overrides}),
+        producer_version="3.0.0",
+        producer_revision="a" * 40,
+        runtime_versions={
+            "python": "test",
+            "sqlite": "test",
+            "httpx": "test",
+            "lxml": "test",
+            "beautifulsoup4": "test",
+        },
+        fetcher=fetcher,
+        sleeper=lambda _seconds: None,
+    )
+
+
+def _offline(url):
+    if url.endswith("/robots.txt"):
+        return _Response(200, "User-agent: SEOHEAD-Tools\nAllow: /\n")
+    return _Response(200, "<html><head><title>page</title></head><body>page</body></html>")
+
+
+def test_backpressure_that_outlasts_the_wait_stops_the_crawl_with_a_recorded_reason(
+    tmp_path, monkeypatch
+):
+    """Issue #618: a blocked checkpoint ends collection with a reason, not an abort."""
+
+    def blocked(self, limit):
+        raise ScanBackpressure("WAL backpressure: a reader kept the bounded log")
+
+    monkeypatch.setattr(NativeScan, "claim", blocked)
+    run = _run(tmp_path, _offline)
+    assert (run.lifecycle, run.finish_reason, run.partial) == (
+        "interrupted",
+        "storage_backpressure",
+        True,
+    )
+    header = NativeScan.inspect(str(tmp_path / "scan.sqlite"))["scan"]
+    # The artifact, not just the console, has to say why it is short.
+    assert header["lifecycle"] == "interrupted"
+    assert "backpressure" in header["finish_reason"]
+
+
+def test_a_crawl_without_backpressure_finishes_and_claims_no_interruption(tmp_path):
+    """The wait-and-record path stays silent when no reader ever blocks a checkpoint."""
+    run = _run(tmp_path, _offline)
+    assert (run.lifecycle, run.finish_reason, run.partial) == ("running", "finished", False)
+    assert run.pages == 1
+    header = NativeScan.inspect(str(tmp_path / "scan.sqlite"))["scan"]
+    assert header["finish_reason"] != "storage_backpressure"
+    assert not any("WAL checkpoint" in note for note in json.loads(header["limitations_json"]))

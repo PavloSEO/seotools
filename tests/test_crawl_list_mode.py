@@ -50,6 +50,43 @@ def test_collects_in_the_order_given_and_deduplicates():
     assert [p.url for p in result.pages] == ["https://example.com/a", "https://example.com/b"]
 
 
+def test_redirect_resolution_rebinds_credentials_for_each_hop(monkeypatch):
+    import seohead.crawl.collect as collect_module
+
+    calls = []
+
+    class Client:
+        def get(self, url, *, headers, extensions):
+            calls.append((url, headers))
+            if url == "https://source.example.test/start":
+                return FakeResponse("", 302, {"location": "https://other.example.test/landing"})
+            return FakeResponse("<html><title>landing</title></html>")
+
+        def close(self):
+            pass
+
+    monkeypatch.setenv("SEOHEAD_LIST_TOKEN", "secret")
+    monkeypatch.setattr(collect_module, "validate_url", lambda url: url)
+    monkeypatch.setattr(collect_module, "pinned_target", lambda url: (url, {}, {}))
+    monkeypatch.setattr(collect_module, "http_client", lambda *_args, **_kwargs: (Client(), False))
+
+    collect_urls(
+        ["https://source.example.test/start"],
+        credential_headers=[
+            {
+                "host": "source.example.test",
+                "headers": {"Authorization": "env:SEOHEAD_LIST_TOKEN"},
+            }
+        ],
+        extra_request_headers={"Accept-Language": "en"},
+        resolve_redirect_destination=True,
+    )
+
+    assert calls[0][1]["Authorization"] == "secret"
+    assert calls[1][1]["Accept-Language"] == "en"
+    assert "Authorization" not in calls[1][1]
+
+
 def test_parses_against_the_document_base(tmp_path):
     """The <base href> fix must hold here too, or list mode invents 404s."""
     result = collect_urls(
@@ -405,6 +442,33 @@ def test_list_mode_reads_robots_per_host_and_records_what_it_blocked():
     assert result.robots_blocked == ["https://a.example/private/x"]
 
 
+def test_list_mode_dispatch_gate_paces_per_host_robots_and_cached_page_attempts():
+    now = [0.0]
+    calls = []
+
+    def fetcher(url):
+        calls.append((now[0], url))
+        if url.endswith("/robots.txt"):
+            return FakeResponse("User-agent: *\n", headers={"content-type": "text/plain"})
+        return FakeResponse(HTML)
+
+    _collect_urls(
+        ["https://a.example/one", "https://a.example/two", "https://b.example/one"],
+        fetcher=fetcher,
+        min_delay=1.0,
+        robots_policy="respect",
+        sleeper=lambda seconds: now.__setitem__(0, now[0] + seconds),
+        clock=lambda: now[0],
+    )
+    assert calls == [
+        (0.0, "https://a.example/robots.txt"),
+        (1.0, "https://a.example/one"),
+        (2.0, "https://a.example/two"),
+        (3.0, "https://b.example/robots.txt"),
+        (4.0, "https://b.example/one"),
+    ]
+
+
 def test_a_robots_txt_that_cannot_be_read_does_not_block_the_whole_list():
     """A single-site crawl can treat an unreadable robots.txt as "stop, we do not know the
     rules". List mode cannot: one unreachable host would then decide the fate of URLs on
@@ -470,3 +534,33 @@ def test_an_unresolved_redirect_reports_an_empty_chain_rather_than_a_false_desti
     assert page.redirect_url == "https://example.com/new"
     assert page.redirect_chain == []
     assert page.final_url == ""
+
+
+def test_resolving_a_canonical_destination_records_each_hop_without_discovery():
+    """Canonical resolution is a per-row audit, not a crawl of canonical targets."""
+    responses = {
+        "https://example.com/a": FakeResponse(
+            '<link rel="canonical" href="https://example.com/b">'
+        ),
+        "https://example.com/b": FakeResponse(
+            '<link rel="canonical" href="https://example.com/c">'
+        ),
+        "https://example.com/c": FakeResponse(
+            '<link rel="canonical" href="https://example.com/c">'
+        ),
+    }
+
+    result = collect_urls(
+        ["https://example.com/a"],
+        fetcher=_fetch(responses),
+        min_delay=0,
+        resolve_canonical_destination=True,
+    )
+
+    page = result.pages[0]
+    assert [p.url for p in result.pages] == ["https://example.com/a"]
+    assert page.final_canonical == "https://example.com/c"
+    assert [hop["url"] for hop in page.canonical_chain] == [
+        "https://example.com/b",
+        "https://example.com/c",
+    ]

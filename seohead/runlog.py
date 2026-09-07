@@ -97,7 +97,19 @@ def _redact(value: Any) -> Any:
         return shown
     if isinstance(value, dict):
         return {k: _redact(v) for k, v in value.items()}
-    return value
+    if isinstance(value, (bool, int, float, type(None))):
+        return value
+    if isinstance(value, os.PathLike):
+        return _redact(os.fspath(value))
+    # Anything else is not JSON: a callable an interface handed the handler (a
+    # progress line's callback, #619), a file handle, an object. Its type name,
+    # not str(value), because most objects' str carries a memory address, and an
+    # address would give the same call a different fingerprint every run. Naming
+    # the type keeps the entry honest -- the argument was given, and this is
+    # what it was -- where returning the object unchanged makes json.dumps raise
+    # inside fingerprint(), which fails the whole run rather than degrading one
+    # journal entry.
+    return f"<{type(value).__name__}>"
 
 
 def safe_arguments(arguments: dict[str, Any] | None) -> dict[str, Any]:

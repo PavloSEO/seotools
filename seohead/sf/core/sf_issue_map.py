@@ -259,15 +259,19 @@ CATEGORIES: dict[str, list[Entry]] = {
         _c("Canonical Is Relative", "CANONICAL_RELATIVE"),
     ],
     "Pagination": [
-        _g(
-            "Pagination URL Not In Anchor Tag",
-            "rel=next/prev targets are not cross-checked against the anchor list",
-        ),
+        _c("Pagination URL Not In Anchor Tag", "PAGINATION_URL_NOT_IN_ANCHOR"),
         _c("Non-200 Pagination URLs", "PAGINATION_NONINDEXABLE"),
         _c("Unlinked Pagination URLs", "UNLINKED_PAGINATION_SERIES"),
-        _g("Multiple Pagination URLs", "multiple rel=next declarations are not counted"),
+        _c("Multiple Pagination URLs", "PAGINATION_MULTIPLE"),
         _c("Pagination Loop", "PAGINATION_LOOP"),
-        _g("Sequence Error", "the numeric order of a series is not validated"),
+        _p(
+            "Sequence Error",
+            "only a run that increments by one somewhere is judged: a series with a stride, "
+            "or one whose URLs do not state a page number, is left unevaluated rather than "
+            "reported against a numbering we would have had to invent -- and is then named, "
+            "with the reason true of that series, among the run's skipped checks",
+            "PAGINATION_SEQUENCE_ERROR",
+        ),
         _c("Non-Indexable", "PAGINATION_NONINDEXABLE"),
     ],
     "Directives": [

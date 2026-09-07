@@ -85,6 +85,9 @@ def _page_rows(con) -> Iterable[dict[str, Any]]:
             elif name == "hreflang_json":
                 if value is not None:
                     page["hreflang"] = json.loads(value)
+            elif name == "canonical_chain_json":
+                if value is not None:
+                    page["canonical_chain"] = json.loads(value)
             elif name in late_columns:
                 if value is not None:
                     page[late_columns[name]] = value
