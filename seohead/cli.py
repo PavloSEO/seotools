@@ -15,9 +15,12 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from seohead import __version__, runlog
+
+if TYPE_CHECKING:  # imported for the annotation only; the CLI keeps its imports lazy
+    from seohead.crawl.progress import CrawlProgress
 from seohead.servers import handlers
 
 # command -> handler kwarg builder. Each maps CLI namespace + --input dict -> kwargs.
@@ -602,7 +605,7 @@ def _print_effective_rate(kwargs: dict[str, Any]) -> None:
     print(f"crawl-site: effective worst-case request rate to one host: {shown}", file=sys.stderr)
 
 
-def _crawl_progress(kwargs: dict[str, Any]) -> Any:
+def _crawl_progress(kwargs: dict[str, Any]) -> CrawlProgress | None:
     """Build the live progress line for a crawl-site run, or None when it has no place to go.
 
     The budget it prints against is the one this run will actually apply, read

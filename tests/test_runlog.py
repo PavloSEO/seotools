@@ -275,3 +275,46 @@ def test_reuse_never_stores_a_secret_looking_field(journal_path, monkeypatch):
     wrapped = runlog.journaled("domain_profile", fn)
     wrapped(domain="example.com")
     assert "super-secret-value" not in journal_path.read_text()
+
+
+def test_an_argument_json_cannot_encode_is_named_rather_than_raising(journal_path):
+    """A crawl-site progress callback (#619) is a live object, not JSON.
+
+    ``fingerprint`` json.dumps the arguments with no ``default``, so passing the
+    object through would raise there and fail every call of that tool -- the
+    journal is meant to degrade, never to break a run.
+    """
+
+    class Reporter:
+        pass
+
+    with runlog.journal(
+        "cli", "crawl_site", {"url": "https://example.com/", "progress": Reporter()}
+    ):
+        pass
+    entry = runlog.read_entries()[0]
+    assert entry["arguments"]["progress"] == "<Reporter>"
+    assert entry["arguments"]["url"] == "https://example.com/"
+
+
+def test_the_same_call_fingerprints_the_same_with_a_live_object_in_it():
+    """A type name, not str(value): an object's repr carries a memory address,
+    and an address would make one repeated call look like two different ones."""
+
+    class Reporter:
+        pass
+
+    first = runlog.fingerprint(
+        "crawl_site", {"url": "https://example.com/", "progress": Reporter()}
+    )
+    second = runlog.fingerprint(
+        "crawl_site", {"url": "https://example.com/", "progress": Reporter()}
+    )
+    assert first == second
+
+
+def test_a_path_argument_is_still_journalled_as_its_path(journal_path, tmp_path):
+    """PathLike is JSON-able once, and the path is the useful fact about it."""
+    with runlog.journal("library", "sf_audit_run", {"out": tmp_path / "report"}):
+        pass
+    assert runlog.read_entries()[0]["arguments"]["out"] == str(tmp_path / "report")

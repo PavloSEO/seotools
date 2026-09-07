@@ -861,7 +861,13 @@ def crawl_to_scan(
             # The last word on this run, read after collection has stopped: a
             # crawl that ended on the URL budget still has a queue, and saying
             # so is the difference between "finished" and "stopped early".
-            progress(outcome["counts"]["pages"], outcome["counts"]["queued"])
+            # Leases still marked inflight are outstanding work too -- an
+            # interrupted run recovers them on resume, so they are counted here
+            # exactly as they are in the loop above.
+            progress(
+                outcome["counts"]["pages"],
+                outcome["counts"]["queued"] + outcome["counts"]["inflight"],
+            )
         return ScanRun(
             path=str(scan.path),
             pages=outcome["counts"]["pages"],
