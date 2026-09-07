@@ -147,6 +147,10 @@
         "reason": "no rel=\"next\" column in Internal:All"
       },
       {
+        "id": "PAGINATION_SEQUENCE_ERROR",
+        "reason": "no rel=\"next\" column in Internal:All"
+      },
+      {
         "id": "LOREM_IPSUM_PLACEHOLDER",
         "reason": "no Lorem Ipsum evidence (native crawl only)"
       },
@@ -311,6 +315,14 @@
         "reason": "no all_inlinks export (needed for the resource inventory)"
       },
       {
+        "id": "PAGINATION_MULTIPLE",
+        "reason": "no all_inlinks export (needed for every rel=\"next\"/rel=\"prev\" declaration and the anchors beside them)"
+      },
+      {
+        "id": "PAGINATION_URL_NOT_IN_ANCHOR",
+        "reason": "no all_inlinks export (needed for every rel=\"next\"/rel=\"prev\" declaration and the anchors beside them)"
+      },
+      {
         "id": "DOM_TOO_DEEP",
         "reason": "no stored HTML (input.html_store_dir not set)"
       },
@@ -408,9 +420,9 @@
     ],
     "health_score": null,
     "check_coverage": {
-      "checks_total": 152,
+      "checks_total": 155,
       "checks_fired": 16,
-      "checks_skipped": 77,
+      "checks_skipped": 80,
       "checks_disabled": 0,
       "checks_disabled_ids": [],
       "checks_silent": 59,
@@ -475,10 +487,10 @@
         "URL_UNDERSCORES",
         "URL_UPPERCASE"
       ],
-      "coverage": 0.493
+      "coverage": 0.484
     },
-    "health_score_reason": "only 75 of 152 checks could run (49% coverage); too little evidence to score",
-    "health_score_basis": "75 of 152 checks could run; the score is not comparable to a run with full evidence",
+    "health_score_reason": "only 75 of 155 checks could run (48% coverage); too little evidence to score",
+    "health_score_basis": "75 of 155 checks could run; the score is not comparable to a run with full evidence",
     "size_stats_bytes": {
       "count": 4,
       "median": 77500,
