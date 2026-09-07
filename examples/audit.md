@@ -1,17 +1,17 @@
 # SEO audit — example.com
 
-- **Generated:** 2026-09-07T12:58:08Z
+- **Generated:** 2026-09-07T13:13:53Z
 - **Input mode:** parse-exports  ·  **Profile:** full
 - **Source:** examples/exports
 - **Exports used:** internal_all, inlinks_4xx
 
 ## Health summary
 
-> **No health score.** only 75 of 157 checks could run (48% coverage); too little evidence to score.
+> **No health score.** only 74 of 157 checks could run (47% coverage); too little evidence to score.
 
-_75 of 157 checks could run; the score is not comparable to a run with full evidence_
+_74 of 157 checks could run; the score is not comparable to a run with full evidence_
 
-- Checks: **16 fired**, 82 skipped, 59 silent, 0 disabled (of 157 total)
+- Checks: **16 fired**, 83 skipped, 58 silent, 0 disabled (of 157 total)
 
 - URLs crawled: **6** (HTML: 4, indexable: 4)
 - Total issues: **21**
@@ -204,6 +204,7 @@ Each check below describes more than half the crawled pages. That can be true --
 | `SITEMAP_URL_3XX` | missing export: sitemap_redirects |
 | `SITEMAP_URL_NON_INDEXABLE` | missing export: sitemap_non_indexable |
 | `DESC_MULTIPLE` | no meta description count evidence (native crawl only) |
+| `H2_MISSING` | requirements.require_h2 is false; the check was not evaluated |
 | `H1_ALT_TEXT_ONLY` | no H1 alt-text evidence (native crawl only) |
 | `HEADING_BEFORE_H1` | no heading outline evidence (native crawl only) |
 | `HEADING_IN_PAGE_CHROME` | no heading outline evidence (native crawl only) |

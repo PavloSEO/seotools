@@ -308,6 +308,13 @@ def check_headings(ctx: AuditContext) -> None:
 
     t = ctx.thresholds
     require_h2 = ctx.requirements.get("require_h2", False)
+    if not require_h2:
+        # A requirement that is off makes its check unreachable, not clean. Without
+        # this the run reports H2_MISSING as silent -- the bucket that means "ran over
+        # every page and found nothing" -- on a site where thousands of pages have no
+        # H2 at all (#635). The reason names the setting, so a reader can turn it on
+        # rather than conclude the site passed.
+        ctx.skip("H2_MISSING", "requirements.require_h2 is false; the check was not evaluated")
     # Same distinction as check_titles (#205): an absent H1-1 column means the run never
     # measured any page's H1, not that every page is missing one. H1_MULTIPLE/H1_TOO_LONG/
     # H2_MISSING all read the same `h1` value, so they stay correctly silent on their own —
@@ -453,6 +460,14 @@ def check_canonical_directives(ctx: AuditContext) -> None:
     if require_canonical:
         _skip_for_body_unavailable(
             ctx, "CANONICAL_MISSING", [p for p in ctx.html_pages() if p.is_indexable]
+        )
+    else:
+        # Same shape as require_h2 above: the default is true, so this branch is rare,
+        # but a run that turns it off must say the check was not evaluated rather than
+        # let it read as a site with canonicals everywhere (#635).
+        ctx.skip(
+            "CANONICAL_MISSING",
+            "requirements.require_canonical is false; the check was not evaluated",
         )
     for page in ctx.html_pages():
         rec = _rec(page)
