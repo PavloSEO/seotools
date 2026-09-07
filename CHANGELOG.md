@@ -18,6 +18,21 @@ All notable public changes are documented here.
   never noticed because nothing reads the old keys. Found on a live site whose robots.txt
   302s to a cookie-sync endpoint for any user agent it does not recognise.
 
+- Fix `escalate()` counting a failed render probe as "this pattern needs no rendering"
+  (#626). It samples one URL per template pattern to decide whether that pattern needs a
+  fuller, JavaScript-rendered fetch, but when every sample for a pattern failed to probe at
+  all — a browser launch failure, a timeout, or an incomplete render, the ordinary failure
+  modes of a real crawl — the `for`/`else` still recorded the pattern as probed, so it ended
+  up neither escalated nor listed among the patterns the run could not evaluate. That
+  inverted this project's central rule that missing or unmeasured evidence must never read
+  as clean: a pattern nothing was learned about was silently crawled static and reported the
+  same as one that was genuinely measured and found not to need rendering. `EscalationResult`
+  now reports such a pattern in `patterns_unprobed`, alongside the deadline-cut patterns
+  already tracked there, and records the probe's own failure reason in the new
+  `patterns_unprobed_reasons`, so a report can say "this pattern was not evaluated" instead
+  of implying it was. A pattern with at least one successful probe is unaffected: this only
+  changes what happens when every probe for a pattern comes back `ok: False`.
+
 - Stop `render-check` reporting an unfinished render as a site defect (#623). When the render
   did not complete, the rendered snapshot came back with no title, no `h1`, no canonical, zero
   links and a fifth of the raw response's bytes -- and the comparator read that emptiness as
