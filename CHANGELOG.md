@@ -4,6 +4,28 @@ All notable public changes are documented here.
 
 ## Unreleased
 
+- Stop reading a cookie the site set as the operator's credential, and say out loud when a run
+  discards bodies (#647). A crawl shares one HTTP client, and that client keeps a cookie jar: the
+  moment any response carried `Set-Cookie`, every later request went out with `Cookie:` and the
+  corpus writer classified it as an authenticated fetch. On a public site with
+  `http.credential_headers = []` and `credentials_acknowledged = false`, that discarded 33 001 of
+  40 920 page bodies, and the run reported its pages and links exactly as a complete one would.
+  Everything computed from stored HTML on that crawl -- near-duplicate detection, DOM depth and
+  node counts, boilerplate share, in-body heading structure, offline reanalysis -- then covered
+  7 903 pages while every page-level percentage in the same report covered 40 920: two
+  populations, presented as one. A capture is credentialed when the run was configured to send a
+  credential header for that host, which is the only way a sensitive header can reach a request
+  the crawler builds -- `http.headers` is refused one by configuration validation. A crawl with a
+  configured credential still omits those bodies under `credentialed`, unchanged.
+- The counts a `partial` flag cannot carry are now named. `html_bodies` in a `crawl-site` result
+  reports how many fetched HTML page bodies were retained and the reason for each one that was
+  not, and the CLI prints that beside the finish line rather than leaving it to a capability flag
+  that says "partial" for one missing body and for four fifths of them. A run that discarded
+  nothing prints nothing extra. Redacted request and response header lists now keep the names of
+  the headers redaction removed, under `x-seohead-redacted-headers` and never their values: two
+  responses whose bodies were treated differently used to record byte-identical header lists, so
+  an operator reading the artifact could not tell why a body was missing.
+
 - Answer "is this site linked well, and where is it linked badly", taking the registry from 157
   to 161 checks and adding an `internal-linking` skill (#634). The pieces existed -- every edge
   with its position, anchor and nofollow flag in the `links` table, `ORPHAN_PAGE`,

@@ -494,7 +494,20 @@ def fetch_one(
         request_pairs = header_pairs(
             request_object.headers if request_object is not None else sent_headers
         )
-        credentials = any(name in SENSITIVE_HEADER_NAMES and value for name, value in request_pairs)
+        # Only a credential this run was configured to send counts as one. The wire
+        # headers also carry whatever the shared client's cookie jar picked up, and a
+        # session cookie the server itself set is the ordinary state of the web, not
+        # the operator's authentication: reading it as one discarded four fifths of a
+        # public site's bodies on a run with nothing configured at all (#647). A
+        # sensitive name can only reach these two maps from http.credential_headers,
+        # because configuration validation refuses one in http.headers.
+        credentials = any(
+            name in SENSITIVE_HEADER_NAMES and value
+            for name, value in header_pairs(sent_headers)
+            + header_pairs(getattr(client, "headers", None) or {})
+        )
+        # Redaction still reads the wire headers: a session cookie's value is not the
+        # operator's credential, but it is still not something to leave in an error.
         for name, value in request_pairs:
             if name in SENSITIVE_HEADER_NAMES and value:
                 record.error = record.error.replace(value, "REDACTED")
