@@ -4,6 +4,18 @@ All notable public changes are documented here.
 
 ## Unreleased
 
+- Stop reporting a requirement-gated check as clean when it was never evaluated (#635).
+  `H2_MISSING` only fires when a configuration sets `requirements.require_h2`, and the default
+  is false, so on an ordinary run its branch is unreachable. It left no trace of that: coverage
+  counted it among the silent checks -- the bucket that means "ran over every page and found
+  nothing" -- and a reader was told the site passed a check nobody ran. On the audit that
+  surfaced this, 61% of the site's pages had no H2 at all and 5 066 of those were longer than
+  800 words, so the check would have fired thousands of times. It is now declared skipped by
+  name, with a reason naming the setting that turned it off, so the answer is "not evaluated,
+  and here is how to evaluate it" rather than silence. `require_canonical` is the same shape
+  and gets the same treatment; its default is true, so it was not producing a wrong reading
+  yet, and now cannot start.
+
 - Add `crawl-site --resume <scan.sqlite>` (#619). `NativeScan.resume_snapshot()`, the
   `resume_state` table and the writer that fills it had existed since the scan artifact was
   designed, and `crawl_to_scan` already continued an existing file -- but only for a caller
