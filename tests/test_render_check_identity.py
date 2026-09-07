@@ -14,6 +14,7 @@ from __future__ import annotations
 import sys
 import types
 
+import httpx
 import pytest
 
 from seohead.recon.net import UA
@@ -44,9 +45,10 @@ class _FakePage:
     def __init__(self, html):
         self.html = html
         self.url = "https://example.com/"
+        self.routes = []
 
-    def route(self, _pattern, _handler):
-        pass
+    def route(self, pattern, handler):
+        self.routes.append((pattern, handler))
 
     def goto(self, _url, wait_until=None, timeout=None):
         pass
@@ -64,6 +66,8 @@ class _FakeContext:
     def __init__(self, page):
         self.page = page
         self.options: dict[str, object] = {}
+        self.routes = []
+        self.new_page_route_snapshots = []
 
     def add_init_script(self, _script):
         pass
@@ -71,8 +75,15 @@ class _FakeContext:
     def route_web_socket(self, _pattern, _handler):
         pass
 
+    def route(self, pattern, handler):
+        self.routes.append((pattern, handler))
+
     def new_page(self):
+        self.new_page_route_snapshots.append(list(self.routes))
         return self.page
+
+    def close(self):
+        pass
 
 
 class _FakeBrowser:
@@ -90,8 +101,10 @@ class _FakeBrowser:
 class _FakeChromium:
     def __init__(self, browser):
         self._browser = browser
+        self.launch_calls = []
 
-    def launch(self):
+    def launch(self, **options):
+        self.launch_calls.append(options)
         return self._browser
 
 
@@ -137,7 +150,7 @@ def fake_stack(monkeypatch):
     monkeypatch.setattr(
         render_module,
         "http_client",
-        lambda _timeout: (_FakeHttpClient(_FakeResponse(raw_html)), True),
+        lambda _timeout, **_kwargs: (_FakeHttpClient(_FakeResponse(raw_html)), True),
     )
     monkeypatch.setattr(render_module, "validate_url", lambda url: url)
     monkeypatch.setattr(render_module, "_refuse_if_root", lambda: None)
@@ -154,3 +167,157 @@ def test_the_shared_identity_is_recorded_in_the_result(fake_stack):
     result = render_check("https://example.com/")
     assert result["ok"] is True
     assert result["user_agent"] == UA
+
+
+def test_each_render_entry_registers_the_pinned_route_before_new_page(fake_stack):
+    checked = render_check("https://example.com/")
+    rendered = render_module.rendered_html("https://example.com/")
+
+    assert checked["ok"] is True
+    assert rendered["ok"] is True
+    assert all(
+        snapshot[-1][0] == "**/*" for snapshot in fake_stack["context"].new_page_route_snapshots
+    )
+    assert [pattern for pattern, _handler in fake_stack["context"].routes] == ["**/*", "**/*"]
+    assert fake_stack["page"].routes == []
+
+
+def test_render_check_and_rendered_html_require_the_chromium_sandbox(fake_stack):
+    render_check("https://example.com/")
+    render_module.rendered_html("https://example.com/")
+
+    assert fake_stack["chromium"].launch_calls == [
+        {"chromium_sandbox": True},
+        {"chromium_sandbox": True},
+    ]
+
+
+def test_rendered_html_reports_a_sandbox_launch_failure(fake_stack, monkeypatch):
+    attempts = []
+
+    def fail_to_launch(**options):
+        attempts.append(options)
+        assert options == {"chromium_sandbox": True}
+        raise RuntimeError("sandbox launch unavailable")
+
+    monkeypatch.setattr(fake_stack["chromium"], "launch", fail_to_launch)
+
+    result = render_module.rendered_html("https://example.com/")
+
+    assert result["ok"] is False
+    assert "sandbox launch unavailable" in result["error"]
+    assert attempts == [{"chromium_sandbox": True}]
+
+
+class _PinnedRequest:
+    url = "https://example.com/"
+    method = "GET"
+
+    def all_headers(self):
+        return {"accept": "text/html", "host": "example.com"}
+
+
+class _PinnedRoute:
+    request = _PinnedRequest()
+
+    def __init__(self):
+        self.fulfilled = []
+        self.aborted = []
+
+    def fulfill(self, **kwargs):
+        self.fulfilled.append(kwargs)
+
+    def abort(self, reason):
+        self.aborted.append(reason)
+
+
+class _PinnedStream(httpx.SyncByteStream):
+    def __init__(self, body):
+        self.body = body
+
+    def __iter__(self):
+        yield self.body
+
+    def close(self):
+        pass
+
+
+def _deliver_route_during_navigation(monkeypatch, fake_stack, route):
+    original_goto = fake_stack["page"].goto
+
+    def goto(url, **kwargs):
+        original_goto(url, **kwargs)
+        fake_stack["context"].routes[-1][1](route)
+
+    monkeypatch.setattr(fake_stack["page"], "goto", goto)
+
+
+def test_rendered_html_fulfils_its_registered_pinned_route(monkeypatch, fake_stack):
+    expected_html = "<html><body>pinned response</body></html>"
+
+    client = httpx.Client(
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(200, stream=_PinnedStream(expected_html.encode()))
+        )
+    )
+    monkeypatch.setattr(render_module, "http_client", lambda *_args, **_kwargs: (client, False))
+    fake_stack["page"].html = expected_html
+    route = _PinnedRoute()
+    gate_calls = []
+    _deliver_route_during_navigation(monkeypatch, fake_stack, route)
+
+    result = render_module.rendered_html(
+        "https://example.com/", request_gate=lambda: gate_calls.append("called")
+    )
+
+    assert result == {
+        "ok": True,
+        "url": "https://example.com/",
+        "html": expected_html,
+    }
+    assert route.fulfilled[0]["body"] == expected_html.encode()
+    assert route.aborted == []
+    assert gate_calls == ["called"]
+    assert client.is_closed
+
+
+def test_render_check_gates_each_raw_redirect_and_pinned_browser_request(monkeypatch, fake_stack):
+    clients = []
+    raw_requests = []
+
+    def raw_transport(request):
+        raw_requests.append(str(request.url))
+        if len(raw_requests) == 1:
+            return httpx.Response(302, headers={"location": "/redirected"}, request=request)
+        return httpx.Response(200, text=fake_stack["page"].html, request=request)
+
+    def http_client(_timeout, **kwargs):
+        if "event_hooks" in kwargs:
+            client = httpx.Client(
+                transport=httpx.MockTransport(raw_transport),
+                follow_redirects=True,
+                event_hooks=kwargs["event_hooks"],
+            )
+        else:
+            client = httpx.Client(
+                transport=httpx.MockTransport(
+                    lambda _request: httpx.Response(
+                        200, stream=_PinnedStream(b"<html><body>pinned response</body></html>")
+                    )
+                )
+            )
+        clients.append(client)
+        return client, False
+
+    monkeypatch.setattr(render_module, "http_client", http_client)
+    route = _PinnedRoute()
+    gate_calls = []
+    _deliver_route_during_navigation(monkeypatch, fake_stack, route)
+
+    result = render_check("https://example.com/", request_gate=lambda: gate_calls.append("called"))
+
+    assert result["ok"] is True
+    assert len(raw_requests) == 2
+    assert len(gate_calls) == 3
+    assert route.fulfilled[0]["body"] == b"<html><body>pinned response</body></html>"
+    assert all(client.is_closed for client in clients)

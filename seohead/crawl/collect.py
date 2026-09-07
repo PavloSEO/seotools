@@ -31,7 +31,7 @@ from seohead.crawl.settings import (
     checked_url_budget,
     resolve_credential_headers,
 )
-from seohead.crawl.throttle import MAX_DELAY_S, Throttle
+from seohead.crawl.throttle import MAX_DELAY_S, DispatchGate, Throttle
 from seohead.recon.net import UA, BlockedRedirectError, http_client, pinned_target, validate_url
 from seohead.tools.parser import parse_html, uses_ajax_crawling_scheme
 from seohead.tools.robots import is_allowed, match_path, parse_robots
@@ -824,6 +824,7 @@ def _robots_blocks(
     fetcher: Callable[[str], Any] | None,
     user_agent: str,
     robots_token: str,
+    wait: Callable[[], None] | None = None,
 ) -> bool:
     """True when the URL's host disallows it for ``robots_token``.
 
@@ -841,6 +842,8 @@ def _robots_blocks(
         robots_url = f"{parts.scheme}://{parts.netloc}/robots.txt"
         text = ""
         try:
+            if wait is not None:
+                wait()
             response = (
                 fetcher(robots_url)
                 if fetcher
@@ -867,7 +870,7 @@ def _resolve_redirect_destination(
     retry_on_timeout: int,
     parse_options: dict[str, Any] | None,
     cache: ResponseCache | None,
-    sleeper: Callable[[float], None],
+    wait: Callable[[], None],
     capture_observer: Callable[[Any], None] | None = None,
     capture_max_bytes: int | None = None,
     headers_for_url: Callable[[str], dict[str, str] | None] | None = None,
@@ -898,7 +901,7 @@ def _resolve_redirect_destination(
             retry_on_timeout=retry_on_timeout,
             parse_options=parse_options,
             cache=cache,
-            wait=(lambda: sleeper(throttle.delay)) if throttle.delay else None,
+            wait=wait,
             **(
                 {"capture_observer": capture_observer, "capture_max_bytes": capture_max_bytes}
                 if capture_observer is not None
@@ -1026,10 +1029,21 @@ def collect_urls(
     limit = checked_url_budget(max_urls)
     result = CrawlResult()
     throttle = Throttle(min_delay=min_delay, max_delay=max_delay_seconds, adaptive=adaptive)
+    dispatch_gate = DispatchGate(throttle, sleeper, clock)
     started = clock()
 
     seen: set[str] = set()
     robots_cache: dict[tuple[str, str], Any] = {}
+
+    def headers_for_url(target: str) -> dict[str, str] | None:
+        headers = dict(extra_request_headers or {})
+        if credential_headers:
+            headers.update(
+                resolve_credential_headers(credential_headers, urlsplit(target).hostname or "")
+                or {}
+            )
+        return headers or None
+
     with contextlib.ExitStack() as stack:
         handle = None
         if out_path:
@@ -1074,17 +1088,14 @@ def collect_urls(
                 fetcher=fetcher,
                 user_agent=user_agent,
                 robots_token=robots_token,
+                wait=dispatch_gate.wait_turn,
             ):
                 result.robots_blocked.append(url)
                 if robots_policy == "respect":
                     continue  # report_only still fetches it below
 
-            host = (urlsplit(url).hostname or "").lower()
             # http.headers goes on every request; a credential is bound to one host.
-            extra_headers = dict(extra_request_headers or {})
-            if credential_headers:
-                extra_headers.update(resolve_credential_headers(credential_headers, host) or {})
-            extra_headers = extra_headers or None
+            extra_headers = headers_for_url(url)
             record, _ = fetch_one(
                 url,
                 client=client,
@@ -1096,7 +1107,7 @@ def collect_urls(
                 retry_on_timeout=retry_on_timeout,
                 parse_options=parse_options,
                 cache=cache,
-                wait=(lambda: sleeper(throttle.delay)) if throttle.delay else None,
+                wait=dispatch_gate.wait_turn,
             )
             if resolve_redirect_destination and record.redirect_url:
                 _resolve_redirect_destination(
@@ -1110,7 +1121,8 @@ def collect_urls(
                     retry_on_timeout=retry_on_timeout,
                     parse_options=parse_options,
                     cache=cache,
-                    sleeper=sleeper,
+                    wait=dispatch_gate.wait_turn,
+                    headers_for_url=headers_for_url,
                 )
             if resolve_canonical_destination and record.canonical:
                 _resolve_canonical_destination(

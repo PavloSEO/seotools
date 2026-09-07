@@ -85,8 +85,8 @@ def _record(row: sqlite3.Row) -> PageRecord:
     # crawl time; reanalysis only reparses the retained body, so it cannot repeat
     # those requests. The chain is retained transport evidence, not a live result.
     stored_canonical_chain = row["canonical_chain_json"]
-    values["canonical_chain"] = [] if stored_canonical_chain is None else json.loads(
-        stored_canonical_chain
+    values["canonical_chain"] = (
+        [] if stored_canonical_chain is None else json.loads(stored_canonical_chain)
     )
     values["representation"] = "static"
     return PageRecord(**values)
