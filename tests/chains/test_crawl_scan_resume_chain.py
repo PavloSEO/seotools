@@ -164,5 +164,5 @@ def test_a_resume_of_a_scan_from_another_site_is_refused_by_name(site, tmp_path)
             url="https://elsewhere.example/", resume=str(scan), producer_build=BUILD
         )
 
-    assert f"{site}/" in str(raised.value)
-    assert "https://elsewhere.example/" in str(raised.value)
+    named = set(str(raised.value).translate(str.maketrans(",;", "  ")).split())
+    assert {f"{site}/", "https://elsewhere.example/"} <= named

@@ -113,7 +113,10 @@ def test_resume_refuses_a_scan_crawled_from_a_different_start_url(tmp_path, monk
 
     message = str(raised.value)
     assert "refusing to resume one crawl as another" in message
-    assert START in message and "https://other.test/" in message
+    # Both URLs must be named, and named whole: the refusal is only useful if the
+    # operator can read which crawl the artifact holds and which one they asked for.
+    named = set(message.translate(str.maketrans(",;", "  ")).split())
+    assert {START, "https://other.test/"} <= named
 
 
 def test_resume_refuses_a_scan_that_already_finished(tmp_path, monkeypatch):
