@@ -273,6 +273,10 @@ class RobotsGroup(TypedDict):
     allow: list[str]
     disallow: list[str]
     crawl_delay: float | None
+    # Request-rate: requests/seconds, retained as its equivalent minimum
+    # interval so consumers do not need to repeat the division or guess which
+    # spelling was valid. ``None`` means absent or malformed.
+    request_rate_delay: float | None
 
 
 class ParsedRobots(TypedDict):

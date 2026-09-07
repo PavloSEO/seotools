@@ -16,6 +16,7 @@ import statistics
 import time
 import urllib.parse
 from collections import Counter
+from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
 
@@ -86,7 +87,14 @@ def _safe_gunzip(data: bytes) -> bytes:
     return bytes(out)
 
 
-def _fetch(url: str, user_agent: str, timeout: int, retries: int = 2) -> bytes | None:
+def _fetch(
+    url: str,
+    user_agent: str,
+    timeout: int,
+    retries: int = 2,
+    *,
+    request_gate: Callable[[], None] | None = None,
+) -> bytes | None:
     if not url.lower().startswith(("http://", "https://")):  # no file://, ftp://, etc.
         return None
     try:
@@ -96,9 +104,12 @@ def _fetch(url: str, user_agent: str, timeout: int, retries: int = 2) -> bytes |
     # Retry transient failures so a flaky host doesn't silently drop sitemap subtrees.
     for attempt in range(retries + 1):
         try:
-            client, _http2_capable = http_client(
-                timeout, follow_redirects=True, headers={"User-Agent": user_agent}
-            )
+            options = {"follow_redirects": True, "headers": {"User-Agent": user_agent}}
+            if request_gate is not None:
+                # The hook runs for every automatic redirect; each retry owns
+                # a fresh client and therefore reserves a fresh request turn.
+                options["event_hooks"] = {"request": [lambda _request: request_gate()]}
+            client, _http2_capable = http_client(timeout, **options)
             data = bytearray()
             with client, client.stream("GET", url) as response:
                 response.raise_for_status()
@@ -129,6 +140,7 @@ def _parse_sitemap_bytes(
     documents: list[dict[str, Any]] | None = None,
     source: str = "",
     truncated: list[str] | None = None,
+    request_gate: Callable[[], None] | None = None,
 ) -> list[dict[str, Any]]:
     """Return [{loc, lastmod}], recursing through <sitemapindex> with guards.
 
@@ -188,7 +200,8 @@ def _parse_sitemap_bytes(
             if loc in seen or (allowed_hosts and _host(loc) not in allowed_hosts):
                 continue
             seen.add(loc)
-            child = _fetch(loc, user_agent, timeout)
+            fetch_kwargs = {"request_gate": request_gate} if request_gate is not None else {}
+            child = _fetch(loc, user_agent, timeout, **fetch_kwargs)
             if child:
                 out.extend(
                     _parse_sitemap_bytes(
@@ -202,6 +215,7 @@ def _parse_sitemap_bytes(
                         documents,
                         loc,
                         truncated,
+                        request_gate,
                     )
                 )
             elif failures is not None:
@@ -406,6 +420,8 @@ def run_sitemap(
     compare_with_crawl: bool = True,
     sitemap_urls: list[str] | None = None,
     crawl_partial: bool = False,
+    *,
+    request_gate: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     """``sitemap_urls``, when given, is every discovered sitemap root the caller wants
     audited (#311) -- auto-discovery can find more than one independent ``Sitemap:``
@@ -474,7 +490,8 @@ def run_sitemap(
     network_attempted = bool(want_network and base)
 
     if network_attempted:
-        robots = _fetch(f"{base}/robots.txt", ua, timeout)
+        fetch_kwargs = {"request_gate": request_gate} if request_gate is not None else {}
+        robots = _fetch(f"{base}/robots.txt", ua, timeout, **fetch_kwargs)
         if robots is not None:
             robots_text = robots.decode("utf-8", "replace")
             sitemaps_declared = SITEMAP_DIRECTIVE.findall(robots_text)
@@ -510,7 +527,7 @@ def run_sitemap(
         allowed_hosts.discard("")
         seen = set(targets)
         for sm_url in targets:
-            data = _fetch(sm_url, ua, timeout)
+            data = _fetch(sm_url, ua, timeout, **fetch_kwargs)
             if data:
                 sitemap_entries.extend(
                     _parse_sitemap_bytes(
@@ -523,6 +540,7 @@ def run_sitemap(
                         documents=sitemap_documents,
                         source=sm_url,
                         truncated=depth_truncated,
+                        request_gate=request_gate,
                     )
                 )
             else:

@@ -6,7 +6,11 @@ behavior to the core + a handler here, then surface it in each face.
 
 from __future__ import annotations
 
+import sys
+import time
+from collections.abc import Callable
 from typing import Any
+from urllib.parse import urlsplit
 
 from seohead import runlog
 from seohead.models import ParseManyResult, RobotsCheckResult
@@ -40,6 +44,23 @@ def handler_failed(result: Any) -> bool:
     contract in ``docs/USAGE.md``.
     """
     return isinstance(result, dict) and result.get("ok") is False
+
+
+def _warn_ignored_robots(settings: dict[str, Any], url: str | None, urls: list[str] | None) -> None:
+    """Make an explicit robots bypass visible at each CLI or MCP run boundary."""
+    from seohead.recon.net import normalize_url
+
+    if settings["robots"]["policy"] != "ignore":
+        return
+    targets = [url] if url else (urls or [])
+    hosts = sorted(
+        {(urlsplit(normalize_url(target)).hostname or "").lower() for target in targets if target}
+    )
+    for host in hosts:
+        if host:
+            print(
+                f"warning: robots.txt bypass enabled for {host} (policy: ignore)", file=sys.stderr
+            )
 
 
 # SEO core is extracted BY DEFAULT (the caller can turn any field off with False).
@@ -93,7 +114,15 @@ def sitemap_crawl(url: str | None = None, concurrency: int = 3) -> dict[str, Any
     return sitemap.crawl(url, concurrency)
 
 
-def _seed_urls_from_sitemap(url: str, sitemap: str | None, auto_discover: bool) -> dict[str, Any]:
+def _seed_urls_from_sitemap(
+    url: str,
+    sitemap: str | None,
+    auto_discover: bool,
+    *,
+    request_gate: Callable[[], None] | None = None,
+    robots_token: str = "*",
+    throttle=None,
+) -> dict[str, Any]:
     """Resolve and expand the sitemap(s) that should seed a crawl, if any.
 
     Returns ``{"sitemap_url": <first source, or None>, "sitemap_urls": [...],
@@ -111,7 +140,18 @@ def _seed_urls_from_sitemap(url: str, sitemap: str | None, auto_discover: bool) 
     elif auto_discover:
         from seohead.tools.robots import check_robots
 
-        targets = list(check_robots(url).get("sitemaps") or [])
+        options = {"request_gate": request_gate} if request_gate is not None else {}
+        checked = check_robots(url, **options)
+        targets = list(checked.get("sitemaps") or [])
+        if throttle is not None and checked.get("ok") and isinstance(checked.get("groups"), list):
+            from seohead.tools.robots import politeness_delay
+
+            asked = politeness_delay(
+                {"groups": checked["groups"], "sitemaps": targets}, robots_token
+            )
+            if asked is not None and asked > throttle.min_delay:
+                throttle.min_delay = asked
+                throttle.delay = max(throttle.delay, asked)
     else:
         targets = []
     if not targets:
@@ -119,7 +159,8 @@ def _seed_urls_from_sitemap(url: str, sitemap: str | None, auto_discover: bool) 
     declared: list[str] = []
     seen: set[str] = set()
     for target in targets:
-        expanded = sitemap_tool.crawl(target)
+        options = {"request_gate": request_gate} if request_gate is not None else {}
+        expanded = sitemap_tool.crawl(target, **options)
         for entry in expanded.get("urls") or []:
             loc = entry.get("loc")
             if loc and loc not in seen:
@@ -129,7 +170,11 @@ def _seed_urls_from_sitemap(url: str, sitemap: str | None, auto_discover: bool) 
 
 
 def _run_render_escalation(
-    result: Any, rendering_config: dict[str, Any], settings: dict[str, Any]
+    result: Any,
+    rendering_config: dict[str, Any],
+    settings: dict[str, Any],
+    *,
+    request_gate: Callable[[], None] | None = None,
 ) -> Any:
     """Bind the escalation orchestrator to a real probe and re-fetch.
 
@@ -159,6 +204,7 @@ def _run_render_escalation(
     )
 
     if mode == "js":
+        gate_kwargs = {"request_gate": request_gate} if request_gate is not None else {}
 
         def probe(target: str) -> dict[str, Any]:
             probed = render_tool.render_check(
@@ -166,6 +212,7 @@ def _run_render_escalation(
                 timeout=timeout,
                 wait=browser_cfg["wait_until"],
                 viewport=browser_cfg["viewport"],
+                **gate_kwargs,
             )
             probed["needs_escalation"] = bool(probed.get("js_dependent"))
             return probed
@@ -181,6 +228,7 @@ def _run_render_escalation(
                 rendering_config,
                 artifacts_dir=artifacts_dir,
                 user_agent=settings["http"]["user_agent"],
+                **gate_kwargs,
             )
 
         label = "rendered"
@@ -191,7 +239,10 @@ def _run_render_escalation(
                 validate_url(target)
             except ValueError:
                 return ""
-            client, _ = http_client(timeout)
+            options = {}
+            if request_gate is not None:
+                options["event_hooks"] = {"request": [lambda _request: request_gate()]}
+            client, _ = http_client(timeout, **options)
             try:
                 return client.get(target).text
             except Exception:
@@ -458,6 +509,7 @@ def crawl_site(
         if value is not None:
             resolved_overrides[path] = value
     settings = crawl_config.load(config, overrides=resolved_overrides)
+    _warn_ignored_robots(settings, url, urls)
     if settings.get("resources", {}).get("fetch") and not scan_out:
         raise ValueError("resources.fetch requires a SQLite scan_out artifact")
     if scan_out:
@@ -476,6 +528,17 @@ def crawl_site(
             sitemap=sitemap,
             producer_build=producer_build,
         )
+    dispatch_gate = None
+    if url:
+        from seohead.crawl.throttle import DispatchGate, Throttle
+
+        throttle = Throttle(
+            min_delay=settings["speed"]["min_delay_seconds"],
+            max_delay=settings["speed"]["max_delay_seconds"],
+            max_concurrency=settings["speed"]["concurrency"],
+            adaptive=settings["speed"]["adaptive"],
+        )
+        dispatch_gate = DispatchGate(throttle, time.sleep)
     out_dir = settings["output"]["dir"] or None
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
@@ -524,7 +587,14 @@ def crawl_site(
 
     sitemap_seed = {"sitemap_url": None, "sitemap_urls": [], "declared": []}
     if url and (sitemap or settings["sitemaps"]["auto_discover"]):
-        sitemap_seed = _seed_urls_from_sitemap(url, sitemap, settings["sitemaps"]["auto_discover"])
+        sitemap_seed = _seed_urls_from_sitemap(
+            url,
+            sitemap,
+            settings["sitemaps"]["auto_discover"],
+            request_gate=dispatch_gate.wait_turn,
+            robots_token=settings["robots"]["user_agent_token"],
+            throttle=throttle,
+        )
 
     if url:
         result = _spider(
@@ -566,6 +636,7 @@ def crawl_site(
             store_external_links=settings["discovery"]["external"]["store"],
             crawl_redirects=settings["discovery"]["redirects"]["crawl"],
             capture_link_attributes=settings["link_attributes"]["capture"],
+            dispatch_gate=dispatch_gate,
         )
         # Nothing left to resume into, so the private sidecar (used only when the
         # human-readable export was off) would otherwise linger as a hidden, ever
@@ -638,6 +709,7 @@ def crawl_site(
         discovery=discovery,
         out_dir=out_dir,
         pages_resume_path=pages_resume_path,
+        dispatch_gate=dispatch_gate,
     )
     return response
 
@@ -655,6 +727,7 @@ def _audit_crawl_result(
     stored_sitemap=None,
     offline: bool = False,
     captured_render_summary: dict[str, Any] | None = None,
+    dispatch_gate=None,
 ):
     """Run the existing native analysis over a complete, admitted population."""
     import json
@@ -701,7 +774,12 @@ def _audit_crawl_result(
             )
         elif rendering_config["mode"] != "raw" and result.pages:
             if stored_scan is None:
-                escalation = _run_render_escalation(result, rendering_config, settings)
+                escalation = _run_render_escalation(
+                    result,
+                    rendering_config,
+                    settings,
+                    request_gate=dispatch_gate.wait_turn if dispatch_gate is not None else None,
+                )
                 render_escalation.apply_rendered_evidence(result.pages, result.links, escalation)
                 # The spider already streamed pages_resume_path during the crawl, before
                 # this escalation existed to mutate result.pages -- so whichever pages
@@ -717,11 +795,22 @@ def _audit_crawl_result(
                 # admitting it to this transient audit view.  It deliberately
                 # leaves HTML out of ``EscalationResult`` so a large scan never
                 # accumulates every serialized DOM in memory.
-                escalation = run_render_escalation(stored_scan, result, settings)
+                escalation = run_render_escalation(
+                    stored_scan,
+                    result,
+                    settings,
+                    request_gate=dispatch_gate.wait_turn if dispatch_gate is not None else None,
+                )
                 if not offline:
                     from seohead.crawl.sqlite_resources import capture_resources
 
-                    capture_resources(stored_scan, settings)
+                    resource_kwargs = {}
+                    if dispatch_gate is not None:
+                        resource_kwargs = {
+                            "throttle": dispatch_gate.throttle,
+                            "dispatch_gate": dispatch_gate,
+                        }
+                    capture_resources(stored_scan, settings, **resource_kwargs)
                 coverage = stored_scan.con.execute(
                     "SELECT crawl_partial,limitations_json FROM scan"
                 ).fetchone()
@@ -853,12 +942,16 @@ def _audit_crawl_result(
             ctx.skip(check, reason)
         measured: dict[str, Any] = {}
     else:
+        sitemap_kwargs = {}
+        if dispatch_gate is not None:
+            sitemap_kwargs["request_gate"] = dispatch_gate.wait_turn
         measured = run_sitemap(
             ctx,
             sitemap_url=sitemap_seed["sitemap_url"],
             sitemap_urls=sitemap_seed["sitemap_urls"],
             compare_with_crawl=stored_scan is None and not sitemap_seed["declared"],
             crawl_partial=bool(getattr(result, "partial", False)),
+            **sitemap_kwargs,
         )
     # Only surfaced when something was actually measured. run_sitemap always
     # returns its keys, and a run with no sitemap at all would otherwise report

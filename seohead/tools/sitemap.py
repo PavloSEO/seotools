@@ -418,6 +418,7 @@ def crawl(
     concurrency: int = 3,
     *,
     sink: Callable[[dict], None] | None = None,
+    request_gate: Callable[[], None] | None = None,
 ) -> dict:
     """Recursively crawl a sitemap tree starting at *url*.
 
@@ -488,12 +489,17 @@ def crawl(
         return {"kind": "parsed", "url": target, "parsed": parsed, "bytes": len(body)}
 
     limits = httpx.Limits(max_connections=concurrency)
-    client, _http2_capable = http_client(
-        TIMEOUT_S,
-        follow_redirects=True,
-        max_redirects=MAX_REDIRECTS,
-        limits=limits,
-    )
+    options = {
+        "follow_redirects": True,
+        "max_redirects": MAX_REDIRECTS,
+        "limits": limits,
+    }
+    if request_gate is not None:
+        # httpx invokes request hooks for every hop it follows itself.  Calling
+        # the gate here rather than in _fetch means redirects reserve the same
+        # turn as the selected root and nested sitemap documents.
+        options["event_hooks"] = {"request": [lambda _request: request_gate()]}
+    client, _http2_capable = http_client(TIMEOUT_S, **options)
     with (
         client,
         closing(_StreamingDeduper(sink)) if sink is not None else nullcontext() as streaming,

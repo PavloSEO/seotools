@@ -554,8 +554,8 @@ DESCRIPTIONS: dict[str, str] = {
         "'domcontentloaded', or 'networkidle'."
     ),
     "rendering.browser.persistent_profile": (
-        "Attach a persistent browser profile instead of an anonymous one. Off by default: "
-        "a real profile crawls the site as whoever's cookies it carries."
+        "Unavailable with the pinned renderer: requested persistent profiles return an "
+        "explicit unavailable result and are not opened. Off by default."
     ),
     "rendering.browser.persistent_profile_dir": (
         "Directory for the persistent profile; required when persistent_profile is true, "

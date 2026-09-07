@@ -13,6 +13,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import time
+from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlsplit
@@ -202,6 +203,7 @@ def _legacy_fetch(
     settings: dict[str, Any],
     scan: Any,
     max_parse_bytes: int,
+    request_gate: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     """Fetch an opted-in escaped fragment and retain its actual response."""
     from seohead.crawl.capture import now_utc
@@ -232,6 +234,7 @@ def _legacy_fetch(
             user_agent=settings["http"]["user_agent"],
             max_response_bytes=settings["limits"]["max_response_bytes"],
             retry_on_timeout=settings["http"]["retry_on_timeout"],
+            wait=request_gate,
             capture_observer=captures.append,
             capture_max_bytes=max_parse_bytes,
         )
@@ -262,7 +265,13 @@ def _legacy_fetch(
     }
 
 
-def run_render_escalation(scan: Any, result: Any, settings: dict[str, Any]) -> Any:
+def run_render_escalation(
+    scan: Any,
+    result: Any,
+    settings: dict[str, Any],
+    *,
+    request_gate: Callable[[], None] | None = None,
+) -> Any:
     """Run selective rendering and store each attempted representation promptly.
 
     The return value remains ``EscalationResult`` so existing audit summaries
@@ -300,6 +309,7 @@ def run_render_escalation(scan: Any, result: Any, settings: dict[str, Any]) -> A
     # never exceed the atomic writer's 64 MiB input ceiling.
     max_parse_bytes = min(settings["limits"]["max_response_bytes"], 8 * MAX_RECORD_BYTES)
     max_retained_bytes = settings["storage"]["max_body_bytes"]
+    gate_kwargs = {"request_gate": request_gate} if request_gate is not None else {}
 
     if mode == "js":
 
@@ -330,6 +340,7 @@ def run_render_escalation(scan: Any, result: Any, settings: dict[str, Any]) -> A
                 user_agent=settings["http"]["user_agent"],
                 max_html_bytes=max_parse_bytes,
                 policy_facts=_policy_facts(settings),
+                **gate_kwargs,
             )
             renderer = fetched.get("renderer")
             if not isinstance(renderer, dict):
@@ -379,6 +390,7 @@ def run_render_escalation(scan: Any, result: Any, settings: dict[str, Any]) -> A
                 user_agent=settings["http"]["user_agent"],
                 max_html_bytes=max_parse_bytes,
                 policy_facts=_policy_facts(settings),
+                **gate_kwargs,
             )
 
         representation = "rendered"
@@ -402,7 +414,8 @@ def run_render_escalation(scan: Any, result: Any, settings: dict[str, Any]) -> A
                 html = _static_html(scan, target, max_retained_bytes)
             except Exception:
                 return {"ok": False, "url": target, "error": "raw document unavailable"}
-            return _legacy_fetch(target, html, settings, scan, max_parse_bytes)
+            legacy_kwargs = {"request_gate": request_gate} if request_gate is not None else {}
+            return _legacy_fetch(target, html, settings, scan, max_parse_bytes, **legacy_kwargs)
 
         representation = "legacy_fragment"
 

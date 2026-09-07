@@ -267,8 +267,8 @@ def test_real_handler_adapter_native_audit_and_all_report_formats(
     def no_client(*_args, **_kwargs):
         yield None
 
-    def robots_with_injected_transport(start, _fetcher, _client):
-        return real_fetch_robots(start, collector_transport, None)
+    def robots_with_injected_transport(start, _fetcher, _client, *, wait=None):
+        return real_fetch_robots(start, collector_transport, None, wait=wait)
 
     def sitemap_response(request):
         if str(request.url).endswith("robots.txt"):
