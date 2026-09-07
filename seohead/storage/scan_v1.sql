@@ -133,6 +133,10 @@ CREATE TABLE pages (
   directives_outside_head INTEGER CHECK (directives_outside_head IN (0,1)),
   hreflang_outside_head INTEGER CHECK (hreflang_outside_head IN (0,1)),
   hreflang_json TEXT,
+  -- The page's h1-h6 outline in DOM order: level, text and page region per
+  -- heading. Nullable, because a scan written before headings were recorded
+  -- in order has no outline to state, which is not an empty outline.
+  heading_outline_json TEXT,
   -- List mode's bounded canonical walk: the chain it inspected and the target it
   -- settled on. Nullable, because a run that never walked canonicals recorded neither.
   canonical_chain_json TEXT,

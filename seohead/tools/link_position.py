@@ -36,6 +36,11 @@ from bs4 import Tag
 # same-named site-specific rule matching the wrong element.
 POSITIONS: tuple[str, ...] = ("nav", "header", "sidebar", "footer", "content", "other")
 
+# The subset of POSITIONS that is site furniture rather than the document's own
+# body: a link -- or a heading (#632) -- here belongs to a template repeated on
+# every page, not to this page's subject.
+CHROME_POSITIONS: frozenset[str] = frozenset({"nav", "header", "sidebar", "footer"})
+
 
 @dataclass(frozen=True)
 class PositionRule:
@@ -72,6 +77,34 @@ def rules_from_config(rules: Any) -> tuple[PositionRule, ...]:
     return tuple(PositionRule(str(r["position"]), str(r["selector"])) for r in rules)
 
 
+def matched_position(tag: Tag, *, rules: tuple[PositionRule, ...] | None = None) -> str:
+    """The position of the first rule matching ``tag``'s own ancestor path, or ``""``.
+
+    Split out of :func:`classify_link` because a rule match is the only half of
+    classification that is *positive evidence*: everything below is resolved by
+    elimination against the content root, and is therefore only as meaningful
+    as that root is. A caller that must not report an eliminated answer as a
+    measurement -- heading regions, where the whole-``<body>`` fallback would
+    make "content" mean nothing more than "somewhere on the page" (#632) --
+    needs the two halves apart.
+    """
+    for rule in rules or DEFAULT_RULES:
+        try:
+            if soupsieve.closest(rule.selector, tag) is not None:
+                return rule.position
+        except Exception:
+            continue  # an invalid site-specific selector must not break the crawl
+    return ""
+
+
+def content_or_other(tag: Tag, content_root: Tag) -> str:
+    """``"content"`` when ``tag`` descends from ``content_root``, else ``"other"``."""
+    for ancestor in (tag, *tag.parents):
+        if ancestor is content_root:
+            return "content"
+    return "other"
+
+
 def classify_link(
     link_tag: Tag,
     content_root: Tag | None,
@@ -97,15 +130,9 @@ def classify_link(
     is neither content nor recognized boilerplate); with the default
     whole-``<body>`` content root every link is "content" by elimination.
     """
-    for rule in rules or DEFAULT_RULES:
-        try:
-            if soupsieve.closest(rule.selector, link_tag) is not None:
-                return rule.position
-        except Exception:
-            continue  # an invalid site-specific selector must not break the crawl
+    position = matched_position(link_tag, rules=rules)
+    if position:
+        return position
     if content_root is not None:
-        for ancestor in (link_tag, *link_tag.parents):
-            if ancestor is content_root:
-                return "content"
-        return "other"
+        return content_or_other(link_tag, content_root)
     return "content"
