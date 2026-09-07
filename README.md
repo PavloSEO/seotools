@@ -6,11 +6,7 @@
 
 **The local evidence and audit-automation layer for SEO specialists and tool-calling AI agents.**
 
-<<<<<<< HEAD
 69 callable tools · 155 checks · 29 workflow skills · 56 scenarios · 2 400+ offline tests · CLI · local MCP · Docker
-=======
-69 callable tools · 155 checks · 29 workflow skills · 56 scenarios · 2 400+ offline tests · CLI · local MCP · Docker
->>>>>>> origin/main
 
 [Website](https://seohead.tech) · [Documentation](docs/README.md)
 
