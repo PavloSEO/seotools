@@ -715,5 +715,5 @@ def rendered_body_retention(con: sqlite3.Connection) -> dict[str, Any]:
         "WHERE representation='rendered' GROUP BY 1,2 ORDER BY 1,2"
     ).fetchall()
     total = sum(count for _state, _reason, count in rows)
-    omitted = {reason: count for state, reason, count in rows if state == "omitted"}
+    omitted = {reason: count for state, reason, count in rows if state != "complete"}
     return {"total": total, "retained": total - sum(omitted.values()), "omitted": omitted}

@@ -13,6 +13,7 @@ import types
 import pytest
 
 from seohead.crawl import settings as crawl_config
+from seohead.crawl import sqlite_render
 from seohead.tools.render import render_document
 
 
@@ -169,6 +170,30 @@ def _rendering_config(**browser_overrides):
     resolved = crawl_config.load(overrides={"rendering.mode": "js"})
     resolved["rendering"]["browser"].update(browser_overrides)
     return resolved["rendering"]
+
+
+def test_rendered_credential_policy_uses_the_target_host(monkeypatch):
+    monkeypatch.setenv("RENDER_POLICY_TOKEN", "synthetic-test-token")
+    settings = crawl_config.load(
+        overrides={
+            "http.credentials_acknowledged": True,
+            "http.credential_headers": [
+                {
+                    "host": "private.example.test",
+                    "headers": {"authorization": "env:RENDER_POLICY_TOKEN"},
+                }
+            ],
+        }
+    )
+
+    assert sqlite_render._policy_facts(settings, "https://public.example.test/") == {
+        "credentials_used": False,
+        "cache_control_no_store": False,
+    }
+    assert sqlite_render._policy_facts(settings, "https://private.example.test/") == {
+        "credentials_used": True,
+        "cache_control_no_store": False,
+    }
 
 
 def test_happy_path_returns_the_rendered_html(fake_stack):
