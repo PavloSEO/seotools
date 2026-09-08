@@ -175,8 +175,8 @@ deduplicated. `forms`, `decisions`, `frontier`, `query_variants`, `resume_state`
 and `context_items` hold the native storage core's recovery and collection lanes
 (empty in legacy imports). `responses`,
 `documents` and `bodies` hold captured HTTP/document provenance. `resource_refs` records
-direct script/stylesheet declarations and their bounded capture state when that
-opt-in lane is enabled. `audit.document_json` is the only authoritative stored audit
+direct script/stylesheet declarations and their capture state. Fetching referenced
+resource bodies is a separate explicit option. `audit.document_json` is the only authoritative stored audit
 snapshot; report formats render that document and do not compute new findings.
 
 Existing report and comparison routes can take a scan path directly. The MCP
@@ -277,8 +277,10 @@ For legacy imports, the only populated `context_items` lane is
 state. These historical imported files have no retained bodies or resources and
 cannot be reanalyzed; native captures use their own validated lanes.
 
-The `pages` projection follows the prerelease `crawl.v1` `PageRecord`. Twenty
-later-added fields are nullable for legacy compatibility: `content_frames`,
+### Historical page fields
+
+The `pages` projection follows the prerelease `crawl.v1` `PageRecord`.
+Later-added fields are nullable for legacy compatibility: `content_frames`,
 `content_frames_same_origin`, ordered `hreflang_json`, `heading_outline_json`,
 `link_placement_json`, `canonical_chain_json`, `final_canonical`, `body_unavailable`,
 `meta_refresh`, `http_refresh`, `meta_description_count`, `h1_alt_text`,

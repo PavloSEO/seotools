@@ -320,8 +320,9 @@ def test_storage_late_field_table_matches_the_importer_mapping():
     section = storage.split("| PageRecord field | `pages` column |", 1)[1].split(
         "\n\n`NULL` means", 1
     )[0]
-    documented = dict(re.findall(r"\| `([^`]+)` \| `([^`]+)` \|", section))
-    assert documented == _LATE_PAGE_FIELDS
+    rows = re.findall(r"\| `([^`]+)` \| `([^`]+)` \|", section)
+    assert len(rows) == len(_LATE_PAGE_FIELDS), "missing or duplicated field rows"
+    assert dict(rows) == _LATE_PAGE_FIELDS
 
 
 def test_private_research_journal_is_not_part_of_the_snapshot():

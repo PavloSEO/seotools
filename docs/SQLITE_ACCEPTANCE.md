@@ -116,8 +116,8 @@ retention policy. Reader and importer compatibility are explicit: a newer or
 incompatible format is refused, with no automatic migration. Missing or nullable
 legacy fields remain unavailable evidence; they do not become clean defaults.
 
-Twenty later `PageRecord` observations may be `NULL` for older sources. The
-current source-derived field-to-column table lives in [STORAGE.md](STORAGE.md#the-pages-projection-follows-the-prerelease-crawl-v1-pagerecord); it includes
+Later `PageRecord` observations may be `NULL` for older sources. The
+current source-derived field-to-column table lives in [STORAGE.md](STORAGE.md#historical-page-fields); it includes
 the canonical-chain pair and `og_url`. `NULL` means the observation was absent
 from that source, not a measured empty or zero value. This field-level state is
 distinct from `crawl_partial` and `corpus_partial`.
