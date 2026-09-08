@@ -195,7 +195,17 @@ body at a time. The native fetch clamp is a 64 MiB hard limit: a larger response
 is marked truncated rather than retained, even if a configured policy limit is
 larger; rendering fails rather than silently keeping an over-limit DOM. `off`,
 `no-store`, credentialed, unsupported, failed, truncated, and budget-exhausted
-captures each retain their named state/reason. Native SQLite mode requires
+captures each retain their named state/reason. A capture is credentialed when the
+run was configured to send a credential header for that host through
+`http.credential_headers`, never because the shared client's cookie jar carried a
+cookie the site itself set: a session cookie is the ordinary state of the web, and
+reading one as the operator's credential discarded 33 001 of 40 920 page bodies on a
+public site with nothing configured at all. Redacted header lists keep the names of
+the headers redaction removed, under `x-seohead-redacted-headers` and never their
+values, so a retained response and a suppressed one are distinguishable in the
+artifact. A crawl reports how many fetched HTML page bodies it retained and the
+reasons it dropped the rest in `html_bodies`, because a `partial` capability flag is
+the same word for one missing body and for four fifths of them. Native SQLite mode requires
 `cache.mode=off` before collection; it never changes or deletes the old directory
 cache, which remains part of the directory workflow.
 

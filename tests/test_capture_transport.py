@@ -33,7 +33,13 @@ def test_capture_observer_receives_exact_bytes_and_no_secret_headers():
     assert event.entity_bytes == b"<html><title>x</title></html>"
     assert event.body_fidelity == "entity_bytes"
     assert event.body_state == "complete"
-    assert event.response_headers == (("content-type", "text/html; charset=utf-8"),)
+    # The name of a redacted header survives so a reader can tell why a body was
+    # kept or dropped (#647); its value never does.
+    assert event.response_headers == (
+        ("content-type", "text/html; charset=utf-8"),
+        ("x-seohead-redacted-headers", "set-cookie"),
+    )
+    assert not any("secret" in value for _name, value in event.response_headers)
     assert event.request_headers and event.request_headers[0][0] == "user-agent"
 
 
