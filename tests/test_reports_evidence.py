@@ -676,3 +676,12 @@ def test_mixed_and_nested_details_stay_visible_without_false_reproduction(tmp_pa
     nested_text = nested_target.read_text(encoding="utf-8")
     assert "Trace: Structured record retained in the saved audit" in nested_text
     assert "Reproduction unavailable from the saved audit." in nested_text
+
+
+def test_reproduction_includes_the_recorded_defect_beyond_http_status(tmp_path):
+    target = tmp_path / "canonical.csv"
+    assert build_report(_CLIENT_EVIDENCE_AUDIT, fmt="csv", path=str(target))["ok"]
+    with target.open(encoding="utf-8-sig", newline="") as stream:
+        row = next(csv.DictReader(stream, delimiter=";"))
+    assert "Canonical count: 2" in row["Reproduction"]
+    assert "https://example.test/catalogue/" in row["Reproduction"]

@@ -156,14 +156,17 @@ def reproduction(finding: dict[str, Any], observation: str = "") -> str:
     """State only the primitive observation the saved audit can support."""
     url = finding.get("url")
     status = finding.get("status_code")
+    observation = observation or _observation(finding.get("text"))
     if isinstance(url, str) and url:
-        if isinstance(status, int):
-            return f"{url} returned HTTP {status}."
         details = [
             row
             for row in _detail_rows(finding.get("details"))
             if "Structured record retained" not in row and "unsupported values omitted" not in row
         ]
+        if type(status) is int:
+            result = f"{url} returned HTTP {status}."
+            observed = details[0] if details else observation
+            return f"{result} Recorded observation: {observed}" if observed else result
         if details:
             return f"At {url}: {details[0]}."
         if observation:

@@ -43,6 +43,8 @@ def _reproductions(issues: list[dict[str, Any]], cap: int) -> list[str]:
                 "url": issue.get("target_url"),
                 "status_code": issue.get("status_code"),
                 "locations": issue.get("locations"),
+                "details": issue.get("details"),
+                "text": issue.get("message"),
             }
         )
         if row not in seen:
