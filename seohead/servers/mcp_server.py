@@ -928,6 +928,21 @@ def build_server():  # -> FastMCP
         return _checked(handlers.indexnow_submit(urls=urls, host=host, key_location=key_location))
 
     @mcp.tool(annotations=read_files, structured_output=True)
+    def seo_project_open(directory: str, expected_site: str | None = None) -> dict[str, Any]:
+        """Open a local project workspace without executing template references."""
+        return _checked(handlers.project_open(directory=directory, expected_site=expected_site))
+
+    @mcp.tool(annotations=create_files, structured_output=True)
+    def seo_project_new(directory: str, target: str, label: str | None = None) -> dict[str, Any]:
+        """Create a local project workspace; no crawl, checklist execution, or network work starts."""
+        return _checked(handlers.project_new(directory=directory, target=target, label=label))
+
+    @mcp.tool(annotations=read_files, structured_output=True)
+    def seo_project_status(directory: str) -> dict[str, Any]:
+        """Show project scan history and named pending checklist/preparation states."""
+        return _checked(handlers.project_status(directory=directory))
+
+    @mcp.tool(annotations=read_files, structured_output=True)
     def seo_scan_list(directory: str, offset: int = 0, limit: int = 100) -> dict[str, Any]:
         """List saved SQLite scan metadata without loading retained bodies."""
         return _checked(handlers.scan_list(directory=directory, offset=offset, limit=limit))

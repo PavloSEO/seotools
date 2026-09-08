@@ -60,6 +60,11 @@ COMMAND_CONTRACTS: tuple[CommandContract, ...] = (
             note="Resumes retained crawl evidence and continues network collection.",
         ),
         _form("local_config", "config"),
+        _form(
+            "project_directory",
+            "project",
+            note="Uses the project target and scans/ path when no URL or scan path is explicit.",
+        ),
     ),
     _command("crawl-describe-settings", "crawl_describe_settings", _form("no_input")),
     _command("scan-reanalyze", "scan_reanalyze", _form("scan_artifact", "input_path")),
@@ -184,6 +189,14 @@ COMMAND_CONTRACTS: tuple[CommandContract, ...] = (
     ),
     _command("indexnow-submit", "indexnow_submit", _form("url_list", "urls")),
     _command("scan-list", "scan_list", _form("legacy_directory", "directory")),
+    _command(
+        "project-new",
+        "project_new",
+        _form("project_directory", "directory"),
+        _form("live_url", "target"),
+    ),
+    _command("project-open", "project_open", _form("project_directory", "directory")),
+    _command("project-status", "project_status", _form("project_directory", "directory")),
     _command("scan-inspect", "scan_inspect", _form("scan_artifact", "input_path")),
     _command("scan-snapshot", "scan_snapshot", _form("scan_artifact", "input_path")),
     _command("scan-pin", "scan_pin", _form("scan_artifact", "input_path")),
@@ -192,6 +205,11 @@ COMMAND_CONTRACTS: tuple[CommandContract, ...] = (
         "scan_prune",
         _form("legacy_directory", "directory"),
         _form("local_file", "plan"),
+        _form(
+            "project_directory",
+            "project",
+            note="Defaults the directory to project scans/; apply remains explicit.",
+        ),
     ),
     _command(
         "scan-body-diff",
@@ -239,6 +257,7 @@ _KIND_LABELS = {
     "selector": "Selector",
     "provider_query": "Provider query",
     "local_config": "Local configuration",
+    "project_directory": "Project directory",
     "no_input": "No direct input",
 }
 

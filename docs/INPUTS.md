@@ -23,7 +23,7 @@ and this decision makes no backend migration.
 | Command | Accepted input forms | Notes |
 | --- | --- | --- |
 | `parse` | Live URL (`url`)<br>URL list (`urls`) | — |
-| `crawl-site` | Live URL (`url`)<br>URL list (`urls`)<br>Local file (`urls_file`)<br>Scan artifact (`resume`)<br>Local configuration (`config`) | TXT, CSV, XLSX, or XML URL input; Resumes retained crawl evidence and continues network collection. |
+| `crawl-site` | Live URL (`url`)<br>URL list (`urls`)<br>Local file (`urls_file`)<br>Scan artifact (`resume`)<br>Local configuration (`config`)<br>Project directory (`project`) | TXT, CSV, XLSX, or XML URL input; Resumes retained crawl evidence and continues network collection.; Uses the project target and scans/ path when no URL or scan path is explicit. |
 | `crawl-describe-settings` | No direct input | — |
 | `scan-reanalyze` | Scan artifact (`input_path`) | — |
 | `log-scan` | Local directory (`run`) | — |
@@ -81,10 +81,13 @@ and this decision makes no backend migration.
 | `crux-report` | Provider query (`url`)<br>Provider query (`origin`) | — |
 | `indexnow-submit` | URL list (`urls`) | — |
 | `scan-list` | Local directory (`directory`) | — |
+| `project-new` | Project directory (`directory`)<br>Live URL (`target`) | — |
+| `project-open` | Project directory (`directory`) | — |
+| `project-status` | Project directory (`directory`) | — |
 | `scan-inspect` | Scan artifact (`input_path`) | — |
 | `scan-snapshot` | Scan artifact (`input_path`) | — |
 | `scan-pin` | Scan artifact (`input_path`) | — |
-| `scan-prune` | Local directory (`directory`)<br>Local file (`plan`) | — |
+| `scan-prune` | Local directory (`directory`)<br>Local file (`plan`)<br>Project directory (`project`) | Defaults the directory to project scans/; apply remains explicit. |
 | `scan-body-diff` | Scan artifact (`left, right`)<br>Selector (`url`) | Selects the logical URL within both scans. |
 | `sf run` | Live URL (`crawl`)<br>Local file (`load_crawl`)<br>Local file (`crawl_list`)<br>Local directory (`exports_dir`)<br>Local configuration (`config`) | Saved .seospider crawl; requires licensed SF CLI; URL-list file for licensed SF live traversal |
 | `sf tasks` | Audit document (`audit_json`)<br>Local configuration (`config`) | — |

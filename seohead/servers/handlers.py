@@ -2545,6 +2545,24 @@ def scan_body_diff(
     )
 
 
+def project_new(**kwargs) -> dict[str, Any]:
+    from seohead.servers.project_handlers import project_new as core
+
+    return core(**kwargs)
+
+
+def project_open(**kwargs) -> dict[str, Any]:
+    from seohead.servers.project_handlers import project_open as core
+
+    return core(**kwargs)
+
+
+def project_status(**kwargs) -> dict[str, Any]:
+    from seohead.servers.project_handlers import project_basic_status
+
+    return project_basic_status(**kwargs)
+
+
 _RAW_HANDLERS = {
     "parse": parse,
     "redirects_generate": redirects_generate,
@@ -2610,6 +2628,9 @@ _RAW_HANDLERS = {
     "scan_pin": scan_pin,
     "scan_prune": scan_prune,
     "scan_body_diff": scan_body_diff,
+    "project_new": project_new,
+    "project_open": project_open,
+    "project_status": project_status,
 }
 
 # Journaling sits here rather than in each interface: the CLI and the MCP server
