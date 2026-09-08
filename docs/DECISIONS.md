@@ -95,3 +95,19 @@ purposes:
 The public repository starts from a reviewed snapshot. Internal experiments, research journals,
 client artifacts, discarded implementations, and private commit history are outside the public
 source boundary described in `PROVENANCE.md`.
+
+## The changelog is assembled from one file per change
+
+A changelog entry is written to `changelog.d/<issue>.md` and never straight into `CHANGELOG.md`.
+`python scripts/build_changelog.py` folds the fragments into `## Unreleased` at release time and
+`--prune` removes them.
+
+Every branch used to append its entry to the top of `## Unreleased`, so every branch conflicted
+with every branch that landed before it, and the resolution was "keep both entries" every time.
+`CHANGELOG.md merge=union` was measured and rejected: union merges line by line, so two entries
+that share any line -- a blank line inside an entry is enough -- lose one copy of it silently,
+with no conflict raised (#638).
+
+`CHANGELOG.md` is deliberately not regenerated on every pull request. A gate holding it
+continuously in sync with the fragments would put both branches back into the same file and
+rebuild the conflict this removes.

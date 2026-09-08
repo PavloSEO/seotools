@@ -4,27 +4,27 @@ All notable public changes are documented here.
 
 ## Unreleased
 
-- Stop reading a cookie the site set as the operator's credential, and say out loud when a run
-  discards bodies (#647). A crawl shares one HTTP client, and that client keeps a cookie jar: the
-  moment any response carried `Set-Cookie`, every later request went out with `Cookie:` and the
-  corpus writer classified it as an authenticated fetch. On a public site with
-  `http.credential_headers = []` and `credentials_acknowledged = false`, that discarded 33 001 of
-  40 920 page bodies, and the run reported its pages and links exactly as a complete one would.
-  Everything computed from stored HTML on that crawl -- near-duplicate detection, DOM depth and
-  node counts, boilerplate share, in-body heading structure, offline reanalysis -- then covered
-  7 903 pages while every page-level percentage in the same report covered 40 920: two
-  populations, presented as one. A capture is credentialed when the run was configured to send a
-  credential header for that host, which is the only way a sensitive header can reach a request
-  the crawler builds -- `http.headers` is refused one by configuration validation. A crawl with a
-  configured credential still omits those bodies under `credentialed`, unchanged.
-- The counts a `partial` flag cannot carry are now named. `html_bodies` in a `crawl-site` result
-  reports how many fetched HTML page bodies were retained and the reason for each one that was
-  not, and the CLI prints that beside the finish line rather than leaving it to a capability flag
-  that says "partial" for one missing body and for four fifths of them. A run that discarded
-  nothing prints nothing extra. Redacted request and response header lists now keep the names of
-  the headers redaction removed, under `x-seohead-redacted-headers` and never their values: two
-  responses whose bodies were treated differently used to record byte-identical header lists, so
-  an operator reading the artifact could not tell why a body was missing.
+Entries for merged, unreleased work live one file per change in `changelog.d/`, not here:
+`python scripts/build_changelog.py` folds them in between the markers below at release
+time, so two branches never edit this file and can never conflict over it (#638).
+
+<!-- changelog.d: assembled entries start -->
+<!-- changelog.d: assembled entries end -->
+
+- Keep fingerprinting a page whose site sends a valueless `Set-Cookie` header (#651). A header
+  with no `name=value` pair at all -- `Set-Cookie: Secure; HttpOnly`, which `emall.by` sends
+  beside two well-formed cookies -- becomes `Cookie(name='Secure', value=None)` in the jar, and
+  `httpx.Cookies.__getitem__` raises `KeyError` for it. `dict(resp.cookies)` therefore failed on
+  a name the mapping's own iterator had produced: `tech-detect` exited 1 with a bare
+  `error: 'Secure'` and no JSON on stdout for a page that had been fetched successfully, MCP
+  `seo_tech_detect` raised the `KeyError` to its caller, and `site-audit` quietly came back with
+  its entire technology section missing. `detect_tech` now walks the cookie jar instead. A
+  valueless name is kept with an empty value rather than dropped, because several fingerprints
+  (`BITRIX_SM_GUEST_ID`, `craft_session`, `wfvt_`) match on cookie name alone and dropping the
+  entry would lose that signal -- but it is never silently normalized into an ordinary cookie:
+  the names are reported in `malformed_cookies` and named in a finding, so a header the site
+  sent broken stays a fact about the site. A response with only well-formed cookies is
+  unaffected and reports an empty list.
 - `render-check` measures compressed sites again instead of calling them broken (#650). The
   pinned render route read the origin with httpx's undecoded stream and handed those bytes to
   Playwright together with the origin's `content-encoding`. `route.fulfill` never applies a
