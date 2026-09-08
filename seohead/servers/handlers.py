@@ -2584,22 +2584,36 @@ def scan_body_diff(
     )
 
 
-def project_new(**kwargs) -> dict[str, Any]:
+def project_new(
+    directory: str,
+    target: str,
+    label: str | None = None,
+    facts: list[dict[str, Any]] | None = None,
+    template_references: list[str] | None = None,
+    profile_references: list[str] | None = None,
+) -> dict[str, Any]:
     from seohead.servers.project_handlers import project_new as core
 
-    return core(**kwargs)
+    return core(
+        directory,
+        target,
+        label=label,
+        facts=facts,
+        template_references=template_references,
+        profile_references=profile_references,
+    )
 
 
-def project_open(**kwargs) -> dict[str, Any]:
+def project_open(directory: str, expected_site: str | None = None) -> dict[str, Any]:
     from seohead.servers.project_handlers import project_open as core
 
-    return core(**kwargs)
+    return core(directory, expected_site=expected_site)
 
 
-def project_status(**kwargs) -> dict[str, Any]:
+def project_status(directory: str) -> dict[str, Any]:
     from seohead.servers.project_handlers import project_basic_status
 
-    return project_basic_status(**kwargs)
+    return project_basic_status(directory)
 
 
 _RAW_HANDLERS = {
