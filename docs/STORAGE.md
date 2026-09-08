@@ -263,15 +263,28 @@ For legacy imports, the only populated `context_items` lane is
 state. These historical imported files have no retained bodies or resources and
 cannot be reanalyzed; native captures use their own validated lanes.
 
-The `pages` projection follows the prerelease `crawl.v1` `PageRecord`. Fifteen
+The `pages` projection follows the prerelease `crawl.v1` `PageRecord`. Seventeen
 later-added fields are nullable for legacy compatibility: `content_frames`,
-`content_frames_same_origin`, ordered `hreflang_json`, `body_unavailable`,
+`content_frames_same_origin`, ordered `hreflang_json`, `heading_outline_json`,
+`link_placement_json`, `body_unavailable`,
 `meta_refresh`, `http_refresh`, `meta_description_count`, `h1_alt_text`,
 `lorem_ipsum_count`, `images_total`, `images_missing_alt_attr`,
 `images_max_alt_length`, `plugin_elements`, `meta_fragment`, and
 `ajax_scheme_outlinks`. The first two are parser observations about frames in the
 resolved content area. `hreflang_json` preserves the document's alternate
-declarations. `body_unavailable` records why collection could not parse a page
+declarations. `heading_outline_json` preserves every `h1`-`h6` with text in DOM
+order as `{"level", "text", "region"}` objects; `region` uses the same taxonomy
+link positions do (`nav`, `header`, `sidebar`, `footer`, `content`, `other`) and
+is the empty string when the document offered no landmark and no position rule
+matched, which is an unmeasured region rather than a measured one.
+`link_placement_json` preserves the two link defects a page region cannot show:
+the anchors this page wraps in an `h1`-`h6` (`in_heading`, each with its level,
+destination and anchor text) and the image links on it that carry no anchor text,
+no `alt`, and no `aria-label` or `title` (`image_no_text`). Both lists are capped
+by the parser and each carries an `*_total` count beside it, so a truncated list
+reads as truncated rather than as the whole story. `NULL` here means the page's
+anchors were never inspected for this, which is not the same as finding none.
+`body_unavailable` records why collection could not parse a page
 body (for example, an oversized response); it does **not** describe whether this
 artifact retained that body. `meta_refresh` and `http_refresh` retain the markup
 and HTTP declarations as written. Retention remains unavailable in Point A.
@@ -285,7 +298,7 @@ This is a prerelease `scan.v1` schema synchronized with that current record
 contract. There is no automatic migration. A prototype SQLite file with the old
 DDL is refused and must be explicitly reimported from its legacy source. The
 legacy importer can preserve a pre-merge 43-field JSONL record losslessly by
-recording these fifteen unavailable fields as `NULL`; it does not invent defaults that
+recording these sixteen unavailable fields as `NULL`; it does not invent defaults that
 claim a measurement.
 
 ## Read safely with the Python standard library
@@ -439,12 +452,15 @@ in the scan. A different configuration or producing build refuses resume.
 
 `python -m seohead.storage inspect native.sqlite` also validates a capture with
 no audit and reports `audit_available`; report commands still require an audit.
-Repeat the same command/path to resume an interrupted scan. A finished file is
-immutable and cannot be overwritten or resumed for writing. Use a new destination
+`seohead crawl-site --resume <scan>` continues an interrupted scan from its stored
+frontier and throttle state, reading the start URL and the effective configuration
+back from the artifact rather than from the command line; repeating the original
+command with the same `--scan-out` path and identical settings resumes it too.
+A finished file is immutable and cannot be overwritten or resumed for writing. Use a new destination
 for a new run. `--scan-out` cannot be combined with `--out-dir` or URL-list mode;
 SQLite mode currently requires `cache.mode=off`. Credentials are re-supplied out
 of band and resumability is governed by the redacted credential context above. The MCP
-`seo_crawl_site` exposes the same `scan_out` and `producer_build` parameters.
+`seo_crawl_site` exposes the same `scan_out`, `resume` and `producer_build` parameters.
 Response bodies are **not retained**, including the raw start-page HTML used
 transiently by the first-run rendering gate.
 

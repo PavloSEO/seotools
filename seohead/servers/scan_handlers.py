@@ -185,6 +185,117 @@ def _has_saved_audit(scan) -> bool:
     return scan.con.execute("SELECT 1 FROM audit WHERE singleton=1").fetchone() is not None
 
 
+# NativeScan.note_audit_unavailable rejects a reason over this many chars, and
+# neither the exception's own message nor a caller-chosen --scan-out path was ever
+# bounded with that column in mind, so the assembled reason is truncated to fit
+# after both are interpolated in, not before.
+_AUDIT_FAILURE_REASON_MAX = 500
+
+
+def _audit_failure_reason(exc: BaseException, run) -> str:
+    """Name the audit phase and the surviving artifact instead of a bare exception.
+
+    A ``KeyError``'s ``str()`` is just the key (see #627) -- everything an
+    operator needs (that collection finished, how much of it, and where to
+    re-analyse it) has to come from this message, because nothing else in
+    the failure carries it.
+    """
+    reason = (
+        f"audit phase failed unexpectedly ({type(exc).__name__}: {exc}); "
+        f"collection finished with {run.pages} pages retained in {run.path} -- "
+        "re-analyse it with `seohead scan-reanalyze`"
+    )
+    if len(reason) > _AUDIT_FAILURE_REASON_MAX:
+        reason = reason[: _AUDIT_FAILURE_REASON_MAX - 1] + "…"
+    return reason
+
+
+def resume_inputs(scan_path: str) -> dict[str, Any]:
+    """Read back what a resume must repeat: the scan's own start URL and settings.
+
+    A resume is one crawl continuing, not a second crawl aimed at the same file.
+    The frontier, scope and limits already in the artifact decide what is left to
+    fetch, so they are read from it rather than restated on a command line, where
+    a single changed value would either be refused by the writer's configuration
+    fingerprint or -- worse -- continue one crawl under another crawl's rules.
+
+    Read-only and before any request: every refusal below is decided from the
+    file alone, so a mismatched artifact costs the target site nothing.
+    """
+    from seohead.storage.native_scan import NativeScan
+
+    if not isinstance(scan_path, str) or not scan_path:
+        raise ValueError("resume requires the path of a SQLite scan artifact")
+    if not Path(scan_path).is_file():
+        raise ValueError(f"scan to resume does not exist: {scan_path}")
+    header = NativeScan.inspect(scan_path)["scan"]
+    if header["source_kind"] != "native":
+        raise ValueError(
+            f"{scan_path} is a derived {header['source_kind']} artifact, not a crawl that can "
+            "be resumed"
+        )
+    if header["lifecycle"] in {"finished", "failed"}:
+        raise ValueError(
+            f"{scan_path} is already {header['lifecycle']} "
+            f"(finish reason: {header['finish_reason']}); there is nothing left to resume"
+        )
+    settings = json.loads(header["config_json"])
+    if settings.get("http", {}).get("credential_headers"):
+        # The artifact stores credential references redacted, by design, so the
+        # settings read back from it are not the settings the interrupted run
+        # used. Continuing under them would crawl the same site unauthenticated
+        # and report the result as a continuation of an authenticated crawl.
+        raise ValueError(
+            f"{scan_path} was crawled with credential headers, which it stores only in redacted "
+            "form; a resume cannot restore them. Continue it with the original --config and "
+            "--scan-out instead of --resume"
+        )
+    return {
+        "start_url": header["start_url"],
+        "settings": settings,
+        "writer_revision": header["writer_revision"],
+    }
+
+
+def resume_scan(
+    scan_path: str,
+    *,
+    url: str | None = None,
+    producer_build: str | None = None,
+    progress: Callable[[int, int], None] | None = None,
+) -> dict[str, Any]:
+    """Continue an interrupted native scan from its stored frontier and throttle state.
+
+    Refuses, by name and before the first request, a scan written by a different
+    producing build or for a different start URL: continuing evidence collected
+    under one build's parser or from one start URL into another produces a single
+    artifact that describes neither run.
+    """
+    inputs = resume_inputs(scan_path)
+    _version, revision, _runtime = _producer_provenance(producer_build)
+    if inputs["writer_revision"] != revision:
+        raise ValueError(
+            f"{scan_path} was written by build {inputs['writer_revision']}, and this is build "
+            f"{revision}; refusing a mixed-build resume. Check out the build that wrote it, or "
+            "pass producer_build with that SHA if this source tree is that build"
+        )
+    if url is not None:
+        from seohead.recon.net import normalize_url
+
+        if normalize_url(url) != inputs["start_url"]:
+            raise ValueError(
+                f"{scan_path} was crawled from {inputs['start_url']}, not {url}; refusing to "
+                "resume one crawl as another"
+            )
+    return crawl_site_scan(
+        inputs["start_url"],
+        scan_out=scan_path,
+        settings=inputs["settings"],
+        producer_build=revision,
+        progress=progress,
+    )
+
+
 def crawl_site_scan(
     url: str,
     *,
@@ -276,42 +387,54 @@ def crawl_site_scan(
             "sitemap_urls": sitemap_seed["sitemap_urls"],
             "sitemap_seeded": len(result.seed_urls),
         }
-        from seohead.crawl.sql_sitemap import prepare_sitemap_reconciliation
-        from seohead.servers.handlers import _audit_crawl_result
-
-        with prepare_sitemap_reconciliation(scan.con, start_url=url) as reconciliation:
-            _response_data, audit = _audit_crawl_result(
-                result,
-                settings=settings,
-                url=url,
-                sitemap_seed=sitemap_seed,
-                discovery=discovery,
-                out_dir=None,
-                pages_resume_path=None,
-                stored_scan=scan,
-                stored_sitemap=reconciliation,
-                dispatch_gate=run.dispatch_gate,
-            )
         from dataclasses import replace
 
+        from seohead.crawl.sql_sitemap import prepare_sitemap_reconciliation
+        from seohead.servers.handlers import _audit_crawl_result
         from seohead.storage.native_audit import AuditSizeError
 
-        if settings.get("rendering", {}).get("mode", "raw") != "raw":
-            current = scan.resume_snapshot(include_edges=True)
-            run = replace(
-                run,
-                partial=bool(current["scan"]["crawl_partial"]),
-                links=current["counts"]["links"],
-                forms=current["counts"]["forms"],
-                limitations=tuple(json.loads(current["scan"]["limitations_json"])),
-                corpus_partial=bool(current["scan"]["corpus_partial"]),
-                capabilities=json.loads(current["scan"]["capabilities_json"]),
-            )
-
+        # Collection already committed its rows and closed successfully by this point
+        # (``run`` above), so anything raised from here on is the *audit* misbehaving,
+        # never the crawl -- and the 600-page artifact behind #627 proves collection's
+        # own evidence survives an audit crash untouched. An operator reading a bare
+        # exception (a KeyError's str() is just the key) has no way to tell that apart
+        # from a lost crawl, so an unexpected failure here is named by phase and points
+        # at the retained, re-analysable artifact instead of propagating as-is.
         try:
+            with prepare_sitemap_reconciliation(scan.con, start_url=url) as reconciliation:
+                _response_data, audit = _audit_crawl_result(
+                    result,
+                    settings=settings,
+                    url=url,
+                    sitemap_seed=sitemap_seed,
+                    discovery=discovery,
+                    out_dir=None,
+                    pages_resume_path=None,
+                    stored_scan=scan,
+                    stored_sitemap=reconciliation,
+                    dispatch_gate=run.dispatch_gate,
+                )
+
+            if settings.get("rendering", {}).get("mode", "raw") != "raw":
+                current = scan.resume_snapshot(include_edges=True)
+                run = replace(
+                    run,
+                    partial=bool(current["scan"]["crawl_partial"]),
+                    links=current["counts"]["links"],
+                    forms=current["counts"]["forms"],
+                    limitations=tuple(json.loads(current["scan"]["limitations_json"])),
+                    corpus_partial=bool(current["scan"]["corpus_partial"]),
+                    capabilities=json.loads(current["scan"]["capabilities_json"]),
+                )
+
             scan.save_audit(audit)
         except AuditSizeError as exc:
             reason = str(exc)
+            scan.note_audit_unavailable(reason)
+            finalized = scan.finish_capture(reason=run.finish_reason)
+            return _response(run, audit_available=False, audit_reason=reason, finalized=finalized)
+        except Exception as exc:
+            reason = _audit_failure_reason(exc, run)
             scan.note_audit_unavailable(reason)
             finalized = scan.finish_capture(reason=run.finish_reason)
             return _response(run, audit_available=False, audit_reason=reason, finalized=finalized)

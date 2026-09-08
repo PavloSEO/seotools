@@ -161,6 +161,17 @@ def _row(
         # when an image supplies it instead. "" when no H1 on the page qualifies.
         "H1 Alt Text Only": record.h1_alt_text,
         "H2-1": record.h2,
+        # Native-crawl only (#632): the whole h1-h6 outline in DOM order, each
+        # heading with its level, text and page region. Carried as the parsed
+        # objects rather than a string because there is no SF column to imitate --
+        # an export has none of this, so the outline checks skip there.
+        "Heading Outline": record.heading_outline,
+        # Native-crawl only (#634): the anchors this page wraps in a heading and
+        # the image links on it that name nothing. Carried as the parsed object
+        # for the same reason the outline above is -- an export has no such
+        # column, so both placement checks skip there by name. None means link
+        # parsing never ran, which the checks read as unmeasured.
+        "Link Placement": record.link_placement,
         "Canonical Link Element 1": record.canonical,
         "Meta Robots 1": record.meta_robots,
         "X-Robots-Tag 1": record.x_robots,

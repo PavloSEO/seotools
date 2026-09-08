@@ -85,6 +85,7 @@
         "check_coverage": {"type": "object"},
         "health_score_scope": {"type": "string"},
         "size_stats_bytes": {"type": "object"},
+        "internal_linking": {"type": "object"},
         "sitemap": {"type": "object"}
       }
     },

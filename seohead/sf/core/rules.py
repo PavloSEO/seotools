@@ -308,6 +308,13 @@ def check_headings(ctx: AuditContext) -> None:
 
     t = ctx.thresholds
     require_h2 = ctx.requirements.get("require_h2", False)
+    if not require_h2:
+        # A requirement that is off makes its check unreachable, not clean. Without
+        # this the run reports H2_MISSING as silent -- the bucket that means "ran over
+        # every page and found nothing" -- on a site where thousands of pages have no
+        # H2 at all (#635). The reason names the setting, so a reader can turn it on
+        # rather than conclude the site passed.
+        ctx.skip("H2_MISSING", "requirements.require_h2 is false; the check was not evaluated")
     # Same distinction as check_titles (#205): an absent H1-1 column means the run never
     # measured any page's H1, not that every page is missing one. H1_MULTIPLE/H1_TOO_LONG/
     # H2_MISSING all read the same `h1` value, so they stay correctly silent on their own —
@@ -373,6 +380,155 @@ def check_headings(ctx: AuditContext) -> None:
         ctx.skip("H1_ALT_TEXT_ONLY", "no H1 alt-text evidence (native crawl only)")
 
 
+# How many heading texts a finding quotes back. Enough to recognise the block in
+# a template, short of pasting a mega-menu into the audit.
+_HEADING_EVIDENCE_TEXTS = 5
+
+
+def check_heading_outline(ctx: AuditContext) -> None:
+    """The outline as a sequence and as a map of the page (#632).
+
+    ``check_headings`` above reads h1/h1_2/h2 -- headings as an unordered set,
+    which is all a Screaming Frog export carries. A page whose DOM order is
+    ``H2, H2, ..., H1, H2`` satisfies every check there, and so does a page whose
+    H2s are all menu labels in the masthead. Both need the stored outline, which
+    only a native crawl records.
+    """
+    from seohead.tools.link_position import CHROME_POSITIONS
+
+    if not _has_column(ctx, "heading_outline"):
+        for check_id in ("HEADING_BEFORE_H1", "HEADING_IN_PAGE_CHROME"):
+            ctx.skip(check_id, "no heading outline evidence (native crawl only)")
+        return
+    pages = ctx.indexable_html_pages()
+    for check_id in ("HEADING_BEFORE_H1", "HEADING_IN_PAGE_CHROME"):
+        _skip_for_body_unavailable(ctx, check_id, pages)
+    unplaced = 0
+    for page in pages:
+        outline = _rec(page).get("heading_outline")
+        if not isinstance(outline, list) or not outline:
+            continue
+        first_h1 = next((i for i, h in enumerate(outline) if h.get("level") == 1), None)
+        # None is a page with no H1 at all (H1_MISSING's finding, not this one) and
+        # 0 is the H1 leading its own outline, which is the shape being asked for.
+        if first_h1:
+            preceding = outline[:first_h1]
+            ctx.add(
+                "HEADING_BEFORE_H1",
+                target_url=page.url,
+                details={
+                    "count": len(preceding),
+                    "levels": sorted({f"h{h['level']}" for h in preceding}),
+                    "first_texts": [h["text"] for h in preceding[:_HEADING_EVIDENCE_TEXTS]],
+                },
+            )
+        chrome = [h for h in outline if h.get("region") in CHROME_POSITIONS]
+        if chrome:
+            # One finding per page, not per heading: a masthead with eighteen
+            # menu labels is one template to fix, and eighteen rows of it would
+            # bury every other finding about the page.
+            ctx.add(
+                "HEADING_IN_PAGE_CHROME",
+                target_url=page.url,
+                details={
+                    "count": len(chrome),
+                    "regions": sorted({str(h["region"]) for h in chrome}),
+                    "first_headings": [
+                        {"region": h["region"], "level": h["level"], "text": h["text"]}
+                        for h in chrome[:_HEADING_EVIDENCE_TEXTS]
+                    ],
+                },
+            )
+        # A region of "" is a heading the parser could not place: the document
+        # named no content landmark and no position rule matched it, so calling
+        # it content would be a verdict nobody measured (see parser.heading_outline).
+        if any(not h.get("region") for h in outline):
+            unplaced += 1
+    if unplaced:
+        ctx.skip(
+            "HEADING_IN_PAGE_CHROME",
+            f"{unplaced} page(s) with no content landmark and no matching position rule "
+            "-- no heading region could be determined",
+        )
+
+
+# How many placement examples a finding quotes back. Enough to recognise the
+# template block, short of pasting a mega-menu into the audit.
+_PLACEMENT_EVIDENCE_ITEMS = 5
+
+
+def check_link_placement(ctx: AuditContext) -> None:
+    """LINK_INSIDE_HEADING / IMAGE_LINK_WITHOUT_TEXT — where a page's anchors sit (#634).
+
+    Neither defect is answerable from a link's page region. ``position`` says a link
+    is in ``content``; it cannot say the link is the page's own H1, and it says
+    nothing about whether the anchor contains anything a reader could read. Both
+    need the anchor's own ancestor chain and contents, which only a native crawl
+    records (``tools.parser.link_placement``); a Screaming Frog export has no such
+    column, so both checks skip there by name.
+
+    One finding per page, not per link: a masthead logo wrapped in an H1 is one
+    template to fix, and a row per occurrence would bury every other finding about
+    the page -- the same reasoning ``check_heading_outline`` applies to a chrome
+    heading.
+    """
+    if not _has_column(ctx, "link_placement"):
+        for check_id in ("LINK_INSIDE_HEADING", "IMAGE_LINK_WITHOUT_TEXT"):
+            ctx.skip(check_id, "no link-placement evidence (native crawl only)")
+        return
+    pages = ctx.indexable_html_pages()
+    for check_id in ("LINK_INSIDE_HEADING", "IMAGE_LINK_WITHOUT_TEXT"):
+        _skip_for_body_unavailable(ctx, check_id, pages)
+    unmeasured = 0
+    for page in pages:
+        placement = _rec(page).get("link_placement")
+        if not isinstance(placement, dict):
+            # A page whose HTML this run never parsed, or a scan written before
+            # placement was recorded. Neither is "no links in headings" -- count
+            # it and declare the reason below rather than pass it as clean.
+            unmeasured += 1
+            continue
+        in_heading = placement.get("in_heading") or []
+        if in_heading:
+            ctx.add(
+                "LINK_INSIDE_HEADING",
+                target_url=page.url,
+                occurrences_count=int(placement.get("in_heading_total") or len(in_heading)),
+                details={
+                    "count": int(placement.get("in_heading_total") or len(in_heading)),
+                    "levels": sorted({f"h{item['level']}" for item in in_heading}),
+                    "first_links": [
+                        {
+                            "level": item["level"],
+                            "anchor": item["anchor"],
+                            "destination": item["destination"],
+                        }
+                        for item in in_heading[:_PLACEMENT_EVIDENCE_ITEMS]
+                    ],
+                },
+            )
+        image_links = placement.get("image_no_text") or []
+        if image_links:
+            ctx.add(
+                "IMAGE_LINK_WITHOUT_TEXT",
+                target_url=page.url,
+                occurrences_count=int(placement.get("image_no_text_total") or len(image_links)),
+                details={
+                    "count": int(placement.get("image_no_text_total") or len(image_links)),
+                    "first_destinations": [
+                        item["destination"] for item in image_links[:_PLACEMENT_EVIDENCE_ITEMS]
+                    ],
+                },
+            )
+    if unmeasured:
+        for check_id in ("LINK_INSIDE_HEADING", "IMAGE_LINK_WITHOUT_TEXT"):
+            ctx.skip(
+                check_id,
+                f"{unmeasured} page(s) carry no link-placement evidence -- their anchors "
+                "were never inspected for this",
+            )
+
+
 # --------------------------------------------------------------------------
 # 7.E — canonical & directives
 # --------------------------------------------------------------------------
@@ -381,6 +537,14 @@ def check_canonical_directives(ctx: AuditContext) -> None:
     if require_canonical:
         _skip_for_body_unavailable(
             ctx, "CANONICAL_MISSING", [p for p in ctx.html_pages() if p.is_indexable]
+        )
+    else:
+        # Same shape as require_h2 above: the default is true, so this branch is rare,
+        # but a run that turns it off must say the check was not evaluated rather than
+        # let it read as a site with canonicals everywhere (#635).
+        ctx.skip(
+            "CANONICAL_MISSING",
+            "requirements.require_canonical is false; the check was not evaluated",
         )
     for page in ctx.html_pages():
         rec = _rec(page)
@@ -1887,6 +2051,8 @@ ALL_CHECKS = [
     check_titles,
     check_descriptions,
     check_headings,
+    check_heading_outline,
+    check_link_placement,
     check_canonical_directives,
     check_content,
     check_url_and_perf,

@@ -11,7 +11,7 @@
     "source": null,
     "exports_dir": "examples/exports",
     "sf_version_detected": null,
-    "generated_at": "2026-09-06T13:35:28Z",
+    "generated_at": "2026-09-07T13:55:42Z",
     "profile": "full",
     "exports_used": [
       "internal_all",
@@ -103,8 +103,28 @@
         "reason": "no meta description count evidence (native crawl only)"
       },
       {
+        "id": "H2_MISSING",
+        "reason": "requirements.require_h2 is false; the check was not evaluated"
+      },
+      {
         "id": "H1_ALT_TEXT_ONLY",
         "reason": "no H1 alt-text evidence (native crawl only)"
+      },
+      {
+        "id": "HEADING_BEFORE_H1",
+        "reason": "no heading outline evidence (native crawl only)"
+      },
+      {
+        "id": "HEADING_IN_PAGE_CHROME",
+        "reason": "no heading outline evidence (native crawl only)"
+      },
+      {
+        "id": "LINK_INSIDE_HEADING",
+        "reason": "no link-placement evidence (native crawl only)"
+      },
+      {
+        "id": "IMAGE_LINK_WITHOUT_TEXT",
+        "reason": "no link-placement evidence (native crawl only)"
       },
       {
         "id": "CONTENT_IN_IFRAME",
@@ -323,6 +343,14 @@
         "reason": "no all_inlinks export (needed for every rel=\"next\"/rel=\"prev\" declaration and the anchors beside them)"
       },
       {
+        "id": "DEEP_CLICK_DEPTH",
+        "reason": "no all_inlinks export (needed for the complete internal edge list)"
+      },
+      {
+        "id": "DUPLICATE_INTERNAL_LINK",
+        "reason": "no all_inlinks export (needed for the complete internal edge list)"
+      },
+      {
         "id": "DOM_TOO_DEEP",
         "reason": "no stored HTML (input.html_store_dir not set)"
       },
@@ -420,12 +448,12 @@
     ],
     "health_score": null,
     "check_coverage": {
-      "checks_total": 155,
+      "checks_total": 161,
       "checks_fired": 16,
-      "checks_skipped": 80,
+      "checks_skipped": 87,
       "checks_disabled": 0,
       "checks_disabled_ids": [],
-      "checks_silent": 59,
+      "checks_silent": 58,
       "checks_silent_ids": [
         "AMPHTML_PRESENT",
         "BAD_REDIRECT_TYPE",
@@ -446,7 +474,6 @@
         "H1_DUPLICATE",
         "H1_MISSING",
         "H1_TOO_LONG",
-        "H2_MISSING",
         "H2_TOO_LONG",
         "HIGH_EXTERNAL_OUTLINKS",
         "HIGH_OUTLINKS",
@@ -487,10 +514,14 @@
         "URL_UNDERSCORES",
         "URL_UPPERCASE"
       ],
-      "coverage": 0.484
+      "coverage": 0.46
     },
-    "health_score_reason": "only 75 of 155 checks could run (48% coverage); too little evidence to score",
-    "health_score_basis": "75 of 155 checks could run; the score is not comparable to a run with full evidence",
+    "health_score_reason": "only 74 of 161 checks could run (46% coverage); too little evidence to score",
+    "health_score_basis": "74 of 161 checks could run; the score is not comparable to a run with full evidence",
+    "internal_linking": {
+      "measured": false,
+      "reason": "no all_inlinks export (needed for the complete internal edge list)"
+    },
     "size_stats_bytes": {
       "count": 4,
       "median": 77500,

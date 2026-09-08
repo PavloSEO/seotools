@@ -90,6 +90,26 @@ class PathSession:
             self._expand(row[0])
         return self._materialize(target)
 
+    def iter_depths(self):
+        """Drain the frontier, then yield ``(key, hops)`` for every reachable node.
+
+        ``path_to`` expands only as far as one target, which is right when a check
+        asks about a handful of pages and wrong when the question is the shape of
+        the whole site. Exhausting the same FIFO walk gives the identical distances
+        it would have reached one target at a time, and the predecessor rows stay
+        materialized afterwards so a later ``path_to`` costs nothing.
+        """
+        if self._closed:
+            raise ScanError("path session is closed")
+        while True:
+            row = self._con.execute(
+                f"SELECT key FROM {self._frontier} WHERE done=0 ORDER BY queue_order LIMIT 1"
+            ).fetchone()
+            if row is None:
+                break
+            self._expand(row[0])
+        yield from self._con.execute(f"SELECT key, depth FROM {self._predecessor}")
+
     def _known(self, key: str) -> bool:
         return (
             self._con.execute(f"SELECT 1 FROM {self._predecessor} WHERE key=?", (key,)).fetchone()

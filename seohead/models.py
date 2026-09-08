@@ -80,6 +80,59 @@ class HreflangAlternate(TypedDict):
     url: str
 
 
+class HeadingRef(TypedDict):
+    """One `<h1>`-`<h6>` in document order, with where on the page it sits (issue #632).
+
+    ``level`` and ``text`` are what the eight existing heading checks read as an
+    unordered set; keeping them in a sequence is what lets a check ask whether a
+    heading precedes the page's first H1. ``region`` reuses the link-position
+    taxonomy (``seohead.tools.link_position.POSITIONS``) so "in the header"
+    means the same thing about a heading as it already does about a link, and is
+    ``""`` when the document offered nothing to place the heading against --
+    unmeasured, which is neither chrome nor content.
+    """
+
+    level: int
+    text: str
+    region: str
+
+
+class HeadingLinkRef(TypedDict):
+    """One anchor wrapped in an `<h1>`-`<h6>` (issue #634).
+
+    ``level`` is the *nearest* heading ancestor's level, which is what a reader
+    sees; ``anchor`` is the link's own collapsed text, which on this defect is
+    usually the whole heading.
+    """
+
+    level: int
+    destination: str
+    anchor: str
+
+
+class ImageLinkRef(TypedDict):
+    """One image link that names nothing about where it goes (issue #634)."""
+
+    destination: str
+
+
+class LinkPlacement(TypedDict):
+    """The two link defects a page region cannot show (issue #634).
+
+    ``seohead.tools.link_position`` answers "which part of the template is this
+    link in". A link wrapped in the page's own H1 can sit squarely in ``content``
+    and still point the heading away from the page, and an image link with nothing
+    to read is a property of what the anchor contains rather than of where it sits.
+    Both lists are capped (``parser._MAX_PLACEMENT_ITEMS``); the ``*_total`` counts
+    beside them are the whole counts, so a truncated list reads as truncated.
+    """
+
+    in_heading: list[HeadingLinkRef]
+    in_heading_total: int
+    image_no_text: list[ImageLinkRef]
+    image_no_text_total: int
+
+
 class FrameInfo(TypedDict):
     """One `<iframe>` extracted from a page (issue #360).
 
@@ -197,9 +250,18 @@ class ParsedPage(_ParsedPageOptional):
     og: dict[str, str]
     twitter: dict[str, str]
     headings: dict[str, list[str]]
+    # The same headings as a sequence rather than a set: every h1-h6 with text,
+    # in DOM order, each carrying its level, text and page region (#632). The
+    # grouping above answers "which levels exist and how many"; only this
+    # answers "in what order" and "where on the page".
+    heading_outline: list[HeadingRef]
     jsonld: list[Any]
     jsonld_invalid: list[dict[str, Any]]
     links: list[LinkInfo]
+    # Where those same anchors sit: the ones inside a heading, and the image
+    # links that name nothing (#634). ``None`` when link parsing was switched
+    # off, which is "not measured" rather than "none found".
+    link_placement: LinkPlacement | None
     forms: list[FormInfo]
     text: str
     # The whole body, and the content area alone. word_count follows the

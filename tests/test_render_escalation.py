@@ -415,6 +415,55 @@ def test_a_failed_probe_is_not_counted_as_a_positive_signal():
     assert result.patterns_escalated == []
 
 
+def test_a_pattern_whose_every_probe_failed_is_reported_unprobed_not_clean():
+    # #626: a browser launch failure, a timeout, or an incomplete render all surface
+    # here as probe ok:False. Before the fix, the for/else added the pattern to
+    # probed_patterns regardless, so it read exactly like a pattern that was measured
+    # and genuinely needs no rendering -- unmeasured passing itself off as clean.
+    pages = [_Page(f"https://example.com/blog/{i}") for i in range(3)]
+
+    def probe(_url):
+        return {"ok": False, "error": "Browser rendering failed: TimeoutError: 30000ms exceeded"}
+
+    result = escalate(
+        pages,
+        _config(sample_per_pattern=2),
+        probe=probe,
+        render_fetch=lambda u: (_ for _ in ()).throw(AssertionError("must not render blindly")),
+        representation_label="rendered",
+    )
+    pattern = "https://example.com/blog/*"
+    assert pattern in result.patterns_unprobed
+    assert pattern not in result.patterns_escalated
+    assert result.patterns_unprobed_reasons[pattern] == (
+        "Browser rendering failed: TimeoutError: 30000ms exceeded"
+    )
+    # Every sample for the pattern was probed (both failed), not skipped for time.
+    assert result.probe_requests == 2
+    assert result.time_budget_exhausted is False
+
+
+def test_a_pattern_that_probed_clean_is_not_reported_as_unprobed():
+    # The unchanged path: at least one successful probe still means "measured, and it
+    # genuinely does not need rendering" -- not a candidate for patterns_unprobed.
+    pages = [_Page(f"https://example.com/docs/{i}") for i in range(3)]
+
+    def probe(_url):
+        return {"ok": True, "needs_escalation": False}
+
+    result = escalate(
+        pages,
+        _config(),
+        probe=probe,
+        render_fetch=lambda u: {"ok": False},
+        representation_label="rendered",
+    )
+    pattern = "https://example.com/docs/*"
+    assert pattern not in result.patterns_unprobed
+    assert pattern not in result.patterns_unprobed_reasons
+    assert result.patterns_escalated == []
+
+
 def test_a_failed_render_fetch_leaves_the_page_static():
     pages = [_Page("https://example.com/x")]
 
@@ -727,3 +776,61 @@ def test_the_crawl_passes_its_own_user_agent_to_the_rendered_fetch(monkeypatch, 
     handlers._run_render_escalation(result, settings["rendering"], settings)
 
     assert seen.get("user_agent") == "AcmeAudit/2.0"
+
+
+def test_a_probe_that_reached_no_verdict_leaves_its_pattern_unprobed(monkeypatch):
+    """#642: render_check returns ok:True with js_dependent None when the DOM was
+    read at an earlier milestone than the one requested -- it measured nothing.
+    ``bool(None)`` is False, which escalate() would otherwise record as a pattern
+    that was probed and genuinely needs no rendering. It routes through #626's
+    unprobed channel instead of acquiring a verdict it does not have.
+    """
+    from seohead.crawl.spider import SpiderResult
+    from seohead.servers import handlers
+    from seohead.tools import render as render_tool
+
+    monkeypatch.setattr(
+        render_tool,
+        "render_check",
+        lambda *a, **k: {
+            "ok": True,
+            "js_dependent": None,
+            "empty_shell": None,
+            "findings": ["The requested load milestone was never reached"],
+        },
+    )
+    settings = crawl_config.load(overrides={"rendering.mode": "js"})
+    result = SpiderResult()
+    result.pages = [_Page("https://example.com/app/1")]
+
+    escalated = handlers._run_render_escalation(result, settings["rendering"], settings)
+
+    pattern = "https://example.com/app/*"
+    assert pattern in escalated.patterns_unprobed
+    assert pattern not in escalated.patterns_escalated
+    assert escalated.patterns_unprobed_reasons[pattern] == (
+        "The requested load milestone was never reached"
+    )
+
+
+def test_a_probe_that_reached_a_negative_verdict_still_counts_as_probed(monkeypatch):
+    """The other direction: a run that reached its milestone and found no
+    JavaScript dependence has measured the pattern, and must keep saying so."""
+    from seohead.crawl.spider import SpiderResult
+    from seohead.servers import handlers
+    from seohead.tools import render as render_tool
+
+    monkeypatch.setattr(
+        render_tool,
+        "render_check",
+        lambda *a, **k: {"ok": True, "js_dependent": False, "empty_shell": None},
+    )
+    settings = crawl_config.load(overrides={"rendering.mode": "js"})
+    result = SpiderResult()
+    result.pages = [_Page("https://example.com/docs/1")]
+
+    escalated = handlers._run_render_escalation(result, settings["rendering"], settings)
+
+    assert escalated.patterns_unprobed == []
+    assert escalated.patterns_unprobed_reasons == {}
+    assert escalated.patterns_escalated == []

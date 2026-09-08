@@ -11,7 +11,7 @@ import pytest
 
 from seohead.crawl.collect import PageRecord
 from seohead.crawl.settings import fingerprint, load
-from seohead.storage import _PAGE_NONNEGATIVE_INTS, ScanError
+from seohead.storage import _PAGE_NONNEGATIVE_INTS, ScanError, native_scan
 from seohead.storage.native_scan import Lease, NativeScan
 
 SOURCE = Path(__file__).resolve().parents[1]
@@ -442,6 +442,70 @@ def test_terminal_scan_cannot_reopen_writer_and_inspection_timeout_is_bounded(tm
         NativeScan.open(path)
     with pytest.raises(ScanError, match="timeout"):
         NativeScan.inspect(path, timeout_seconds=0)
+
+
+def test_inspect_deadline_abort_names_the_budget_elapsed_time_and_size(tmp_path):
+    # Enough committed pages that PRAGMA quick_check/foreign_key_check run past the
+    # progress handler's 10_000-opcode interval at least once, so a near-zero
+    # explicit timeout_seconds is guaranteed to abort mid-pass -- this reproduces
+    # the #631 deadline abort without a gigabyte fixture.
+    path = tmp_path / "scan.sqlite"
+    with NativeScan.create(path, **_metadata()) as scan:
+        scan.enqueue([(f"https://example.test/{i}", 0) for i in range(500)])
+        for i in range(500):
+            lease = scan.claim(1)[0]
+            scan.commit_page(
+                lease,
+                vars(PageRecord(url=lease.url, content_type="text/html", title="p", crawl_depth=0)),
+                links=[_link(lease.url, f"https://example.test/{i}/a", "l")],
+                forms=[],
+                discovered=[],
+                runtime=_runtime(),
+            )
+
+    with pytest.raises(
+        ScanError, match=r"exceeded its .*s budget after .*s \(artifact: \d+ bytes\)"
+    ) as excinfo:
+        NativeScan.inspect(path, timeout_seconds=1e-9)
+    assert "interrupted" not in str(excinfo.value)
+
+
+def test_inspect_of_a_small_artifact_still_opens_unchanged(tmp_path):
+    path = tmp_path / "scan.sqlite"
+    with NativeScan.create(path, **_metadata()) as scan:
+        scan.enqueue([("https://example.test/", 0)])
+        lease = scan.claim(1)[0]
+        scan.commit_page(lease, _record(), links=[], forms=[], discovered=[], runtime=_runtime())
+
+    result = NativeScan.inspect(path)
+    assert result["scan"]["lifecycle"] == "running"
+    assert result["counts"]["pages"] == 1
+    with NativeScan.open(path) as reopened:
+        assert reopened is not None
+
+
+def test_default_inspect_timeout_scales_with_artifact_size():
+    small = native_scan._default_inspect_timeout(0)
+    large = native_scan._default_inspect_timeout(500 * 1024 * 1024)
+    assert small == native_scan.INSPECT_MIN_TIMEOUT_SECONDS
+    assert large > small
+
+
+def test_explicit_inspect_timeout_overrides_the_derived_default(tmp_path, monkeypatch):
+    path = tmp_path / "scan.sqlite"
+    with NativeScan.create(path, **_metadata()) as scan:
+        scan.enqueue([("https://example.test/", 0)])
+        lease = scan.claim(1)[0]
+        scan.commit_page(lease, _record(), links=[], forms=[], discovered=[], runtime=_runtime())
+
+    def _boom(size_bytes):
+        raise AssertionError(
+            "derived default must not be computed when timeout_seconds is explicit"
+        )
+
+    monkeypatch.setattr(native_scan, "_default_inspect_timeout", _boom)
+    result = NativeScan.inspect(path, timeout_seconds=5.0)
+    assert result["counts"]["pages"] == 1
 
 
 def test_rejected_query_does_not_make_page_ordinal_follow_frontier_ordinal(tmp_path):

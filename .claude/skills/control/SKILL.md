@@ -33,7 +33,7 @@ number is one that came back.
 
 | Tier | Where | What it knows |
 |---|---|---|
-| **Method** | the other 21 skills in `.claude/skills/` | how to do one thing well: robots, rendering, schema, silos, headings, regions, backlinks, security |
+| **Method** | the other 22 skills in `.claude/skills/` | how to do one thing well: robots, rendering, schema, silos, headings, regions, backlinks, security |
 | **Controller** | this file and `subskills/` | which of them to run, in what order, and whether to believe the answer |
 
 This skill routes; it does not restate. When a step below names a method skill, load that skill

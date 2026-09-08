@@ -168,6 +168,57 @@ def test_h1_duplicate_and_h2_missing_fire_and_stay_silent(tmp_path):
     assert OK not in f.get("H2_MISSING", set())
 
 
+def _skipped(res):
+    return {s.id: s.reason for s in res.skipped}
+
+
+def test_a_requirement_that_is_off_names_its_check_unevaluated(tmp_path):
+    """An unreachable check is not a clean one (#635).
+
+    ``require_h2`` is false by default, so the H2_MISSING branch never runs. Before
+    this it left no trace at all, and coverage counted the check as silent -- the
+    bucket that means "ran over every page and found nothing" -- on a page that has
+    no H2 to find.
+    """
+    rows = [_row(BAD, h2=""), _row(OK)]
+    res = _run(tmp_path, rows)
+
+    assert BAD not in _fired(res).get("H2_MISSING", set())
+    reason = _skipped(res).get("H2_MISSING")
+    assert reason is not None, "H2_MISSING must be declared skipped, not left silent"
+    assert "require_h2" in reason
+
+
+def test_a_requirement_that_is_on_still_judges_its_check(tmp_path):
+    """The silent half: turning the requirement on must not leave the check skipped."""
+    rows = [_row(BAD, h2=""), _row(OK)]
+    res = _run(tmp_path, rows, config_overrides={"requirements": {"require_h2": True}})
+
+    assert BAD in _fired(res).get("H2_MISSING", set())
+    assert OK not in _fired(res).get("H2_MISSING", set())
+    assert "H2_MISSING" not in _skipped(res)
+
+
+def test_canonical_requirement_turned_off_names_its_check_unevaluated(tmp_path):
+    """``require_canonical`` defaults to true, so this branch is rare -- and untested
+    until now, which is how the same shape survived in two places."""
+    rows = [_row(BAD, canonical=""), _row(OK)]
+    res = _run(tmp_path, rows, config_overrides={"requirements": {"require_canonical": False}})
+
+    assert BAD not in _fired(res).get("CANONICAL_MISSING", set())
+    reason = _skipped(res).get("CANONICAL_MISSING")
+    assert reason is not None
+    assert "require_canonical" in reason
+
+
+def test_canonical_requirement_left_on_still_judges_its_check(tmp_path):
+    rows = [_row(BAD, canonical=""), _row(OK)]
+    res = _run(tmp_path, rows)
+
+    assert BAD in _fired(res).get("CANONICAL_MISSING", set())
+    assert "CANONICAL_MISSING" not in _skipped(res)
+
+
 def test_url_hygiene_checks_fire_and_stay_silent(tmp_path):
     space_url = "https://example.com/has space"
     slashes_url = "https://example.com/a//b"

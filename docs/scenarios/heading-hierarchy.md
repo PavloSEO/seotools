@@ -33,9 +33,27 @@ seohead parse --url https://example.com/page
 
 `headings` comes back grouped by level — every H1, every H2, down to H6, with their text. That
 answers "is there an H2 at all" and "how many are there", and it does **not** answer "in what
-order", because the grouping discards it.
+order", because the grouping discards it. `heading_outline` beside it does: the same headings as
+a sequence, each with its level, its text and the page region it sits in.
 
-**3. Build the real outline.** The `heading-outline` skill in this repository does the part the
+**2b. Read the two checks that judge that sequence.** A native crawl stores the outline, so the
+registry answers both questions the grouping cannot. `HEADING_BEFORE_H1` fires when a heading of
+any level stands before the page's first H1 in DOM order, with how many, which levels, and the
+first few texts. `HEADING_IN_PAGE_CHROME` fires when a heading sits in the header, nav, sidebar
+or footer — the same regions link positions use — because a menu label is a label on furniture
+repeated on every page, and it is what pushes the real H1 down the outline. Both are skipped by
+name on a Screaming Frog export, which carries no outline at all.
+
+**2c. Know when the region is not knowable.** A heading is placed by a position rule, or against
+the content area when the document names one — a `<main>`, a `[role=main]`, an `<article>`, or a
+selector you configured. On a page with none of those, "not chrome" would be true of every
+heading and would say nothing, so the region is recorded as unmeasured and the page is named
+among the run's skipped checks with that reason rather than reported clean. Order does not need
+a region, so `HEADING_BEFORE_H1` still answers for such a page. If a site's menus are styled
+`<div>`s the default rules do not recognise, name them in `link_position.rules` and both the
+link positions and the heading regions improve together.
+
+**3. Build the rest of the outline's logic.** The `heading-outline` skill in this repository does the part the
 grouping cannot: it fetches the page and walks `//h1|//h2|//h3|//h4|//h5|//h6` in DOM order, then
 checks that the level never increases by more than one step. H4 after H2 is an error; H2 after
 H4 is a legitimate return to a higher level. That skill runs `curl` plus a local `lxml` parse —
@@ -100,6 +118,9 @@ mistake, and paying for four hundred pages to learn what one page would have sai
 
 - **Whether the order is wrong on purpose.** A designer's section break and a mistagged widget
   produce the same jump.
+- **Which region a heading is in on a page with no landmarks.** `HEADING_IN_PAGE_CHROME` reports
+  that page as unevaluated rather than clean; the answer is to give the template a `<main>`, or
+  to name its blocks in `link_position.rules`.
 - **Whether an alt-only H1's image is even the right image.** `H1_ALT_TEXT_ONLY` reports that the
   heading has no visible text, not whether the alt text describes the page accurately.
 - **Headings inserted by JavaScript.** A raw fetch of an app shell returns no headings, which

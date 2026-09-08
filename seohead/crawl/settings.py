@@ -44,12 +44,25 @@ from typing import Any
 # per record is not free. Measured the same way, 8 000 records with distinct URLs:
 # 2 116 bytes at 58 fields, 2 172 at 60 -- one more 56-byte empty-list increment,
 # the same figure the hreflang list cost. The totals below carry it.
-# Field lengths affect absolute memory,
-# so 2 456 bytes is an approximate combined PageRecord estimate; the rounded totals are
+# The heading outline (#632) is the first field whose default emptiness is not the
+# normal case: every HTML page has headings, and each is a dict of three values held
+# for the whole run. Measured with the same instrument over 8 000 records, the empty
+# list costs the familiar 56 bytes, and a page carrying a twelve-heading outline costs
+# 3 091 bytes more than one with none -- roughly doubling a page record on a
+# heading-rich site. Link placement (#634) is the second such field and much the
+# cheaper one: it is a fixed four-key dict rather than a list that grows with the
+# page, and the parser caps both lists inside it. Measured with the same instrument
+# over 8 000 records, the empty placement dict costs 303 bytes per record, and a
+# page carrying one heading link and one unlabelled image link costs about 520
+# bytes more than one carrying neither -- a constant per page, not a per-link cost,
+# which is why it is not behind link_position.classify. Field lengths affect
+# absolute memory,
+# so 5 550 bytes is an approximate combined PageRecord estimate for such a site
+# (about 2 500 where the outlines are short); the rounded totals are
 #
-#   10 000 URLs x 150 links/page -> 0.56 GiB
-#   50 000 URLs x  60 links/page -> 1.18 GiB
-#   50 000 URLs x 150 links/page -> 2.79 GiB
+#   10 000 URLs x 150 links/page -> 0.59 GiB
+#   50 000 URLs x  60 links/page -> 1.33 GiB
+#   50 000 URLs x 150 links/page -> 2.93 GiB
 #
 # so the honest ceiling depends on how densely the site links, which no constant can
 # know. 50 000 is where a full crawl stops being the right instrument anyway; past it

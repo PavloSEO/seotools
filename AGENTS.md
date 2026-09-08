@@ -9,7 +9,7 @@ MCP server. Do not add a GUI, desktop shell, hosted API, or remote MCP endpoint 
 Do not present SEOHEAD as a replacement for Screaming Frog or as a collection of unrelated
 scripts. The crawler and this toolkit have different jobs:
 
-- Screaming Frog produces the CSV/XLSX exports consumed by SEOHEAD's 155-check analyzer. Do not
+- Screaming Frog produces the CSV/XLSX exports consumed by SEOHEAD's 161-check analyzer. Do not
   imply that another crawler's exports are drop-in compatible.
 - SEOHEAD analyzes those SF exports, adds bounded live and infrastructure evidence, preserves
   skipped/failed measurements, and produces structured audit, task, and report artifacts.
@@ -40,7 +40,7 @@ seohead/
   tools/          live page, content, image, log, and structured-data tools
   recon/          domain and infrastructure reconnaissance
   crawl/          native site collector (crawl-site) — no Screaming Frog required
-  sf/             Screaming Frog export runner and 155-check analyzer, shared with crawl/'s output
+  sf/             Screaming Frog export runner and 161-check analyzer, shared with crawl/'s output
   audit/          bounded sitemap-based evidence orchestration
   reports/        XLSX, DOCX, CSV, Markdown, and JSON formatting
   data_sources/   optional demand, SERP, and traffic providers
@@ -92,3 +92,13 @@ notice in `THIRD_PARTY_NOTICES.md`.
 4. Add the MCP tool with accurate side-effect annotations.
 5. Add offline tests for success, failure, limits, and missing dependencies.
 6. Update `docs/TOOLS.md`, the README capability count, and any provider cost or safety notes.
+7. Add the changelog entry as `changelog.d/<issue>.md`, never by editing `CHANGELOG.md`.
+
+## Changelog entries
+
+Entries live one file per change under `changelog.d/`, named for the issue the change closes
+(`changelog.d/638.md`), and are folded into `CHANGELOG.md` at release time by
+`python scripts/build_changelog.py`. A branch that edits `CHANGELOG.md` conflicts with every
+other branch that landed before it; a branch that adds its own file never can (#638). The
+fragment holds the entry verbatim -- top-level `- ` bullets with their continuation lines, no
+heading -- so prose is not reformatted on the way in. See CONTRIBUTING.md for the naming rules.

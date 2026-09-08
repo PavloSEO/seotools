@@ -460,3 +460,96 @@ def test_the_settle_can_be_switched_off(monkeypatch):
     render_check("https://example.com/", settle_ms=0)
 
     assert stack["page"].settled_ms == []
+
+
+# ── An unfinished render must not read as a clean one (#642) ─────────────────
+
+
+# A single-page-application shell: the raw response carries a title, a canonical
+# and an empty mount point, and no page copy at all. Exactly the page whose
+# render is most likely to time out -- which is why the shell finding must not
+# be discarded together with the render.
+_SPA_SHELL_PAGE = (
+    '<html><head><title>Shop</title><link rel="canonical" href="https://example.com/">'
+    '</head><body><div id="root"></div><a href="/catalogue/">Catalogue</a>'
+    "<!--" + "x" * 5000 + "--></body></html>"
+)
+
+# The same page without the mount point: a server-rendered document, so a failed
+# render here is a failed render and nothing more.
+_SERVER_RENDERED_PAGE = _RAW_PAGE
+
+
+def test_a_missed_milestone_is_stated_in_the_findings_and_withholds_the_all_clear(monkeypatch):
+    """#642: the fallback capture read the DOM before the scripts ran, so raw and
+    rendered were identical and the run asserted that JavaScript does not matter
+    on a page nobody rendered. seohead.audit.site carries findings text only, so
+    the miss has to be in that list."""
+    _install_stack(
+        monkeypatch,
+        _RAW_PAGE,
+        _RAW_PAGE,
+        goto_error=_FakeTimeoutError("Timeout 30000ms exceeded"),
+        timeout_error=_FakeTimeoutError,
+    )
+
+    result = render_check("https://example.com/")
+
+    assert result["wait"] == "load"
+    assert result["wait_reached"] == "domcontentloaded"
+    assert render_module.ALL_CLEAR not in result["findings"]
+    assert any("milestone was never reached" in f for f in result["findings"])
+    assert any("domcontentloaded" in f for f in result["findings"])
+    # Not measured is not clean: None, never False.
+    assert result["js_dependent"] is None
+
+
+def test_a_render_that_reached_its_milestone_still_reports_the_all_clear(monkeypatch):
+    """The other direction: the guard must not withhold a verdict from a run that
+    did what it was asked and found nothing."""
+    stack = _install_stack(monkeypatch, _RAW_PAGE, _RAW_PAGE)
+
+    result = render_check("https://example.com/")
+
+    assert stack["page"].load_states == []
+    assert result["wait_reached"] == result["wait"] == "load"
+    assert result["findings"] == [render_module.ALL_CLEAR]
+    assert result["js_dependent"] is False
+
+
+def test_an_empty_shell_survives_a_render_that_never_finished(monkeypatch):
+    """#642: detect_empty_shell() reads the raw response and never the browser,
+    so its answer holds whether or not the render finished."""
+    _install_stack(monkeypatch, _SPA_SHELL_PAGE, _TRUNCATED_RENDER)
+
+    result = render_check("https://example.com/")
+
+    assert result["ok"] is False
+    assert result["reason"] == "incomplete_render"
+    # The key is carried, not omitted, so a caller can read the raw-HTML answer
+    # out of an incomplete result.
+    assert result["empty_shell"] == "root"
+    assert result["js_dependent"] is None
+    # compare() keeps the raw-derived finding alongside the unavailability
+    # statement, for the callers that read findings rather than the key.
+    findings = render_module.compare(
+        result["raw"], result["rendered"], _SPA_SHELL_PAGE, result["empty_shell"]
+    )
+    assert any("comparison is unavailable" in f for f in findings)
+    assert any('empty <div id="root">' in f for f in findings)
+
+
+def test_a_failed_render_of_a_server_rendered_page_reports_no_shell(monkeypatch):
+    """The other direction: the shell finding is evidence, not consolation. A page
+    with no empty mount point must not acquire one because its render failed."""
+    _install_stack(monkeypatch, _SERVER_RENDERED_PAGE, _TRUNCATED_RENDER)
+
+    result = render_check("https://example.com/")
+
+    assert result["ok"] is False
+    assert result["reason"] == "incomplete_render"
+    assert result["empty_shell"] is None
+    findings = render_module.compare(
+        result["raw"], result["rendered"], _SERVER_RENDERED_PAGE, result["empty_shell"]
+    )
+    assert findings == [result["error"]]

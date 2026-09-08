@@ -1,8 +1,8 @@
 # Skill map
 
-22 skills in `.claude/skills/`, in two tiers.
+23 skills in `.claude/skills/`, in two tiers.
 
-**Method skills** — 21 of them. Each covers one thing well: when to apply it, in what
+**Method skills** — 22 of them. Each covers one thing well: when to apply it, in what
 order, how to read the result, and where the boundary is beyond which the tool starts to lie.
 
 **The controller** — `control/`, which decides *which* method skill to run on a site nobody has
@@ -57,7 +57,7 @@ Then by the layer of the task.
 | Skill | When | Tool |
 |---|---|---|
 | **sf-analyzer** | There is a crawl or exports — produce a machine-readable audit | `sf run` |
-| **sf-config** | Configure SF once to maximize applicable coverage from the 155-check registry | — |
+| **sf-config** | Configure SF once to maximize applicable coverage from the 161-check registry | — |
 | **sf-report** | Turn the export into a human-readable report | `sf run --out` |
 | **sf-tasks** | Build a prioritized backlog from `audit.json` | `sf tasks` |
 
@@ -80,6 +80,7 @@ Then by the layer of the task.
 | **duplicate-audit** | Near-duplicates and thin pages | `duplicate-check` |
 | **heading-outline** | The H1–H6 structure and its hierarchy | `parse` |
 | **silo-audit** | Is the structure silo-like, hubs, interlinking, orphans | `links-check`, `sitemap-crawl` |
+| **internal-linking** | Is the site linked well: click depth from the start URL, edges by position, repeated edges, link placement | `crawl-site`, `sf run` |
 | **backlinks-check** | Verify links against your own donor list | `backlinks-check` |
 | **geo-aeo-audit** | Visibility in AI answers: crawlers, llms.txt, citability | `ai-bots-check`, `llms-txt-check`, `citability-check` |
 

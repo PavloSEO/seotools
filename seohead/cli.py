@@ -233,6 +233,7 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
             "sitemap",
             "scan_out",
             "producer_build",
+            "resume",
         ):
             value = getattr(args, flag, None)
             if value is not None:
@@ -605,6 +606,50 @@ def _print_effective_rate(kwargs: dict[str, Any]) -> None:
     print(f"crawl-site: effective worst-case request rate to one host: {shown}", file=sys.stderr)
 
 
+# Stops the crawl chose because it was told to, not ones a resume can get past: the
+# limit is part of the effective configuration a resume reads back from the artifact.
+BUDGET_STOPS = {
+    "url_limit": "The URL budget (limits.max_urls)",
+    "duration_limit": "The crawl-time budget (limits.max_crawl_seconds)",
+}
+
+
+def _print_crawl_outcome(result: Any) -> None:
+    """Say on exit whether the crawl finished or stopped early, and why.
+
+    A crawl that stopped at a limit, an error circuit or an interruption is not a
+    shorter complete crawl: every count it produced describes part of a site. The
+    JSON already carries that in ``partial``/``finish_reason``, but an operator
+    watching a long run in a terminal reads the last line, not the document -- so
+    this repeats it there, and names the command that continues the run rather
+    than restarting it.
+
+    On stderr, like the request-rate line above it, so the JSON document on stdout
+    stays exactly what a pipeline parses.
+    """
+    if not isinstance(result, dict) or "finish_reason" not in result:
+        return  # --config-help, an error already reported, or a non-crawl result
+    fetched = result.get("urls_collected")
+    scan = result.get("scan")
+    if result.get("partial"):
+        reason = result.get("stopped_reason") or result.get("finish_reason") or "reason unrecorded"
+        line = f"crawl-site: stopped early ({reason}); {fetched} URLs fetched"
+        budget = BUDGET_STOPS.get(result.get("finish_reason"))
+        if budget:
+            # A resume applies the artifact's own recorded settings, so it cannot
+            # get past a budget those settings set: pointing at --resume here would
+            # be advice to run the same no-op again.
+            line += f". {budget} was reached, and a resume continues under it: "
+            line += "raise it and crawl to a new scan to go further"
+        elif scan:
+            line += f". Continue it with: seohead crawl-site --resume {scan}"
+    else:
+        line = f"crawl-site: finished; {fetched} URLs fetched"
+        if result.get("resumed"):
+            line += " (this run continued an earlier one)"
+    print(line, file=sys.stderr)
+
+
 def _crawl_progress(kwargs: dict[str, Any]) -> CrawlProgress | None:
     """Build the live progress line for a crawl-site run, or None when it has no place to go.
 
@@ -617,12 +662,23 @@ def _crawl_progress(kwargs: dict[str, Any]) -> CrawlProgress | None:
     handler call that follows reports that error properly, and a progress line
     is never worth turning a clear message into a traceback.
     """
+    import sqlite3
+
     from seohead.crawl import settings as crawl_config
     from seohead.crawl.progress import CrawlProgress
 
+    resume = kwargs.get("resume")
     try:
-        resolved = crawl_config.load(kwargs.get("config"), overrides=_crawl_overrides(kwargs))
-    except crawl_config.ConfigError:
+        if resume:
+            # A resume runs under the settings stored in its artifact, so the budget
+            # to measure against is the stored one; the flags that would have set a
+            # different one are refused by the handler rather than applied.
+            from seohead.servers.scan_handlers import resume_inputs
+
+            resolved = resume_inputs(resume)["settings"]
+        else:
+            resolved = crawl_config.load(kwargs.get("config"), overrides=_crawl_overrides(kwargs))
+    except (crawl_config.ConfigError, OSError, ValueError, sqlite3.Error):
         return None
     stream = sys.stderr
     return CrawlProgress(
@@ -632,7 +688,7 @@ def _crawl_progress(kwargs: dict[str, Any]) -> CrawlProgress | None:
         # getattr, because a captured or replaced stderr need not be a real file
         # object at all, and a missing isatty means "assume not a terminal".
         tty=bool(getattr(stream, "isatty", lambda: False)()),
-        artifact_path=kwargs.get("scan_out"),
+        artifact_path=resume or kwargs.get("scan_out"),
     )
 
 
@@ -679,6 +735,13 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
         sub.add_argument("--max-urls", type=int, help="URL budget (default 200)")
         sub.add_argument("--out-dir", help="directory for pages.jsonl and audit.json")
         sub.add_argument("--scan-out", metavar="FILE", help="opt-in SQLite scan artifact")
+        _source_flag(
+            sub,
+            "--resume",
+            metavar="FILE",
+            help="continue an interrupted SQLite scan; its start URL and settings "
+            "come from the file, so no other crawl flag applies",
+        )
         sub.add_argument(
             "--producer-build", metavar="SHA", help="original source build for SQLite capture"
         )
@@ -701,7 +764,7 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
             "-q",
             "--quiet",
             action="store_true",
-            help="no progress or rate line on stderr; stdout unchanged",
+            help="no crawl lines on stderr; stdout unchanged",
         )
         sub.add_argument(
             "--max-urls-per-second",
@@ -1100,9 +1163,15 @@ def main(argv: list[str] | None = None) -> int:
         handler_name, kwargs = _build_kwargs(cmd, args)
         report_fmt = kwargs.pop("_report", None)
         report_out = kwargs.pop("_out", None)
+        quiet = getattr(args, "quiet", False)
         progress = None
-        if cmd == "crawl-site" and not getattr(args, "quiet", False):
-            _print_effective_rate(kwargs)
+        if cmd == "crawl-site" and not quiet:
+            if not kwargs.get("resume"):
+                # A resume applies the artifact's own recorded settings, not this
+                # command line's: printing a rate derived from flags that are refused
+                # here would describe a run that is not the one about to happen. The
+                # progress line reads that same artifact rather than these flags.
+                _print_effective_rate(kwargs)
             progress = _crawl_progress(kwargs)
             kwargs["progress"] = progress
         try:
@@ -1113,6 +1182,11 @@ def main(argv: list[str] | None = None) -> int:
             # line, and the error message below is worth reading.
             if progress is not None:
                 progress.close()
+        if cmd == "crawl-site" and not quiet:
+            # Under -q the crawl says nothing on stderr at all: the outcome this line
+            # states is in the JSON on stdout as ``partial``/``finish_reason``, and a
+            # caller that asked for silence is a pipeline reading that, not a terminal.
+            _print_crawl_outcome(result)
         if report_fmt and isinstance(result, dict) and result.get("ok"):
             # Build an optional report from the in-memory audit result. This keeps the structured
             # document identical while avoiding a manual JSON handoff between two commands.
@@ -1126,6 +1200,14 @@ def main(argv: list[str] | None = None) -> int:
         # A contradiction is a gate, not a report: a pipeline that produced numbers which
         # disagree with each other should stop rather than publish them. 2, not 1, so a
         # caller can tell "the run contradicts itself" from "the command failed".
+        return 2
+    if isinstance(result, dict) and result.get("audit_available") is False:
+        # A scan whose collection finished but whose audit did not (a budget it exceeded,
+        # evidence it could not reconstruct, or an unexpected exception -- #627) is neither
+        # a clean run nor a failed one: the artifact is real and re-analysable, so exiting 0
+        # would read as "audit ran clean" and exiting 1 would read as "nothing was produced".
+        # Same 2 as the log-scan contradiction above -- a caller gating on `$?` still needs a
+        # third answer besides those two.
         return 2
     if handlers.handler_failed(result):
         # The handler could not complete its check (bad input, an unreachable host, a

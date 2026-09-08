@@ -234,3 +234,47 @@ def test_composition_defragments_destinations_preserves_first_edge_and_source_st
     # a matching crawled page fact exists.
     assert by_destination[norm_url(uncrawled)].all_nofollow is True
     assert norm_url(external) not in by_destination
+
+
+def test_stored_graph_counts_positions_repeats_and_depths_from_the_seed(tmp_path):
+    """The stored-graph backend for the internal-linking summary (#634).
+
+    Three facts one walk over the same TEMP edge table produces: internal edges by
+    the position recorded on them (the blank kept apart from every named region),
+    source pages that write the same destination and anchor twice, and how far each
+    node is from the seed once the frontier is exhausted.
+    """
+    scan, pages = _scan(tmp_path)
+    root, a, b = pages
+    try:
+        _commit(
+            scan,
+            root,
+            [
+                _edge(root, a, "A", position="content", nofollow=False),
+                # The same destination and anchor a second time: a duplicated block.
+                _edge(root, a, "A", position="content", nofollow=False),
+                # Same destination, different anchor: two real links, not a repeat.
+                _edge(root, a, "Also A", position="nav", nofollow=False),
+                # Never classified -- must not land in any named position bucket.
+                _edge(root, b, "B", position="", nofollow=False),
+            ],
+        )
+        _commit(scan, a, [_edge(a, b, "B", position="content", nofollow=False)])
+        _commit(scan, b, [])
+        with AnalysisGraph(scan.con, normalize=norm_url, site_host="example.test") as graph:
+            totals = graph.position_totals()
+            duplicates = list(graph.iter_duplicate_links(10))
+            session = graph.begin_paths(norm_url(root))
+            depths = dict(session.iter_depths())
+            route = session.path_to(norm_url(b))
+    finally:
+        scan.close()
+
+    assert totals == {"content": 3, "nav": 1, "": 1}
+    assert [(group.source_url, group.surplus_total) for group in duplicates] == [(root, 1)]
+    assert duplicates[0].repeats == [{"destination": a, "anchor": "A", "count": 2}]
+    # b is two hops away through a: the unclassified root -> b edge is a real edge
+    # and one hop, so the shortest route is the direct one.
+    assert depths == {norm_url(root): 0, norm_url(a): 1, norm_url(b): 1}
+    assert route == (norm_url(root), norm_url(b))

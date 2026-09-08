@@ -6,7 +6,7 @@ Generated from `seohead/sf/core/registry.py` — do not edit by hand. Regenerate
 python scripts/generate_checks_reference.py
 ```
 
-**155 checks.** Severity, evidence and fix all come from the same `CHECKS` dict the rule engine reads, so this table cannot say something the engine disagrees with.
+**161 checks.** Severity, evidence and fix all come from the same `CHECKS` dict the rule engine reads, so this table cannot say something the engine disagrees with.
 
 - **Fires on** — what the check id means, in the registry's own words.
 - **Evidence** — the `source` tag: which export or module has to be present for the check to run at all; its absence is why a check comes back `skipped` instead of a silent pass.
@@ -65,6 +65,8 @@ python scripts/generate_checks_reference.py
 | `H2_MISSING` | notice | SF-derived | Page has an H1 but no H2 headings | Add meaningful H2 subheadings where needed to structure the content. |
 | `H2_DUPLICATE` | notice | SF-derived | H2 is duplicated across multiple URLs | Use a unique, page-specific H2 on each URL, or accept it for a shared boilerplate subheading that is genuinely meant to repeat. |
 | `H2_TOO_LONG` | notice | SF-derived | H2 exceeds the configured length threshold | Shorten the H2 while retaining what it introduces. |
+| `HEADING_BEFORE_H1` | notice | crawl:heading_outline | One or more headings appear before the page's first H1 in DOM order | Move the H1 above the headings that precede it, or demote those headings to plain text or a non-heading element. A parser reading the outline meets them before it meets the page's subject, and a snippet built from early page text quotes them instead of the page. |
+| `HEADING_IN_PAGE_CHROME` | notice | crawl:heading_outline | A heading sits in the page chrome (header, nav, sidebar or footer) rather than in the content | Mark template furniture up as what it is -- a menu label or a widget title is not a heading of this document, and repeating it on every page pushes the page's own headings down its outline. |
 
 ## 7.E — canonical & directives
 
@@ -227,6 +229,8 @@ python scripts/generate_checks_reference.py
 | `ONLY_NOFOLLOW_INLINKS` | warning | inlinks:All Inlinks | Every internal link to this page is nofollow | Add at least one ordinary, followed internal link so link equity and crawl priority reach the page. |
 | `ONLY_NONINDEXABLE_SOURCE_INLINKS` | warning | inlinks:All Inlinks | Every internal link to this page comes from a non-indexable source | Link to the page from at least one indexable page so it is reachable from the part of the site search engines actually rank. |
 | `DEEP_DISCOVERY_PATH` | notice | inlinks:All Inlinks | The shortest hyperlink route from the start page exceeds the configured depth | Add a shorter internal-linking route (e.g. from a hub or category page) so the page is reachable in fewer clicks. |
+| `DEEP_CLICK_DEPTH` | warning | inlinks:All Inlinks | The page is more clicks from the crawl's start URL than the configured floor | Link the page from a hub, category or related page nearer the start URL. A page linked only by a chain of next-post links is reachable and still effectively invisible, which no orphan count reports. |
+| `DUPLICATE_INTERNAL_LINK` | notice | inlinks:All Inlinks | The page repeats the same link -- same destination, same anchor text -- more than once | Emit the block once. A layout element rendered twice (one copy hidden by CSS or removed by JavaScript) duplicates every link it contains, which inflates the internal link graph without adding a single new route. |
 | `INSECURE_SUBRESOURCE` | warning | inlinks:All Inlinks | An HTTPS page loads a resource (image, script, stylesheet, ...) over plain HTTP | Serve every page resource over HTTPS and update its URL accordingly. |
 
 ## --- extension: technical checks ---
@@ -280,6 +284,13 @@ python scripts/generate_checks_reference.py
 | Check id | Severity | Evidence | Fires on | Fix |
 |---|---|---|---|---|
 | `INLINK_BOILERPLATE_ONLY` | warning | crawl:link_position | Page is linked only from navigation, header, sidebar, or footer, never from body content | Add a contextual link to the page from relevant body copy; a page reachable only through boilerplate is not linked the way a page in the content graph is. |
+
+## so both skip by name on an export rather than run clean on nothing.
+
+| Check id | Severity | Evidence | Fires on | Fix |
+|---|---|---|---|---|
+| `LINK_INSIDE_HEADING` | notice | crawl:link_placement | A heading on the page is, or contains, a link to somewhere else | Let the heading describe this page and put the link in the body copy beneath it. A heading that is a link stops naming the page's own subject and starts pointing away from it. |
+| `IMAGE_LINK_WITHOUT_TEXT` | warning | crawl:link_placement | An image link carries no anchor text and no alt text, so nothing says where it goes | Give the image a descriptive alt attribute, or add anchor text beside it. Neither a reader using a screen reader nor a crawler can tell what this link points to. |
 
 ## nor a link's rel/target/raw-href.
 

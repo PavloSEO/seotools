@@ -52,17 +52,26 @@ def test_browser_route_does_not_continue_after_validation(monkeypatch):
     assert route.continued is False
 
 
+class _Headers:
+    def __init__(self, items):
+        self._items = list(items)
+
+    def multi_items(self):
+        return list(self._items)
+
+    def get(self, name, default=""):
+        for key, value in self._items:
+            if key.lower() == name.lower():
+                return value
+        return default
+
+
 class _Response:
     status_code = 200
+    headers = _Headers([("content-type", "application/javascript")])
 
-    class _Headers:
-        def multi_items(self):
-            return [("content-encoding", "gzip"), ("content-type", "application/javascript")]
-
-    headers = _Headers()
-
-    def iter_raw(self):
-        yield b"raw-compressed-bytes"
+    def iter_bytes(self):
+        yield b"decoded-response-bytes"
 
 
 class _Stream:
@@ -82,7 +91,7 @@ class _Client:
         return _Stream()
 
 
-def test_pinned_fulfiller_uses_raw_bytes_and_never_continues(monkeypatch):
+def test_pinned_fulfiller_uses_decoded_bytes_and_never_continues(monkeypatch):
     route = _Route()
     client = _Client()
     monkeypatch.setattr(render, "validate_url", lambda url: url)
@@ -95,8 +104,10 @@ def test_pinned_fulfiller_uses_raw_bytes_and_never_continues(monkeypatch):
     assert client.calls[0][0:2] == ("GET", "https://public.example.test/app.js")
     assert "host" not in client.calls[0][2]["headers"]
     fulfilled = route.fulfilled[0]
-    assert fulfilled["body"] == b"raw-compressed-bytes"
-    assert fulfilled["headers"]["content-encoding"] == "gzip"
+    assert fulfilled["body"] == b"decoded-response-bytes"
+    # ``route.fulfill`` never applies a content coding to the body it is given,
+    # so a forwarded ``content-encoding`` could only ever contradict it (#650).
+    assert "content-encoding" not in {name.lower() for name in fulfilled["headers"]}
     assert limitations == []
 
 

@@ -7,6 +7,7 @@ import pathlib
 import re
 import tokenize
 
+from scripts.build_changelog import fragment_paths
 from seohead.cli import COMMANDS, URL_COMMANDS
 from seohead.servers.handlers import HANDLERS
 from seohead.servers.tool_reference import load_seo_tools, load_sf_tools
@@ -26,10 +27,16 @@ PACKAGED_SKILLS = sorted((ROOT / "seohead" / "skills").glob("*/SKILL.md"))
 # Every level: docs/scenarios/ is part of the public contract too, so the English-only
 # gate and the count checks apply to it like anything else under docs/.
 DOCS = sorted((ROOT / "docs").glob("**/*.md"))
+# One file per change, folded into CHANGELOG.md at release time (#638). A fragment is a
+# changelog entry that has not been assembled yet, so every gate below that reads the changelog
+# has to read these too -- otherwise moving entries out of CHANGELOG.md would quietly move them
+# out of the English-only, command-name and stale-count gates with them.
+CHANGELOG_FRAGMENTS = fragment_paths(ROOT / "changelog.d")
 PUBLIC_MARKDOWN = [
     ROOT / "README.md",
     ROOT / "AGENTS.md",
     ROOT / "CHANGELOG.md",
+    *CHANGELOG_FRAGMENTS,
     ROOT / "CODE_OF_CONDUCT.md",
     ROOT / "CONTRIBUTING.md",
     ROOT / "PROVENANCE.md",
@@ -54,6 +61,16 @@ ALLOWED_LOCALIZED_MARKDOWN = {
         "5 минут чтения",
     ),
 }
+
+
+def _records_a_moment_in_time(path: pathlib.Path) -> bool:
+    """Whether a document states what was true when it was written rather than what is true now.
+
+    A changelog entry does, so the live-count gates must not hold its numbers to today's
+    registry -- and that is equally true of a `changelog.d/` fragment, which is the same entry
+    before it has been folded in.
+    """
+    return path.name == "CHANGELOG.md" or path.parent.name == "changelog.d"
 
 
 def _sf_tool_names() -> set[str]:
@@ -180,13 +197,13 @@ def test_documented_product_counts_match_the_registries():
     provenance = (ROOT / "PROVENANCE.md").read_text(encoding="utf-8")
     assert len(COMMANDS) == len(HANDLERS) == 64
     assert len(_sf_tool_names()) == 5
-    assert len(CHECKS) == 155
-    assert len(TECHNICAL_SKILLS) == 22
+    assert len(CHECKS) == 161
+    assert len(TECHNICAL_SKILLS) == 23
     assert len(PACKAGED_SKILLS) == 7
     for text in (readme, provenance):
-        assert "64" in text and "155" in text and "five" in text.lower()
+        assert "64" in text and "161" in text and "five" in text.lower()
     assert "69 callable tools" in readme
-    assert "29 workflow skills" in readme
+    assert "30 workflow skills" in readme
     assert (ROOT / "CITATION.cff").is_file()
 
 
@@ -312,7 +329,7 @@ def test_hyphenated_check_count_claims_match_the_registry():
     bad = []
     pattern = re.compile(r"(\d+)-check\s+(?:registry|analyz|import)")
     for path in PUBLIC_MARKDOWN:
-        if path.name == "CHANGELOG.md":
+        if _records_a_moment_in_time(path):
             continue  # a changelog records what was true at the time, like test_doc_counts.py
         for match in pattern.finditer(path.read_text(encoding="utf-8")):
             if int(match.group(1)) != len(CHECKS):
@@ -354,7 +371,7 @@ def test_scenario_chain_count_claims_match_the_catalogue():
     pattern = re.compile(rf"\b({number})\s+(?:chains|scenarios)\b", re.I)
     bad = []
     for path in PUBLIC_MARKDOWN:
-        if path.name == "CHANGELOG.md":
+        if _records_a_moment_in_time(path):
             continue
         for match in pattern.finditer(path.read_text(encoding="utf-8")):
             raw = match.group(1).lower()

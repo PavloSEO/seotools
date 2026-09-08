@@ -183,6 +183,46 @@ def _seed_prune_plan(tmp_path: Path) -> None:
     )
 
 
+def _seed_resumable_scan(tmp_path: Path, base_url: str, argv: list[str]) -> None:
+    """What a killed crawl leaves behind, made by killing one.
+
+    A documented ``crawl-site --resume`` needs an artifact with work still queued, and
+    the imported scan ``_seed_scan_inputs`` builds is finished by construction. Rather
+    than assemble one by hand, this crawls the fixture site through the real collector
+    and stops it between batches, so the file the documented command resumes carries the
+    frontier, robots context, provenance and stored settings a real interruption leaves.
+
+    Seeded under the artifact path and producing build the documented line itself names:
+    a resume refuses both if they disagree, which is the behaviour being documented.
+    """
+    from seohead.servers import handlers
+    from seohead.storage.native_scan import NativeScan
+
+    target = tmp_path / argv[argv.index("--resume") + 1]
+    build = argv[argv.index("--producer-build") + 1] if "--producer-build" in argv else None
+    claim = NativeScan.claim
+    batches = {"count": 0}
+
+    class _Killed(Exception):
+        pass
+
+    def counting_claim(scan, count):
+        batches["count"] += 1
+        if batches["count"] > 1:
+            raise _Killed
+        return claim(scan, count)
+
+    NativeScan.claim = counting_claim
+    try:
+        handlers.crawl_site(
+            url=f"{base_url}/", scan_out=str(target), min_delay=0, producer_build=build
+        )
+    except _Killed:
+        pass
+    finally:
+        NativeScan.claim = claim
+
+
 def _seed_reanalysis_input(tmp_path: Path) -> None:
     # A legacy JSONL import cannot stand in for a retained corpus. This fixture
     # uses the real native collector with an injected owned HTML response and
@@ -229,7 +269,7 @@ def test_documented_command_executes_or_at_least_still_parses(
     from seohead.cli import main as cli_main
 
     _seed_workdir(tmp_path, fixture_site)
-    if any(".sqlite" in value for value in argv) and "--scan-out" not in argv:
+    if any(".sqlite" in value for value in argv) and not {"--scan-out", "--resume"} & set(argv):
         _seed_scan_inputs(tmp_path)
     if argv[:2] == ["scan", "reanalyze"] or argv[:1] == ["scan-reanalyze"]:
         _seed_reanalysis_input(tmp_path)
@@ -247,6 +287,10 @@ def test_documented_command_executes_or_at_least_still_parses(
     monkeypatch.setattr("sys.stdin", io.StringIO(command.stdin or ""))
 
     substituted = to_argv(_substitute(command.raw, fixture_site))
+    if "--resume" in substituted:
+        # After the loopback authorization above, and after substitution: seeding this
+        # one runs a real crawl, under the artifact path and build SHA the line names.
+        _seed_resumable_scan(tmp_path, fixture_site, substituted)
     if substituted[:1] == ["site-audit"] and "--skip" not in substituted:
         # site-audit's own domain-profile sub-check needs real RDAP; every other
         # site-level tool in it is a plain HTTP GET the fixture server answers.

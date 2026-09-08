@@ -19,7 +19,7 @@ If you know what you want, the other three layers are faster:
 
 **It is a crawler and an analysis layer.** It fetches a site the way a search engine's crawler
 would — one host, at a rate you choose, honouring robots.txt by default — records what came
-back, and applies 155 checks to that evidence. Then a set of specialised tools answer questions
+back, and applies 161 checks to that evidence. Then a set of specialised tools answer questions
 the crawl raised: does JavaScript change what a crawler sees, is the structured data a connected
 graph, how heavy are the images really.
 
@@ -80,9 +80,10 @@ Everything else in this toolkit reads one of those two.
 
 A third file, `crawl_state.json`, lands in the same directory as a checkpoint — invisible in a
 run that finishes, and the whole story when one does not. If the process is interrupted partway
-through, rerunning the identical command resumes from it instead of starting over. See
-[RECOVERY.md](RECOVERY.md) for the exact requirement and how to tell a resume from an
-intentional fresh start.
+through, rerunning the identical command resumes from it instead of starting over. A
+`--scan-out` run checkpoints inside the scan artifact instead, and resumes with
+`crawl-site --resume <scan>`. See [RECOVERY.md](RECOVERY.md) for both routes, the exact
+requirement of each, and how to tell a resume from an intentional fresh start.
 
 ---
 
@@ -160,7 +161,7 @@ Four words mean four different things and are constantly confused:
 - **silent** — the check *was invoked* and found nothing. This is the good one. `checks_silent_ids`
   names the population; a check no code path ever calls is a defect, not a silent one.
 
-A health score computed from 16 of 155 checks is not a health score. The audit says so in
+A health score computed from 16 of 161 checks is not a health score. The audit says so in
 `health_score_basis`, and where coverage is too low the score is withheld rather than averaged
 out of whatever happened to be available. **Report that sentence next to the score, always.**
 

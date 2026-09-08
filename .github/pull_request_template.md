@@ -9,6 +9,7 @@ Describe the user-visible change and the workflow problem it solves.
 - [ ] `ruff format --check .` passes
 - [ ] `pytest` passes
 - [ ] Documentation reflects behavior, limits, cost, and side effects
+- [ ] Changelog entry added as `changelog.d/<issue>.md` (not by editing `CHANGELOG.md`)
 - [ ] No credentials, private URLs, client data, local paths, or generated reports are included
 
 ## Side effects

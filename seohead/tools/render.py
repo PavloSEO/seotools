@@ -78,6 +78,20 @@ RENDER_UNAVAILABLE = (
     "or a longer --timeout"
 )
 
+# A fallback capture read the DOM at an earlier milestone than the one that was
+# requested (see ``_capture_dom``). ``wait_reached`` records that on the result,
+# but ``seohead.audit.site`` carries findings *text* into a report and nothing
+# else -- so unless the findings list says the milestone was missed, a page
+# whose scripts had not run yet arrives in the report as an affirmative "raw and
+# rendered are equivalent", graded a notice (#642).
+MILESTONE_MISSED = (
+    "The requested {wait} milestone was never reached; the DOM was read at "
+    "{reached} instead, so scripts may not have finished running before the "
+    "snapshot was taken. What follows describes this run, not the page -- "
+    "re-run it with a longer --timeout, or with --wait {reached} to request "
+    "that milestone deliberately"
+)
+
 _SCRIPT_STYLE_RE = re.compile(
     r"<(script|style|noscript)\b[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL
 )
@@ -99,6 +113,48 @@ _HOP_BY_HOP_HEADERS = frozenset(
         "upgrade",
     }
 )
+
+# ``route.fulfill`` writes the body it is handed straight into the renderer: it
+# never applies a declared ``Content-Encoding``. Forwarding the origin's
+# compression header alongside a body this route has already decoded would hand
+# Chromium gzip bytes labelled ``text/html`` and produce a DOM made of the
+# compressed stream (#650). The header describes a transfer coding that ends
+# here, so it is dropped exactly like the hop-by-hop set above; ``content-length``
+# is already in that set, which leaves Playwright to state the decoded length.
+_TRANSFER_CODING_HEADERS = frozenset({"content-encoding"})
+
+# Fallback advertised when the client cannot state its own decodable set. httpx
+# decodes these two without any optional dependency.
+_BASELINE_ENCODINGS = "gzip, deflate"
+
+
+def _decodable_encodings(client: Any) -> str:
+    """Return the content codings this HTTP client can actually decode.
+
+    httpx builds its own ``Accept-Encoding`` from the decoders it has -- which
+    grows to ``br`` and ``zstd`` when brotli/zstandard are installed and shrinks
+    when they are not. Reading it back is what keeps the coding this route asks
+    for and the coding it can decode from ever disagreeing.
+    """
+    headers = getattr(client, "headers", None)
+    getter = getattr(headers, "get", None)
+    advertised = getter("accept-encoding") if getter is not None else None
+    return str(advertised) if advertised else _BASELINE_ENCODINGS
+
+
+def _undecoded_coding(content_encoding: str, decodable: str) -> str:
+    """Name a coding the origin applied that this client did not decode.
+
+    httpx passes an unrecognised coding through untouched rather than failing,
+    so a non-compliant origin can still answer in a coding nobody asked for.
+    Naming it aborts the request instead of rendering the compressed stream.
+    """
+    supported = {item.strip().lower().split(";")[0] for item in decodable.split(",")}
+    for item in (content_encoding or "").split(","):
+        coding = item.strip().lower()
+        if coding and coding != "identity" and coding not in supported:
+            return coding
+    return ""
 
 
 def _guard_browser_route(route) -> None:
@@ -136,8 +192,15 @@ def _pinned_browser_route(
             headers = {
                 name: value
                 for name, value in request.all_headers().items()
-                if name.lower() not in _HOP_BY_HOP_HEADERS
+                if name.lower() not in _HOP_BY_HOP_HEADERS and name.lower() != "accept-encoding"
             }
+            # Chromium invites codings this transport may not own a decoder for
+            # (it asks for br and zstd), and the reply has to be decoded here
+            # before Playwright sees it. Asking only for what this client can
+            # decode keeps the origin from answering in a coding that would
+            # reach the renderer unparsed.
+            decodable = _decodable_encodings(client)
+            headers["accept-encoding"] = decodable
             cookies = getattr(client, "cookies", None)
             if cookies is not None:
                 cookies.clear()
@@ -153,7 +216,10 @@ def _pinned_browser_route(
                         continue
                     if lowered == "access-control-allow-origin":
                         has_cors_header = True
-                    if lowered not in _HOP_BY_HOP_HEADERS:
+                    if (
+                        lowered not in _HOP_BY_HOP_HEADERS
+                        and lowered not in _TRANSFER_CODING_HEADERS
+                    ):
                         response_name = response_header_names.setdefault(lowered, name)
                         if response_name in response_headers:
                             response_headers[response_name] += f", {value}"
@@ -166,14 +232,27 @@ def _pinned_browser_route(
                 request_origin = f"{request_parts.scheme}://{request_parts.netloc}"
                 if origin and origin != request_origin and not has_cors_header:
                     response_headers["access-control-allow-origin"] = ""
-                raw = bytearray()
-                for chunk in response.iter_raw():
-                    if len(raw) + len(chunk) > max_response_bytes:
+                undecoded = _undecoded_coding(
+                    response.headers.get("content-encoding", ""), decodable
+                )
+                if undecoded:
+                    abort(
+                        route,
+                        f"browser response content coding {undecoded} is undecodable "
+                        "by pinned rendering",
+                    )
+                    return
+                # Decoded bytes, not transferred ones: this is the body Chromium
+                # is handed, so it is also the body the cap has to measure -- a
+                # compression bomb would otherwise pass the cap compressed.
+                body = bytearray()
+                for chunk in response.iter_bytes():
+                    if len(body) + len(chunk) > max_response_bytes:
                         abort(route, "browser response exceeds pinned rendering byte limit")
                         return
-                    raw.extend(chunk)
+                    body.extend(chunk)
                 route.fulfill(
-                    status=response.status_code, headers=response_headers, body=bytes(raw)
+                    status=response.status_code, headers=response_headers, body=bytes(body)
                 )
         except Exception as exc:
             abort(route, f"pinned browser request failed: {type(exc).__name__}: {exc}")
@@ -448,6 +527,15 @@ def incomplete_render_reason(raw: dict[str, Any], rendered: dict[str, Any]) -> s
     )
 
 
+def _shell_finding(shell: str) -> str:
+    """State the empty-mount-point fact, which reads the raw HTML and nothing else."""
+    return (
+        f'Raw HTML contains an empty <div id="{shell}"> mount point; the '
+        "page is assembled entirely by JavaScript, so a non-rendering "
+        "crawler receives an empty page"
+    )
+
+
 def compare(
     raw: dict[str, Any], rendered: dict[str, Any], raw_html: str = "", shell: str | None = None
 ) -> list[str]:
@@ -456,22 +544,26 @@ def compare(
     This pure function uses neither the network nor a browser, allowing complete
     offline tests while the Playwright layer remains a thin adapter.
 
-    A pair whose rendered half never captured the page yields the single
-    ``RENDER_UNAVAILABLE`` statement and no site findings: an unfinished
-    measurement is not evidence about the site.
+    A pair whose rendered half never captured the page yields the
+    ``RENDER_UNAVAILABLE`` statement and no finding that draws on the rendered
+    half: an unfinished measurement is not evidence about the site. Findings
+    that read the raw response alone still hold, because nothing about them
+    depended on the browser -- ``shell`` comes from ``detect_empty_shell()``,
+    which never looks at the rendered DOM, and an empty single-page-application
+    shell is exactly the page whose render times out, so dropping it with the
+    render lost a genuine defect precisely where it mattered most (#642).
     """
     unavailable = incomplete_render_reason(raw, rendered)
     if unavailable:
-        return [RENDER_UNAVAILABLE.format(reason=unavailable)]
+        out: list[str] = [RENDER_UNAVAILABLE.format(reason=unavailable)]
+        if shell:
+            out.append(_shell_finding(shell))
+        return out
 
-    out: list[str] = []
+    out = []
 
     if shell:
-        out.append(
-            f'Raw HTML contains an empty <div id="{shell}"> mount point; the '
-            "page is assembled entirely by JavaScript, so a non-rendering "
-            "crawler receives an empty page"
-        )
+        out.append(_shell_finding(shell))
     elif raw.get("words", 0) < EMPTY_BODY_WORDS < rendered.get("words", 0):
         out.append(
             f"Raw HTML contains {raw['words']} words versus "
@@ -594,14 +686,17 @@ def render_check(
     when a particular application genuinely needs it -- and when that milestone
     times out the DOM is still read at ``domcontentloaded`` rather than the whole
     check being lost, with ``wait_reached`` recording which milestone the
-    snapshot actually came from. ``settle_ms`` is a short pause after that
-    milestone for deferred scripts to write the DOM.
+    snapshot actually came from -- and with the findings list saying so too, so
+    that a snapshot taken before the scripts ran can never report an all-clear
+    (#642). ``settle_ms`` is a short pause after that milestone for deferred
+    scripts to write the DOM.
 
     When the browser hands back a document that never captured the page, the
     result is ``ok: False`` with a named reason (``reason:
     "incomplete_render"``) and both snapshots for inspection -- never findings
     about the site, which is what an unfinished render used to be reported as
-    (#623).
+    (#623). ``empty_shell`` rides along with it: that answer comes from the raw
+    response and does not depend on the browser having finished.
     """
     if not url or not str(url).strip():
         return {"ok": False, "error": "URL is required"}
@@ -710,6 +805,10 @@ def render_check(
     # Merge in what only getComputedStyle can see: a background-image an
     # external stylesheet declares, absent from both HTML strings above.
     rendered["images"] = sorted(set(rendered["images"]) | set(computed_backgrounds))
+    # Read from the raw response, before anything is decided about the render:
+    # this answer holds whether or not the browser finished, which is why the
+    # incomplete return below carries the key rather than omitting it (#642).
+    shell = detect_empty_shell(raw_html)
     # An unfinished render is an unmeasured page, not a broken site: report it
     # the way every other unavailable measurement here is reported -- ok: False
     # with a named reason -- and emit no findings from it at all (#623). Both
@@ -727,6 +826,7 @@ def render_check(
             "error": RENDER_UNAVAILABLE.format(reason=incomplete),
             "raw": raw,
             "rendered": rendered,
+            "empty_shell": shell,
             "wait": wait,
             "wait_reached": wait_reached,
             "settle_ms": settle_ms,
@@ -734,8 +834,23 @@ def render_check(
             "js_dependent": None,
             "metrics_lab": metrics,
         }
-    shell = detect_empty_shell(raw_html)
     findings = compare(raw, rendered, raw_html, shell)
+    # Keep the summary aligned with findings: five widget words do not make a
+    # page JavaScript-dependent, while findings use a 30% materiality threshold.
+    js_dependent: bool | None = findings != [ALL_CLEAR]
+    if wait_reached != wait:
+        # _capture_dom() fell back to an earlier milestone. When scripts had not
+        # run by then the rendered DOM equals the raw HTML, compare() fires on
+        # nothing and ALL_CLEAR asserts that JavaScript does not determine this
+        # page's content -- an affirmative verdict on a page nobody rendered.
+        # The miss goes into the findings list because that list is what the
+        # audit consumes, and it replaces the all-clear rather than joining it.
+        findings = [MILESTONE_MISSED.format(wait=wait, reached=wait_reached)] + [
+            f for f in findings if f != ALL_CLEAR
+        ]
+        # A difference that was found is still a difference; the absence of one
+        # is not, so it stops being False and becomes "this run does not know".
+        js_dependent = True if js_dependent else None
     # Its own report section, not merged into "findings": #21's compare()
     # assumes the site changed between two runs, this assumes the site is the
     # same and the method differs, so it gets its own schema/keys (dualcrawl.v1).
@@ -770,9 +885,7 @@ def render_check(
         "wait": wait,
         "wait_reached": wait_reached,
         "settle_ms": settle_ms,
-        # Keep the summary aligned with findings: five widget words do not make a
-        # page JavaScript-dependent, while findings use a 30% materiality threshold.
-        "js_dependent": findings != [ALL_CLEAR],
+        "js_dependent": js_dependent,
         # Laboratory, not field data: one run from one machine. Field Core Web
         # Vitals come from CrUX and must not be inferred from this measurement.
         "metrics_lab": metrics,

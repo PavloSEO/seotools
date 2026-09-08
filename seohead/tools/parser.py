@@ -558,6 +558,58 @@ def _extract_headings(soup: BeautifulSoup) -> dict[str, list[str]]:
     return headings
 
 
+# Content roots the document (or the operator) actually named. The two body
+# fallbacks are deliberately absent: when the content root is the whole
+# <body>, "not chrome" carries no information, because every heading on the
+# page descends from it whether it is content or furniture.
+_NAMED_CONTENT_STRATEGIES = frozenset(
+    {"include_selector", "root_selector", "auto_main", "auto_role_main", "auto_article"}
+)
+
+_HEADING_TAGS = ("h1", "h2", "h3", "h4", "h5", "h6")
+
+
+def heading_outline(
+    soup: BeautifulSoup,
+    *,
+    content_area_config: dict[str, Any] | None = None,
+    position_rules: Any = None,
+) -> list[dict[str, Any]]:
+    """Every h1-h6 with text, in DOM order, with its level, text and page region (#632).
+
+    ``_extract_headings`` above groups the same headings by level, which is what
+    the registry's eight heading checks read. Grouping discards order, so no
+    check can see an H2 standing before the H1, and it discards place, so a menu
+    label in the masthead counts as one of the page's headings.
+
+    The region reuses ``link_position``'s taxonomy rather than inventing a
+    second one for the same parts of a page: a rule match is taken as it stands,
+    and anything no rule matched is settled against the content root only when
+    the document named one (``<main>``, ``[role=main]``, ``<article>``, or a
+    configured selector). Otherwise the region is ``""`` -- not measured -- since
+    calling a heading "content" purely because it sits somewhere in ``<body>``
+    would report an unanswered question as a clean answer.
+    """
+    from seohead.tools.content_area import find_content_root
+    from seohead.tools.link_position import content_or_other, matched_position, rules_from_config
+
+    content_root, strategy = find_content_root(soup, content_area_config)
+    named_root = content_root if strategy in _NAMED_CONTENT_STRATEGIES else None
+    rules = rules_from_config(position_rules)
+    outline: list[dict[str, Any]] = []
+    for tag in soup.find_all(_HEADING_TAGS):
+        if _has_ancestor(tag, _INERT_LINK_CONTAINERS):
+            continue  # a <template>'s heading is never in the rendered document
+        text = collapse_whitespace(tag.get_text(" "))
+        if not text:
+            continue  # matches _extract_headings: a heading with no text is not one
+        region = matched_position(tag, rules=rules)
+        if not region and named_root is not None:
+            region = content_or_other(tag, named_root)
+        outline.append({"level": int(tag.name[1]), "text": text, "region": region})
+    return outline
+
+
 def h1_alt_only_text(soup: BeautifulSoup) -> str | None:
     """The alt text of an H1 whose own text is empty, when an image supplies it (#385).
 
@@ -584,6 +636,119 @@ def h1_alt_only_text(soup: BeautifulSoup) -> str | None:
             if alt:
                 return alt
     return None
+
+
+# How many placement observations of each kind one page keeps. A mega-menu nested
+# inside an <h2> can produce hundreds of them, and a finding does not get truer for
+# quoting the two-hundredth. The totals beside the lists are the whole counts, so a
+# truncated list is visible as one rather than mistaken for the whole story.
+_MAX_PLACEMENT_ITEMS = 50
+
+_HEADING_TAG_NAMES = frozenset(_HEADING_TAGS)
+
+
+def _heading_ancestor_level(tag: Any) -> int | None:
+    """The level of the nearest ``h1``-``h6`` ancestor of ``tag``, or ``None``.
+
+    The anchor itself is never a heading, so only ancestors are walked. The
+    *nearest* one is what a reader sees: an ``<a>`` inside an ``<h2>`` inside a
+    ``<header>`` is a link in an H2, whatever encloses that H2.
+    """
+    for parent in tag.parents:
+        if parent.name in _HEADING_TAG_NAMES:
+            return int(parent.name[1])
+    return None
+
+
+def _anchor_names_its_destination(tag: Any) -> bool:
+    """Whether this ``<a>`` says anything at all about where it goes.
+
+    Anchor text first, then the ``alt`` of any image it wraps -- the two the issue
+    names. ``aria-label`` and ``title`` are read as well, deliberately: a link that
+    carries one does name its destination for a reader using it, and a check that
+    fired on such markup would be reporting correct markup as a defect. Nothing here
+    judges the *quality* of the text; ``GENERIC_ANCHOR_TEXT`` already does that.
+    """
+    if collapse_whitespace(tag.get_text(" ")):
+        return True
+    for attribute in ("aria-label", "title"):
+        value = cast("str | None", tag.get(attribute))
+        if value and collapse_whitespace(value):
+            return True
+    for img in tag.find_all("img"):
+        alt = cast("str | None", img.get("alt"))
+        if alt and collapse_whitespace(alt):
+            return True
+    return False
+
+
+def empty_link_placement() -> dict[str, Any]:
+    """A placement record with nothing in it -- what a document with no anchors has."""
+    return {
+        "in_heading": [],
+        "in_heading_total": 0,
+        "image_no_text": [],
+        "image_no_text_total": 0,
+    }
+
+
+def link_placement(soup: BeautifulSoup, base_url: str, final_url: str) -> dict[str, Any]:
+    """Where a page's own anchors sit in its DOM, for the two defects a region cannot show (#634).
+
+    ``link_position`` answers "which part of the template is this link in". Neither
+    defect here is answerable from that: a link wrapped in an ``<h1>`` may sit in
+    ``content`` and still turn the page's own heading into a pointer away from it,
+    and an image link that names nothing is a property of what the anchor contains,
+    not of where it sits.
+
+    Two lists, each capped at :data:`_MAX_PLACEMENT_ITEMS` with the full count beside
+    it:
+
+    ``in_heading``
+        anchors with an ``h1``-``h6`` ancestor, with that heading's level.
+    ``image_no_text``
+        anchors wrapping at least one ``<img>`` that say nothing about their
+        destination -- no anchor text, no non-empty ``alt`` on any image inside, and
+        no ``aria-label`` or ``title`` on the anchor (see
+        :func:`_anchor_names_its_destination`). An anchor containing no image at all
+        is out of scope here: "an image link with nothing to read" is the defect, and
+        an empty text link is a different one.
+
+    Destinations are resolved exactly the way ``_extract_link_observations`` resolves
+    them -- same ``base_url``/``final_url`` split, same ``<template>`` exclusion, same
+    non-fetchable-scheme rules -- so a destination named here is a destination that
+    also appears in the link graph, never a second, differently-resolved URL.
+    """
+    in_heading: list[dict[str, Any]] = []
+    image_no_text: list[dict[str, Any]] = []
+    in_heading_total = 0
+    image_no_text_total = 0
+    for tag in soup.find_all("a"):
+        target = _link_target(tag, base_url, final_url)
+        if target is None:
+            continue
+        href = target[0]
+        level = _heading_ancestor_level(tag)
+        if level is not None:
+            in_heading_total += 1
+            if len(in_heading) < _MAX_PLACEMENT_ITEMS:
+                in_heading.append(
+                    {
+                        "level": level,
+                        "destination": href,
+                        "anchor": collapse_whitespace(tag.get_text(" ")),
+                    }
+                )
+        if tag.find("img") is not None and not _anchor_names_its_destination(tag):
+            image_no_text_total += 1
+            if len(image_no_text) < _MAX_PLACEMENT_ITEMS:
+                image_no_text.append({"destination": href})
+    return {
+        "in_heading": in_heading,
+        "in_heading_total": in_heading_total,
+        "image_no_text": image_no_text,
+        "image_no_text_total": image_no_text_total,
+    }
 
 
 def extract_images(soup: BeautifulSoup) -> list[dict[str, Any]]:
@@ -1540,6 +1705,21 @@ def parse_html(html: str, final_url: str, options: dict[str, Any] | None = None)
 
     result["headings"] = _extract_headings(soup) if opts["headings"] else {}
     result["h1_alt_only_text"] = h1_alt_only_text(soup) if opts["headings"] else None
+    # Not gated on classify_links the way link positions are: that flag exists
+    # because a large crawl holds one entry per anchor, and a page has orders of
+    # magnitude fewer headings than links -- the same reasoning that leaves form
+    # extraction ungated below.
+    result["heading_outline"] = (
+        heading_outline(
+            soup,
+            content_area_config=options.get("content_area") if isinstance(options, dict) else None,
+            position_rules=options.get("link_position_rules")
+            if isinstance(options, dict)
+            else None,
+        )
+        if opts["headings"]
+        else []
+    )
     # jsonld stays what it has always been — the blocks that parsed — and the
     # ones that did not are reported beside it rather than dropped.
     if opts["jsonld"]:
@@ -1570,8 +1750,18 @@ def parse_html(html: str, final_url: str, options: dict[str, Any] | None = None)
             )
             result["links"] = links
             result["link_observation"] = observation
+        # Not gated on classify_links, for the same reason heading_outline is not:
+        # that flag exists because a crawl holds one classified entry per anchor,
+        # and this holds an entry only for an anchor that is inside a heading or is
+        # an image link naming nothing -- on an ordinary page, none (#634).
+        result["link_placement"] = link_placement(soup, base_url, final_url)
     else:
         result["links"] = []
+        # None, not an empty placement: a caller that switched link parsing off
+        # measured nothing here, and an empty result would read as "this page has
+        # no link in a heading and no unlabelled image link" -- a clean answer to
+        # a question nobody asked.
+        result["link_placement"] = None
     # Cheap regardless of site size: forms are rare compared to links, so — unlike
     # classify_links — there is no per-crawl memory concern that would justify an opt-out.
     if opts["forms"]:

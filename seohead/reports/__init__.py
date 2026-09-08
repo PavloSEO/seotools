@@ -296,8 +296,20 @@ def _normalize_sf_audit(document: dict[str, Any]) -> dict[str, Any]:
     crawl_valid = run.get("crawl_valid")
     crawl_valid = True if crawl_valid is None else bool(crawl_valid)
 
+    # Deferred import: seohead.reports.facts imports names from this package
+    # at module load time, so importing it back at module level here would
+    # be circular. Resolving it lazily, on the way to building this one
+    # return value, works fine because by the time this function actually
+    # runs both modules are already fully loaded.
+    from .facts import crawl_domain
+
     return {
-        "domain": run.get("project") or "",
+        # Same start_url -> source -> project resolution facts.py already
+        # uses for its own site-domain fact, and that seohead.sf.tasks now
+        # reuses for its backlog heading (#640): "project" alone leaves this
+        # heading blank for a native crawl or reanalysis, which never
+        # records one, even though the run knows its own start_url/source.
+        "domain": run.get("project") or crawl_domain(run) or "",
         "url": run.get("source") or (pages[0]["url"] if pages else ""),
         "generated_at": run.get("generated_at", ""),
         "findings": findings,

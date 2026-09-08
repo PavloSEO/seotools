@@ -13,13 +13,13 @@ core through two interfaces — CLI and local MCP. It is not a general-purpose c
 | Managing or inspecting saved scans | [STORAGE.md](STORAGE.md) — SQLite import, provenance, retained bodies, snapshots, and reviewed retention |
 | Operating a SQLite scan baseline or reviewing capacity evidence | [SQLITE_ACCEPTANCE.md](SQLITE_ACCEPTANCE.md) — capture-to-prune workflow, evidence limits, and the measured release-profile record with its two named limits |
 | New to the toolkit | [GUIDELINE.md](GUIDELINE.md) — what it is, the first run, reading an audit honestly, the usual mistakes |
-| A native crawl stopped early | [RECOVERY.md](RECOVERY.md) — the checkpoint, the exact resume requirement, resume vs. intentional fresh start |
+| A native crawl stopped early | [RECOVERY.md](RECOVERY.md) — the two checkpoints, `--resume`, resume vs. intentional fresh start |
 | Wondering what this can do end to end | [scenarios/](scenarios/README.md) — 56 chains, each with its commands, its output, its cost and its limits |
 | Looking for a tool | [TOOLS.md](TOOLS.md) — reference for all 63 |
 | Looking for a tool's exact arguments, types, defaults, or cost | [TOOL_REFERENCE.md](TOOL_REFERENCE.md) — generated from the MCP tool definitions |
 | Looking for a check the SF audit runs | [CHECKS.md](CHECKS.md) — all 149, generated from the registry |
 | Wondering how this compares to a licensed crawler | [COVERAGE_SF_ISSUES.md](COVERAGE_SF_ISSUES.md) — all 320 published issues, each with a status |
-| Looking for a method, not a command | [SKILLS.md](SKILLS.md) — map of the 22 skills |
+| Looking for a method, not a command | [SKILLS.md](SKILLS.md) — map of the 23 skills |
 | Looking for a no-key workflow | [RECIPES.md](RECIPES.md) — exports, traffic decline, bounded live audit |
 | About to change code | [ARCHITECTURE.md](ARCHITECTURE.md) — layers and invariants |
 | Naming a new module or test file | [NAMING.md](NAMING.md) — what a name must say, and what is deliberately left alone |
@@ -41,7 +41,7 @@ core through two interfaces — CLI and local MCP. It is not a general-purpose c
   definitions in `seohead/servers/mcp_server.py` and `sf_mcp.py`
   (`scripts/generate_tool_reference.py`); `tests/test_docs_drift.py` fails the
   build if it drifts.
-- **[CHECKS.md](CHECKS.md)** — the 155 checks the SF crawl audit runs: what each fires
+- **[CHECKS.md](CHECKS.md)** — the 161 checks the SF crawl audit runs: what each fires
   on, what evidence it needs, and the fix that ships with the finding. Generated
   from `seohead/sf/core/registry.py` (`scripts/generate_checks_reference.py`);
   `tests/test_docs_drift.py` fails the build if it drifts from the registry.
@@ -78,8 +78,8 @@ core through two interfaces — CLI and local MCP. It is not a general-purpose c
 - **[RECIPES.md](RECIPES.md)** — three agent workflows that use existing exports, bounded
   public evidence, or a user-authorized browser without pretending that provider credentials exist.
 - **[RECOVERY.md](RECOVERY.md)** — resuming a native `crawl-site` run that stopped early: the
-  `crawl_state.json` checkpoint, the identical-invocation requirement, and how to tell a
-  successful resume from an intentional fresh start.
+  `crawl_state.json` checkpoint and its identical-invocation requirement, `--resume` for a
+  SQLite scan, and how to tell a successful resume from an intentional fresh start.
 
 ### Repository contracts
 

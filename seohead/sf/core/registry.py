@@ -227,6 +227,24 @@ CHECKS: dict[str, dict[str, Any]] = {
         "message": "H2 exceeds the configured length threshold",
         "fix": "Shorten the H2 while retaining what it introduces.",
     },
+    "HEADING_BEFORE_H1": {
+        "severity": "notice",
+        "source": "crawl:heading_outline",
+        "message": "One or more headings appear before the page's first H1 in DOM order",
+        "fix": "Move the H1 above the headings that precede it, or demote those headings to "
+        "plain text or a non-heading element. A parser reading the outline meets them "
+        "before it meets the page's subject, and a snippet built from early page text "
+        "quotes them instead of the page.",
+    },
+    "HEADING_IN_PAGE_CHROME": {
+        "severity": "notice",
+        "source": "crawl:heading_outline",
+        "message": "A heading sits in the page chrome (header, nav, sidebar or footer) rather "
+        "than in the content",
+        "fix": "Mark template furniture up as what it is -- a menu label or a widget title is "
+        "not a heading of this document, and repeating it on every page pushes the "
+        "page's own headings down its outline.",
+    },
     # 7.E — canonical & directives
     "CANONICAL_MISSING": {
         "severity": "warning",
@@ -796,6 +814,23 @@ CHECKS: dict[str, dict[str, Any]] = {
         "message": "The shortest hyperlink route from the start page exceeds the configured depth",
         "fix": "Add a shorter internal-linking route (e.g. from a hub or category page) so the page is reachable in fewer clicks.",
     },
+    "DEEP_CLICK_DEPTH": {
+        "severity": "warning",
+        "source": "inlinks:All Inlinks",
+        "message": "The page is more clicks from the crawl's start URL than the configured floor",
+        "fix": "Link the page from a hub, category or related page nearer the start URL. A page "
+        "linked only by a chain of next-post links is reachable and still effectively "
+        "invisible, which no orphan count reports.",
+    },
+    "DUPLICATE_INTERNAL_LINK": {
+        "severity": "notice",
+        "source": "inlinks:All Inlinks",
+        "message": "The page repeats the same link -- same destination, same anchor text -- "
+        "more than once",
+        "fix": "Emit the block once. A layout element rendered twice (one copy hidden by CSS or "
+        "removed by JavaScript) duplicates every link it contains, which inflates the internal "
+        "link graph without adding a single new route.",
+    },
     "INSECURE_SUBRESOURCE": {
         "severity": "warning",
         "source": "inlinks:All Inlinks",
@@ -988,6 +1023,27 @@ CHECKS: dict[str, dict[str, Any]] = {
         "from body content",
         "fix": "Add a contextual link to the page from relevant body copy; a page reachable "
         "only through boilerplate is not linked the way a page in the content graph is.",
+    },
+    # 9.A2 — link placement (native crawl only, issue #634). Same construction as
+    # INLINK_BOILERPLATE_ONLY just above and the heading-outline checks: read from
+    # evidence a native crawl records and a Screaming Frog export has no column for,
+    # so both skip by name on an export rather than run clean on nothing.
+    "LINK_INSIDE_HEADING": {
+        "severity": "notice",
+        "source": "crawl:link_placement",
+        "message": "A heading on the page is, or contains, a link to somewhere else",
+        "fix": "Let the heading describe this page and put the link in the body copy beneath "
+        "it. A heading that is a link stops naming the page's own subject and starts "
+        "pointing away from it.",
+    },
+    "IMAGE_LINK_WITHOUT_TEXT": {
+        "severity": "warning",
+        "source": "crawl:link_placement",
+        "message": "An image link carries no anchor text and no alt text, so nothing says "
+        "where it goes",
+        "fix": "Give the image a descriptive alt attribute, or add anchor text beside it. "
+        "Neither a reader using a screen reader nor a crawler can tell what this link "
+        "points to.",
     },
     # 9.B — link security & forms (issue #125). Same construction as INLINK_BOILERPLATE_ONLY
     # just above: computed directly from a native crawl's own LinkEdge/FormEdge evidence
