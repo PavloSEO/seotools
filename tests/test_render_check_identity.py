@@ -636,3 +636,18 @@ def test_a_failed_render_of_a_server_rendered_page_reports_no_shell(monkeypatch)
         result["raw"], result["rendered"], _SERVER_RENDERED_PAGE, result["empty_shell"]
     )
     assert findings == [result["error"]]
+
+
+@pytest.mark.parametrize("identity", [False, 0, "\x00", "\t", "   ", "Agent-\u2603"])
+def test_invalid_render_identity_is_refused_before_http(monkeypatch, identity):
+    calls = []
+
+    def unexpected_http(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("invalid identity reached HTTP setup")
+
+    monkeypatch.setattr(render_module, "http_client", unexpected_http)
+    result = render_module.render_check("https://example.test/", user_agent=identity)
+    assert result["ok"] is False
+    assert "user_agent" in result["error"]
+    assert calls == []

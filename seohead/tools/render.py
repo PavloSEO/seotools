@@ -711,13 +711,17 @@ def render_check(
     """
     if viewport not in VIEWPORT_PRESETS:
         return {"ok": False, "error": f"unknown viewport {viewport!r}"}
+    invalid_identity = {
+        "ok": False,
+        "error": "user_agent must be a single header line",
+    }
+    if user_agent is not None and not isinstance(user_agent, str):
+        return invalid_identity
     selected_user_agent = user_agent or (MOBILE_USER_AGENT if viewport == "mobile" else UA)
-    if (
-        not isinstance(selected_user_agent, str)
-        or "\r" in selected_user_agent
-        or "\n" in selected_user_agent
+    if not selected_user_agent.strip() or any(
+        ord(character) < 32 or ord(character) > 126 for character in selected_user_agent
     ):
-        return {"ok": False, "error": "user_agent must be a single header line"}
+        return invalid_identity
     size = dict(VIEWPORT_PRESETS[viewport])
     if not url or not str(url).strip():
         return {"ok": False, "error": "URL is required"}
