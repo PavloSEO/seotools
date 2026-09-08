@@ -635,3 +635,44 @@ def test_failed_tool_reason_translates_known_internal_wrapper(tmp_path):
     assert "TITLE_MISSING" not in text
     assert "Title element is missing" in text
     assert "because the export was absent" in text
+
+
+def test_failed_reason_keeps_url_spans_while_translating_internal_wrapper(tmp_path):
+    """A producer name in a reason must never rewrite a copied evidence URL."""
+    doc = copy.deepcopy(_CLIENT_EVIDENCE_AUDIT)
+    doc["issues"] = []
+    doc["run"]["checks_skipped"] = [
+        {
+            "id": "TITLE_MISSING",
+            "reason": "Screaming Frog could not read https://seohead.tech/TITLE_MISSING.",
+        }
+    ]
+    target = tmp_path / "failed-reason-url.md"
+    assert build_report(doc, fmt="md", path=str(target))["ok"]
+    text = target.read_text(encoding="utf-8")
+
+    assert "The audit" in text
+    assert "https://seohead.tech/TITLE_MISSING" in text
+    assert "https://The audit.tech" not in text
+
+
+def test_mixed_and_nested_details_stay_visible_without_false_reproduction(tmp_path):
+    """Mixed list evidence is bounded and nested-only evidence remains unavailable."""
+    mixed = copy.deepcopy(_CLIENT_EVIDENCE_AUDIT)
+    mixed["issues"][0]["details"] = {
+        "attempts": [503, {"status": 503}, ["nested"]],
+    }
+    mixed_target = tmp_path / "mixed-details.md"
+    assert build_report(mixed, fmt="md", path=str(mixed_target))["ok"]
+    mixed_text = mixed_target.read_text(encoding="utf-8")
+    assert "Attempts: 503; Status: 503; 1 unsupported values omitted" in mixed_text
+
+    nested = copy.deepcopy(_CLIENT_EVIDENCE_AUDIT)
+    nested["issues"][0]["message"] = "CANONICAL_MULTIPLE"
+    nested["issues"][0].pop("status_code")
+    nested["issues"][0]["details"] = {"trace": [{"request": {"headers": {}}}]}
+    nested_target = tmp_path / "nested-details.md"
+    assert build_report(nested, fmt="md", path=str(nested_target))["ok"]
+    nested_text = nested_target.read_text(encoding="utf-8")
+    assert "Trace: Structured record retained in the saved audit" in nested_text
+    assert "Reproduction unavailable from the saved audit." in nested_text

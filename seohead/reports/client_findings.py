@@ -51,23 +51,32 @@ def _detail_rows(details: Any) -> list[str]:
             rows.append(f"{label}: {value}")
         elif isinstance(value, list):
             values = [str(item) for item in value if isinstance(item, (str, int, float, bool))]
+            records = [record(item) for item in value if isinstance(item, dict)]
+            unsupported = len(value) - len(values) - len(records)
+            parts: list[str] = []
+            remaining = _MAX_EVIDENCE_ITEMS
             if values:
-                shown = values[:_MAX_EVIDENCE_ITEMS]
+                shown = values[:remaining]
+                remaining -= len(shown)
                 suffix = (
                     f"; {len(values) - len(shown)} more values omitted"
                     if len(values) > len(shown)
                     else ""
                 )
-                rows.append(f"{label}: {', '.join(shown)}{suffix}")
-            elif any(isinstance(item, dict) for item in value):
-                records = [record(item) for item in value if isinstance(item, dict)]
+                parts.append(", ".join(shown) + suffix)
+            if records:
                 shown = records[:_MAX_EVIDENCE_ITEMS]
+                shown = shown[:remaining]
                 suffix = (
                     f"; {len(records) - len(shown)} more structured records omitted"
                     if len(records) > len(shown)
                     else ""
                 )
-                rows.append(f"{label}: {' | '.join(shown)}{suffix}")
+                parts.append(" | ".join(shown) + suffix)
+            if unsupported:
+                parts.append(f"{unsupported} unsupported values omitted")
+            if parts:
+                rows.append(f"{label}: {'; '.join(parts)}")
         elif isinstance(value, dict):
             rows.append(f"{label}: {record(value)}")
     return rows
@@ -92,6 +101,19 @@ def _observation(value: Any) -> str:
             part,
         )
 
+    return _translate_unprotected(
+        text,
+        lambda part: _CHECK_IDENTIFIER.sub(
+            lambda matched: (
+                check_title(matched.group(0)) if matched.group(0) in CHECKS else matched.group(0)
+            ),
+            part,
+        ),
+    )
+
+
+def _translate_unprotected(text: str, translate) -> str:
+    """Apply a display translation without corrupting copied URLs, code, or quotes."""
     pieces: list[str] = []
     cursor = 0
     for protected in _PROTECTED_EVIDENCE.finditer(text):
@@ -105,7 +127,7 @@ def _observation(value: Any) -> str:
 def client_reason(value: Any) -> str:
     """Translate known collector wrappers in a failure reason, preserving its cause."""
     text = _observation(value)
-    return _PRODUCER_REASON.sub("The audit", text)
+    return _translate_unprotected(text, lambda part: _PRODUCER_REASON.sub("The audit", part))
 
 
 def _location_rows(locations: Any) -> list[str]:
@@ -145,7 +167,11 @@ def reproduction(finding: dict[str, Any], observation: str = "") -> str:
     if isinstance(url, str) and url:
         if isinstance(status, int):
             return f"{url} returned HTTP {status}."
-        details = _detail_rows(finding.get("details"))
+        details = [
+            row
+            for row in _detail_rows(finding.get("details"))
+            if "Structured record retained" not in row and "unsupported values omitted" not in row
+        ]
         if details:
             return f"At {url}: {details[0]}."
         if observation:
