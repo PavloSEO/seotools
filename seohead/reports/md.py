@@ -82,6 +82,8 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
             out.append(f"  - Reproduction: {finding.get('client_reproduction', '')}")
             for detail in finding.get("client_details") or []:
                 out.append(f"  - Evidence: {detail}")
+            for location in finding.get("client_locations") or []:
+                out.append(f"  - Location: {location}")
         out.append("")
 
     pages = document.get("pages") or []

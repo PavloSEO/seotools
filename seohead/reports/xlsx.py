@@ -156,7 +156,7 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
         ]
     )
     _style_header(ws)
-    from seohead.reports import SEVERITY_TITLES, format_locations, neutralize_formula
+    from seohead.reports import SEVERITY_TITLES, neutralize_formula
 
     for finding in document.get("findings") or []:
         ws.append(
@@ -169,7 +169,7 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
                 finding.get("status_code", ""),
                 finding.get("occurrences_count", ""),
                 neutralize_formula("; ".join(finding.get("client_details") or [])),
-                neutralize_formula(format_locations(finding.get("locations"))),
+                neutralize_formula("; ".join(finding.get("client_locations") or [])),
                 neutralize_formula(finding.get("fix_hint", "")),
             ]
         )

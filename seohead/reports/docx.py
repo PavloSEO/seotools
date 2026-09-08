@@ -114,6 +114,8 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
             )
             for detail in finding.get("client_details") or []:
                 doc.add_paragraph(f"Evidence: {detail}", style="List Bullet 2")
+            for location in finding.get("client_locations") or []:
+                doc.add_paragraph(f"Location: {location}", style="List Bullet 2")
         if len(chunk) > _MAX_FINDINGS_PER_LEVEL:
             doc.add_paragraph(
                 f"…and {len(chunk) - _MAX_FINDINGS_PER_LEVEL} more. "

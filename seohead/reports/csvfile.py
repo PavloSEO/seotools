@@ -47,7 +47,7 @@ def _scope_rows(summary: dict[str, Any]) -> list[list[Any]]:
 
 
 def write(document: dict[str, Any], path: pathlib.Path) -> None:
-    from seohead.reports import SEVERITY_TITLES, format_locations, neutralize_formula
+    from seohead.reports import SEVERITY_TITLES, neutralize_formula
 
     with path.open("w", encoding="utf-8-sig", newline="") as fh:
         # ``utf-8-sig`` includes a BOM so Excel detects UTF-8 instead of corrupting
@@ -82,7 +82,7 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
                     finding.get("status_code", ""),
                     finding.get("occurrences_count", ""),
                     neutralize_formula("; ".join(finding.get("client_details") or [])),
-                    neutralize_formula(format_locations(finding.get("locations"))),
+                    neutralize_formula("; ".join(finding.get("client_locations") or [])),
                     neutralize_formula(finding.get("fix_hint", "")),
                 ]
             )

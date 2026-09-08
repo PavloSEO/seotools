@@ -513,3 +513,73 @@ def test_internal_producer_claim_does_not_replace_the_recorded_observation(tmp_p
     assert "CANONICAL_MULTIPLE" not in text
     assert "no reader-facing observation" in text
     assert "https://example.test/catalogue/ returned HTTP 200" in text
+
+
+def test_real_title_and_unknown_uppercase_token_survive_client_projection(tmp_path):
+    """#660 only translates known internal wrappers; it never sanitizes site evidence."""
+    doc = copy.deepcopy(_CLIENT_EVIDENCE_AUDIT)
+    doc["issues"][0]["message"] = "SEOHEAD HTTP_API title is visible on the page."
+
+    target = tmp_path / "site-evidence.md"
+    assert build_report(doc, fmt="md", path=str(target))["ok"]
+    text = target.read_text(encoding="utf-8")
+
+    assert "SEOHEAD HTTP_API title is visible on the page." in text
+
+
+def test_client_writers_keep_bounded_details_and_location_evidence(tmp_path):
+    """Primitive evidence is useful only if every human output retains it visibly."""
+    doc = copy.deepcopy(_CLIENT_EVIDENCE_AUDIT)
+    doc["issues"][0]["details"] = {"missing_tags": ["description", "canonical"]}
+    doc["issues"][0]["locations"] = [
+        {
+            "source_url": "https://example.test/menu/",
+            "anchor": "Catalogue",
+            "link_position": "Navigation",
+            "link_path": "/html/body/nav/a[2]",
+        }
+    ]
+    md_target = tmp_path / "evidence.md"
+    xlsx_target = tmp_path / "evidence.xlsx"
+    docx_target = tmp_path / "evidence.docx"
+
+    assert build_report(doc, fmt="md", path=str(md_target))["ok"]
+    assert build_report(doc, fmt="xlsx", path=str(xlsx_target))["ok"]
+    assert build_report(doc, fmt="docx", path=str(docx_target))["ok"]
+
+    expected = "Source: https://example.test/menu/; Anchor: Catalogue; Position: Navigation; XPath: /html/body/nav/a[2]"
+    md = md_target.read_text(encoding="utf-8")
+    assert "Missing tags: description, canonical" in md
+    assert expected in md
+
+    xlsx_text = "\n".join(
+        str(cell.value or "")
+        for row in load_workbook(xlsx_target)["Findings"].iter_rows()
+        for cell in row
+    )
+    assert "Missing tags: description, canonical" in xlsx_text
+    assert expected in xlsx_text
+
+    from docx import Document
+
+    docx_text = "\n".join(paragraph.text for paragraph in Document(docx_target).paragraphs)
+    assert "Missing tags: description, canonical" in docx_text
+    assert expected in docx_text
+
+
+def test_failed_tool_labels_keep_distinct_measurement_names(tmp_path):
+    """A client needs to know which measurement failed without seeing handler names."""
+    doc = copy.deepcopy(_CLIENT_EVIDENCE_AUDIT)
+    doc["issues"] = []
+    doc["run"]["checks_skipped"] = [
+        {"id": "robots_check", "reason": "robots.txt did not answer"},
+        {"id": "schema_check", "reason": "markup was unavailable"},
+    ]
+    target = tmp_path / "failed-tools.md"
+    assert build_report(doc, fmt="md", path=str(target))["ok"]
+    text = target.read_text(encoding="utf-8")
+
+    assert "Robots check" in text
+    assert "Schema check" in text
+    assert "robots_check" not in text
+    assert "schema_check" not in text
