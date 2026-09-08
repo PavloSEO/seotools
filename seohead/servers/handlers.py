@@ -1705,13 +1705,16 @@ def segment_diff(
 
 
 def render_check(
-    url: str | None = None, viewport: str = "desktop", wait: str = "load"
+    url: str | None = None,
+    viewport: str = "desktop",
+    wait: str = "load",
+    user_agent: str | None = None,
 ) -> dict[str, Any]:
     if not url:
         raise ValueError("url required")
     from seohead.tools import render as render_core
 
-    return render_core.render_check(url, viewport=viewport, wait=wait)
+    return render_core.render_check(url, viewport=viewport, wait=wait, user_agent=user_agent)
 
 
 def backlinks_check(

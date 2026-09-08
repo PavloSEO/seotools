@@ -17,7 +17,9 @@ import types
 import httpx
 import pytest
 
+from seohead import cli
 from seohead.recon.net import UA
+from seohead.servers import handlers
 from seohead.tools import render as render_module
 from seohead.tools.render import render_check
 
@@ -153,15 +155,23 @@ def _install_stack(monkeypatch, raw_html, rendered_html, *, goto_error=None, tim
     monkeypatch.setitem(sys.modules, "playwright", fake_playwright)
     monkeypatch.setitem(sys.modules, "playwright.sync_api", fake_sync_api)
 
-    monkeypatch.setattr(
-        render_module,
-        "http_client",
-        lambda _timeout, **_kwargs: (_FakeHttpClient(_FakeResponse(raw_html)), True),
-    )
+    http_calls = []
+
+    def fake_http_client(_timeout, **kwargs):
+        http_calls.append(kwargs)
+        return _FakeHttpClient(_FakeResponse(raw_html)), True
+
+    monkeypatch.setattr(render_module, "http_client", fake_http_client)
     monkeypatch.setattr(render_module, "validate_url", lambda url: url)
     monkeypatch.setattr(render_module, "_refuse_if_root", lambda: None)
 
-    return {"page": page, "context": context, "browser": browser, "chromium": chromium}
+    return {
+        "page": page,
+        "context": context,
+        "browser": browser,
+        "chromium": chromium,
+        "http_calls": http_calls,
+    }
 
 
 @pytest.fixture
@@ -191,6 +201,79 @@ def test_the_shared_identity_is_recorded_in_the_result(fake_stack):
     result = render_check("https://example.com/")
     assert result["ok"] is True
     assert result["user_agent"] == UA
+
+
+def test_mobile_render_check_uses_one_mobile_identity_for_raw_and_browser(fake_stack):
+    """#670: a mobile viewport must reach the mobile dynamic-serving branch."""
+    result = render_check("https://example.com/", viewport="mobile")
+
+    assert result["ok"] is True
+    assert result["viewport"] == "mobile"
+    assert "Mobile" in result["user_agent"]
+    assert result["viewport_size"] == {"width": 390, "height": 844}
+    assert fake_stack["context"].options["user_agent"] == result["user_agent"]
+    assert all(
+        call["headers"]["User-Agent"] == result["user_agent"] for call in fake_stack["http_calls"]
+    )
+
+
+def test_explicit_render_identity_overrides_both_mobile_requests(fake_stack):
+    """A deliberate diagnostic UA must not split raw and browser representations."""
+    custom = "ExampleMobileAudit/1.0"
+    result = render_check("https://example.com/", viewport="mobile", user_agent=custom)
+
+    assert result["user_agent"] == custom
+    assert fake_stack["context"].options["user_agent"] == custom
+    assert all(call["headers"]["User-Agent"] == custom for call in fake_stack["http_calls"])
+
+
+def test_desktop_identity_stays_the_toolkit_default(fake_stack):
+    result = render_check("https://example.com/", viewport="desktop")
+
+    assert result["user_agent"] == UA
+    assert result["viewport_size"] == {"width": 1366, "height": 768}
+
+
+def test_invalid_user_agent_is_refused_before_a_request(fake_stack):
+    result = render_check("https://example.com/", user_agent="bad\nheader")
+
+    assert result == {"ok": False, "error": "user_agent must be a single header line"}
+    assert fake_stack["http_calls"] == []
+
+
+def test_handler_and_cli_forward_an_explicit_render_identity(monkeypatch):
+    received = []
+    monkeypatch.setattr(
+        render_module,
+        "render_check",
+        lambda url, **kwargs: received.append({"url": url, **kwargs}) or {"ok": True},
+    )
+
+    assert handlers.render_check(
+        url="https://example.com/", viewport="mobile", wait="load", user_agent="Example/1.0"
+    ) == {"ok": True}
+    assert received == [
+        {
+            "url": "https://example.com/",
+            "viewport": "mobile",
+            "wait": "load",
+            "user_agent": "Example/1.0",
+        }
+    ]
+
+    args = cli.build_parser().parse_args(
+        [
+            "render-check",
+            "--url",
+            "https://example.com/",
+            "--viewport",
+            "mobile",
+            "--user-agent",
+            "Example/1.0",
+        ]
+    )
+    _name, kwargs = cli._build_kwargs("render-check", args)
+    assert kwargs["user_agent"] == "Example/1.0"
 
 
 def test_each_render_entry_registers_the_pinned_route_before_new_page(fake_stack):

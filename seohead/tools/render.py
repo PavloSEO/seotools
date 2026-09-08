@@ -46,6 +46,16 @@ VIEWPORT_PRESETS: dict[str, dict[str, int]] = {
     "mobile": {"width": 390, "height": 844},
 }
 
+# A stable diagnostic representation, not a crawler identity or fingerprint-evasion
+# profile. ``render_check(..., viewport="mobile")`` compares what a typical
+# smartphone request receives; callers who need a site's exact variant can supply
+# one explicit user_agent, which both raw and browser requests then share.
+MOBILE_USER_AGENT = (
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
+    "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 "
+    "Mobile/15E148 Safari/604.1"
+)
+
 # Common single-page application shells. An empty mount container means the raw
 # response exposes no application content to a crawler that does not render.
 _SHELL_IDS = ("root", "app", "__next", "__nuxt", "q-app", "main-app")
@@ -670,6 +680,7 @@ def render_check(
     timeout: float = 30.0,
     wait: str = "load",
     viewport: str = "desktop",
+    user_agent: str | None = None,
     *,
     settle_ms: int = SETTLE_MS,
     request_gate: Callable[[], None] | None = None,
@@ -698,6 +709,16 @@ def render_check(
     (#623). ``empty_shell`` rides along with it: that answer comes from the raw
     response and does not depend on the browser having finished.
     """
+    if viewport not in VIEWPORT_PRESETS:
+        return {"ok": False, "error": f"unknown viewport {viewport!r}"}
+    selected_user_agent = user_agent or (MOBILE_USER_AGENT if viewport == "mobile" else UA)
+    if (
+        not isinstance(selected_user_agent, str)
+        or "\r" in selected_user_agent
+        or "\n" in selected_user_agent
+    ):
+        return {"ok": False, "error": "user_agent must be a single header line"}
+    size = dict(VIEWPORT_PRESETS[viewport])
     if not url or not str(url).strip():
         return {"ok": False, "error": "URL is required"}
     target = normalize_url(str(url).strip())
@@ -725,9 +746,13 @@ def render_check(
 
     # Fetch raw HTML with the regular client: this is what a non-rendering crawler receives.
     if request_gate is None:
-        client, _ = http_client(timeout)
+        client, _ = http_client(timeout, headers={"User-Agent": selected_user_agent})
     else:
-        client, _ = http_client(timeout, event_hooks={"request": [lambda _request: request_gate()]})
+        client, _ = http_client(
+            timeout,
+            headers={"User-Agent": selected_user_agent},
+            event_hooks={"request": [lambda _request: request_gate()]},
+        )
     try:
         resp = client.get(target)
         raw_html = resp.text
@@ -738,15 +763,17 @@ def render_check(
             "ok": False,
             "error": f"Raw HTML fetch failed: {type(exc).__name__}: {exc}",
             "url": target,
+            "viewport": viewport,
+            "viewport_size": size,
+            "user_agent": selected_user_agent,
         }
     finally:
         client.close()
 
-    size = VIEWPORT_PRESETS.get(viewport, VIEWPORT_PRESETS["desktop"])
     browser_client = None
     try:
         browser_client, _http2 = http_client(
-            timeout, follow_redirects=False, headers={"User-Agent": UA}
+            timeout, follow_redirects=False, headers={"User-Agent": selected_user_agent}
         )
         with sync_playwright() as pw:
             browser = pw.chromium.launch(chromium_sandbox=True)
@@ -763,8 +790,9 @@ def render_check(
                 context = browser.new_context(
                     viewport=size,
                     is_mobile=(viewport == "mobile"),
+                    has_touch=(viewport == "mobile"),
                     service_workers="block",
-                    user_agent=UA,
+                    user_agent=selected_user_agent,
                 )
                 context.add_init_script(_CLS_INIT_JS)
                 route_handler, limitations = _pinned_browser_route(
@@ -794,6 +822,9 @@ def render_check(
             "ok": False,
             "error": f"Browser rendering failed: {type(exc).__name__}: {exc}",
             "url": target,
+            "viewport": viewport,
+            "viewport_size": size,
+            "user_agent": selected_user_agent,
             "raw": _snapshot(raw_html, final_url),
         }
     finally:
@@ -821,7 +852,8 @@ def render_check(
             "final_url": final_url,
             "status": status,
             "viewport": viewport,
-            "user_agent": UA,
+            "viewport_size": size,
+            "user_agent": selected_user_agent,
             "reason": INCOMPLETE_RENDER_CODE,
             "error": RENDER_UNAVAILABLE.format(reason=incomplete),
             "raw": raw,
@@ -871,10 +903,11 @@ def render_check(
         "final_url": final_url,
         "status": status,
         "viewport": viewport,
+        "viewport_size": size,
         # Both snapshots were requested under this identity (#199) -- recorded so a report
         # can show its comparison is not confounded by a server that varies its response by
         # User-Agent, rather than leaving that an unstated assumption.
-        "user_agent": UA,
+        "user_agent": selected_user_agent,
         "raw": raw,
         "rendered": rendered,
         "empty_shell": shell,

@@ -532,7 +532,12 @@ def build_server():  # -> FastMCP
         return _checked(handlers.regions_check(url=url, extra=extra, limit=limit, render=render))
 
     @mcp.tool(annotations=fetch, structured_output=True)
-    def seo_render_check(url: str, viewport: str = "desktop", wait: str = "load") -> dict[str, Any]:
+    def seo_render_check(
+        url: str,
+        viewport: str = "desktop",
+        wait: str = "load",
+        user_agent: str | None = None,
+    ) -> dict[str, Any]:
         """Compare the raw server HTML with the DOM after JavaScript runs — the gap between
         them is what a non-rendering crawler loses. Reports an empty SPA shell
         (<div id="root"></div> means a robot gets a blank page), the share of text and
@@ -549,8 +554,11 @@ def build_server():  # -> FastMCP
         snapshots, never as findings about the site: an unmeasured page is not a defect.
         A requested wait milestone that times out (networkidle on a site with long-polling
         scripts) falls back to reading the DOM at domcontentloaded, recorded in
-        wait_reached."""
-        return _checked(handlers.render_check(url=url, viewport=viewport, wait=wait))
+        wait_reached. `viewport="mobile"` uses a stable smartphone diagnostic identity;
+        user_agent overrides that identity for both requests."""
+        return _checked(
+            handlers.render_check(url=url, viewport=viewport, wait=wait, user_agent=user_agent)
+        )
 
     @mcp.tool(annotations=fetch, structured_output=True)
     def seo_site_audit(
