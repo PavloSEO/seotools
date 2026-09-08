@@ -48,6 +48,7 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
     from openpyxl.utils import get_column_letter
 
     from seohead.reports import checks_completed_display
+    from seohead.reports.client_findings import check_title
 
     wb = Workbook()
     summary = document.get("summary") or {}
@@ -79,7 +80,7 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
             "Partial crawl -- scope is limited." + (f" {'; '.join(bits)}" if bits else "")
         )
     for item in summary.get("checks_disabled") or []:
-        scope_rows.append(f"Disabled check {item.get('id')} -- {item.get('reason')}")
+        scope_rows.append(f"Disabled check {check_title(item.get('id'))} -- {item.get('reason')}")
 
     row = 4
     for text in scope_rows:
@@ -124,7 +125,7 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
         ws.cell(row=start, column=1, value="Unavailable checks -- evidence is absent from report")
         ws.cell(row=start, column=1).font = Font(bold=True, color="C00000")
         for i, item in enumerate(failed, start=start + 1):
-            ws.cell(row=i, column=1, value=item.get("tool"))
+            ws.cell(row=i, column=1, value=check_title(item.get("tool")))
             ws.cell(row=i, column=2, value=item.get("error"))
     note = summary.get("severity_note")
     if note:
@@ -143,12 +144,13 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
     ws.append(
         [
             "Severity",
-            "Source",
             "URL",
             "Finding",
-            "Check",
+            "Observation",
+            "Reproduction",
             "Status",
             "Occurrences",
+            "Evidence",
             "Locations",
             "Fix Hint",
         ]
@@ -160,12 +162,13 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
         ws.append(
             [
                 SEVERITY_TITLES.get(finding.get("severity"), finding.get("severity")),
-                neutralize_formula(finding.get("source", "")),
                 neutralize_formula(finding.get("url", "")),
-                neutralize_formula(finding.get("text", "")),
-                finding.get("check", ""),
+                neutralize_formula(finding.get("client_title", "Audit finding")),
+                neutralize_formula(finding.get("client_observation", "")),
+                neutralize_formula(finding.get("client_reproduction", "")),
                 finding.get("status_code", ""),
                 finding.get("occurrences_count", ""),
+                neutralize_formula("; ".join(finding.get("client_details") or [])),
                 neutralize_formula(format_locations(finding.get("locations"))),
                 neutralize_formula(finding.get("fix_hint", "")),
             ]
@@ -174,7 +177,7 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
         if colour:
             ws.cell(row=ws.max_row, column=1).font = Font(bold=True, color=colour)
     if ws.max_row > 1:
-        ws.auto_filter.ref = f"A1:I{ws.max_row}"
+        ws.auto_filter.ref = f"A1:J{ws.max_row}"
     _autofit(ws, {4: 100, 8: 100, 9: 60})
 
     # -- Pages ---------------------------------------------------------------

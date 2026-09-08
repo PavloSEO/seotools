@@ -13,6 +13,7 @@ def _field(value: Any, limit: int | None = None) -> str:
 
 def write(document: dict[str, Any], path: pathlib.Path) -> None:
     from seohead.reports import SEVERITY_TITLES
+    from seohead.reports.client_findings import check_title
 
     summary = document.get("summary") or {}
     by_sev = summary.get("findings_by_severity") or {}
@@ -55,7 +56,7 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
             " do not read their silence as a clean result:",
             "",
         ]
-        out += [f"- **{d.get('id')}** — {d.get('reason')}" for d in disabled] + [""]
+        out += [f"- **{check_title(d.get('id'))}** — {d.get('reason')}" for d in disabled] + [""]
 
     failed = summary.get("tools_failed") or []
     if failed:
@@ -65,7 +66,7 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
             "These checks did not complete. Their silence does not mean no issues were found:",
             "",
         ]
-        out += [f"- **{f.get('tool')}** — {f.get('error')}" for f in failed] + [""]
+        out += [f"- **{check_title(f.get('tool'))}** — {f.get('error')}" for f in failed] + [""]
 
     findings = document.get("findings") or []
     for level in ("critical", "warning", "notice"):
@@ -74,8 +75,13 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
             continue
         out += [f"## {SEVERITY_TITLES.get(level, level)} — {len(chunk)}", ""]
         for finding in chunk:
-            where = finding.get("url") or finding.get("source", "")
-            out.append(f"- {finding.get('text', '')}" + (f" — `{where}`" if where else ""))
+            out.append(f"- **{finding.get('client_title', 'Audit finding')}**")
+            observation = finding.get("client_observation")
+            if observation:
+                out.append(f"  - Observation: {observation}")
+            out.append(f"  - Reproduction: {finding.get('client_reproduction', '')}")
+            for detail in finding.get("client_details") or []:
+                out.append(f"  - Evidence: {detail}")
         out.append("")
 
     pages = document.get("pages") or []

@@ -245,9 +245,9 @@ def test_disabled_checks_are_distinct_from_skipped_checks_in_md(tmp_path):
     assert result["ok"], result
     text = target.read_text(encoding="utf-8")
     assert "## Disabled checks" in text
-    assert "BROKEN_PAGE_4XX" in text and "disabled in config" in text
+    assert "Page returns a 4xx response (broken page)" in text and "disabled in config" in text
     assert "## Unavailable checks" in text
-    assert "SF_LOG_ANALYZE" in text and "log file unavailable" in text
+    assert "Audit finding" in text and "log file unavailable" in text
     # The two sections must not merge into one list.
     assert text.index("## Disabled checks") != text.index("## Unavailable checks")
 
@@ -318,13 +318,13 @@ def test_csv_writes_scope_evidence_without_polluting_tracker_findings(tmp_path):
         },
         {
             "Evidence type": "check",
-            "Identifier": "BROKEN_PAGE_4XX",
+            "Identifier": "Page returns a 4xx response (broken page)",
             "Status": "disabled",
             "Reason": "disabled in config",
         },
         {
             "Evidence type": "check",
-            "Identifier": "SF_LOG_ANALYZE",
+            "Identifier": "Audit finding",
             "Status": "unavailable",
             "Reason": "log file unavailable",
         },
@@ -404,3 +404,112 @@ def test_docx_and_markdown_leave_none_page_fields_blank(tmp_path):
         "",
         "",
     ]
+
+
+# ── #660: client outputs must carry recorded evidence, not internal labels ──
+
+
+_CLIENT_EVIDENCE_AUDIT = {
+    "schema_version": "2.0",
+    "run": {"project": "example.test", "source": "https://example.test/"},
+    "summary": {
+        "totals": {"urls_crawled": 1, "issues_total": 1},
+        "by_severity": {"critical": 0, "warning": 1, "notice": 0},
+        "by_check": {"CANONICAL_MULTIPLE": 1},
+    },
+    "issues": [
+        {
+            "check": "CANONICAL_MULTIPLE",
+            "severity": "warning",
+            "message": "The page declares more than one canonical URL.",
+            "source": "Screaming Frog",
+            "target_url": "https://example.test/catalogue/",
+            "status_code": 200,
+            "details": {"canonical_count": 2},
+        }
+    ],
+    "pages": [],
+    "groups": [],
+}
+
+
+def test_client_outputs_replace_check_ids_with_a_recorded_reproduction(tmp_path):
+    """#660: human reports expose the observation, not the registry key."""
+    md_target = tmp_path / "client.md"
+    csv_target = tmp_path / "client.csv"
+    xlsx_target = tmp_path / "client.xlsx"
+    docx_target = tmp_path / "client.docx"
+
+    assert build_report(_CLIENT_EVIDENCE_AUDIT, fmt="md", path=str(md_target))["ok"]
+    assert build_report(_CLIENT_EVIDENCE_AUDIT, fmt="csv", path=str(csv_target))["ok"]
+    assert build_report(_CLIENT_EVIDENCE_AUDIT, fmt="xlsx", path=str(xlsx_target))["ok"]
+    assert build_report(_CLIENT_EVIDENCE_AUDIT, fmt="docx", path=str(docx_target))["ok"]
+
+    md = md_target.read_text(encoding="utf-8")
+    assert "CANONICAL_MULTIPLE" not in md
+    assert "Screaming Frog" not in md
+    assert "Page declares multiple canonical URLs" in md
+    assert "https://example.test/catalogue/ returned HTTP 200" in md
+
+    with csv_target.open(encoding="utf-8-sig", newline="") as fh:
+        rows = list(csv.reader(fh, delimiter=";"))
+    assert "Check" not in rows[0]
+    assert "Reproduction" in rows[0]
+    assert "CANONICAL_MULTIPLE" not in "\n".join(";".join(row) for row in rows)
+    assert "Screaming Frog" not in "\n".join(";".join(row) for row in rows)
+    assert "https://example.test/catalogue/ returned HTTP 200" in "\n".join(
+        ";".join(row) for row in rows
+    )
+
+    workbook = load_workbook(xlsx_target)
+    xlsx_text = "\n".join(
+        str(cell.value or "") for row in workbook["Findings"].iter_rows() for cell in row
+    )
+    assert "CANONICAL_MULTIPLE" not in xlsx_text
+    assert "Screaming Frog" not in xlsx_text
+    assert "Page declares multiple canonical URLs" in xlsx_text
+    assert "https://example.test/catalogue/ returned HTTP 200" in xlsx_text
+
+    from docx import Document
+
+    docx_text = "\n".join(paragraph.text for paragraph in Document(docx_target).paragraphs)
+    assert "CANONICAL_MULTIPLE" not in docx_text
+    assert "Screaming Frog" not in docx_text
+    assert "Page declares multiple canonical URLs" in docx_text
+    assert "https://example.test/catalogue/ returned HTTP 200" in docx_text
+
+
+def test_missing_reproduction_stays_visible_and_partial_warning_leads(tmp_path):
+    """A historic finding without primitive evidence is not silently made reproducible."""
+    doc = copy.deepcopy(_CLIENT_EVIDENCE_AUDIT)
+    doc["run"].update(
+        {
+            "crawl_partial": True,
+            "crawl_finish_reason": "url_limit",
+        }
+    )
+    doc["summary"]["health_score_scope"] = "1 of 100 URLs crawled"
+    doc["issues"][0].pop("target_url")
+    doc["issues"][0].pop("status_code")
+
+    target = tmp_path / "historic.md"
+    assert build_report(doc, fmt="md", path=str(target))["ok"]
+    text = target.read_text(encoding="utf-8")
+
+    assert "Reproduction unavailable from the saved audit." in text
+    assert text.index("Partial crawl") < text.index("Page declares multiple canonical URLs")
+
+
+def test_internal_producer_claim_does_not_replace_the_recorded_observation(tmp_path):
+    """A collector name is not evidence, but the URL/status remain available to the reader."""
+    doc = copy.deepcopy(_CLIENT_EVIDENCE_AUDIT)
+    doc["issues"][0]["message"] = "SEOHEAD found CANONICAL_MULTIPLE."
+
+    target = tmp_path / "internal-label.md"
+    assert build_report(doc, fmt="md", path=str(target))["ok"]
+    text = target.read_text(encoding="utf-8")
+
+    assert "SEOHEAD found" not in text
+    assert "CANONICAL_MULTIPLE" not in text
+    assert "no reader-facing observation" in text
+    assert "https://example.test/catalogue/ returned HTTP 200" in text
