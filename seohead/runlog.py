@@ -320,7 +320,7 @@ def journaled(tool: str, function):
                 # report. The tool's own "ok" is kept under a separate name: the
                 # journal's "ok" means the call did not raise, which is a
                 # different claim from the tool reporting a usable result.
-                for key in ("urls_collected", "out_dir", "count"):
+                for key in ("urls_collected", "out_dir", "scan", "count"):
                     if key in result:
                         facts[key] = result[key]
                 if "ok" in result:

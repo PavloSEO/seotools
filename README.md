@@ -66,7 +66,7 @@ No client data is included.
 
 | Starting point | Start with | What it does |
 |---|---|---|
-| **A site, and no crawl yet** | `seohead crawl-site --url https://example.com --out-dir ./run` | Crawls the site with this toolkit's own crawler — no Screaming Frog, no licence — audits the result through the same 161-check registry, and writes `audit.json` beside a prioritized `tasks.md` backlog |
+| **A site, and no crawl yet** | `seohead crawl-site --url https://example.com` | Crawls the site with this toolkit's own crawler — no Screaming Frog, no licence — and writes one collision-safe native scan under `./scans/` |
 | **Existing Screaming Frog exports** | `seohead sf run --exports-dir ./exports --out ./report --tasks` | Evaluates crawl evidence you already have against the 161-check registry and builds an audit plus a prioritized backlog |
 | **Screaming Frog installed and licensed** | `seohead sf run --crawl https://example.com --out ./report` | Drives your local Screaming Frog CLI, then audits its exports — one command instead of crawl, export, import |
 | A bounded current-state pass | `seohead site-audit --url https://example.com --limit 25` | Sitemap-based live, page and infrastructure checks. Not a link-graph crawl, and it says so |
@@ -200,7 +200,7 @@ report built another.
 **1. This toolkit's own crawler — no licence, no other software.**
 
 ```bash
-seohead crawl-site --url https://example.com --out-dir ./run --max-urls 500
+seohead crawl-site --url https://example.com --max-urls 500
 ```
 
 Follows links from a start URL, or fetches an explicit list (`--urls`), or seeds from a sitemap
@@ -297,11 +297,10 @@ seohead site-audit \
   --out report.xlsx
 
 # Crawl a site with the crawler built into this toolkit — no Screaming Frog licence needed.
-# Writes audit.json, pages.jsonl and a prioritized tasks.md backlog into ./run
+# Writes a collision-safe native SQLite scan under ./scans/
 seohead crawl-site \
   --url https://example.com \
-  --max-urls 500 \
-  --out-dir ./run
+  --max-urls 500
 
 # Turn that same audit into a client deliverable, or a working file for a developer
 seohead report-build --audit ./run/audit.json --format docx --out audit.docx

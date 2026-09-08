@@ -63,6 +63,32 @@ def _warn_ignored_robots(settings: dict[str, Any], url: str | None, urls: list[s
             )
 
 
+def _default_scan_path(url: str, producer_build: str | None) -> str:
+    """Reserve a caller-local, collision-safe scan name after provenance validates."""
+    import os
+    import uuid
+    from pathlib import Path
+
+    from seohead.servers.scan_handlers import _producer_provenance
+    from seohead.storage.history import new_scan_path
+
+    # Do this before making the caller-local directory: a bad/unknown producer
+    # must not leave a plausible-looking output location behind.
+    _producer_provenance(producer_build)
+    directory = Path.cwd() / "scans"
+    if os.path.lexists(directory) and directory.is_symlink():
+        raise ValueError(
+            "default scans directory must not be a symlink; pass --scan-out explicitly"
+        )
+    if not directory.exists():
+        directory.mkdir()
+    if not directory.is_dir():
+        raise ValueError(
+            "default scans path exists but is not a directory; pass --scan-out explicitly"
+        )
+    return str(new_scan_path(directory, url, str(uuid.uuid4())))
+
+
 # SEO core is extracted BY DEFAULT (the caller can turn any field off with False).
 DEFAULT_PARSE_OPTIONS: dict[str, bool] = {
     "meta": True,
@@ -602,12 +628,29 @@ def crawl_site(
         except SegmentError as exc:
             raise crawl_config.ConfigError(f"analysis.segments: {exc}") from exc
     _warn_ignored_robots(settings, url, urls)
+    legacy_output = bool(out_dir or settings["output"]["dir"])
+    if not scan_out and not legacy_output:
+        if not url or urls:
+            raise ValueError(
+                "list mode has no default SQLite artifact; pass --out-dir for the legacy directory route"
+            )
+        if settings["cache"]["mode"] != "off":
+            raise ValueError(
+                f"cache.mode={settings['cache']['mode']!r} is unavailable for the default native "
+                "SQLite capture; pass --out-dir for the legacy directory route"
+            )
+        scan_out = _default_scan_path(url, producer_build)
+    if scan_out and settings["cache"]["mode"] != "off":
+        raise ValueError(
+            f"cache.mode={settings['cache']['mode']!r} is unavailable for native SQLite capture; "
+            "pass --out-dir for the legacy directory route"
+        )
     if settings.get("resources", {}).get("fetch") and not scan_out:
-        raise ValueError("resources.fetch requires a SQLite scan_out artifact")
+        raise ValueError("resources.fetch requires a SQLite scan artifact")
     if scan_out:
         if not url or urls:
             raise ValueError(
-                "SQLite scan mode requires a start URL; list mode remains directory-based"
+                "SQLite scan mode requires a start URL; pass --out-dir for the legacy list-mode route"
             )
         if out_dir or settings["output"]["dir"]:
             raise ValueError("scan_out and a legacy output directory cannot be combined")
