@@ -697,3 +697,23 @@ def corpus_summary(con: sqlite3.Connection, policy: dict[str, Any]) -> dict[str,
         ):
             summary["corpus_partial"] = True
     return summary
+
+
+def rendered_body_retention(con: sqlite3.Connection) -> dict[str, Any]:
+    """Count the rendered DOMs this corpus kept, and name why it dropped the rest.
+
+    ``capabilities['rendered_bodies']`` says ``partial`` whether one DOM is missing
+    or every one of them is, so a run summary cannot be built from it: the rendered
+    crawl behind #656 discarded a DOM for every page whose own session cookie came
+    back on one subresource request, and reported its pages, links and escalation
+    counts exactly as a complete run would. These are the counts that make that
+    sayable, and they are read back out of the artifact, so a finished scan still
+    answers the same question afterwards.
+    """
+    rows = con.execute(
+        "SELECT body_state,body_reason,COUNT(*) FROM documents "
+        "WHERE representation='rendered' GROUP BY 1,2 ORDER BY 1,2"
+    ).fetchall()
+    total = sum(count for _state, _reason, count in rows)
+    omitted = {reason: count for state, reason, count in rows if state != "complete"}
+    return {"total": total, "retained": total - sum(omitted.values()), "omitted": omitted}
