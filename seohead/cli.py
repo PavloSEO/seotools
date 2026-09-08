@@ -15,7 +15,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from seohead import __version__, runlog
@@ -228,17 +227,7 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
         if getattr(args, "urls_file", None):
             kw["urls_file"] = args.urls_file
         if getattr(args, "project", None):
-            import uuid
-
-            from seohead.projects.workspace import open_project
-            from seohead.storage.history import new_scan_path
-
-            project = open_project(args.project)["project"]
-            kw.setdefault("url", project["site"]["target"])
-            if not kw.get("scan_out"):
-                kw["scan_out"] = str(
-                    new_scan_path(Path(args.project) / "scans", kw["url"], str(uuid.uuid4()))
-                )
+            kw["project"] = args.project
         for flag in (
             "config",
             "max_urls",
@@ -473,8 +462,8 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
         if getattr(args, "key_location", None):
             kw["key_location"] = args.key_location
     if cmd == "scan-list":
-        if getattr(args, "project", None) and not getattr(args, "directory", None):
-            kw["directory"] = str(Path(args.project) / "scans")
+        if getattr(args, "project", None):
+            kw["project"] = args.project
         if getattr(args, "directory", None):
             kw["directory"] = args.directory
         for name in ("offset", "limit"):
@@ -499,8 +488,8 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
         if getattr(args, "unpin", False):
             kw["pinned"] = False
     if cmd == "scan-prune":
-        if getattr(args, "project", None) and not getattr(args, "directory", None):
-            kw["directory"] = str(Path(args.project) / "scans")
+        if getattr(args, "project", None):
+            kw["project"] = args.project
         if getattr(args, "directory", None):
             kw["directory"] = args.directory
         for name in ("older_than_days", "keep_newest", "plan"):

@@ -9,6 +9,7 @@ from __future__ import annotations
 import sys
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -491,6 +492,7 @@ def crawl_site(
     overrides: dict[str, Any] | None = None,
     resume: str | None = None,
     progress: Callable[[int, int], None] | None = None,
+    project: str | None = None,
 ) -> dict[str, Any]:
     """Crawl a site from a start URL, or fetch an explicit list, then audit it.
 
@@ -526,6 +528,14 @@ def crawl_site(
     the first request, and the honest report of a known total is a different
     line than this one (see ``seohead.crawl.progress``).
     """
+    project_root = None
+    if project is not None:
+        from seohead.projects.workspace import open_project
+
+        opened = open_project(project)
+        project_root = Path(opened["path"])
+        if resume is None and url is None and urls is None and urls_file is None:
+            url = opened["project"]["site"]["target"]
     if resume is not None:
         # ``is not None`` rather than truthiness: --min-delay 0 and --max-urls 0 are
         # settings the caller stated, and silently accepting them here would let a
@@ -602,6 +612,18 @@ def crawl_site(
         except SegmentError as exc:
             raise crawl_config.ConfigError(f"analysis.segments: {exc}") from exc
     _warn_ignored_robots(settings, url, urls)
+    if (
+        project_root is not None
+        and not scan_out
+        and url
+        and not urls
+        and not settings["output"]["dir"]
+    ):
+        import uuid
+
+        from seohead.storage.history import new_scan_path
+
+        scan_out = str(new_scan_path(project_root / "scans", url, str(uuid.uuid4())))
     if settings.get("resources", {}).get("fetch") and not scan_out:
         raise ValueError("resources.fetch requires a SQLite scan_out artifact")
     if scan_out:
@@ -2473,9 +2495,18 @@ def scan_reanalyze(input_path: str, out: str, producer_build: str | None = None)
     return reanalyze_scan(input_path=input_path, out=out, producer_build=producer_build)
 
 
-def scan_list(directory: str, offset: int = 0, limit: int = 100) -> dict[str, Any]:
+def scan_list(
+    directory: str | None = None, offset: int = 0, limit: int = 100, project: str | None = None
+) -> dict[str, Any]:
     from seohead.servers.history_handlers import scan_list as core
 
+    if project is not None:
+        from seohead.projects.workspace import open_project
+
+        opened = open_project(project)
+        directory = directory or str(Path(opened["path"]) / "scans")
+    if directory is None:
+        raise ValueError("directory or project is required")
     return core(directory, offset=offset, limit=limit)
 
 
@@ -2504,14 +2535,22 @@ def scan_pin(input_path: str, pinned: bool = True) -> dict[str, Any]:
 
 
 def scan_prune(
-    directory: str,
+    directory: str | None = None,
     older_than_days: int = 30,
     keep_newest: int = 5,
     plan: dict[str, Any] | str | None = None,
     apply: bool = False,
+    project: str | None = None,
 ) -> dict[str, Any]:
     from seohead.servers.history_handlers import scan_prune as core
 
+    if project is not None:
+        from seohead.projects.workspace import open_project
+
+        opened = open_project(project)
+        directory = directory or str(Path(opened["path"]) / "scans")
+    if directory is None:
+        raise ValueError("directory or project is required")
     return core(
         directory,
         older_than_days=older_than_days,

@@ -23,7 +23,7 @@ and this decision makes no backend migration.
 | Command | Accepted input forms | Notes |
 | --- | --- | --- |
 | `parse` | Live URL (`url`)<br>URL list (`urls`) | — |
-| `crawl-site` | Live URL (`url`)<br>URL list (`urls`)<br>Local file (`urls_file`)<br>Scan artifact (`resume`)<br>Local configuration (`config`)<br>Project directory (`project`) | TXT, CSV, XLSX, or XML URL input; Resumes retained crawl evidence and continues network collection.; Uses the project target and scans/ path when no URL or scan path is explicit. |
+| `crawl-site` | Live URL (`url`)<br>URL list (`urls`)<br>Local file (`urls_file`)<br>Scan artifact (`resume`)<br>Local configuration (`config`)<br>Project directory (`project`) | TXT, CSV, XLSX, or XML URL input; Resumes retained crawl evidence and continues network collection.; Defaults the target and scans/ path; explicit paths, legacy output and resume keep their route. |
 | `crawl-describe-settings` | No direct input | — |
 | `scan-reanalyze` | Scan artifact (`input_path`) | — |
 | `log-scan` | Local directory (`run`) | — |
@@ -80,7 +80,7 @@ and this decision makes no backend migration.
 | `gsc-query` | Provider query (`site_url`) | — |
 | `crux-report` | Provider query (`url`)<br>Provider query (`origin`) | — |
 | `indexnow-submit` | URL list (`urls`) | — |
-| `scan-list` | Local directory (`directory`) | — |
+| `scan-list` | Local directory (`directory`)<br>Project directory (`project`) | — |
 | `project-new` | Project directory (`directory`)<br>Live URL (`target`) | — |
 | `project-open` | Project directory (`directory`) | — |
 | `project-status` | Project directory (`directory`) | — |

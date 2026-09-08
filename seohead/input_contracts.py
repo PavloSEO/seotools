@@ -43,7 +43,7 @@ def _command(
     return CommandContract(command, handler, forms, note)
 
 
-# The 64 direct CLI commands.  This module is intentionally data-only: tests at
+# Direct CLI commands.  This module is intentionally data-only: tests at
 # the CLI/handler boundary prove the entries stay synchronized without making
 # package runtime import either interface layer.
 COMMAND_CONTRACTS: tuple[CommandContract, ...] = (
@@ -63,7 +63,7 @@ COMMAND_CONTRACTS: tuple[CommandContract, ...] = (
         _form(
             "project_directory",
             "project",
-            note="Uses the project target and scans/ path when no URL or scan path is explicit.",
+            note="Defaults the target and scans/ path; explicit paths, legacy output and resume keep their route.",
         ),
     ),
     _command("crawl-describe-settings", "crawl_describe_settings", _form("no_input")),
@@ -188,7 +188,12 @@ COMMAND_CONTRACTS: tuple[CommandContract, ...] = (
         _form("provider_query", "origin"),
     ),
     _command("indexnow-submit", "indexnow_submit", _form("url_list", "urls")),
-    _command("scan-list", "scan_list", _form("legacy_directory", "directory")),
+    _command(
+        "scan-list",
+        "scan_list",
+        _form("legacy_directory", "directory"),
+        _form("project_directory", "project"),
+    ),
     _command(
         "project-new",
         "project_new",

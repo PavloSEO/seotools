@@ -104,6 +104,7 @@ Crawl a site from a start URL by following links, or fetch an explicit ``urls`` 
 | `producer_build` | `str | None` | `None` |
 | `overrides` | `dict[str, Any] | None` | `None` |
 | `resume` | `str | None` | `None` |
+| `project` | `str | None` | `None` |
 
 **Cost** — network: yes · writes files: yes · idempotent: no · spends money: no
 
@@ -935,6 +936,9 @@ Create a local project workspace; no crawl, checklist execution, or network work
 | `directory` | `str` | `required` |
 | `target` | `str` | `required` |
 | `label` | `str | None` | `None` |
+| `facts` | `list[dict[str, Any]] | None` | `None` |
+| `template_references` | `list[str] | None` | `None` |
+| `profile_references` | `list[str] | None` | `None` |
 
 **Cost** — network: no · writes files: yes · idempotent: no · spends money: no
 
@@ -958,9 +962,10 @@ List saved SQLite scan metadata without loading retained bodies.
 
 | Argument | Type | Default |
 |---|---|---|
-| `directory` | `str` | `required` |
+| `directory` | `str | None` | `None` |
 | `offset` | `int` | `0` |
 | `limit` | `int` | `100` |
+| `project` | `str | None` | `None` |
 
 **Cost** — network: no · writes files: no · idempotent: yes · spends money: no
 
@@ -1014,11 +1019,12 @@ Preview candidates by default; deletion requires apply plus the reviewed plan.
 
 | Argument | Type | Default |
 |---|---|---|
-| `directory` | `str` | `required` |
+| `directory` | `str | None` | `None` |
 | `older_than_days` | `int` | `30` |
 | `keep_newest` | `int` | `5` |
 | `plan` | `dict[str, Any] | None` | `None` |
 | `apply` | `bool` | `False` |
+| `project` | `str | None` | `None` |
 
 **Cost** — network: no · writes files: yes · idempotent: no · spends money: no · can overwrite/remove existing data
 
