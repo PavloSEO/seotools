@@ -34,7 +34,11 @@ from seohead.crawl.spider import LinkEdge
 # outline above, this one is a fixed-width dict whose two lists the parser caps, so
 # it costs 303 bytes per record empty and about 520 more on a page that actually has
 # a heading link and an unlabelled image link -- a constant, not a per-link cost.
-FIELD_COUNTS_THE_CEILING_WAS_COMPUTED_AGAINST = {LinkEdge: 8, PageRecord: 62}
+# 62 -> 63 for the Open Graph URL (#654), re-measured rather than assumed: a paired
+# tracemalloc run over 8 000 records reports the same bytes per record at both widths,
+# because an unset field holds the interned empty string; a page that declares the tag
+# costs about 69 bytes more for the URL itself.
+FIELD_COUNTS_THE_CEILING_WAS_COMPUTED_AGAINST = {LinkEdge: 8, PageRecord: 63}
 
 
 def test_both_crawlers_read_the_same_ceiling() -> None:

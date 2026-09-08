@@ -107,6 +107,12 @@ CREATE TABLE pages (
   og_title TEXT NOT NULL,
   og_description TEXT NOT NULL,
   og_image TEXT NOT NULL,
+  -- The page's own <meta property="og:url">, the fact a Screaming Frog export
+  -- has always carried in its "OG:URL" column. Nullable, because a crawl written
+  -- before it was collected never read the tag, which is not the same as a page
+  -- that declares none -- and check_og names "og:url" missing from what it reads
+  -- here, so the two must stay distinguishable.
+  og_url TEXT,
   word_count INTEGER NOT NULL,
   text_ratio REAL,
   content_frames INTEGER,
