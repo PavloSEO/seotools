@@ -277,6 +277,8 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
     elif cmd == "keywords-cluster":
         pass  # keywords/algorithm come from --input JSON
     elif cmd == "duplicate-check":
+        if getattr(args, "scan", None):
+            kw["scan"] = args.scan
         if getattr(args, "threshold", None) is not None:
             kw["threshold"] = args.threshold
         if getattr(args, "fingerprints", False):
@@ -284,6 +286,9 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
         if getattr(args, "all_pages", False):
             kw["only_indexable"] = False
         # items[] is intentionally accepted through --input JSON.
+    elif cmd == "boilerplate-report":
+        if getattr(args, "scan", None):
+            kw["scan"] = args.scan
     elif cmd == "log-analyze":
         if args.path:
             kw["path"] = args.path
@@ -1111,6 +1116,7 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
         sub.add_argument("--max-height", type=int, help="maximum output height; never upscales")
         sub.add_argument("--max-pixels", type=int, help="input pixel safety limit")
     if cmd == "duplicate-check":
+        _source_flag(sub, "--scan", help="validated scan.v1 SQLite artifact to read offline")
         sub.add_argument(
             "--threshold", type=float, help="similarity threshold from 0 to 1 (default 0.92)"
         )
@@ -1127,6 +1133,8 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
             "indexable=true (or no indexable flag) are compared, since a "
             "canonicalised twin is not a defect",
         )
+    if cmd == "boilerplate-report":
+        _source_flag(sub, "--scan", help="validated scan.v1 SQLite artifact to read offline")
     if cmd == "llms-txt-check":
         sub.add_argument("--brand", help="brand name that llms.txt should mention")
 

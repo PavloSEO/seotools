@@ -378,7 +378,8 @@ def build_server():  # -> FastMCP
 
     @mcp.tool(annotations=pure, structured_output=True)
     def seo_duplicate_check(
-        items: list[dict],
+        items: list[dict] | None = None,
+        scan: str | None = None,
         threshold: float = 0.92,
         with_fingerprints: bool = False,
         only_indexable: bool = True,
@@ -395,10 +396,14 @@ def build_server():  # -> FastMCP
         does not create false matches. only_indexable=True (default) compares only
         items whose indexable flag is true or absent, since a page canonicalised to
         another is an intended twin, not a defect; set it to false to audit the
-        canonical tags themselves."""
+        canonical tags themselves. Pass scan for a validated read-only scan.v1
+        corpus; it reads retained page bodies only and returns coverage. Scan input is
+        capped at 10,000 documents, 16 MiB of extracted input, one million shingles,
+        and 250,000 candidate comparisons; an exhausted bound is unavailable, never clean."""
         return _checked(
             handlers.duplicate_check(
                 items=items,
+                scan=scan,
                 threshold=threshold,
                 with_fingerprints=with_fingerprints,
                 only_indexable=only_indexable,
@@ -471,7 +476,9 @@ def build_server():  # -> FastMCP
         )
 
     @mcp.tool(annotations=pure, structured_output=True)
-    def seo_boilerplate_report(pages: list[dict]) -> dict[str, Any]:
+    def seo_boilerplate_report(
+        pages: list[dict] | None = None, scan: str | None = None
+    ) -> dict[str, Any]:
         """Answer "is the boilerplate actually the same everywhere?" across a crawled
         corpus. Hashes each page's header/nav/footer markup (structure kept, not just
         text, so a link dropped from a menu still changes the hash), groups pages by
@@ -479,8 +486,10 @@ def build_server():  # -> FastMCP
         fraction of the corpus and a sample URL. Catches a nav block that lost links on
         one template, a footer never migrated on old pages, or a menu that renders
         differently under one language branch. Each page is {"url", "html"}, or
-        {"url", "hash"} when the hash was already computed upstream."""
-        return _checked(handlers.boilerplate_report(pages=pages))
+        {"url", "hash"} when the hash was already computed upstream. Pass scan
+        for a validated read-only scan.v1 corpus with retained page HTML. Scan input is
+        capped at 10,000 documents and 16 MiB; an exhausted bound is unavailable."""
+        return _checked(handlers.boilerplate_report(pages=pages, scan=scan))
 
     @mcp.tool(annotations=fetch, structured_output=True)
     def seo_social_meta_check(
