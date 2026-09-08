@@ -116,12 +116,11 @@ retention policy. Reader and importer compatibility are explicit: a newer or
 incompatible format is refused, with no automatic migration. Missing or nullable
 legacy fields remain unavailable evidence; they do not become clean defaults.
 
-Five later `PageRecord` fields may be `NULL` for older sources:
-`content_frames`, `content_frames_same_origin`, `hreflang_json`,
-`body_unavailable`, and `meta_refresh`. `NULL` means the observation was absent
-from that source, not zero frames, an empty hreflang list, no body problem, or no
-meta refresh. This field-level state is distinct from `crawl_partial` and
-`corpus_partial`.
+Later `PageRecord` observations may be `NULL` for older sources. The
+current source-derived field-to-column table lives in [STORAGE.md](STORAGE.md#historical-page-fields); it includes
+the canonical-chain pair and `og_url`. `NULL` means the observation was absent
+from that source, not a measured empty or zero value. This field-level state is
+distinct from `crawl_partial` and `corpus_partial`.
 
 The current audit bridge is bounded to 10,000 pages, 20,000 forms, and a 64 MiB
 saved audit JSON. A capture beyond those limits may retain collection evidence but

@@ -10,6 +10,7 @@ core through two interfaces — CLI and local MCP. It is not a general-purpose c
 |---|---|
 | Setting the toolkit up from zero | [SETUP.md](SETUP.md) — versions, deps, first run |
 | Looking for a copy-paste command | [USAGE.md](USAGE.md) — runnable examples |
+| Checking which source inputs a command accepts | [INPUTS.md](INPUTS.md) — generated command-input catalogue |
 | Managing or inspecting saved scans | [STORAGE.md](STORAGE.md) — SQLite import, provenance, retained bodies, snapshots, and reviewed retention |
 | Operating a SQLite scan baseline or reviewing capacity evidence | [SQLITE_ACCEPTANCE.md](SQLITE_ACCEPTANCE.md) — capture-to-prune workflow, evidence limits, and the measured release-profile record with its two named limits |
 | New to the toolkit | [GUIDELINE.md](GUIDELINE.md) — what it is, the first run, reading an audit honestly, the usual mistakes |
@@ -41,6 +42,10 @@ core through two interfaces — CLI and local MCP. It is not a general-purpose c
   definitions in `seohead/servers/mcp_server.py` and `sf_mcp.py`
   (`scripts/generate_tool_reference.py`); `tests/test_docs_drift.py` fails the
   build if it drifts.
+- **[INPUTS.md](INPUTS.md)** — every command's consumed source inputs, including
+  retained scan artifacts, audit documents, inline corpora, provider queries,
+  and the distinct operational stores. Generated from
+  `seohead/input_contracts.py` (`scripts/generate_input_reference.py`).
 - **[CHECKS.md](CHECKS.md)** — the 161 checks the SF crawl audit runs: what each fires
   on, what evidence it needs, and the fix that ships with the finding. Generated
   from `seohead/sf/core/registry.py` (`scripts/generate_checks_reference.py`);
