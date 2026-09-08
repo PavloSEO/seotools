@@ -40,6 +40,19 @@ _ALLOW = frozenset(
 )
 
 
+# Headers whose value must never be stored, but whose presence explains a response:
+# a request that carried one and a request that carried none are otherwise identical
+# once redaction has run.
+_SENSITIVE = frozenset(
+    {"authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key", "x-auth-token"}
+)
+
+# The name the redacted header list uses to report which of those were present. Not a
+# header any site sends, and outside every sensitive-name check the artifact validates
+# against, so a reader can never confuse the marker with the header it stands for.
+REDACTED_NAMES_HEADER = "x-seohead-redacted-headers"
+
+
 def header_pairs(headers: Any) -> tuple[tuple[str, str], ...]:
     items = (
         headers.multi_items()
@@ -52,7 +65,21 @@ def header_pairs(headers: Any) -> tuple[tuple[str, str], ...]:
 
 
 def redact_headers(headers: Any) -> tuple[tuple[str, str], ...]:
-    return tuple((name, value) for name, value in header_pairs(headers) if name in _ALLOW)
+    """Keep the allow-listed headers, and name -- never quote -- the sensitive ones.
+
+    Dropping a credential or a cookie outright left two responses indistinguishable
+    in the artifact: the one whose body was omitted as ``credentialed`` and the one
+    that was retained recorded byte-identical header lists, so an operator reading
+    the scan could not tell why a body was missing (#647). The marker carries names
+    only, under a name of our own so it can never be mistaken for a header the site
+    sent or read back as one; no value ever reaches the artifact.
+    """
+    pairs = header_pairs(headers)
+    kept = tuple((name, value) for name, value in pairs if name in _ALLOW)
+    redacted = sorted({name for name, value in pairs if name in _SENSITIVE and value})
+    if redacted:
+        kept += ((REDACTED_NAMES_HEADER, ",".join(redacted)),)
+    return kept
 
 
 @dataclass(frozen=True)
@@ -160,6 +187,7 @@ def now_utc() -> str:
 
 
 __all__ = [
+    "REDACTED_NAMES_HEADER",
     "CaptureEvent",
     "bounded_entity",
     "bounded_entity_chunks",

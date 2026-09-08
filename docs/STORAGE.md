@@ -14,6 +14,11 @@ concurrently.
 
 ## Start here
 
+For the operator capture-to-prune route and the current release-capacity status,
+read [SQLITE_ACCEPTANCE.md](SQLITE_ACCEPTANCE.md). It carries the measured release
+record, including the two limits that record publishes by name; the older
+development profiles below are separate measurements, not a release-pass claim.
+
 Use the storage module after it is installed with SEOHEAD Tools:
 
 ```bash
@@ -40,6 +45,10 @@ late page field is omitted so an older source's absent field remains absent rath
 than becoming a measured default. The saved audit is copied as its exact UTF-8
 bytes. The export contains no response bodies, raw HTML, forms, robots state,
 start-page evidence, sitemap-response corpus, or resume checkpoint.
+
+The native default is `storage.body_mode=captured_entity_bytes`; the only other
+supported value is `off`. The recorded retention policy, body state, and
+capability state determine what a particular scan actually retained.
 
 ## Explicit local history operations
 
@@ -195,7 +204,17 @@ body at a time. The native fetch clamp is a 64 MiB hard limit: a larger response
 is marked truncated rather than retained, even if a configured policy limit is
 larger; rendering fails rather than silently keeping an over-limit DOM. `off`,
 `no-store`, credentialed, unsupported, failed, truncated, and budget-exhausted
-captures each retain their named state/reason. Native SQLite mode requires
+captures each retain their named state/reason. A capture is credentialed when the
+run was configured to send a credential header for that host through
+`http.credential_headers`, never because the shared client's cookie jar carried a
+cookie the site itself set: a session cookie is the ordinary state of the web, and
+reading one as the operator's credential discarded 33 001 of 40 920 page bodies on a
+public site with nothing configured at all. Redacted header lists keep the names of
+the headers redaction removed, under `x-seohead-redacted-headers` and never their
+values, so a retained response and a suppressed one are distinguishable in the
+artifact. A crawl reports how many fetched HTML page bodies it retained and the
+reasons it dropped the rest in `html_bodies`, because a `partial` capability flag is
+the same word for one missing body and for four fifths of them. Native SQLite mode requires
 `cache.mode=off` before collection; it never changes or deletes the old directory
 cache, which remains part of the directory workflow.
 
@@ -491,6 +510,12 @@ Current audits feed the existing report, comparison and task APIs; no automatic
 is recorded as the schema-supported rate string `unbounded`, never JSON Infinity.
 
 ### Collector capacity measurement
+
+The figures in this and the following capacity sections are development-profile
+observations from separate, narrower profilers. They are not the release
+acceptance record, and they do not include the two measured limits it publishes.
+Read [SQLITE_ACCEPTANCE.md](SQLITE_ACCEPTANCE.md) before citing any number here as
+a capacity result.
 
 The offline profiler uses 10,000 seeded pages, generated HTML, and injected
 transport without sockets. On macOS 26.6.2 arm64, Python 3.14.6 and SQLite 3.53.3:

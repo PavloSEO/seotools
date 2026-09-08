@@ -4,23 +4,27 @@ All notable public changes are documented here.
 
 ## Unreleased
 
-- Collect `og:url` on a native crawl, instead of reporting every page as missing it (#654).
-  `rules.check_og` lists `og:url` among a page's `missing_tags` whenever the field reads falsy,
-  and the native path never read the tag at all: no `og_url` on `PageRecord`, no `og_url` column
-  in `scan_v1.sql`, no `OG:URL` in the Internal:All projection `crawl/evidence.py` builds. The
-  column existed only on the Screaming Frog side, where `normalize` has always resolved `OG:URL`,
-  so an export of a site saw the real value and a native crawl of the same site reported a defect
-  -- an unmeasured field presented as a measured one, on every page of every native crawl,
-  whatever the markup said. The tag is now read where the other three are (the parser already
-  returned it as `og:url`), stored in a nullable `pages.og_url` -- nullable like every other
-  late-added column, so a record written before it was collected stays distinguishable from a page
-  that declares none -- and projected as `OG:URL`. This is the collection side of the seam #646
-  fixed the read side of. `tests/test_open_graph_seam.py` gains a third fixture site whose pages
-  have Open Graph but no `og:title`, so the finding actually fires and its list can be read: one
-  page declares `og:url` and must not be named missing it, the other declares none and must be.
-  The test that matters audits both of those pages twice, once from the crawl and once from an
-  Internal:All export describing the same two pages, and requires the same verdict -- #646 and
-  #654 were both two paths disagreeing with no test spanning them.
+Entries for merged, unreleased work live one file per change in `changelog.d/`, not here:
+`python scripts/build_changelog.py` folds them in between the markers below at release
+time, so two branches never edit this file and can never conflict over it (#638).
+
+<!-- changelog.d: assembled entries start -->
+<!-- changelog.d: assembled entries end -->
+
+- Keep fingerprinting a page whose site sends a valueless `Set-Cookie` header (#651). A header
+  with no `name=value` pair at all -- `Set-Cookie: Secure; HttpOnly`, which `emall.by` sends
+  beside two well-formed cookies -- becomes `Cookie(name='Secure', value=None)` in the jar, and
+  `httpx.Cookies.__getitem__` raises `KeyError` for it. `dict(resp.cookies)` therefore failed on
+  a name the mapping's own iterator had produced: `tech-detect` exited 1 with a bare
+  `error: 'Secure'` and no JSON on stdout for a page that had been fetched successfully, MCP
+  `seo_tech_detect` raised the `KeyError` to its caller, and `site-audit` quietly came back with
+  its entire technology section missing. `detect_tech` now walks the cookie jar instead. A
+  valueless name is kept with an empty value rather than dropped, because several fingerprints
+  (`BITRIX_SM_GUEST_ID`, `craft_session`, `wfvt_`) match on cookie name alone and dropping the
+  entry would lose that signal -- but it is never silently normalized into an ordinary cookie:
+  the names are reported in `malformed_cookies` and named in a finding, so a header the site
+  sent broken stays a fact about the site. A response with only well-formed cookies is
+  unaffected and reports an empty list.
 - `render-check` measures compressed sites again instead of calling them broken (#650). The
   pinned render route read the origin with httpx's undecoded stream and handed those bytes to
   Playwright together with the origin's `content-encoding`. `route.fulfill` never applies a

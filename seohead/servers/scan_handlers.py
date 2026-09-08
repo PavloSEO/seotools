@@ -156,6 +156,10 @@ def _response(run, *, audit_available: bool, audit_reason: str, finalized: bool)
         "audit_reason": audit_reason,
         "finalized": finalized,
         "limitations": list(run.limitations),
+        # Named in the result, not only as a "partial" capability flag: a corpus
+        # reduced to a fifth of the pages the same document counts over is not a
+        # caveat, and nothing else in the response says how much is gone (#647).
+        "html_bodies": dict(run.html_bodies),
     }
     if run.capabilities is not None:
         response.update(corpus_partial=run.corpus_partial, capabilities=run.capabilities)
