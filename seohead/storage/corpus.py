@@ -610,6 +610,27 @@ def store_rendered_document(
     return int(con.execute("SELECT last_insert_rowid()").fetchone()[0])
 
 
+def html_body_retention(con: sqlite3.Connection) -> dict[str, Any]:
+    """Count the HTML page bodies this corpus kept, and name why it dropped the rest.
+
+    ``capabilities['html_bodies']`` says ``partial`` whether one body is missing or
+    four fifths of them are, so a run summary cannot be built from it: the crawl
+    behind #647 reported pages and links normally while 33 001 of 40 920 bodies had
+    been discarded, and everything computed from stored HTML silently described the
+    7 903 that remained. These are the counts that make that sayable.
+    """
+    rows = con.execute(
+        "SELECT d.body_state,d.body_reason,COUNT(*) FROM documents d "
+        "LEFT JOIN responses r ON r.response_id=d.source_response_id "
+        "WHERE d.representation IN ('static','legacy_fragment') "
+        "AND lower(COALESCE(r.content_type,'')) LIKE '%html%' "
+        "GROUP BY 1,2 ORDER BY 1,2"
+    ).fetchall()
+    total = sum(count for _state, _reason, count in rows)
+    omitted = {reason: count for state, reason, count in rows if state == "omitted"}
+    return {"total": total, "retained": total - sum(omitted.values()), "omitted": omitted}
+
+
 def corpus_summary(con: sqlite3.Connection, policy: dict[str, Any]) -> dict[str, Any]:
     """Derive capability coverage over requested captures, not unrequested lanes."""
     policy = validate_policy(policy)

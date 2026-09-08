@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ruff: noqa: E402
-"""Subprocess RSS profile for E SQL graph and sitemap cursor readers."""
+"""Subprocess RSS profile for direct-seeded E SQL graph and sitemap readers."""
 
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from scripts import profile_scan_collector as collector
 from seohead.crawl.collect import PageRecord
 from seohead.crawl.settings import fingerprint, load
 from seohead.crawl.sql_graph import StoredGraph
@@ -49,13 +50,12 @@ def _environment() -> dict[str, object]:
         "python": sys.version.split()[0],
         "sqlite": sqlite3.sqlite_version,
         "platform": platform.platform(),
-        "source_sha256": {
-            name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest() for name in SOURCES
-        },
+        "profile_kind": "direct_seeded_sqlite_microprofile",
+        **collector.source_manifest(SOURCES),
     }
 
 
-def _metadata() -> dict[str, object]:
+def _metadata(provenance: dict[str, object]) -> dict[str, object]:
     config = load(
         overrides={
             "speed.min_delay_seconds": 0,
@@ -71,7 +71,7 @@ def _metadata() -> dict[str, object]:
         "config": config,
         "config_fingerprint": fingerprint(config),
         "writer_version": "profile",
-        "writer_revision": "0" * 40,
+        "writer_revision": collector.validated_source_revision(provenance["source_revision"]),
         "runtime_versions": {
             "python": platform.python_version(),
             "sqlite": sqlite3.sqlite_version,
@@ -115,8 +115,11 @@ def _links(page: int, edges: int) -> list[dict[str, object]]:
 
 def _build(edges: int, database: Path) -> dict[str, object]:
     started = time.perf_counter()
+    environment = _environment()
     with NativeScan.create(
-        database, **_metadata(), initial_sitemaps=[(f"https://{HOST}/sitemap.xml", "explicit")]
+        database,
+        **_metadata(environment),
+        initial_sitemaps=[(f"https://{HOST}/sitemap.xml", "explicit")],
     ) as scan:
         scan.enqueue([(_url(page), page) for page in range(PAGES)])
         for page in range(PAGES):
@@ -146,7 +149,7 @@ def _build(edges: int, database: Path) -> dict[str, object]:
         "wall_seconds": round(time.perf_counter() - started, 3),
         "peak_rss_mib": round(rss, 2),
         "rss_source_unit": unit,
-        **_environment(),
+        **environment,
     }
 
 
@@ -250,12 +253,17 @@ def _child(kind: str, edges: int, database: Path) -> dict[str, object]:
 
 
 def main() -> None:
+    global PAGES
     parser = argparse.ArgumentParser()
     parser.add_argument("--profile", action="store_true")
     parser.add_argument("--kind", choices=("build", "graph", "sitemap"))
     parser.add_argument("--edges", type=int, choices=(30, 150))
     parser.add_argument("--database", type=Path)
+    parser.add_argument("--pages", type=int, default=PAGES)
     args = parser.parse_args()
+    if args.pages < 1:
+        parser.error("--pages must be positive")
+    PAGES = args.pages
     if args.kind:
         if args.edges is None or args.database is None:
             parser.error("--kind requires --edges and --database")
@@ -277,6 +285,8 @@ def main() -> None:
                         kind,
                         "--edges",
                         str(edges),
+                        "--pages",
+                        str(PAGES),
                         "--database",
                         str(database),
                     ],
@@ -302,6 +312,8 @@ def main() -> None:
         json.dumps(
             {
                 "fixture": {
+                    "profile_kind": "direct_seeded_sqlite_microprofile",
+                    "collection": "no fetch or discovery; pages and links are inserted directly",
                     "pages": PAGES,
                     "links": [PAGES * 30, PAGES * 150],
                     "sitemap_members": PAGES,

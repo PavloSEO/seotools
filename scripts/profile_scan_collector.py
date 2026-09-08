@@ -14,12 +14,14 @@ import argparse
 import hashlib
 import json
 import platform
+import re
 import resource
 import sqlite3
 import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +33,17 @@ from seohead.crawl.sqlite_adapter import crawl_to_scan
 
 PAGES = 10_000
 HOST = "example.test"
+_REVISION = re.compile(r"[0-9a-f]{40}\Z")
+SOURCES = (
+    "scripts/profile_scan_collector.py",
+    "seohead/crawl/sqlite_adapter.py",
+    "seohead/crawl/collect.py",
+    "seohead/crawl/spider.py",
+    "seohead/crawl/throttle.py",
+    "seohead/tools/parser.py",
+    "seohead/storage/frontier.py",
+    "seohead/storage/native_scan.py",
+)
 
 
 class Response:
@@ -46,6 +59,37 @@ def page_html(page: int, edges: int) -> str:
         f'<a href="/p/{(page + offset) % PAGES}">x</a>' for offset in range(1, edges + 1)
     )
     return f"<html><head><title>p{page}</title></head><body>{links}</body></html>"
+
+
+def offline_fetcher(edges: int) -> tuple[Callable[[str], Response], Callable[[], int]]:
+    """Return the bounded synthetic transport shared by collection profiles.
+
+    The crawler receives no real client when this fetcher is present, so the
+    fixture cannot make a socket, DNS, HTTP, or browser request.  Its counter
+    intentionally excludes robots.txt; it records the number of synthetic page
+    documents that the collector actually requested.
+    """
+    fetched = 0
+
+    def fetch(url: str) -> Response:
+        nonlocal fetched
+        if url.endswith("/robots.txt"):
+            return Response(200, "User-agent: SEOHEAD-Tools\nAllow: /\n", "text/plain")
+        prefix = f"https://{HOST}/p/"
+        if not url.startswith(prefix):
+            return Response(404, "not found", "text/plain")
+        try:
+            page = int(url.removeprefix(prefix))
+        except ValueError:
+            return Response(404, "not found", "text/plain")
+        if not 0 <= page < PAGES:
+            return Response(404, "not found", "text/plain")
+        fetched += 1
+        if fetched % 1_000 == 0:
+            print(f"progress pages={fetched} edges_per_page={edges}", file=sys.stderr, flush=True)
+        return Response(200, page_html(page, edges))
+
+    return fetch, lambda: fetched
 
 
 def peak_rss() -> tuple[float, str]:
@@ -76,31 +120,52 @@ def link_digest(database: Path) -> str:
     return digest.hexdigest()
 
 
-def source_hashes() -> dict[str, str]:
-    files = (
-        "seohead/crawl/sqlite_adapter.py",
-        "seohead/crawl/collect.py",
-        "seohead/crawl/spider.py",
-        "seohead/crawl/throttle.py",
-        "seohead/tools/parser.py",
-        "seohead/storage/frontier.py",
-        "seohead/storage/native_scan.py",
-    )
-    return {name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest() for name in files}
+def validated_source_revision(value: object) -> str:
+    """Require an actual Git revision before a profile creates an artifact."""
+    if not isinstance(value, str) or not _REVISION.fullmatch(value):
+        raise RuntimeError("profile source revision must be a full lowercase Git HEAD SHA")
+    return value
+
+
+def source_manifest(files: tuple[str, ...] = SOURCES) -> dict[str, object]:
+    """Identify profile code without claiming a clean checkout that is dirty."""
+    try:
+        revision = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=5,
+        )
+        dirty = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=all"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise RuntimeError(
+            "profile source revision is unavailable; run from a Git checkout"
+        ) from exc
+    if revision.returncode or dirty.returncode:
+        raise RuntimeError(
+            "profile source revision is unavailable; Git could not inspect this checkout"
+        )
+    return {
+        "source_revision": validated_source_revision(revision.stdout.strip()),
+        "source_dirty": bool(dirty.stdout),
+        "source_sha256": {
+            name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest() for name in files
+        },
+    }
 
 
 def run_child(edges: int, database: Path) -> dict[str, object]:
-    fetched = 0
-
-    def fetcher(url: str) -> Response:
-        nonlocal fetched
-        if url.endswith("/robots.txt"):
-            return Response(200, "User-agent: SEOHEAD-Tools\nAllow: /\n", "text/plain")
-        fetched += 1
-        if fetched % 1_000 == 0:
-            print(f"progress pages={fetched} edges_per_page={edges}", file=sys.stderr, flush=True)
-        page = int(url.rsplit("/", 1)[-1]) if "/p/" in url else 0
-        return Response(200, page_html(page, edges))
+    fetcher, fetched_pages = offline_fetcher(edges)
+    provenance = source_manifest()
 
     settings = load(
         overrides={
@@ -118,7 +183,7 @@ def run_child(edges: int, database: Path) -> dict[str, object]:
         scan_out=str(database),
         settings=settings,
         producer_version="profile",
-        producer_revision="0" * 40,
+        producer_revision=validated_source_revision(provenance["source_revision"]),
         runtime_versions={
             "python": platform.python_version(),
             "sqlite": sqlite3.sqlite_version,
@@ -146,22 +211,27 @@ def run_child(edges: int, database: Path) -> dict[str, object]:
         "peak_rss_mib": round(rss_mib, 2),
         "rss_source_unit": rss_unit,
         "wall_seconds": round(elapsed, 3),
-        "fetched_pages": fetched,
+        "fetched_pages": fetched_pages(),
         "collector_lifecycle": result.lifecycle,
         "collector_finish_reason": result.finish_reason,
         "python": sys.version.split()[0],
         "sqlite": sqlite3.sqlite_version,
         "platform": platform.platform(),
-        "source_sha256": source_hashes(),
+        **provenance,
     }
 
 
 def main() -> None:
+    global PAGES
     parser = argparse.ArgumentParser()
     parser.add_argument("--child", action="store_true")
     parser.add_argument("--edges", type=int, choices=(30, 150))
     parser.add_argument("--database", type=Path)
+    parser.add_argument("--pages", type=int, default=PAGES)
     args = parser.parse_args()
+    if args.pages < 1:
+        parser.error("--pages must be positive")
+    PAGES = args.pages
     if args.child:
         if args.edges is None or args.database is None:
             parser.error("--child requires --edges and --database")
@@ -180,6 +250,8 @@ def main() -> None:
                     "--child",
                     "--edges",
                     str(edges),
+                    "--pages",
+                    str(PAGES),
                     "--database",
                     str(database),
                 ],

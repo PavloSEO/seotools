@@ -29,7 +29,10 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 DOCS = sorted(
     p
     for p in list(ROOT.glob("*.md")) + list((ROOT / "docs").glob("**/*.md"))
-    if p.name != "CHANGELOG.md"  # a changelog records what was true at the time
+    # A changelog records what was true at the time. Its unassembled entries under
+    # changelog.d/ (#638) are outside both globs above for the same reason; the
+    # English-only and command-name gates in tests/test_docs_drift.py do read them.
+    if p.name != "CHANGELOG.md"
 )
 
 

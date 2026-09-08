@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -246,6 +247,10 @@ class _Scan:
 
     def __init__(self, path):
         self.path = path
+        # The adapter reads the corpus back to report how many HTML bodies the run
+        # retained (#647), so the double carries a real, empty artifact schema.
+        self.con = sqlite3.connect(":memory:")
+        self.con.executescript(Path("seohead/storage/scan_v1.sql").read_text())
         self.queue = []
         self.records = []
         self.links = []

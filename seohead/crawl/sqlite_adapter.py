@@ -40,6 +40,7 @@ from seohead.crawl.throttle import Throttle
 from seohead.models import ParsedRobots
 from seohead.recon.net import UA, http_client, normalize_url
 from seohead.storage import MAX_RECORD_BYTES, ScanBackpressure, ScanError
+from seohead.storage.corpus import html_body_retention
 from seohead.storage.native_scan import NativeScan
 from seohead.tools.robots import is_allowed, match_path, politeness_delay
 
@@ -72,6 +73,10 @@ class ScanRun:
     start_page_gate: dict[str, Any] | None = None
     corpus_partial: bool = True
     capabilities: dict[str, Any] | None = None
+    # How many fetched HTML page bodies the corpus kept, and why it dropped the rest
+    # (#647). A capability flag cannot carry this: "partial" is the same word for one
+    # missing body and for four fifths of them.
+    html_bodies: dict[str, Any] = field(default_factory=dict)
     # How many rendered DOMs the corpus kept, and why it dropped the rest (#656).
     # Filled in after render escalation, which runs past this collector; a
     # capability flag cannot carry it, because "partial" is the same word for one
@@ -511,6 +516,7 @@ def crawl_to_scan(
                 limitations=tuple(json.loads(outcome["scan"]["limitations_json"])),
                 corpus_partial=bool(outcome["scan"]["corpus_partial"]),
                 capabilities=json.loads(outcome["scan"]["capabilities_json"]),
+                html_bodies=html_body_retention(scan.con),
                 dispatch_gate=dispatch_gate,
             )
         asked_delay = politeness_delay(cast(ParsedRobots, robots), robots_token)
@@ -898,6 +904,7 @@ def crawl_to_scan(
             dispatch_gate=dispatch_gate,
             corpus_partial=bool(outcome["scan"]["corpus_partial"]),
             capabilities=json.loads(outcome["scan"]["capabilities_json"]),
+            html_bodies=html_body_retention(scan.con),
         )
 
 

@@ -293,9 +293,7 @@ def test_failure_after_redirect_keeps_original_observation_and_final_failure_fie
     assert event.redirect_history[0]["next_url"].endswith("/b")
 
 
-def test_redirect_cookie_marks_merged_capture_credentialed_and_omits_its_body():
-    cookie_seen = []
-
+def _cookie_setting_redirect(cookie_seen):
     def handler(request):
         if request.url.path == "/a":
             return _response(
@@ -308,27 +306,61 @@ def test_redirect_cookie_marks_merged_capture_credentialed_and_omits_its_body():
             request,
             200,
             headers={"content-type": "application/javascript"},
-            body=b"private body",
+            body=b"public body",
         )
 
-    result = _run(handler, remaining_requests=2)
-    event = result.captures[-1]
+    return handler
+
+
+def _stored(event):
     con = sqlite3.connect(":memory:")
     con.executescript(Path("seohead/storage/scan_v1.sql").read_text())
     try:
         response_id, _document_id = store_response(con, event, purpose="script", policy=_policy())
-        stored = con.execute(
-            "SELECT body_state,body_reason,body_sha256,credentials_used,response_time "
+        return con.execute(
+            "SELECT body_state,body_reason,credentials_used,response_time "
             "FROM responses WHERE response_id=?",
             (response_id,),
         ).fetchone()
     finally:
         con.close()
 
+
+def test_a_redirect_set_cookie_does_not_make_the_merged_capture_credentialed():
+    """The jar carries the cookie to the next hop; it is still not a credential (#647)."""
+    cookie_seen = []
+
+    result = _run(_cookie_setting_redirect(cookie_seen), remaining_requests=2)
+    event = result.captures[-1]
+    stored = _stored(event)
+
     assert cookie_seen == ["session=secret"]
-    assert event.credentials_used is True
+    assert event.credentials_used is False
+    assert event.session_changed is True, "the session change is still recorded"
     assert event.response_time is not None
-    assert stored[:4] == ("omitted", "credentialed", None, 1)
+    assert stored[:3] == ("complete", "none", 0)
+
+
+def test_an_operator_credential_still_omits_the_resource_body(monkeypatch):
+    monkeypatch.setenv("SEOHEAD_TEST_TOKEN", "Bearer operator-secret")
+    cookie_seen = []
+
+    result = _run(
+        _cookie_setting_redirect(cookie_seen),
+        remaining_requests=2,
+        settings=_settings(
+            **{
+                "http.credential_headers": [
+                    {"host": "example.test", "headers": {"authorization": "env:SEOHEAD_TEST_TOKEN"}}
+                ],
+                "http.credentials_acknowledged": True,
+            }
+        ),
+    )
+    event = result.captures[-1]
+
+    assert event.credentials_used is True
+    assert _stored(event)[:3] == ("omitted", "credentialed", 1)
 
 
 def test_redirect_aggregate_sums_each_observed_response_time():

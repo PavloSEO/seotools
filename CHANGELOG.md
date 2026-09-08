@@ -4,26 +4,27 @@ All notable public changes are documented here.
 
 ## Unreleased
 
-- Stop reading a cookie the site set as the operator's credential in the JavaScript rendering
-  lane, and say out loud when a run discards rendered DOMs (#656). A browser carries back
-  whatever a site's own `Set-Cookie` gave it, so the moment a page set a session cookie and then
-  asked for one same-origin subresource -- a script, a stylesheet, an image, the ordinary shape
-  of the web -- the renderer's request hook read `Cookie:` off the wire and stored that page's
-  serialized DOM as `omitted`/`credentialed`, on a run with `http.credential_headers = []`. Each
-  render builds its own browser context, so the loss is per page rather than cumulative: every
-  page that sets a cookie loses its own DOM, and the run reports its pages, links and escalation
-  counts exactly as a complete one would. `credentials_used` for a rendered document now comes
-  only from what the run was configured to send -- `http.credential_headers`, or a persistent
-  browser profile -- which is what `crawl/sqlite_render.py::_policy_facts` already derives and
-  hands the renderer; the renderer builds its own network client with no credential of its own,
-  so the wire had nothing to add. A crawl with a configured credential still omits those DOMs
-  under `credentialed`, unchanged, and the cookie's value is still never stored.
-- The rendered counts a `partial` flag cannot carry are now named. `rendered_bodies` in a
-  `crawl-site` result reports how many rendered DOMs were retained and the reason for each one
-  that was not, and the CLI prints that beside the finish line rather than leaving it to a
-  capability flag that says "partial" for one missing DOM and for every one of them. A run that
-  discarded nothing prints nothing extra. The counts are read back out of the scan artifact, so a
-  finished scan still answers the same question afterwards.
+Entries for merged, unreleased work live one file per change in `changelog.d/`, not here:
+`python scripts/build_changelog.py` folds them in between the markers below at release
+time, so two branches never edit this file and can never conflict over it (#638).
+
+<!-- changelog.d: assembled entries start -->
+<!-- changelog.d: assembled entries end -->
+
+- Keep fingerprinting a page whose site sends a valueless `Set-Cookie` header (#651). A header
+  with no `name=value` pair at all -- `Set-Cookie: Secure; HttpOnly`, which `emall.by` sends
+  beside two well-formed cookies -- becomes `Cookie(name='Secure', value=None)` in the jar, and
+  `httpx.Cookies.__getitem__` raises `KeyError` for it. `dict(resp.cookies)` therefore failed on
+  a name the mapping's own iterator had produced: `tech-detect` exited 1 with a bare
+  `error: 'Secure'` and no JSON on stdout for a page that had been fetched successfully, MCP
+  `seo_tech_detect` raised the `KeyError` to its caller, and `site-audit` quietly came back with
+  its entire technology section missing. `detect_tech` now walks the cookie jar instead. A
+  valueless name is kept with an empty value rather than dropped, because several fingerprints
+  (`BITRIX_SM_GUEST_ID`, `craft_session`, `wfvt_`) match on cookie name alone and dropping the
+  entry would lose that signal -- but it is never silently normalized into an ordinary cookie:
+  the names are reported in `malformed_cookies` and named in a finding, so a header the site
+  sent broken stays a fact about the site. A response with only well-formed cookies is
+  unaffected and reports an empty list.
 - `render-check` measures compressed sites again instead of calling them broken (#650). The
   pinned render route read the origin with httpx's undecoded stream and handed those bytes to
   Playwright together with the origin's `content-encoding`. `route.fulfill` never applies a

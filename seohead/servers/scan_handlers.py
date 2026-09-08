@@ -156,9 +156,12 @@ def _response(run, *, audit_available: bool, audit_reason: str, finalized: bool)
         "audit_reason": audit_reason,
         "finalized": finalized,
         "limitations": list(run.limitations),
-        # Named in the result, not only as a "partial" capability flag: a rendered
-        # corpus reduced to nothing by a cookie the site set is not a caveat, and
-        # nothing else in the response says how many DOMs are gone (#656).
+        # Named in the result, not only as a "partial" capability flag: a corpus
+        # reduced to a fifth of the pages the same document counts over is not a
+        # caveat, and nothing else in the response says how much is gone (#647).
+        "html_bodies": dict(run.html_bodies),
+        # Same reasoning for the rendering lane: a rendered corpus reduced to
+        # nothing by a cookie the site set is not a caveat either (#656).
         "rendered_bodies": dict(run.rendered_bodies),
     }
     if run.capabilities is not None:
