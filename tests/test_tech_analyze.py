@@ -7,6 +7,8 @@ failed fetches from the denominator and crediting a tag manager for tags it is
 expected to inject.
 """
 
+import httpx
+
 from seohead.recon import tech
 
 GA4_HTML = (
@@ -66,7 +68,7 @@ def test_detect_tech_delegates_to_analyze_tech(monkeypatch):
         def __init__(self):
             self.text = GTM_HTML
             self.headers = {"content-type": "text/html"}
-            self.cookies = {}
+            self.cookies = httpx.Cookies()
             self.url = "https://example.com/"
             self.status_code = 200
 
