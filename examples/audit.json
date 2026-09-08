@@ -11,7 +11,7 @@
     "source": null,
     "exports_dir": "examples/exports",
     "sf_version_detected": null,
-    "generated_at": "2026-09-07T13:55:42Z",
+    "generated_at": "2026-09-08T20:33:57Z",
     "profile": "full",
     "exports_used": [
       "internal_all",
@@ -127,6 +127,10 @@
         "reason": "no link-placement evidence (native crawl only)"
       },
       {
+        "id": "META_KEYWORDS_PRESENT",
+        "reason": "no Meta Keywords 1 column in Internal:All"
+      },
+      {
         "id": "CONTENT_IN_IFRAME",
         "reason": "no iframe inventory in this evidence"
       },
@@ -159,6 +163,10 @@
         "reason": "no Refresh response header evidence (native crawl only)"
       },
       {
+        "id": "CANONICAL_MULTIPLE",
+        "reason": "no Canonical Link Element 2 column in Internal:All"
+      },
+      {
         "id": "PAGINATION_LOOP",
         "reason": "no rel=\"next\" column in Internal:All"
       },
@@ -169,6 +177,14 @@
       {
         "id": "PAGINATION_SEQUENCE_ERROR",
         "reason": "no rel=\"next\" column in Internal:All"
+      },
+      {
+        "id": "HTTP1_ONLY",
+        "reason": "no HTTP Version column in Internal:All"
+      },
+      {
+        "id": "AMPHTML_PRESENT",
+        "reason": "no amphtml Link Element column in Internal:All"
       },
       {
         "id": "LOREM_IPSUM_PLACEHOLDER",
@@ -450,18 +466,16 @@
     "check_coverage": {
       "checks_total": 161,
       "checks_fired": 16,
-      "checks_skipped": 87,
+      "checks_skipped": 91,
       "checks_disabled": 0,
       "checks_disabled_ids": [],
-      "checks_silent": 58,
+      "checks_silent": 54,
       "checks_silent_ids": [
-        "AMPHTML_PRESENT",
         "BAD_REDIRECT_TYPE",
         "BLOCKED_BY_ROBOTS",
         "CANONICALISED",
         "CANONICAL_CHAIN",
         "CANONICAL_FRAGMENT",
-        "CANONICAL_MULTIPLE",
         "CANONICAL_NON_INDEXABLE",
         "CANONICAL_RELATIVE",
         "CANONICAL_TO_REDIRECT",
@@ -477,11 +491,9 @@
         "H2_TOO_LONG",
         "HIGH_EXTERNAL_OUTLINKS",
         "HIGH_OUTLINKS",
-        "HTTP1_ONLY",
         "HTTP_URL",
         "IMPORTANT_URL_BLOCKED_BY_ROBOTS",
         "INLINK_BOILERPLATE_ONLY",
-        "META_KEYWORDS_PRESENT",
         "META_REFRESH_REDIRECT",
         "NOARCHIVE",
         "NOFOLLOW_PAGE",
@@ -514,10 +526,10 @@
         "URL_UNDERSCORES",
         "URL_UPPERCASE"
       ],
-      "coverage": 0.46
+      "coverage": 0.435
     },
-    "health_score_reason": "only 74 of 161 checks could run (46% coverage); too little evidence to score",
-    "health_score_basis": "74 of 161 checks could run; the score is not comparable to a run with full evidence",
+    "health_score_reason": "only 70 of 161 checks could run (44% coverage); too little evidence to score",
+    "health_score_basis": "70 of 161 checks could run; the score is not comparable to a run with full evidence",
     "internal_linking": {
       "measured": false,
       "reason": "no all_inlinks export (needed for the complete internal edge list)"
