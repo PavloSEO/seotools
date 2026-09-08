@@ -101,15 +101,7 @@ def _observation(value: Any) -> str:
             part,
         )
 
-    return _translate_unprotected(
-        text,
-        lambda part: _CHECK_IDENTIFIER.sub(
-            lambda matched: (
-                check_title(matched.group(0)) if matched.group(0) in CHECKS else matched.group(0)
-            ),
-            part,
-        ),
-    )
+    return _translate_unprotected(text, translate)
 
 
 def _translate_unprotected(text: str, translate) -> str:
