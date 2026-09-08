@@ -1,4 +1,4 @@
-"""Temporary public wrappers for project workspaces; CLI/MCP registration is integrated separately."""
+"""Public handler wrappers for local project workspace operations."""
 
 from __future__ import annotations
 

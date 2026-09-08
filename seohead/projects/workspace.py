@@ -33,11 +33,14 @@ def _directory(path: str | Path, label: str) -> Path:
 def _target(value: str) -> str:
     if not isinstance(value, str) or len(value) > 2048:
         raise ValueError("target must be a bounded absolute HTTP(S) URL")
+    from urllib.parse import urlsplit, urlunsplit
+
+    raw = urlsplit(value)
+    if raw.username or raw.password or raw.query or raw.fragment:
+        raise ValueError("target site identity must not include credentials, a query, or a fragment")
     normalized = normalize_url(value)
     if not normalized:
         raise ValueError("target must be a public HTTP(S) site identity without credentials")
-    from urllib.parse import urlsplit, urlunsplit
-
     parts = urlsplit(normalized)
     if parts.query or parts.fragment or not parts.hostname:
         raise ValueError("target site identity must not include a query or fragment")
@@ -127,7 +130,13 @@ def _facts(value: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
     return result
 
 
-def _document(target: str, label: str | None, facts, templates, profiles) -> dict[str, Any]:
+def _document(
+    target: str,
+    label: str | None,
+    facts: list[dict[str, Any]],
+    templates: list[str],
+    profiles: list[str],
+) -> dict[str, Any]:
     return {
         "format": PROJECT_FORMAT,
         "version": PROJECT_VERSION,
@@ -195,14 +204,10 @@ def create_project(
     )
     project = parent / root.name
     project.mkdir(mode=0o700)
-    try:
-        for name in ("scans", "reports"):
-            (project / name).mkdir(mode=0o700)
-        _write_new(project / "log.md", "# Project log\n\nProject created; no audit work has run.\n")
-        _publish_manifest(project, document)
-    except BaseException:
-        # project.json is the success marker; failed initialization must not publish one.
-        raise
+    for name in ("scans", "reports"):
+        (project / name).mkdir(mode=0o700)
+    _write_new(project / "log.md", "# Project log\n\nProject created; no audit work has run.\n")
+    _publish_manifest(project, document)
     return open_project(project)
 
 
@@ -249,7 +254,10 @@ def _load(directory: str | Path) -> tuple[Path, dict[str, Any]]:
         raise ValueError("project UUID or creation time is invalid") from exc
     if created_at.tzinfo is None or created_at.utcoffset() != UTC.utcoffset(created_at):
         raise ValueError("project creation time must be RFC3339 UTC")
-    target = _target(document["site"].get("target") if isinstance(document["site"], dict) else "")
+    raw_target = document["site"].get("target") if isinstance(document["site"], dict) else ""
+    if not isinstance(raw_target, str):
+        raise ValueError("project site identity is invalid")
+    target = _target(raw_target)
     try:
         expected_site = _site(target, document["site"]["label"])
     except (KeyError, TypeError, ValueError) as exc:
