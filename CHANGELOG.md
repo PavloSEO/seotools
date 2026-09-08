@@ -4,6 +4,13 @@ All notable public changes are documented here.
 
 ## Unreleased
 
+Entries for merged, unreleased work live one file per change in `changelog.d/`, not here:
+`python scripts/build_changelog.py` folds them in between the markers below at release
+time, so two branches never edit this file and can never conflict over it (#638).
+
+<!-- changelog.d: assembled entries start -->
+<!-- changelog.d: assembled entries end -->
+
 - Keep fingerprinting a page whose site sends a valueless `Set-Cookie` header (#651). A header
   with no `name=value` pair at all -- `Set-Cookie: Secure; HttpOnly`, which `emall.by` sends
   beside two well-formed cookies -- becomes `Cookie(name='Secure', value=None)` in the jar, and
