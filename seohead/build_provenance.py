@@ -8,11 +8,15 @@ code instead of guessing a revision from an unrelated repository.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import importlib.metadata
 import json
+import os
 import re
+import tempfile
 from base64 import urlsafe_b64encode
+from collections.abc import Collection
 from csv import reader
 from dataclasses import dataclass
 from pathlib import Path
@@ -97,14 +101,38 @@ def _manifest_path(source_root: Path) -> Path:
 
 def write_manifest(source_root: Path, manifest: dict[str, Any]) -> None:
     """Write metadata only into a build or sdist staging tree."""
-    _manifest_path(source_root).write_text(
-        json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8"
-    )
+    target = _manifest_path(source_root)
+    descriptor, temporary = tempfile.mkstemp(prefix=".build-provenance-", dir=target.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+            output.write(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n")
+        os.replace(temporary, target)
+    except BaseException:
+        with contextlib.suppress(FileNotFoundError):
+            Path(temporary).unlink()
+        raise
 
 
 def remove_manifest(source_root: Path) -> None:
     """Remove stale metadata from a managed build or release tree only."""
     _manifest_path(source_root).unlink(missing_ok=True)
+
+
+def validate_staged_files(source_root: Path, expected_files: Collection[str]) -> None:
+    """Refuse staged package files that differ from current setuptools outputs."""
+    actual = set(package_source_files(source_root))
+    expected = set(expected_files)
+    unexpected = sorted(actual - expected)
+    missing = sorted(expected - actual)
+    if unexpected or missing:
+        details = []
+        if unexpected:
+            details.append(f"unexpected staged files: {', '.join(unexpected)}")
+        if missing:
+            details.append(f"missing staged files: {', '.join(missing)}")
+        raise BuildProvenanceError(
+            "staged package outputs disagree with current build: " + "; ".join(details)
+        )
 
 
 def _read_manifest(source_root: Path) -> dict[str, Any]:

@@ -20,6 +20,7 @@ from seohead.build_provenance import (  # noqa: E402
     build_manifest,
     remove_manifest,
     validate_manifest,
+    validate_staged_files,
     write_manifest,
 )
 
@@ -99,6 +100,18 @@ class build_py(_build_py):
     def run(self) -> None:
         super().run()
         target_root = Path(self.build_lib)
+        expected_files: set[str] = set()
+        for output in super().get_outputs(include_bytecode=False):
+            try:
+                relative = Path(output).resolve().relative_to(target_root.resolve()).as_posix()
+            except ValueError:
+                continue
+            if relative.startswith("seohead/") and relative != "seohead/_build_provenance.json":
+                expected_files.add(relative)
+        try:
+            validate_staged_files(target_root, expected_files)
+        except BuildProvenanceError as exc:
+            raise RuntimeError(f"cannot identify current package build: {exc}") from exc
         is_checkout, revision = SOURCE_CHECKOUT, SOURCE_REVISION
         if is_checkout:
             manifest = (

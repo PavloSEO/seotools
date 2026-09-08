@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 from types import SimpleNamespace
@@ -76,6 +77,35 @@ def test_staging_rejects_symlinked_directories_and_removes_stale_metadata(tmp_pa
     )
     with pytest.raises(BuildProvenanceError, match="symlinked"):
         build_provenance.build_manifest(staged, version=__version__, revision=REVISION)
+
+
+def test_staged_output_validation_refuses_a_stale_runtime_file(tmp_path):
+    staged = _staged_package(tmp_path)
+    expected_files = build_provenance.package_source_files(staged)
+    (staged / "seohead" / "stale_extra.py").write_text("stale = True\n", encoding="utf-8")
+
+    with pytest.raises(
+        BuildProvenanceError, match=r"unexpected staged files: seohead/stale_extra\.py"
+    ):
+        build_provenance.validate_staged_files(staged, expected_files)
+
+
+def test_manifest_write_replaces_a_staged_hardlink_without_mutating_source(tmp_path):
+    source = _staged_package(tmp_path / "source")
+    staged = _staged_package(tmp_path / "staged")
+    source_manifest = source / "seohead" / build_provenance.MANIFEST_FILENAME
+    _write_clean_manifest(source)
+    source_bytes = source_manifest.read_bytes()
+    staged_manifest = staged / "seohead" / build_provenance.MANIFEST_FILENAME
+    os.link(source_manifest, staged_manifest)
+
+    build_provenance.write_manifest(
+        staged,
+        build_provenance.build_manifest(staged, version=__version__, revision="b" * 40),
+    )
+
+    assert source_manifest.read_bytes() == source_bytes
+    assert source_manifest.stat().st_ino != staged_manifest.stat().st_ino
 
 
 def test_wheel_record_detects_changed_manifest_bytes(monkeypatch, tmp_path):
