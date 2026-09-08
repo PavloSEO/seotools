@@ -37,7 +37,9 @@ def _target(value: str) -> str:
 
     raw = urlsplit(value)
     if raw.username or raw.password or raw.query or raw.fragment:
-        raise ValueError("target site identity must not include credentials, a query, or a fragment")
+        raise ValueError(
+            "target site identity must not include credentials, a query, or a fragment"
+        )
     normalized = normalize_url(value)
     if not normalized:
         raise ValueError("target must be a public HTTP(S) site identity without credentials")
