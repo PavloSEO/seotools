@@ -66,6 +66,11 @@ class PageRecord:
     og_title: str = ""
     og_description: str = ""
     og_image: str = ""
+    # The page's own <meta property="og:url"> canonical social URL (#654), which
+    # a Screaming Frog export has carried as "OG:URL" all along. "" when the page
+    # declares none -- a value check_og may then report as missing, which it must
+    # not do for a page that declares one.
+    og_url: str = ""
     word_count: int = 0
     text_ratio: float | None = None
     # <iframe> elements sitting inside the resolved content area, and how many
@@ -304,6 +309,11 @@ def _record_from_parsed(parsed: dict) -> dict[str, Any]:
         "og_title": _text_of(og.get("og:title")),
         "og_description": _text_of(og.get("og:description")),
         "og_image": _text_of(og.get("og:image")),
+        # Read for the same reason as the three above, and recorded because
+        # rules.check_og lists "og:url" among a page's missing tags whenever the
+        # field is falsy. Nothing on this path collected it, so every page of
+        # every native crawl was reported as missing a tag nobody had read (#654).
+        "og_url": _text_of(og.get("og:url")),
         "word_count": int(parsed.get("word_count") or 0),
         "content_frames": len(framed),
         "content_frames_same_origin": len([f for f in framed if f.get("same_origin")]),
