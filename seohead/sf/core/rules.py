@@ -534,6 +534,7 @@ def check_link_placement(ctx: AuditContext) -> None:
 # --------------------------------------------------------------------------
 def check_canonical_directives(ctx: AuditContext) -> None:
     require_canonical = ctx.requirements.get("require_canonical", True)
+    has_meta_keywords = _has_column(ctx, "meta_keywords")
     if require_canonical:
         _skip_for_body_unavailable(
             ctx, "CANONICAL_MISSING", [p for p in ctx.html_pages() if p.is_indexable]
@@ -587,12 +588,14 @@ def check_canonical_directives(ctx: AuditContext) -> None:
                 target_url=page.url,
                 details={"meta_robots": rec.get("meta_robots")},
             )
-        if rec.get("meta_keywords"):
+        if has_meta_keywords and rec.get("meta_keywords"):
             ctx.add(
                 "META_KEYWORDS_PRESENT",
                 target_url=page.url,
                 details={"value": rec.get("meta_keywords")},
             )
+    if not has_meta_keywords:
+        ctx.skip("META_KEYWORDS_PRESENT", "no Meta Keywords 1 column in Internal:All")
 
 
 # --------------------------------------------------------------------------
@@ -958,12 +961,13 @@ def check_directives_extra(ctx: AuditContext) -> None:
 
 
 def check_canonical_extra(ctx: AuditContext) -> None:
+    has_canonical_2 = _has_column(ctx, "canonical_2")
     for page in ctx.html_pages():
         rec = _rec(page)
         canonical = rec.get("canonical")
         if canonical and not canonical.lower().startswith(("http://", "https://", "//")):
             ctx.add("CANONICAL_RELATIVE", target_url=page.url, details={"canonical": canonical})
-        if rec.get("canonical_2"):
+        if has_canonical_2 and rec.get("canonical_2"):
             ctx.add(
                 "CANONICAL_MULTIPLE",
                 target_url=page.url,
@@ -971,6 +975,8 @@ def check_canonical_extra(ctx: AuditContext) -> None:
             )
         if canonical and urllib.parse.urlsplit(canonical).fragment:
             ctx.add("CANONICAL_FRAGMENT", target_url=page.url, details={"canonical": canonical})
+    if not has_canonical_2:
+        ctx.skip("CANONICAL_MULTIPLE", "no Canonical Link Element 2 column in Internal:All")
 
 
 # --------------------------------------------------------------------------
@@ -1531,17 +1537,23 @@ def check_links_extra(ctx: AuditContext) -> None:
 
 
 def check_tech_extra(ctx: AuditContext) -> None:
+    has_http_version = _has_column(ctx, "http_version")
+    has_amphtml = _has_column(ctx, "amphtml")
     for page in ctx.html_pages():
         rec = _rec(page)
         # SF emits HTTP Version as "HTTP/1.1", "HTTP/2" or bare "1.1"/"2"; str() because
         # an all-numeric column parses as float.
         hv = str(rec.get("http_version") or "").upper().replace("HTTP/", "").strip()
-        if hv.startswith("1"):
+        if has_http_version and hv.startswith("1"):
             ctx.add(
                 "HTTP1_ONLY", target_url=page.url, details={"http_version": rec.get("http_version")}
             )
-        if rec.get("amphtml"):
+        if has_amphtml and rec.get("amphtml"):
             ctx.add("AMPHTML_PRESENT", target_url=page.url, details={"amphtml": rec.get("amphtml")})
+    if not has_http_version:
+        ctx.skip("HTTP1_ONLY", "no HTTP Version column in Internal:All")
+    if not has_amphtml:
+        ctx.skip("AMPHTML_PRESENT", "no amphtml Link Element column in Internal:All")
 
 
 # --------------------------------------------------------------------------

@@ -183,7 +183,9 @@ def build_server():  # -> FastMCP
         script/stylesheet capture (20,000 HTTP attempts and 5 MiB per response by
         default). Resource requests share total crawl-time and storage budgets but
         do not consume the page URL limit. CSS imports, JavaScript modules and browser
-        network recording are excluded. Offline reanalysis is unavailable. Audit
+        network recording are excluded. Offline reanalysis is a separate
+        ``seo_scan_reanalyze`` operation over retained evidence; it never contacts
+        the network and names unavailable live-only inputs. Audit
         creation has a finite population/output limit and may return unavailable
         while preserving the scan. Supply ``producer_build`` when source provenance
         cannot be determined from a clean checkout.

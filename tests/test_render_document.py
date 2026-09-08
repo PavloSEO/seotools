@@ -13,6 +13,7 @@ import types
 import pytest
 
 from seohead.crawl import settings as crawl_config
+from seohead.crawl import sqlite_render
 from seohead.tools.render import render_document
 
 
@@ -171,6 +172,30 @@ def _rendering_config(**browser_overrides):
     return resolved["rendering"]
 
 
+def test_rendered_credential_policy_uses_the_target_host(monkeypatch):
+    monkeypatch.setenv("RENDER_POLICY_TOKEN", "synthetic-test-token")
+    settings = crawl_config.load(
+        overrides={
+            "http.credentials_acknowledged": True,
+            "http.credential_headers": [
+                {
+                    "host": "private.example.test",
+                    "headers": {"authorization": "env:RENDER_POLICY_TOKEN"},
+                }
+            ],
+        }
+    )
+
+    assert sqlite_render._policy_facts(settings, "https://public.example.test/") == {
+        "credentials_used": False,
+        "cache_control_no_store": False,
+    }
+    assert sqlite_render._policy_facts(settings, "https://private.example.test/") == {
+        "credentials_used": True,
+        "cache_control_no_store": False,
+    }
+
+
 def test_happy_path_returns_the_rendered_html(fake_stack):
     result = render_document("https://example.com/", _rendering_config())
     assert result["ok"] is True
@@ -178,9 +203,17 @@ def test_happy_path_returns_the_rendered_html(fake_stack):
     assert result["final_url"] == "https://example.com/"
 
 
-def test_credential_policy_observes_cookie_only_available_in_complete_request_headers(
-    fake_stack, monkeypatch
-):
+def test_a_cookie_the_browser_carries_is_not_the_operators_credential(fake_stack, monkeypatch):
+    """#656: a browser carries back whatever the site's own Set-Cookie gave it.
+
+    This used to assert the opposite, because a request hook read the wire headers
+    and upgraded ``credentials_used`` on any ``Cookie:`` -- so one session cookie
+    and a single same-origin subresource were enough to store the page's serialized
+    DOM as ``credentialed`` on a run configured with no credentials at all. What
+    the run was configured to send arrives as ``policy_facts``; the wire adds
+    nothing to it.
+    """
+
     class Request:
         def __init__(self):
             self.headers = {"accept": "text/html"}
@@ -194,7 +227,9 @@ def test_credential_policy_observes_cookie_only_available_in_complete_request_he
 
     def goto(url, **kwargs):
         original_goto(url, **kwargs)
-        fake_stack["page"].handlers["request"](request)
+        handler = fake_stack["page"].handlers.get("request")
+        if handler is not None:
+            handler(request)
 
     def evaluate(script):
         if "TextEncoder" in script:
@@ -208,9 +243,31 @@ def test_credential_policy_observes_cookie_only_available_in_complete_request_he
 
     assert result["ok"] is True
     assert result["renderer"]["policy"] == {
-        "credentials_used": True,
+        "credentials_used": False,
         "cache_control_no_store": False,
     }
+
+
+def test_a_configured_credential_still_marks_the_dom_credentialed(fake_stack, monkeypatch):
+    """The other direction, which must not weaken: what the run was configured to send."""
+    original_evaluate = fake_stack["page"].evaluate
+
+    def evaluate(script):
+        if "TextEncoder" in script:
+            return {"complete": True, "bytes": 1, "html": fake_stack["page"].html}
+        return original_evaluate(script)
+
+    monkeypatch.setattr(fake_stack["page"], "evaluate", evaluate)
+
+    result = render_document(
+        "https://example.com/",
+        _rendering_config(),
+        max_html_bytes=1024,
+        policy_facts={"credentials_used": True, "cache_control_no_store": False},
+    )
+
+    assert result["ok"] is True
+    assert result["renderer"]["policy"]["credentials_used"] is True
 
 
 def test_pinned_route_is_registered_on_context_before_its_new_page(fake_stack):

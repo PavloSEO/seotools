@@ -1,17 +1,17 @@
 # SEO audit — example.com
 
-- **Generated:** 2026-09-07T13:55:42Z
+- **Generated:** 2026-09-08T20:33:57Z
 - **Input mode:** parse-exports  ·  **Profile:** full
 - **Source:** examples/exports
 - **Exports used:** internal_all, inlinks_4xx
 
 ## Health summary
 
-> **No health score.** only 74 of 161 checks could run (46% coverage); too little evidence to score.
+> **No health score.** only 70 of 161 checks could run (44% coverage); too little evidence to score.
 
-_74 of 161 checks could run; the score is not comparable to a run with full evidence_
+_70 of 161 checks could run; the score is not comparable to a run with full evidence_
 
-- Checks: **16 fired**, 87 skipped, 58 silent, 0 disabled (of 161 total)
+- Checks: **16 fired**, 91 skipped, 54 silent, 0 disabled (of 161 total)
 
 - URLs crawled: **6** (HTML: 4, indexable: 4)
 - Total issues: **21**
@@ -214,6 +214,7 @@ Each check below describes more than half the crawled pages. That can be true --
 | `HEADING_IN_PAGE_CHROME` | no heading outline evidence (native crawl only) |
 | `LINK_INSIDE_HEADING` | no link-placement evidence (native crawl only) |
 | `IMAGE_LINK_WITHOUT_TEXT` | no link-placement evidence (native crawl only) |
+| `META_KEYWORDS_PRESENT` | no Meta Keywords 1 column in Internal:All |
 | `CONTENT_IN_IFRAME` | no iframe inventory in this evidence |
 | `SCHEMA_VALIDATION_ERROR` | no Structured Data validation columns in Internal:All |
 | `STRUCTURED_DATA_PARSE_ERROR` | no JSON-LD found/parsed block counts (native crawl only) |
@@ -222,9 +223,12 @@ Each check below describes more than half the crawled pages. That can be true --
 | `SPELLING_ERRORS` | no Spelling Errors column (enable spell-check in SF) |
 | `GRAMMAR_ERRORS` | no Grammar Errors column (enable grammar-check in SF) |
 | `HTTP_REFRESH_REDIRECT` | no Refresh response header evidence (native crawl only) |
+| `CANONICAL_MULTIPLE` | no Canonical Link Element 2 column in Internal:All |
 | `PAGINATION_LOOP` | no rel="next" column in Internal:All |
 | `UNLINKED_PAGINATION_SERIES` | no rel="next" column in Internal:All |
 | `PAGINATION_SEQUENCE_ERROR` | no rel="next" column in Internal:All |
+| `HTTP1_ONLY` | no HTTP Version column in Internal:All |
+| `AMPHTML_PRESENT` | no amphtml Link Element column in Internal:All |
 | `LOREM_IPSUM_PLACEHOLDER` | no Lorem Ipsum evidence (native crawl only) |
 | `UNSUPPORTED_PLUGIN` | no plugin-element evidence (native crawl only) |
 | `IMG_MISSING_ALT_ATTRIBUTE` | no per-image evidence (native crawl only) |

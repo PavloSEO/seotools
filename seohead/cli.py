@@ -657,27 +657,35 @@ def _print_crawl_outcome(result: Any) -> None:
 
 
 def _print_body_retention(result: Any) -> None:
-    """Say how many fetched HTML bodies the run threw away, and under which reason.
+    """Say how many fetched HTML bodies and rendered DOMs the run threw away, and why.
 
     A run that keeps a fifth of the bodies reports its pages and links exactly like
-    one that kept them all; the only trace was ``html_bodies`` turning ``partial``
-    in the capabilities map, which reads as an ordinary caveat and says nothing
-    about how much is gone (#647). Everything derived from stored HTML -- duplicate
-    detection, DOM shape, boilerplate share, offline reanalysis -- then covers the
-    retained pages while every page-level percentage beside it covers all of them,
-    so the two populations have to be named where an operator will read them.
+    one that kept them all; the only trace was ``html_bodies`` (or, in the rendering
+    lane, ``rendered_bodies``) turning ``partial`` in the capabilities map, which
+    reads as an ordinary caveat and says nothing about how much is gone (#647, #656).
+    Everything derived from stored HTML or a stored DOM -- duplicate detection, DOM
+    shape, boilerplate share, offline reanalysis -- then covers the retained pages
+    while every page-level percentage beside it covers all of them, so the two
+    populations have to be named where an operator will read them.
 
     Silent when nothing was discarded: a line on every run is a line nobody reads.
+    A crawl that escalated to rendering carries both counts, so both are checked.
     """
-    retention = result.get("html_bodies") if isinstance(result, dict) else None
+    if not isinstance(result, dict):
+        return
+    _print_retention_line(result.get("html_bodies"), "fetched HTML page bodies", "stored HTML")
+    _print_retention_line(result.get("rendered_bodies"), "rendered DOMs", "a stored rendered DOM")
+
+
+def _print_retention_line(retention: Any, unit: str, stored_as: str) -> None:
     if not isinstance(retention, dict) or not retention.get("omitted"):
         return
     omitted = retention["omitted"]
     total, retained = retention["total"], retention["retained"]
     reasons = ", ".join(f"{reason} {count}" for reason, count in sorted(omitted.items()))
     print(
-        f"crawl-site: {total - retained} of {total} fetched HTML page bodies were not "
-        f"retained ({reasons}). Anything computed from stored HTML covers "
+        f"crawl-site: {total - retained} of {total} {unit} were not retained "
+        f"({reasons}). Anything computed from {stored_as} covers "
         f"{retained} of {total} pages",
         file=sys.stderr,
     )
