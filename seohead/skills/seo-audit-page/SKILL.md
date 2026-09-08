@@ -207,11 +207,18 @@ URL, target keyword, secondary keywords, page type, and business goal.
 | Status | Meaning | SEO impact |
 |--------|---------|------------|
 | 200 | OK | Normal |
-| 301 | Permanent redirect | Passes link equity, but loses ~15% |
-| 302 | Temporary redirect | Does not pass link equity — replace with 301 if permanent |
+| 301 | Permanent redirect | A permanent move signals that the destination should be canonical. Check the intended destination and redirect chain. |
+| 302 | Temporary redirect | Use for a temporary change when the source URL should remain in search. Check the intended duration and destination; a 302 alone is not a defect. |
 | 404 | Not found | Wastes link equity and crawl budget |
 | 410 | Gone permanently | Better than 404 for deleted pages |
 | 500+ | Server error | Critical — Google stops crawling |
+
+A status code alone does not measure ranking-signal loss. Choose permanent or
+temporary redirects according to the intended move and preferred search-result URL,
+rather than applying a fixed percentage deduction. See Google's
+[redirect guidance](https://developers.google.com/search/docs/crawling-indexing/301-redirects),
+[crawling and indexing FAQ](https://developers.google.com/search/help/crawling-index-faq),
+and [temporary redirects for A/B tests](https://developers.google.com/search/docs/crawling-indexing/website-testing).
 
 ### Robots.txt — Common Mistakes
 

@@ -313,6 +313,18 @@ def test_tool_reference_is_generated_and_current():
     assert len(sf_tools) == 5
 
 
+def test_storage_late_field_table_matches_the_importer_mapping():
+    from seohead.storage import _LATE_PAGE_FIELDS
+
+    storage = (ROOT / "docs" / "STORAGE.md").read_text(encoding="utf-8")
+    section = storage.split("| PageRecord field | `pages` column |", 1)[1].split(
+        "\n\n`NULL` means", 1
+    )[0]
+    rows = re.findall(r"\| `([^`]+)` \| `([^`]+)` \|", section)
+    assert len(rows) == len(_LATE_PAGE_FIELDS), "missing or duplicated field rows"
+    assert dict(rows) == _LATE_PAGE_FIELDS
+
+
 def test_private_research_journal_is_not_part_of_the_snapshot():
     assert not (ROOT / "maybe").exists()
     combined = "\n".join(path.read_text(encoding="utf-8") for path in PUBLIC_MARKDOWN)
