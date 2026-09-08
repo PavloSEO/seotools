@@ -174,7 +174,9 @@ observations; link occurrences retain their original order and are never
 deduplicated. `forms`, `decisions`, `frontier`, `query_variants`, `resume_state`,
 and `context_items` hold the native storage core's recovery and collection lanes
 (empty in legacy imports). `responses`,
-`documents` and `bodies` hold captured HTTP/document provenance. `resource_refs` remains reserved until resource capture lands. `audit.document_json` is the only authoritative stored audit
+`documents` and `bodies` hold captured HTTP/document provenance. `resource_refs` records
+direct script/stylesheet declarations and their bounded capture state when that
+opt-in lane is enabled. `audit.document_json` is the only authoritative stored audit
 snapshot; report formats render that document and do not compute new findings.
 
 Existing report and comparison routes can take a scan path directly. The MCP
@@ -273,10 +275,10 @@ For legacy imports, the only populated `context_items` lane is
 state. These historical imported files have no retained bodies or resources and
 cannot be reanalyzed; native captures use their own validated lanes.
 
-The `pages` projection follows the prerelease `crawl.v1` `PageRecord`. Eighteen
+The `pages` projection follows the prerelease `crawl.v1` `PageRecord`. Twenty
 later-added fields are nullable for legacy compatibility: `content_frames`,
 `content_frames_same_origin`, ordered `hreflang_json`, `heading_outline_json`,
-`link_placement_json`, `body_unavailable`,
+`link_placement_json`, `canonical_chain_json`, `final_canonical`, `body_unavailable`,
 `meta_refresh`, `http_refresh`, `meta_description_count`, `h1_alt_text`,
 `lorem_ipsum_count`, `images_total`, `images_missing_alt_attr`,
 `images_max_alt_length`, `plugin_elements`, `meta_fragment`,
@@ -301,7 +303,34 @@ whenever this reads empty.
 `body_unavailable` records why collection could not parse a page
 body (for example, an oversized response); it does **not** describe whether this
 artifact retained that body. `meta_refresh` and `http_refresh` retain the markup
-and HTTP declarations as written. Retention remains unavailable in Point A.
+and HTTP declarations as written.
+
+The table is derived from the importer mapping and is a compatibility contract:
+an omitted key from an older JSONL row becomes SQL `NULL`, never an invented clean
+value. The documentation test compares this table to `_LATE_PAGE_FIELDS`.
+
+| PageRecord field | `pages` column |
+|---|---|
+| `content_frames` | `content_frames` |
+| `content_frames_same_origin` | `content_frames_same_origin` |
+| `hreflang` | `hreflang_json` |
+| `heading_outline` | `heading_outline_json` |
+| `link_placement` | `link_placement_json` |
+| `canonical_chain` | `canonical_chain_json` |
+| `final_canonical` | `final_canonical` |
+| `body_unavailable` | `body_unavailable` |
+| `meta_refresh` | `meta_refresh` |
+| `http_refresh` | `http_refresh` |
+| `meta_description_count` | `meta_description_count` |
+| `h1_alt_text` | `h1_alt_text` |
+| `lorem_ipsum_count` | `lorem_ipsum_count` |
+| `images_total` | `images_total` |
+| `images_missing_alt_attr` | `images_missing_alt_attr` |
+| `images_max_alt_length` | `images_max_alt_length` |
+| `plugin_elements` | `plugin_elements` |
+| `meta_fragment` | `meta_fragment` |
+| `ajax_scheme_outlinks` | `ajax_scheme_outlinks` |
+| `og_url` | `og_url` |
 
 `NULL` means the field was absent from an older crawl record; it never means a
 measured empty value or zero count. Current imports validate and store actual
@@ -475,8 +504,11 @@ for a new run. `--scan-out` cannot be combined with `--out-dir` or URL-list mode
 SQLite mode currently requires `cache.mode=off`. Credentials are re-supplied out
 of band and resumability is governed by the redacted credential context above. The MCP
 `seo_crawl_site` exposes the same `scan_out`, `resume` and `producer_build` parameters.
-Response bodies are **not retained**, including the raw start-page HTML used
-transiently by the first-run rendering gate.
+Native capture retains bounded HTML entities and rendered DOMs under the recorded
+body policy; responses disabled by policy, credentials, `no-store`, media type,
+size or store budget keep a named omission instead. The raw start-page HTML is
+read from that retained static document for the rendering gate. A legacy three-file
+import cannot recreate discarded bodies, response provenance or native resume state.
 
 The collector keeps only its bounded worker batch and page observations in
 Python; page/link/form records, seen identities, queue, query variants and
@@ -704,8 +736,12 @@ The current native lanes use these versioned context rows:
 |---|---|
 | `robots_blocked_url` / `url:<url_id>` | `{"url_id":positive_integer,"token":string,"policy":"respect or report_only"}` |
 | `seed_url` / `url:<url_id>` | `{"url_id":positive_integer,"depth":0,"source":"sitemap"}` |
-| `robots_summary` / `run` | Policy/token, fetch state, nullable response ID, note, and parsed groups/sitemaps; the exact closed payload is in [the format contract](https://github.com/PavloSEO/seotools/issues/372). |
+| `robots_summary` / `run` | `{"policy":string,"token":string,"fetch_state":"fetched or unavailable or not_fetched","final_response_id":null,"note":string,"parsed":{"groups":array,"sitemaps":array}}`; each group accepts the legacy four keys plus optional `request_rate_delay`. |
 | `native_commit` / queue ordinal as decimal text | `{"digest":lowercase_sha256}` |
+| `credential_context` / `run` | `{"verifier":null or lowercase_sha256,"implicit_state":boolean}`; it records redacted resume compatibility, never a credential value. |
+| `reanalysis_provenance` / `run` | Closed parent/capture UUID, revision, build/runtime/config digests and capture lifecycle payload; reason is `offline reanalysis`. |
+| `resource_inventory` / `document:<document_id>` | `{"document_id":positive_integer,"state":"complete or partial or unavailable","omitted":nonnegative_integer}`. |
+| `resource_commit` / `resource:<ordinal>` | `{"digest":lowercase_sha256,"requests_used":nonnegative_integer}`. |
 | `sitemap_declaration` / `ordinal:<root_ordinal>` | `{"sitemap_url_id":positive_integer,"source":"explicit or robots","ordinal":nonnegative_integer}`. This names one selected expanded root, including its nested sitemap indexes. |
 | `sitemap_declared_url` / `sitemap:<sitemap_url_id>:ordinal:<global_ordinal>` | `{"sitemap_url_id":positive_integer,"url_id":positive_integer,"ordinal":nonnegative_integer}`. `ordinal` is run-wide post-expansion normalization/deduplication order across roots, never a direct XML-line claim. |
 | `sitemap_fetch_summary` / `url:<sitemap_url_id>` | `{"sitemap_url_id":positive_integer,"response_ids":[positive_integer],"complete":boolean,"reason":string}`. Current E capture has `response_ids: []`; response provenance belongs to the later response/body lane. |
