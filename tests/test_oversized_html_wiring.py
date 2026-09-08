@@ -12,6 +12,9 @@ reproducer, updated to assert the fixed behaviour instead of the bug.
 
 from __future__ import annotations
 
+import pandas as pd
+import pytest
+
 from seohead.crawl.collect import collect_urls
 from seohead.crawl.evidence import build_evidence
 from seohead.sf.config import load_config
@@ -20,6 +23,12 @@ from seohead.sf.core.loader import LoadedExports
 from seohead.sf.core.rules import run_rules
 
 FOUR_CHECKS = {"TITLE_MISSING", "DESC_MISSING", "H1_MISSING", "CANONICAL_MISSING"}
+UNMEASURED_NATIVE_FIELDS = {
+    "META_KEYWORDS_PRESENT",
+    "CANONICAL_MULTIPLE",
+    "HTTP1_ONLY",
+    "AMPHTML_PRESENT",
+}
 
 
 class FakeResponse:
@@ -111,3 +120,71 @@ def test_mixed_crawl_withholds_only_the_oversized_page():
     # reported as audit-wide "skipped" -- that would misrepresent a check that
     # plainly ran and found a genuine problem.
     assert not [s for s in ctx.skipped if s.id in FOUR_CHECKS]
+
+
+def test_native_unprojected_fields_are_named_skips_even_with_a_mixed_body_population():
+    """#659: no projected column is not evidence of a clean page.
+
+    The parseable page deliberately carries each declaration, while the other
+    page is oversized. Neither can make the native projection claim it checked
+    fields it does not persist; the skip is run-wide and remains named.
+    """
+    normal_url = "https://example.com/normal"
+    oversized_url = "https://example.com/oversized"
+    normal_html = (
+        "<html><head>"
+        '<meta name="keywords" content="obsolete">'
+        f'<link rel="canonical" href="{normal_url}">'
+        '<link rel="canonical" href="https://example.com/other">'
+        '<link rel="amphtml" href="https://example.com/amp">'
+        "</head><body>content</body></html>"
+    )
+    limit = len(normal_html.encode("utf-8"))
+    assert limit < len(COMPLIANT_HTML.encode("utf-8"))
+    ctx = _run({normal_url: normal_html, oversized_url: COMPLIANT_HTML}, max_response_bytes=limit)
+    records = {page.url: page.metrics["_record"] for page in ctx.pages}
+    assert not records[normal_url]["body_unavailable"]
+    assert records[oversized_url]["body_unavailable"] == "oversized"
+
+    assert not [issue for issue in ctx.issues if issue.check in UNMEASURED_NATIVE_FIELDS]
+    skipped = {item.id: item.reason for item in ctx.skipped if item.id in UNMEASURED_NATIVE_FIELDS}
+    assert set(skipped) == UNMEASURED_NATIVE_FIELDS
+    assert all("Internal:All" in reason for reason in skipped.values())
+
+
+@pytest.mark.parametrize(
+    "column,check_id,defect,clean",
+    [
+        ("Meta Keywords 1", "META_KEYWORDS_PRESENT", "obsolete", ""),
+        ("Canonical Link Element 2", "CANONICAL_MULTIPLE", "https://example.com/other", ""),
+        ("HTTP Version", "HTTP1_ONLY", "HTTP/1.1", "HTTP/2"),
+        ("amphtml Link Element", "AMPHTML_PRESENT", "https://example.com/amp", ""),
+    ],
+)
+def test_measured_export_columns_keep_both_verdicts(column, check_id, defect, clean):
+    """A missing native column must not disable a measured export column."""
+    exports = LoadedExports()
+    exports.frames["internal_all"] = pd.DataFrame(
+        [
+            {
+                "Address": f"https://example.com/{name}",
+                "Content Type": "text/html",
+                "Status Code": 200,
+                "Indexability": "Indexable",
+                column: value,
+            }
+            for name, value in (("defect", defect), ("clean", clean))
+        ]
+    )
+    ctx = AuditContext(exports, load_config(None))
+    run_rules(ctx)
+    assert {issue.target_url for issue in ctx.issues if issue.check == check_id} == {
+        "https://example.com/defect"
+    }
+    assert not [item for item in ctx.skipped if item.id == check_id]
+
+    exports.frames["internal_all"] = exports.frames["internal_all"].drop(columns=[column])
+    missing = AuditContext(exports, load_config(None))
+    run_rules(missing)
+    assert not [issue for issue in missing.issues if issue.check == check_id]
+    assert [item for item in missing.skipped if item.id == check_id]
