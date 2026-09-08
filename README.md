@@ -300,11 +300,12 @@ seohead site-audit \
 # Writes a collision-safe native SQLite scan under ./scans/
 seohead crawl-site \
   --url https://example.com \
-  --max-urls 500
+  --max-urls 500 \
+  --scan-out ./scans/audit.sqlite
 
 # Turn that same audit into a client deliverable, or a working file for a developer
-seohead report-build --audit ./run/audit.json --format docx --out audit.docx
-seohead report-build --audit ./run/audit.json --format xlsx --out audit.xlsx
+seohead report-build --audit ./scans/audit.sqlite --format docx --out audit.docx
+seohead report-build --audit ./scans/audit.sqlite --format xlsx --out audit.xlsx
 
 # Audit existing Screaming Frog exports without crawling again
 seohead sf run \
