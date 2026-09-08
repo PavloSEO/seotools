@@ -1728,10 +1728,10 @@ def backlinks_check(
 
 def duplicate_check(
     items: list[dict] | None = None,
-    scan: str | None = None,
     threshold: float = 0.92,
     with_fingerprints: bool = False,
     only_indexable: bool = True,
+    scan: str | None = None,
 ) -> dict[str, Any]:
     if items is not None and scan is not None:
         raise ValueError("items[] and scan are mutually exclusive")

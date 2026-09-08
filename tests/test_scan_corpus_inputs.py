@@ -40,10 +40,18 @@ def _scan(tmp_path, pages, *, retain_bodies=True, finish=True):
     return path
 
 
-def test_scan_corpus_matches_inline_and_never_changes_source(tmp_path):
+def test_scan_corpus_matches_inline_and_never_changes_source(tmp_path, monkeypatch):
     html = "<html><body><nav>menu</nav><main>same retained content words</main><footer>x</footer></body></html>"
     scan = _scan(tmp_path, [("https://example.test/a", html), ("https://example.test/b", html)])
     before = hashlib.sha256(scan.read_bytes()).hexdigest()
+    network_attempts = []
+
+    def refuse_network(*args, **kwargs):
+        network_attempts.append((args, kwargs))
+        raise AssertionError("saved corpus analysis must not access the network")
+
+    monkeypatch.setattr("socket.getaddrinfo", refuse_network)
+    monkeypatch.setattr("socket.socket.connect", refuse_network)
 
     expected = handlers.duplicate_check(
         items=[
@@ -54,7 +62,19 @@ def test_scan_corpus_matches_inline_and_never_changes_source(tmp_path):
     actual = handlers.duplicate_check(scan=str(scan))
     boilerplate = handlers.boilerplate_report(scan=str(scan))
 
-    assert actual["exact_duplicates"] == expected["exact_duplicates"]
+    assert {
+        key: value for key, value in actual.items() if key not in {"source", "coverage"}
+    } == expected
+    expected_boilerplate = handlers.boilerplate_report(
+        pages=[
+            {"url": "https://example.test/a", "html": html},
+            {"url": "https://example.test/b", "html": html},
+        ]
+    )
+    assert {
+        key: value for key, value in boilerplate.items() if key not in {"source", "coverage"}
+    } == expected_boilerplate
+    assert network_attempts == []
     assert actual["coverage"]["state"] == "complete"
     assert actual["source"]["representations"] == {"static": 2}
     assert boilerplate["count"] == 2
@@ -157,3 +177,19 @@ def test_scan_coverage_names_a_running_capture_even_when_its_retained_body_is_co
     assert result["coverage"]["state"] == "partial"
     assert "scan lifecycle is running" in result["coverage"]["reason"]
     assert result["source"]["lifecycle"] == "running"
+
+
+def test_inline_duplicate_positional_arguments_keep_the_existing_contract():
+    """Adding scan input must not reinterpret an inline caller's threshold as a path."""
+    from seohead.servers.handlers import duplicate_check
+
+    items = [
+        {"id": "https://example.test/a", "text": "shared product description with details"},
+        {"id": "https://example.test/b", "text": "shared product description with details"},
+    ]
+    positional = duplicate_check(items, 0.92, True, False)
+    keyword = duplicate_check(
+        items=items, threshold=0.92, with_fingerprints=True, only_indexable=False
+    )
+    assert positional == keyword
+    assert positional["count"] == 2
