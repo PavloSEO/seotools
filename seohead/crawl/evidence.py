@@ -203,6 +203,10 @@ def _row(
         "OG:Title": record.og_title,
         "OG:Description": record.og_description,
         "OG:Image": record.og_image,
+        # The column normalize.INTERNAL_FIELD_MAP has always resolved for an SF
+        # export, and that a native crawl never filled -- so check_og listed
+        # "og:url" among every page's missing tags on the native path alone (#654).
+        "OG:URL": record.og_url,
         "Size (bytes)": record.size_bytes,
         "Word Count": record.word_count,
         # Not SF columns: an SF export carries no iframe inventory, so these stay

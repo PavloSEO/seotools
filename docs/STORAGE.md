@@ -280,14 +280,14 @@ For legacy imports, the only populated `context_items` lane is
 state. These historical imported files have no retained bodies or resources and
 cannot be reanalyzed; native captures use their own validated lanes.
 
-The `pages` projection follows the prerelease `crawl.v1` `PageRecord`. Seventeen
+The `pages` projection follows the prerelease `crawl.v1` `PageRecord`. Eighteen
 later-added fields are nullable for legacy compatibility: `content_frames`,
 `content_frames_same_origin`, ordered `hreflang_json`, `heading_outline_json`,
 `link_placement_json`, `body_unavailable`,
 `meta_refresh`, `http_refresh`, `meta_description_count`, `h1_alt_text`,
 `lorem_ipsum_count`, `images_total`, `images_missing_alt_attr`,
-`images_max_alt_length`, `plugin_elements`, `meta_fragment`, and
-`ajax_scheme_outlinks`. The first two are parser observations about frames in the
+`images_max_alt_length`, `plugin_elements`, `meta_fragment`,
+`ajax_scheme_outlinks`, and `og_url`. The first two are parser observations about frames in the
 resolved content area. `hreflang_json` preserves the document's alternate
 declarations. `heading_outline_json` preserves every `h1`-`h6` with text in DOM
 order as `{"level", "text", "region"}` objects; `region` uses the same taxonomy
@@ -301,6 +301,10 @@ no `alt`, and no `aria-label` or `title` (`image_no_text`). Both lists are cappe
 by the parser and each carries an `*_total` count beside it, so a truncated list
 reads as truncated rather than as the whole story. `NULL` here means the page's
 anchors were never inspected for this, which is not the same as finding none.
+`og_url` records the page's own `<meta property="og:url">` beside the three
+`og_*` columns above; it is nullable because a crawl written before it was
+collected never read the tag, and the Open Graph check names `og:url` missing
+whenever this reads empty.
 `body_unavailable` records why collection could not parse a page
 body (for example, an oversized response); it does **not** describe whether this
 artifact retained that body. `meta_refresh` and `http_refresh` retain the markup
