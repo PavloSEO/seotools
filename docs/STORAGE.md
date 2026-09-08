@@ -201,7 +201,9 @@ bytes when rendering provides them, with SHA-256 deduplication and `identity` or
 consistency evidence, not a signature or an anti-tampering claim.
 
 Native defaults are 5 MiB decoded bytes per body, 10 GiB stored bodies per scan,
-1 GiB free-space reserve, and a recorded 20 GiB history-warning threshold. History management is not yet available. Capture processes one
+1 GiB free-space reserve, and a recorded 20 GiB history-warning threshold. Explicit
+`scan list`, `inspect`, `snapshot`, `pin`, `prune`, and `body-diff` operations manage
+individual artifacts; no background history service or automatic deletion exists. Capture processes one
 body at a time. The native fetch clamp is a 64 MiB hard limit: a larger response
 is marked truncated rather than retained, even if a configured policy limit is
 larger; rendering fails rather than silently keeping an over-limit DOM. `off`,
@@ -341,7 +343,7 @@ This is a prerelease `scan.v1` schema synchronized with that current record
 contract. There is no automatic migration. A prototype SQLite file with the old
 DDL is refused and must be explicitly reimported from its legacy source. The
 legacy importer can preserve a pre-merge 43-field JSONL record losslessly by
-recording these sixteen unavailable fields as `NULL`; it does not invent defaults that
+recording all twenty later observations as `NULL`; it does not invent defaults that
 claim a measurement.
 
 ## Read safely with the Python standard library
@@ -739,7 +741,7 @@ The current native lanes use these versioned context rows:
 | `robots_summary` / `run` | `{"policy":string,"token":string,"fetch_state":"fetched or unavailable or not_fetched","final_response_id":null,"note":string,"parsed":{"groups":array,"sitemaps":array}}`; each group accepts the legacy four keys plus optional `request_rate_delay`. |
 | `native_commit` / queue ordinal as decimal text | `{"digest":lowercase_sha256}` |
 | `credential_context` / `run` | `{"verifier":null or lowercase_sha256,"implicit_state":boolean}`; it records redacted resume compatibility, never a credential value. |
-| `reanalysis_provenance` / `run` | Closed parent/capture UUID, revision, build/runtime/config digests and capture lifecycle payload; reason is `offline reanalysis`. |
+| `reanalysis_provenance` / `run` | The closed parent/capture UUID, source/derived evidence revisions, source audit/build/runtime/config identities, capture build/runtime/config identities, and capture lifecycle. Its exact validator is [`validate_context`](../seohead/storage/native_context.py); reason is `offline reanalysis`. |
 | `resource_inventory` / `document:<document_id>` | `{"document_id":positive_integer,"state":"complete or partial or unavailable","omitted":nonnegative_integer}`. |
 | `resource_commit` / `resource:<ordinal>` | `{"digest":lowercase_sha256,"requests_used":nonnegative_integer}`. |
 | `sitemap_declaration` / `ordinal:<root_ordinal>` | `{"sitemap_url_id":positive_integer,"source":"explicit or robots","ordinal":nonnegative_integer}`. This names one selected expanded root, including its nested sitemap indexes. |
