@@ -25,11 +25,16 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def _policy_facts(settings: dict[str, Any]) -> dict[str, bool]:
+def _policy_facts(settings: dict[str, Any], target_url: str) -> dict[str, bool]:
     """Return only facts the renderer may record about retention policy."""
+    from seohead.crawl.settings import resolve_credential_headers
+
     browser = settings["rendering"]["browser"]
+    host = urlsplit(target_url).hostname or ""
     return {
-        "credentials_used": bool(settings["http"]["credential_headers"])
+        "credentials_used": bool(
+            resolve_credential_headers(settings["http"]["credential_headers"], host)
+        )
         or bool(browser.get("persistent_profile")),
         # A browser DOM is not an HTTP response.  It cannot honestly inherit a
         # cache-control header from the static response.
@@ -68,7 +73,7 @@ def _unknown_renderer(target_url: str, settings: dict[str, Any]) -> dict[str, An
             "flatten_iframes_requested": bool(browser["flatten_iframes"]),
             "flatten_iframes_applied": 0,
         },
-        "policy": _policy_facts(settings),
+        "policy": _policy_facts(settings, target_url),
     }
 
 
@@ -339,7 +344,7 @@ def run_render_escalation(
                 rendering_config,
                 user_agent=settings["http"]["user_agent"],
                 max_html_bytes=max_parse_bytes,
-                policy_facts=_policy_facts(settings),
+                policy_facts=_policy_facts(settings, target),
                 **gate_kwargs,
             )
             renderer = fetched.get("renderer")
@@ -389,7 +394,7 @@ def run_render_escalation(
                 rendering_config,
                 user_agent=settings["http"]["user_agent"],
                 max_html_bytes=max_parse_bytes,
-                policy_facts=_policy_facts(settings),
+                policy_facts=_policy_facts(settings, target),
                 **gate_kwargs,
             )
 
