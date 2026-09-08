@@ -14,6 +14,11 @@ concurrently.
 
 ## Start here
 
+For the operator capture-to-prune route and the current release-capacity status,
+read [SQLITE_ACCEPTANCE.md](SQLITE_ACCEPTANCE.md). It carries the measured release
+record, including the two limits that record publishes by name; the older
+development profiles below are separate measurements, not a release-pass claim.
+
 Use the storage module after it is installed with SEOHEAD Tools:
 
 ```bash
@@ -40,6 +45,10 @@ late page field is omitted so an older source's absent field remains absent rath
 than becoming a measured default. The saved audit is copied as its exact UTF-8
 bytes. The export contains no response bodies, raw HTML, forms, robots state,
 start-page evidence, sitemap-response corpus, or resume checkpoint.
+
+The native default is `storage.body_mode=captured_entity_bytes`; the only other
+supported value is `off`. The recorded retention policy, body state, and
+capability state determine what a particular scan actually retained.
 
 ## Explicit local history operations
 
@@ -497,6 +506,12 @@ Current audits feed the existing report, comparison and task APIs; no automatic
 is recorded as the schema-supported rate string `unbounded`, never JSON Infinity.
 
 ### Collector capacity measurement
+
+The figures in this and the following capacity sections are development-profile
+observations from separate, narrower profilers. They are not the release
+acceptance record, and they do not include the two measured limits it publishes.
+Read [SQLITE_ACCEPTANCE.md](SQLITE_ACCEPTANCE.md) before citing any number here as
+a capacity result.
 
 The offline profiler uses 10,000 seeded pages, generated HTML, and injected
 transport without sockets. On macOS 26.6.2 arm64, Python 3.14.6 and SQLite 3.53.3:

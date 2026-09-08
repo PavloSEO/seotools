@@ -33,9 +33,11 @@ The default crawl output remains a directory. SQLite mode keeps queue, evidence
 and runtime in one transactional scan and resumes an interrupted file under the
 same build/configuration: `--resume` reads the start URL and that configuration
 back from the artifact, and refuses by name when the file was written by another
-build or for another start URL. Native capture can retain bounded HTTP entities and
-separately captured DOM according to its explicit retention policy; it requires
-raw rendering, cache off and credential-free configuration. Audit creation has an explicit compatibility guard;
+build or for another start URL. Its default body policy is
+`storage.body_mode=captured_entity_bytes`, which retains bounded captured HTTP
+entity bytes and separately captured DOM when available; `off` retains metadata
+only. Native capture requires raw rendering, cache off, and credential-free
+configuration. Audit creation has an explicit compatibility guard;
 check `audit_available` before requesting a report. See [STORAGE.md](STORAGE.md)
 for limits, provenance, interrupted-file handling and missing evidence.
 
@@ -53,6 +55,9 @@ python -m seohead.storage export-run scan.sqlite --out-dir NEW_DIR
 seohead report-build --audit scan.sqlite --format md --out report.md
 seohead compare-crawls --before before.sqlite --after after.sqlite
 seohead sf tasks --json scan.sqlite --out tasks
+
+# retained native evidence only: create a new derived artifact without network replay
+seohead scan reanalyze --input old.sqlite --out derived.sqlite --producer-build SOURCE_SHA
 ```
 
 The scan supplies its internal saved audit to these routes. An adjacent
@@ -67,6 +72,17 @@ saved `audit.json`. It does not recreate bodies, raw HTML, forms, robots,
 start-page evidence, sitemap responses, or a resume checkpoint. See
 [STORAGE.md](STORAGE.md) for safe read-only access, version rules, and the export
 contract.
+
+`scan reanalyze` needs a native scan with the required retained corpus; a legacy
+three-file import cannot reconstruct it. It creates a new parented artifact,
+never overwrites its input, and makes no HTTP, DNS, browser, provider, or resource
+request. `SOURCE_SHA` is the full current analyzer build SHA, while the input
+already records its original capture build.
+
+For `--format csv`, each successful build returns `outputs` for the requested
+findings CSV plus `<name>.pages.csv` and `<name>.scope.csv`. All three are
+rewritten on every build; an empty findings, pages, or scope collection leaves
+the corresponding file with its header only.
 
 ## Saved scan history
 

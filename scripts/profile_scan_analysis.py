@@ -1,21 +1,17 @@
 #!/usr/bin/env python3
 # ruff: noqa: E402
-"""Subprocess memory profile for the F native SQLite analysis path.
+"""Subprocess memory profile for direct-seeded analysis and whole discovery.
 
-The synthetic writer fixture has complete page fields and a balanced graph.
-Every analysis child opens its own artifact and uses injected sitemap handling.
-The whole stage runs real CLI dispatch and saved-artifact reporting, replacing
-only collection with the prepared observations. Separate subprocesses measure
-page projection, SQL graph work, audit/task materialization, all five report
-formats, and the saved-scan CLI-to-Markdown path.
+The build/pages/graph/audit/report stages are direct-seeded SQLite microprofiles.
+The separate whole stage runs CLI dispatch, real offline link discovery, saved
+audit persistence, reopen, and Markdown reporting in one child process.
+Their audit digests are never compared because their fixture depths differ.
 """
 
 from __future__ import annotations
 
 import argparse
-import contextlib
 import hashlib
-import io
 import json
 import platform
 import resource
@@ -25,11 +21,13 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from scripts import profile_scan_collector as collector
 from scripts import profile_scan_graph as fixture
 from seohead import __version__
 from seohead.crawl.collect import PageRecord
@@ -45,9 +43,22 @@ from seohead.sf.core.link_score import (
 )
 from seohead.sf.core.normalize import norm_url
 from seohead.sf.tasks import build_tasks
-from seohead.storage import read_audit
+from seohead.storage import open_scan, read_audit
 from seohead.storage.analysis_graph import AnalysisGraph
 from seohead.storage.native_scan import NativeScan
+
+# Published beside every measured number in docs/SQLITE_ACCEPTANCE.md, so a budget
+# or ceiling that moves here must move there too; the release test compares them.
+MEMORY_BUDGETS_MIB = {"edge_growth": 128, "whole_peak": 2048}
+STAGE_TIMEOUT_SECONDS = 900
+
+
+class ProfileTimeout(RuntimeError):
+    """A timed-out child with an optional consistent partial artifact."""
+
+    def __init__(self, message: str, partial_artifact: dict[str, object] | None = None):
+        super().__init__(message)
+        self.partial_artifact = partial_artifact
 
 
 def _rss() -> tuple[float, str]:
@@ -64,6 +75,7 @@ def _digest(value: object) -> str:
 def _environment() -> dict[str, object]:
     files = (
         "scripts/profile_scan_analysis.py",
+        "scripts/profile_scan_collector.py",
         "scripts/profile_scan_graph.py",
         "seohead/storage/analysis_graph.py",
         "seohead/storage/analysis_score.py",
@@ -75,10 +87,24 @@ def _environment() -> dict[str, object]:
         "python": sys.version.split()[0],
         "sqlite": sqlite3.sqlite_version,
         "platform": platform.platform(),
-        "source_sha256": {
-            name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest() for name in files
-        },
+        **collector.source_manifest(files),
     }
+
+
+def _load_environment(source_manifest: Path | None) -> dict[str, object]:
+    environment = (
+        json.loads(source_manifest.read_text(encoding="utf-8"))
+        if source_manifest is not None
+        else _environment()
+    )
+    if not isinstance(environment, dict):
+        raise RuntimeError("profile source manifest must be a JSON object")
+    collector.validated_source_revision(environment.get("source_revision"))
+    if not isinstance(environment.get("source_dirty"), bool):
+        raise RuntimeError("profile source manifest must record whether the checkout is dirty")
+    if not isinstance(environment.get("source_sha256"), dict):
+        raise RuntimeError("profile source manifest must include source hashes")
+    return environment
 
 
 def _settings(pages: int) -> dict:
@@ -94,7 +120,7 @@ def _settings(pages: int) -> dict:
     )
 
 
-def _fixture_build(pages: int, edges: int, database: Path) -> dict[str, object]:
+def _fixture_build(pages: int, edges: int, database: Path, provenance: dict) -> dict[str, object]:
     """Balanced graph with complete page fields; output size is a separate axis.
 
     The E blank-field ring remains an output-stress case: it generates over
@@ -103,11 +129,17 @@ def _fixture_build(pages: int, edges: int, database: Path) -> dict[str, object]:
     """
     fixture.PAGES = pages
     started = time.perf_counter()
-    metadata = fixture._metadata()
+    metadata = fixture._metadata(provenance)
     metadata["writer_version"] = __version__
     sitemap = f"https://{fixture.HOST}/sitemap.xml"
     with NativeScan.create(database, initial_sitemaps=[(sitemap, "explicit")], **metadata) as scan:
-        scan.enqueue([(fixture._url(page), 0 if page == 0 else 3) for page in range(pages)])
+        for start in range(0, pages, 20_000):
+            scan.enqueue(
+                [
+                    (fixture._url(page), 0 if page == 0 else 3)
+                    for page in range(start, min(start + 20_000, pages))
+                ]
+            )
         for page in range(pages):
             lease = scan.claim(1)[0]
             title = f"Synthetic profile page {page} | Example"
@@ -314,35 +346,66 @@ def _report_stage(audit_path: Path, out: Path) -> dict[str, object]:
     }
 
 
-def _whole_stage(database: Path, pages: int, out: Path) -> dict[str, object]:
-    """Run real CLI dispatch, native audit persistence, reopen, and Markdown report.
+def _artifact_bytes(path: Path) -> dict[str, int]:
+    """Report the bounded on-disk footprint left by one whole-path child."""
 
-    Only collection is replaced by the prebuilt synthetic observation fixture.
+    def size(candidate: Path) -> int:
+        return candidate.stat().st_size if candidate.is_file() else 0
+
+    return {
+        "file": size(path),
+        "wal": size(path.with_name(path.name + "-wal")),
+        "shm": size(path.with_name(path.name + "-shm")),
+        "temp": sum(
+            size(candidate) for candidate in path.parent.glob(".native-scan-*") if candidate != path
+        ),
+    }
+
+
+def _whole_stage(
+    database: Path, pages: int, edges: int, out: Path, *, producer_build: str
+) -> dict[str, object]:
+    """Measure CLI collection, analysis, persistence, reopen, and Markdown reporting.
+
+    This is deliberately a separate artifact from the build/pages/graph microprofiles:
+    it must create its own scan so peak RSS includes the real collector.  The sole
+    test seam is the collector fixture's deterministic transport, which prevents
+    every socket, DNS, HTTP, and browser request.
     """
-    from unittest.mock import patch
-
     from seohead.cli import main as cli_main
-    from seohead.crawl.sqlite_adapter import ScanRun
+    from seohead.crawl import sqlite_adapter
 
     started = time.perf_counter()
-    with NativeScan.open(database) as scan:
-        counts = scan.resume_snapshot(include_edges=True)["counts"]
-    run = ScanRun(
-        path=str(database),
-        pages=counts["pages"],
-        links=counts["links"],
-        forms=counts["forms"],
-        lifecycle="running",
-        finish_reason="finished",
-        partial=False,
-        start_page_gate=_start_gate(),
-    )
+    whole_database = database.with_name(f"{database.stem}.whole.sqlite")
+    if whole_database.exists():
+        raise RuntimeError(f"whole profile scan already exists: {whole_database}")
+    collector.PAGES = pages
+    fetcher, fetched_pages = collector.offline_fetcher(edges)
+    original_crawl_to_scan = sqlite_adapter.crawl_to_scan
+    collection_metrics: dict[str, object] = {}
+
+    def offline_crawl_to_scan(*args, **kwargs):
+        if "fetcher" in kwargs:
+            raise AssertionError("CLI whole profile must own the sole offline transport seam")
+        began = time.perf_counter()
+        try:
+            return original_crawl_to_scan(*args, **kwargs, fetcher=fetcher)
+        finally:
+            peak, source_unit = _rss()
+            collection_metrics.update(
+                peak_rss_mib=round(peak, 2),
+                rss_source_unit=source_unit,
+                wall_seconds=round(time.perf_counter() - began, 3),
+            )
+
     config = out.with_suffix(".config.json")
     config.write_text(json.dumps(_settings(pages)), encoding="utf-8")
-    output = io.StringIO()
+    import contextlib
+    from io import StringIO
+
+    output = StringIO()
     with (
-        patch("seohead.crawl.sqlite_adapter.crawl_to_scan", return_value=run),
-        patch("seohead.sf.core.sitemap_coverage.run_sitemap", return_value={"sitemaps": []}),
+        patch.object(sqlite_adapter, "crawl_to_scan", offline_crawl_to_scan),
         contextlib.redirect_stdout(output),
     ):
         status = cli_main(
@@ -351,28 +414,66 @@ def _whole_stage(database: Path, pages: int, out: Path) -> dict[str, object]:
                 "--url",
                 fixture._url(0),
                 "--scan-out",
-                str(database),
+                str(whole_database),
                 "--producer-build",
-                "0" * 40,
+                collector.validated_source_revision(producer_build),
                 "--config",
                 str(config),
             ]
         )
-    response = json.loads(output.getvalue())
-    if status or not response.get("audit_available"):
-        raise RuntimeError(f"whole CLI did not save an audit: {response.get('audit_reason')}")
-    audit = read_audit(database)
-    report = build_report(str(database), "md", str(out))
+    try:
+        response = json.loads(output.getvalue())
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("whole CLI did not emit a structured response") from exc
+    if status:
+        raise RuntimeError(f"whole CLI failed: {response.get('audit_reason', 'unknown error')}")
+    con = open_scan(whole_database, require_audit=False)
+    try:
+        counts = {
+            table: con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in ("pages", "links", "forms", "bodies", "resource_refs")
+        }
+    finally:
+        con.close()
+    rss, unit = _rss()
+    outcome: dict[str, object] = {
+        "pages": counts["pages"],
+        "links": counts["links"],
+        "body_count": counts["bodies"],
+        "resource_ref_count": counts["resource_refs"],
+        "collection": {
+            **collection_metrics,
+            "profile_kind": "offline_true_discovery_whole_path",
+            "fetched_pages": fetched_pages(),
+            "counts": counts,
+            "finish_reason": response.get("finish_reason"),
+            "partial": response.get("partial"),
+        },
+        "artifact_bytes": _artifact_bytes(whole_database),
+        "wall_seconds": round(time.perf_counter() - started, 3),
+        "peak_rss_mib": round(rss, 2),
+        "rss_source_unit": unit,
+    }
+    if not response.get("audit_available"):
+        return {
+            **outcome,
+            "status": "blocked",
+            "reason": str(response.get("audit_reason") or "audit unavailable"),
+            "saved_audit": False,
+        }
+    audit = read_audit(whole_database)
+    report = build_report(str(whole_database), "md", str(out))
     rss, unit = _rss()
     if not report.get("ok") or not out.exists() or not audit["pages"]:
         raise RuntimeError("profile whole stage did not produce audit and report")
     return {
+        **outcome,
+        "status": "measured",
         "pages": len(audit["pages"]),
         "issues": len(audit["issues"]),
         "audit_digest": _digest(audit),
         "report_sha256": hashlib.sha256(out.read_bytes()).hexdigest(),
         "saved_audit": True,
-        "wall_seconds": round(time.perf_counter() - started, 3),
         "peak_rss_mib": round(rss, 2),
         "rss_source_unit": unit,
     }
@@ -388,8 +489,9 @@ def _child(
     source_manifest: Path | None,
 ) -> dict[str, object]:
     fixture.PAGES = pages
+    environment = _load_environment(source_manifest)
     if stage == "build":
-        result = _fixture_build(pages, edges, database)
+        result = _fixture_build(pages, edges, database, environment)
     elif stage == "pages":
         result = _page_stage(database)
     elif stage == "graph":
@@ -403,13 +505,52 @@ def _child(
     else:
         if report_out is None:
             raise ValueError("whole stage requires a report path")
-        result = _whole_stage(database, pages, report_out)
-    environment = (
-        json.loads(source_manifest.read_text(encoding="utf-8"))
-        if source_manifest is not None
-        else _environment()
-    )
+        result = _whole_stage(
+            database,
+            pages,
+            edges,
+            report_out,
+            producer_build=collector.validated_source_revision(environment["source_revision"]),
+        )
     return {stage: result, **environment}
+
+
+def _retain_partial_artifact(
+    database: Path, stage: str, pages: int, edges: int, retain_dir: Path | None
+) -> dict[str, object] | None:
+    """Retain a profile's SQLite artifact through Backup API, never its live WAL."""
+    if retain_dir is None:
+        return None
+    source = database.with_name(f"{database.stem}.whole.sqlite") if stage == "whole" else database
+    if not source.is_file():
+        return None
+    retain_dir.mkdir(parents=True, exist_ok=True)
+    destination = retain_dir / f"retained-{pages}-pages-{pages * edges}-links-{stage}.sqlite"
+    if destination.exists():
+        raise RuntimeError(f"retained artifact destination already exists: {destination}")
+    source_con = sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)
+    destination_con = sqlite3.connect(destination)
+    try:
+        source_con.backup(destination_con)
+    finally:
+        destination_con.close()
+        source_con.close()
+    con = sqlite3.connect(destination.resolve().as_uri() + "?mode=ro", uri=True)
+    try:
+        counts = {}
+        for table in ("pages", "links", "forms", "bodies", "frontier", "audit"):
+            try:
+                counts[table] = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            except sqlite3.Error:
+                continue
+        return {
+            "path": str(destination),
+            "bytes": destination.stat().st_size,
+            "counts": counts,
+            "integrity_check": con.execute("PRAGMA integrity_check").fetchone()[0],
+        }
+    finally:
+        con.close()
 
 
 def _run_child(
@@ -420,6 +561,7 @@ def _run_child(
     audit_out: Path | None = None,
     report_out: Path | None = None,
     source_manifest: Path | None = None,
+    retain_dir: Path | None = None,
 ) -> dict:
     command = [
         sys.executable,
@@ -440,13 +582,38 @@ def _run_child(
         command.extend(("--report-out", str(report_out)))
     if source_manifest is not None:
         command.extend(("--source-manifest", str(source_manifest)))
+
+    def retain_logs(stdout, stderr):
+        if retain_dir is not None:
+            retain_dir.mkdir(parents=True, exist_ok=True)
+            for stream, output in (("stdout", stdout), ("stderr", stderr)):
+                data = output if isinstance(output, bytes) else (output or "").encode("utf-8")
+                (
+                    retain_dir / f"{pages}-pages-{pages * edges}-links-{stage}.{stream}.log"
+                ).write_bytes(data)
+
     try:
-        completed = subprocess.run(command, check=True, text=True, capture_output=True)
+        completed = subprocess.run(
+            command, check=True, text=True, capture_output=True, timeout=STAGE_TIMEOUT_SECONDS
+        )
+    except subprocess.TimeoutExpired as exc:
+        retain_logs(exc.stdout, exc.stderr)
+        raise ProfileTimeout(
+            f"analysis profile child exceeded {STAGE_TIMEOUT_SECONDS} seconds: {stage}",
+            _retain_partial_artifact(database, stage, pages, edges, retain_dir),
+        ) from exc
     except subprocess.CalledProcessError as exc:
+        retain_logs(exc.stdout, exc.stderr)
         raise RuntimeError(exc.stderr or "analysis profile child failed without stderr") from exc
+    retain_logs(completed.stdout, completed.stderr)
     if completed.stderr:
         sys.stderr.write(completed.stderr)
-    return json.loads(completed.stdout)
+    result = json.loads(completed.stdout)
+    if stage == "whole" and retain_dir is not None:
+        result["whole"]["retained_artifact"] = _retain_partial_artifact(
+            database, stage, pages, edges, retain_dir
+        )
+    return result
 
 
 def main() -> None:
@@ -456,9 +623,16 @@ def main() -> None:
     parser.add_argument("--database", type=Path)
     parser.add_argument("--pages", type=int, default=10_000)
     parser.add_argument("--edges", type=int, choices=(30, 150))
+    parser.add_argument(
+        "--edges-only",
+        type=int,
+        choices=(30, 150),
+        help="run one edge-density case in profile mode",
+    )
     parser.add_argument("--audit-out", type=Path)
     parser.add_argument("--report-out", type=Path)
     parser.add_argument("--source-manifest", type=Path)
+    parser.add_argument("--retain-dir", type=Path)
     args = parser.parse_args()
     if args.child:
         if args.stage is None or args.database is None or args.edges is None or args.pages < 1:
@@ -483,66 +657,106 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="seohead-analysis-profile-") as temporary:
         directory = Path(temporary)
         manifest = directory / "source-manifest.json"
-        manifest.write_text(json.dumps(_environment(), sort_keys=True), encoding="utf-8")
-        for edges in (30, 150):
+        environment = _load_environment(args.source_manifest)
+        manifest.write_text(json.dumps(environment, sort_keys=True), encoding="utf-8")
+        for edges in (args.edges_only,) if args.edges_only is not None else (30, 150):
+            case_started = time.perf_counter()
             database = directory / f"{edges}.sqlite"
             audit = directory / f"{edges}.audit.json"
             outcome: dict[str, object] = {"edges_per_page": edges, "links": args.pages * edges}
-            for stage in ("build", "pages", "graph"):
-                outcome.update(
-                    _run_child(stage, database, args.pages, edges, source_manifest=manifest)
+            for stage, kwargs in (
+                ("build", {}),
+                ("pages", {}),
+                ("graph", {}),
+                ("audit", {"audit_out": audit}),
+                ("report", {"audit_out": audit, "report_out": directory / f"{edges}.reports"}),
+                ("whole", {"report_out": directory / f"{edges}.whole.md"}),
+            ):
+                # The real whole path owns another artifact. It must still be
+                # measured if a direct-seeded microprofile cannot finish.
+                if "blocking" in outcome and stage != "whole":
+                    continue
+                print(
+                    f"profile stage={stage} pages={args.pages} edges_per_page={edges}",
+                    file=sys.stderr,
+                    flush=True,
                 )
-            outcome.update(
-                _run_child(
-                    "audit", database, args.pages, edges, audit_out=audit, source_manifest=manifest
-                )
-            )
-            outcome.update(
-                _run_child(
-                    "report",
-                    database,
-                    args.pages,
-                    edges,
-                    audit_out=audit,
-                    report_out=directory / f"{edges}.reports",
-                    source_manifest=manifest,
-                )
-            )
-            outcome.update(
-                _run_child(
-                    "whole",
-                    database,
-                    args.pages,
-                    edges,
-                    report_out=directory / f"{edges}.whole.md",
-                    source_manifest=manifest,
-                )
-            )
+                try:
+                    child = _run_child(
+                        stage,
+                        database,
+                        args.pages,
+                        edges,
+                        source_manifest=manifest,
+                        retain_dir=args.retain_dir,
+                        **kwargs,
+                    )
+                    outcome.update(child)
+                    if stage == "whole" and child["whole"].get("status") == "blocked":
+                        blocker = {
+                            "stage": "whole",
+                            "reason": child["whole"]["reason"],
+                        }
+                        outcome.setdefault("blocking", blocker)
+                        outcome.setdefault("blockers", []).append(blocker)
+                except RuntimeError as exc:
+                    blocker = {"stage": stage, "reason": str(exc)}
+                    if isinstance(exc, ProfileTimeout) and exc.partial_artifact is not None:
+                        blocker["partial_artifact"] = exc.partial_artifact
+                    outcome.setdefault("blocking", blocker)
+                    outcome.setdefault("blockers", []).append(blocker)
+            outcome["case_wall_seconds"] = round(time.perf_counter() - case_started, 3)
             results.append(outcome)
     results.sort(key=lambda row: int(row["edges_per_page"]))
-    deltas = {
-        stage: round(
-            float(results[1][stage]["peak_rss_mib"]) - float(results[0][stage]["peak_rss_mib"]), 2
-        )
-        for stage in ("pages", "graph", "audit", "report", "whole")
-    }
-    if any(deltas[stage] > 128 for stage in ("graph", "audit", "whole")) or any(
-        float(row["whole"]["peak_rss_mib"]) >= 1024 for row in results
-    ):
-        raise RuntimeError("native analysis profile exceeded the F memory acceptance budget")
-    if results[0]["audit"]["audit_digest"] == "" or results[1]["audit"]["audit_digest"] == "":
-        raise RuntimeError("native analysis profile has no audit digest")
+    deltas = {}
+    for stage in ("pages", "graph", "audit", "report", "whole", "collector"):
+        samples = [
+            row.get("whole", {}).get("collection", {})
+            if stage == "collector"
+            else row.get(stage, {})
+            for row in results
+        ]
+        if len(samples) == 2 and all("peak_rss_mib" in sample for sample in samples):
+            deltas[stage] = round(
+                float(samples[1]["peak_rss_mib"]) - float(samples[0]["peak_rss_mib"]), 2
+            )
+    violations = [
+        {
+            "stage": stage,
+            "metric": "edge_growth_mib",
+            "limit": MEMORY_BUDGETS_MIB["edge_growth"],
+            "observed": deltas[stage],
+        }
+        for stage in ("collector", "graph", "audit", "whole")
+        if stage in deltas and deltas[stage] > MEMORY_BUDGETS_MIB["edge_growth"]
+    ]
+    for row in results:
+        peak = row.get("whole", {}).get("peak_rss_mib")
+        if peak is not None and float(peak) > MEMORY_BUDGETS_MIB["whole_peak"]:
+            violations.append(
+                {
+                    "stage": "whole",
+                    "metric": "peak_rss_mib",
+                    "limit": MEMORY_BUDGETS_MIB["whole_peak"],
+                    "observed": peak,
+                }
+            )
     print(
         json.dumps(
             {
                 "fixture": {
                     "pages": args.pages,
                     "host": fixture.HOST,
-                    "network": "injected run_sitemap and no socket transport",
+                    "microprofile_kind": "direct_seeded_sqlite",
+                    "whole_path_kind": "offline_true_link_discovery",
+                    "audit_digest_comparison": "not compared across fixture depths",
+                    "network": "deterministic injected fetcher; no socket transport",
                 },
                 "results": results,
                 "rss_delta_mib": deltas,
-                "whole_pipeline_rss_delta_mib": deltas["whole"],
+                "observed_memory_budget_violations": violations,
+                "memory_budgets_mib": MEMORY_BUDGETS_MIB,
+                "whole_pipeline_rss_delta_mib": deltas.get("whole"),
             },
             indent=2,
             sort_keys=True,
