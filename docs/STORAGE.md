@@ -214,7 +214,14 @@ the headers redaction removed, under `x-seohead-redacted-headers` and never thei
 values, so a retained response and a suppressed one are distinguishable in the
 artifact. A crawl reports how many fetched HTML page bodies it retained and the
 reasons it dropped the rest in `html_bodies`, because a `partial` capability flag is
-the same word for one missing body and for four fifths of them. Native SQLite mode requires
+the same word for one missing body and for four fifths of them. The same rule
+applies in the JavaScript rendering lane: a rendered DOM is credentialed when the run
+was configured to send a credential header through `http.credential_headers` or to
+reuse a persistent browser profile, never because the browser carried back a cookie
+the site itself set to a same-origin subresource. A crawl reports how many rendered
+DOMs it retained and the reasons it dropped the rest in `rendered_bodies`, for the
+same reason `html_bodies` exists -- both counts are derived from the artifact, so a
+finished scan still answers the question afterwards. Native SQLite mode requires
 `cache.mode=off` before collection; it never changes or deletes the old directory
 cache, which remains part of the directory workflow.
 

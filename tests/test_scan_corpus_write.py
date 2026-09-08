@@ -11,7 +11,12 @@ import pytest
 
 from seohead.crawl.capture import CaptureEvent
 from seohead.storage.bodies import read_document
-from seohead.storage.corpus import corpus_summary, store_rendered_document, store_response
+from seohead.storage.corpus import (
+    corpus_summary,
+    rendered_body_retention,
+    store_rendered_document,
+    store_response,
+)
 from seohead.storage.corpus_validation import validate_corpus
 from seohead.storage.retention import NO_BODY_RETENTION
 
@@ -254,6 +259,31 @@ def test_rendered_dom_truncation_never_accepts_partial_bytes_and_legacy_fragment
     )
     assert read_document(con, legacy, max_decoded_bytes=1024) == "<html>legacy</html>"
     validate_corpus(con, {"source_kind": "native"}, _policy())
+
+
+def test_rendered_body_retention_counts_only_complete_documents_as_retained():
+    con = _con()
+    for state, reason, html in (
+        ("complete", "none", "<html>complete</html>"),
+        ("unavailable", "fetch_failed", None),
+        ("truncated", "truncated", None),
+    ):
+        store_rendered_document(
+            con,
+            logical_url="https://example.test/a",
+            html=html,
+            renderer=_renderer(),
+            policy=_policy(),
+            captured_at="2026-01-01T00:00:02Z",
+            body_state=state,
+            body_reason=reason,
+        )
+
+    assert rendered_body_retention(con) == {
+        "total": 3,
+        "retained": 1,
+        "omitted": {"fetch_failed": 1, "truncated": 1},
+    }
 
 
 def test_rendered_dom_rejects_non_utf8_and_wrong_legacy_transform():
