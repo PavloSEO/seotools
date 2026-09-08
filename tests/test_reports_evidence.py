@@ -511,7 +511,6 @@ def test_internal_producer_claim_does_not_replace_the_recorded_observation(tmp_p
 
     assert "SEOHEAD found" not in text
     assert "CANONICAL_MULTIPLE" not in text
-    assert "no reader-facing observation" in text
     assert "https://example.test/catalogue/ returned HTTP 200" in text
 
 
@@ -527,10 +526,40 @@ def test_real_title_and_unknown_uppercase_token_survive_client_projection(tmp_pa
     assert "SEOHEAD HTTP_API title is visible on the page." in text
 
 
+def test_known_identifier_inside_a_url_remains_copyable_evidence(tmp_path):
+    """Only known standalone identifiers are translated; URL bytes are evidence."""
+    doc = copy.deepcopy(_CLIENT_EVIDENCE_AUDIT)
+    doc["issues"][0]["message"] = "Inspect https://example.test/TITLE_MISSING"
+
+    target = tmp_path / "url-evidence.md"
+    assert build_report(doc, fmt="md", path=str(target))["ok"]
+    text = target.read_text(encoding="utf-8")
+
+    assert "https://example.test/TITLE_MISSING" in text
+
+
+def test_identifier_only_text_cannot_become_a_false_reproduction(tmp_path):
+    """A saved registry key is not a result when URL/status/details are absent."""
+    doc = copy.deepcopy(_CLIENT_EVIDENCE_AUDIT)
+    doc["issues"][0]["message"] = "CANONICAL_MULTIPLE"
+    doc["issues"][0].pop("status_code")
+    doc["issues"][0]["details"] = {}
+
+    target = tmp_path / "identifier-only.md"
+    assert build_report(doc, fmt="md", path=str(target))["ok"]
+    text = target.read_text(encoding="utf-8")
+
+    assert "Reproduction unavailable from the saved audit." in text
+    assert "At https://example.test/catalogue/" not in text
+
+
 def test_client_writers_keep_bounded_details_and_location_evidence(tmp_path):
     """Primitive evidence is useful only if every human output retains it visibly."""
     doc = copy.deepcopy(_CLIENT_EVIDENCE_AUDIT)
-    doc["issues"][0]["details"] = {"missing_tags": ["description", "canonical"]}
+    doc["issues"][0]["details"] = {
+        "missing_tags": ["description", "canonical"],
+        "structured": [{"selector": "meta[name=description]", "count": 2}],
+    }
     doc["issues"][0]["locations"] = [
         {
             "source_url": "https://example.test/menu/",
@@ -550,6 +579,7 @@ def test_client_writers_keep_bounded_details_and_location_evidence(tmp_path):
     expected = "Source: https://example.test/menu/; Anchor: Catalogue; Position: Navigation; XPath: /html/body/nav/a[2]"
     md = md_target.read_text(encoding="utf-8")
     assert "Missing tags: description, canonical" in md
+    assert "Structured: Count: 2; Selector: meta[name=description]" in md
     assert expected in md
 
     xlsx_text = "\n".join(
@@ -558,12 +588,14 @@ def test_client_writers_keep_bounded_details_and_location_evidence(tmp_path):
         for cell in row
     )
     assert "Missing tags: description, canonical" in xlsx_text
+    assert "Structured: Count: 2; Selector: meta[name=description]" in xlsx_text
     assert expected in xlsx_text
 
     from docx import Document
 
     docx_text = "\n".join(paragraph.text for paragraph in Document(docx_target).paragraphs)
     assert "Missing tags: description, canonical" in docx_text
+    assert "Structured: Count: 2; Selector: meta[name=description]" in docx_text
     assert expected in docx_text
 
 
@@ -583,3 +615,23 @@ def test_failed_tool_labels_keep_distinct_measurement_names(tmp_path):
     assert "Schema check" in text
     assert "robots_check" not in text
     assert "schema_check" not in text
+
+
+def test_failed_tool_reason_translates_known_internal_wrapper(tmp_path):
+    """Failure reasons remain useful without presenting a producer as the evidence."""
+    doc = copy.deepcopy(_CLIENT_EVIDENCE_AUDIT)
+    doc["issues"] = []
+    doc["run"]["checks_skipped"] = [
+        {
+            "id": "TITLE_MISSING",
+            "reason": "Screaming Frog did not return TITLE_MISSING because the export was absent.",
+        }
+    ]
+    target = tmp_path / "failed-reason.md"
+    assert build_report(doc, fmt="md", path=str(target))["ok"]
+    text = target.read_text(encoding="utf-8")
+
+    assert "Screaming Frog" not in text
+    assert "TITLE_MISSING" not in text
+    assert "Title element is missing" in text
+    assert "because the export was absent" in text

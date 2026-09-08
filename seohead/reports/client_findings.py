@@ -16,6 +16,8 @@ _CHECK_IDENTIFIER = re.compile(r"\b[A-Z][A-Z0-9]{2,}(?:_[A-Z0-9]+)+\b")
 _ATTRIBUTION = re.compile(
     r"^(?:seohead|screaming frog)\s+(?:found|reported|detected)\s+(.+?)\.?$", re.IGNORECASE
 )
+_PROTECTED_EVIDENCE = re.compile(r"https?://\S+|`[^`]*`|\"[^\"]*\"|'[^']*'")
+_PRODUCER_REASON = re.compile(r"\b(?:seohead|screaming frog)\b", re.IGNORECASE)
 _MAX_EVIDENCE_ITEMS = 10
 
 
@@ -33,6 +35,15 @@ def _detail_rows(details: Any) -> list[str]:
     """Keep primitive recorded details, with readable labels and bounded shape."""
     if not isinstance(details, dict):
         return []
+
+    def record(value: dict[str, Any]) -> str:
+        bits = [
+            f"{str(name).replace('_', ' ').capitalize()}: {item}"
+            for name, item in sorted(value.items())
+            if isinstance(item, (str, int, float, bool)) and item not in ("", None)
+        ]
+        return "; ".join(bits) or "Structured record retained in the saved audit"
+
     rows: list[str] = []
     for key, value in sorted(details.items()):
         label = str(key).replace("_", " ").capitalize()
@@ -48,6 +59,17 @@ def _detail_rows(details: Any) -> list[str]:
                     else ""
                 )
                 rows.append(f"{label}: {', '.join(shown)}{suffix}")
+            elif any(isinstance(item, dict) for item in value):
+                records = [record(item) for item in value if isinstance(item, dict)]
+                shown = records[:_MAX_EVIDENCE_ITEMS]
+                suffix = (
+                    f"; {len(records) - len(shown)} more structured records omitted"
+                    if len(records) > len(shown)
+                    else ""
+                )
+                rows.append(f"{label}: {' | '.join(shown)}{suffix}")
+        elif isinstance(value, dict):
+            rows.append(f"{label}: {record(value)}")
     return rows
 
 
@@ -60,13 +82,30 @@ def _observation(value: Any) -> str:
     if match:
         text = match.group(1)
     if _CHECK_IDENTIFIER.fullmatch(text) and text in CHECKS:
-        return "The saved audit recorded no reader-facing observation."
-    return _CHECK_IDENTIFIER.sub(
-        lambda matched: (
-            check_title(matched.group(0)) if matched.group(0) in CHECKS else matched.group(0)
-        ),
-        text,
-    )
+        return ""
+
+    def translate(part: str) -> str:
+        return _CHECK_IDENTIFIER.sub(
+            lambda matched: (
+                check_title(matched.group(0)) if matched.group(0) in CHECKS else matched.group(0)
+            ),
+            part,
+        )
+
+    pieces: list[str] = []
+    cursor = 0
+    for protected in _PROTECTED_EVIDENCE.finditer(text):
+        pieces.append(translate(text[cursor : protected.start()]))
+        pieces.append(protected.group(0))
+        cursor = protected.end()
+    pieces.append(translate(text[cursor:]))
+    return "".join(pieces)
+
+
+def client_reason(value: Any) -> str:
+    """Translate known collector wrappers in a failure reason, preserving its cause."""
+    text = _observation(value)
+    return _PRODUCER_REASON.sub("The audit", text)
 
 
 def _location_rows(locations: Any) -> list[str]:
@@ -146,6 +185,18 @@ def project_finding(finding: dict[str, Any]) -> dict[str, Any]:
 def project_document(document: dict[str, Any]) -> dict[str, Any]:
     """Return a shallow document copy whose findings have display fields."""
     projected = dict(document)
+    summary = dict(document.get("summary") or {})
+    summary["checks_disabled"] = [
+        {**item, "reason": client_reason(item.get("reason"))}
+        for item in summary.get("checks_disabled") or []
+        if isinstance(item, dict)
+    ]
+    summary["tools_failed"] = [
+        {**item, "error": client_reason(item.get("error"))}
+        for item in summary.get("tools_failed") or []
+        if isinstance(item, dict)
+    ]
+    projected["summary"] = summary
     projected["findings"] = [
         project_finding(finding)
         for finding in document.get("findings") or []
