@@ -20,20 +20,22 @@
 
 </div>
 
-**SEOHEAD is not a Screaming Frog replacement.** Screaming Frog produces the CSV/XLSX exports
-consumed by SEOHEAD's 161-check analyzer, and remains the stronger choice for web-scale crawls.
-SEOHEAD also ships its own bounded native crawler (`crawl-site`) for when no SF licence is
-installed: it fetches a site directly and feeds the same 161-check registry, but it is not
-SF-scale or SF-parity — checks whose evidence only Screaming Frog's own crawl produces (near-
-duplicates, readability, pixel widths, link score) come back honestly `skipped`, not clean.
-SEOHEAD then runs complementary bounded checks, keeps failed and unavailable measurements
-visible, and gives a specialist or tool-calling agent one tested CLI/MCP surface for assembling
-an audit, prioritized backlog, and reports.
+**SEOHEAD crawls a site itself.** `crawl-site` is the toolkit's own native crawler — no
+third-party software, no licence — and it feeds the same 161-check registry that everything else
+in this repository is built around. Screaming Frog is not required: it is one more supported
+input, for anyone who already has SF exports lying around or a licensed SF CLI to drive. Every
+source, native or SF, produces the same audit document, so a report built one way is comparable
+with a report built another (`docs/COMPARISON.md` spells out where the two still differ in
+evidence).
+
+Run the crawler twice — before a fix ships and after — and `compare-crawls` gives a per-check
+diff: entered, appeared, left, disappeared. That is the answer to "did they actually fix it",
+not a second read of two static reports.
 
 The package brings live URL checks, infrastructure reconnaissance, structured-data work, log and
 content analysis, optional keyword/SERP/traffic sources, report generation, and agent playbooks
-into that workflow. Think of it as the automation and evidence layer around the crawler, not an
-alternative to the crawler or to specialist judgement.
+into that workflow — the automation and evidence layer around whichever crawl produced the data,
+not an alternative to specialist judgement.
 
 The toolkit does not write strategy or client copy by itself. It collects evidence, applies
 deterministic checks, and returns structured data. A capable tool-calling agent can then combine
@@ -44,7 +46,7 @@ commercial-proposal draft while a specialist keeps control of interpretation.
 
 | Stage | Primary owner | Role |
 |---|---|---|
-| Crawl collection | Screaming Frog, or SEOHEAD's own bounded `crawl-site` when no SF licence is installed | Discover site URLs and produce evidence for the 161-check registry — SF for web-scale crawls, `crawl-site` for a licence-free bounded pass |
+| Crawl collection | SEOHEAD's own `crawl-site`, or Screaming Frog exports/CLI if you already use SF | Discover site URLs and produce evidence for the 161-check registry |
 | Evidence processing | SEOHEAD Tools | Analyze that evidence against a 161-check registry, run targeted live and infrastructure tools, preserve uncertainty, and build structured artifacts |
 | Interpretation and approval | SEO specialist, optionally supported by an AI agent | Connect findings to business context, implementation risk, and final priorities |
 
@@ -53,7 +55,7 @@ boundary.
 
 ## Reproducible output from a committed synthetic fixture
 
-![Screaming Frog exports pass through the SEOHEAD analyzer and become an audit and prioritized task backlog](.github/assets/audit-workflow.png)
+![Crawl evidence, native or Screaming Frog, passes through the SEOHEAD analyzer and becomes an audit and prioritized task backlog](.github/assets/audit-workflow.png)
 
 The values above come from the committed synthetic fixture: **6 URLs, 18 issues, and 15 tasks**.
 Open the generated [`audit.md`](examples/audit.md) and [`tasks.md`](examples/tasks.md), or reproduce
@@ -435,10 +437,11 @@ it did not measure**. That is enforced mechanically, not by intention:
   backlink index.
 - International tools validate hreflang and regional structure; the package does not claim a
   machine-translation engine. Translation belongs to a reviewed model or localization workflow.
-- `site-audit` is a bounded sitemap-based evidence pass, not an exhaustive run of all 47 core
-  tools and not a replacement for a production crawler.
-- SEOHEAD does not include its own general-purpose crawler. Whole-site crawling is delegated to
-  Screaming Frog; export analysis remains available without live crawl mode.
+- `site-audit` is a bounded sitemap-based evidence pass, not an exhaustive run of all 64 core
+  tools and not a substitute for a full `crawl-site` run or a production crawler.
+- `crawl-site` is bounded and polite by default (robots.txt, adaptive rate, `--max-urls`), not a
+  web-scale crawler engineered for millions of URLs; Screaming Frog export analysis remains
+  available for anyone who needs that scale or already has SF exports.
 
 Read [SECURITY.md](SECURITY.md), [architecture](docs/ARCHITECTURE.md), and
 [limitations](docs/COMPARISON.md) before using outputs in a client deliverable.
