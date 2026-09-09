@@ -153,6 +153,8 @@ def _native_config(value: Any, *, recorded: bool = False) -> dict[str, Any]:
             expected["storage"].pop("format_version")
         if "rendering" in config and "rendered_links" not in config["rendering"]:
             expected["rendering"].pop("rendered_links")
+        elif "rendering" in config and "crawl" not in config["rendering"]["rendered_links"]:
+            expected["rendering"]["rendered_links"].pop("crawl")
         if "limits" in config and "max_requests" not in config["limits"]:
             expected["limits"].pop("max_requests")
     require_fields(config, expected)
@@ -168,6 +170,7 @@ def _native_config(value: Any, *, recorded: bool = False) -> dict[str, Any]:
         validation_config["rendering"].setdefault(
             "rendered_links", copy.deepcopy(DEFAULTS["rendering"]["rendered_links"])
         )
+        validation_config["rendering"]["rendered_links"].setdefault("crawl", False)
         validation_config.setdefault("limits", {})
         validation_config["limits"].setdefault(
             "max_requests", 0
@@ -206,6 +209,12 @@ def _resume_fingerprint(expected_config: Any, recorded_config: Any) -> str:
         and expected["rendering"].get("rendered_links") == DEFAULTS["rendering"]["rendered_links"]
     ):
         expected["rendering"].pop("rendered_links")
+    elif (
+        "rendering" in recorded
+        and "crawl" not in recorded["rendering"].get("rendered_links", {})
+        and expected["rendering"]["rendered_links"].get("crawl") is False
+    ):
+        expected["rendering"]["rendered_links"].pop("crawl")
     if (
         "limits" in recorded
         and "max_requests" not in recorded["limits"]
@@ -2239,6 +2248,8 @@ class NativeScan:
         route_observations: Iterable[dict[str, Any]] = (),
         route_coverage: dict[str, Any] | None = None,
         content_capture: dict[str, Any] | None = None,
+        candidates: Iterable[dict[str, Any]] = (),
+        decisions: Iterable[dict[str, Any]] = (),
     ) -> int:
         """Retain one render attempt and its accepted extraction atomically."""
         from .corpus import store_rendered_document, store_response
@@ -2254,6 +2265,8 @@ class NativeScan:
         route_observations = _bounded_items(
             route_observations, "rendered route observations", MAX_EDGES_PER_PAGE
         )
+        candidates = _bounded_items(candidates, "rendered discovery candidates")
+        decisions = _bounded_items(decisions, "rendered discovery decisions")
         content_capture = _content_capture(content_capture)
         captures = list(itertools.islice(captures, 1001))
         if (
@@ -2357,6 +2370,36 @@ class NativeScan:
                     )
             elif links or forms:
                 raise ScanError("unaccepted render cannot replace graph observations")
+            if candidates or decisions:
+                from .frontier import apply_candidates
+
+                for index, decision in enumerate(decisions):
+                    if (
+                        not isinstance(decision, dict)
+                        or set(decision) != {"url", "reason", "source", "depth"}
+                        or any(
+                            type(decision[name]) is not str or not decision[name]
+                            for name in ("url", "reason", "source")
+                        )
+                        or type(decision["depth"]) is not int
+                        or decision["depth"] < 0
+                    ):
+                        raise ScanError("rendered discovery decision is invalid")
+                    _insert(
+                        self.con,
+                        "decisions",
+                        {
+                            **decision,
+                            "occurrence_key": f"{page['queue_ordinal']}:rendered:{index}",
+                        },
+                    )
+                apply_candidates(
+                    self.con,
+                    candidates,
+                    source=url,
+                    queue_ordinal=page["queue_ordinal"],
+                    limit=self._stored_query_limit(),
+                )
             _put_content_evidence(
                 self.con,
                 page_url_id=page["url_id"],

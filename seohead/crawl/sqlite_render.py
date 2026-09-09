@@ -89,13 +89,13 @@ def _rendered_batch(
     list[str],
     list[dict[str, Any]],
     dict[str, Any] | None,
+    list[dict[str, Any]],
+    list[dict[str, Any]],
 ]:
     """Use the native collector's existing parser-to-observation contract.
 
-    Rendered evidence never discovers or queues a URL.  ``_document_batch``
-    is still the right conversion because it applies the same storage and
-    attribute gates as static evidence; its candidates and decisions are
-    intentionally discarded.
+    The caller may opt into normal frontier admission after this shared scope,
+    depth, URL-length and query-candidate conversion has completed.
     """
     from seohead.crawl.spider import Scope
     from seohead.crawl.sqlite_adapter import _document_batch
@@ -114,7 +114,9 @@ def _rendered_batch(
         routes, coverage = observations(parsed, batch, "rendered")
     else:
         routes, coverage = [], None
-    return batch.links, batch.forms, batch.partial_reasons, routes, coverage
+    candidates = batch.candidates if settings["rendering"]["rendered_links"]["crawl"] else []
+    decisions = batch.decisions if settings["rendering"]["rendered_links"]["crawl"] else []
+    return batch.links, batch.forms, batch.partial_reasons, routes, coverage, candidates, decisions
 
 
 def _content_capture(
@@ -603,7 +605,7 @@ def run_render_escalation(
                 if degenerate
                 else "rendered body is not parseable",
             }
-        links, forms, partial_reasons, route_observations, route_coverage = _rendered_batch(
+        links, forms, partial_reasons, route_observations, route_coverage, candidates, decisions = _rendered_batch(
             parsed,
             target_url=target,
             depth=candidate.crawl_depth,
@@ -634,6 +636,8 @@ def run_render_escalation(
             ),
             route_observations=route_observations,
             route_coverage=route_coverage,
+            candidates=candidates,
+            decisions=decisions,
             **resource_observations,
         )
         state, reason = _document_state(scan, document_id)

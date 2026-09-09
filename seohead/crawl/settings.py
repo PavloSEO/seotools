@@ -291,6 +291,9 @@ DEFAULTS: dict[str, Any] = {
             # Store immutable raw/rendered eligible-anchor observations. This
             # never admits a route to the frontier or fetches it.
             "store": False,
+            # Independently admit eligible rendered-only candidates through the
+            # normal frontier after scope/depth/query validation.
+            "crawl": False,
         },
         "browser": {
             # How long JavaScript may keep running after the page and its
@@ -429,6 +432,7 @@ RESULTS_AFFECTING: frozenset[str] = frozenset(
         "rendering.escalation.max_render_urls",
         "rendering.escalation.max_render_seconds",
         "rendering.rendered_links.store",
+        "rendering.rendered_links.crawl",
         "rendering.browser.script_timeout_seconds",
         "rendering.browser.viewport",
         "rendering.browser.resize_to_content",
@@ -602,6 +606,10 @@ DESCRIPTIONS: dict[str, str] = {
     "rendering.rendered_links.store": (
         "Store eligible a[href] route observations from static and rendered documents; "
         "this records evidence only and never crawls discovered routes."
+    ),
+    "rendering.rendered_links.crawl": (
+        "Admit eligible rendered-link candidates through the normal bounded crawl frontier; "
+        "independent of rendered route evidence storage."
     ),
     "rendering.browser.script_timeout_seconds": (
         "How long JavaScript may keep running after the page and its subresources have "
@@ -971,6 +979,8 @@ def _validate_rendering(rendering: dict[str, Any]) -> None:
     escalation = rendering["escalation"]
     if type(rendering["rendered_links"]["store"]) is not bool:
         raise ConfigError("rendering.rendered_links.store must be a boolean")
+    if type(rendering["rendered_links"]["crawl"]) is not bool:
+        raise ConfigError("rendering.rendered_links.crawl must be a boolean")
     if escalation["sample_per_pattern"] < 1:
         raise ConfigError("rendering.escalation.sample_per_pattern must be at least 1")
     if escalation["max_render_urls"] < 0:
