@@ -312,6 +312,8 @@ def _redact_console(value: Any) -> str:
 
 def _staged_screenshot_path(artifacts_dir: str, url: str) -> str:
     directory = os.path.abspath(artifacts_dir)
+    if os.path.islink(directory) or os.path.islink(os.path.dirname(directory)):
+        raise ValueError("browser artifact staging directory is unsafe")
     os.makedirs(directory, mode=0o700, exist_ok=True)
     if os.path.islink(directory) or not os.path.isdir(directory):
         raise ValueError("browser artifact staging directory is unsafe")
