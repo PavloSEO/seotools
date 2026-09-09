@@ -522,12 +522,12 @@ def capture(
                 seen_origins.add(current_host)
                 if not record.redirect_url or not 300 <= (record.status_code or 0) < 400:
                     break
-                if redirects >= graph["max_redirects"]:
-                    break
                 next_url = urljoin(current, record.redirect_url)
                 redirect_reason = scope.rejection(next_url, start_host)
                 if redirect_reason:
                     redirect_scope_reason = redirect_reason
+                    break
+                if redirects >= graph["max_redirects"]:
                     break
                 redirects += 1
                 current = next_url

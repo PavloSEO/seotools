@@ -326,8 +326,11 @@ def _put_discovery_ledger(
         (source_document_id,),
     ).fetchone()
     try:
-        headers = json.loads(header[1]) if header is not None and header[1] else {}
-    except ValueError:
+        raw_headers = json.loads(header[1]) if header is not None and header[1] else []
+        from seohead.crawl.capture import header_pairs
+
+        headers = dict(header_pairs(raw_headers)) if isinstance(raw_headers, list) else {}
+    except (TypeError, ValueError):
         headers = {}
     from .discovery_ledger import store_document_relations
 
