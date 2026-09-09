@@ -174,12 +174,12 @@ def scan_body_diff(
 
 __all__ = [
     "scan_body_diff",
+    "scan_import_urls",
     "scan_inspect",
     "scan_list",
-    "scan_import_urls",
     "scan_pin",
     "scan_prune",
-    "scan_requeue",
     "scan_rendered_routes",
+    "scan_requeue",
     "scan_snapshot",
 ]

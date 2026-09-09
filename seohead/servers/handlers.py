@@ -2615,7 +2615,6 @@ def sources_doctor() -> dict[str, Any]:
     sources["dataforseo"]["ready"] = dataforseo_ready
     sources["dataforseo"]["components"] = dataforseo_components
     from seohead.data_sources import spend as spend_core
-
     from seohead.data_sources.providers import sources_doctor as provider_doctor
 
     return {
@@ -3013,6 +3012,7 @@ def tool_catalog(
 ) -> dict[str, Any]:
     """Discover source-derived tool metadata without advertising every schema up front."""
     from dataclasses import asdict
+
     from seohead.servers.tool_reference import load_seo_tools, load_sf_tools
 
     if (

@@ -116,7 +116,7 @@ def capture_document(
             "content_tokens": None,
         }
 
-    from seohead.tools.boilerplate_report import boilerplate_hash
+    from seohead.tools.boilerplate_report import NO_BOILERPLATE_REGIONS, boilerplate_hash
     from seohead.tools.duplicate import simhash
     from seohead.tools.markdown_extract import extract_markdown
 
@@ -124,6 +124,7 @@ def capture_document(
     content = str(extracted["content_markdown"])
     normalized = _normalized(content)
     state = "empty" if not normalized else "complete"
+    boilerplate = boilerplate_hash(html)
     return {
         "schema_version": VERSION,
         "page_url_id": page_url_id,
@@ -137,7 +138,7 @@ def capture_document(
         "implementation": _implementation(),
         "exact_hash": _sha(content),
         "normalized_hash": _sha(normalized),
-        "boilerplate_hash": boilerplate_hash(html),
+        "boilerplate_hash": None if boilerplate == NO_BOILERPLATE_REGIONS else _sha(boilerplate),
         "simhash": f"{simhash(content):016x}",
         "content_tokens": _token_count(content),
     }
@@ -222,6 +223,8 @@ def validate_payload(payload: Any) -> None:
             ("simhash", 16),
         ):
             value = payload[key]
+            if key == "boilerplate_hash" and value is None:
+                continue
             if (
                 type(value) is not str
                 or len(value) != length
@@ -371,7 +374,7 @@ def derive_duplicates(
             implementation["version"],
             implementation["source_sha256"],
         )
-        exact.setdefault(key + (item["normalized_hash"],), set()).add(item["page_url_id"])
+        exact.setdefault((*key, item["normalized_hash"]), set()).add(item["page_url_id"])
     exact_groups = [
         {
             "representation": key[0],

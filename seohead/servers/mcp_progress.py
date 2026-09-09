@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import math
 import time
+from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
-from typing import Any, Callable
+from typing import Any
 
 MIN_INTERVAL_SECONDS = 0.5
 
@@ -32,9 +33,10 @@ class ProgressReporter(AbstractAsyncContextManager["ProgressReporter"]):
         self._last_emit: float | None = None
         self._last_progress = 0.0
         self._last_sent: float | None = None
+        self._mode: str | None = None
         self._closed = False
 
-    async def __aenter__(self) -> "ProgressReporter":
+    async def __aenter__(self) -> ProgressReporter:
         return self
 
     async def __aexit__(self, *_: object) -> None:
@@ -42,6 +44,8 @@ class ProgressReporter(AbstractAsyncContextManager["ProgressReporter"]):
 
     async def known(self, progress: float, total: float, message: str | None = None) -> None:
         """Report a measured monotonic unit count; callers may not invent a percentage."""
+        if self._mode not in {None, "known"}:
+            raise ValueError("cannot switch a progress reporter from elapsed to known units")
         if (
             not math.isfinite(progress)
             or not math.isfinite(total)
@@ -50,12 +54,16 @@ class ProgressReporter(AbstractAsyncContextManager["ProgressReporter"]):
             or progress > total
         ):
             raise ValueError("progress must be monotonic and within a positive measured total")
+        self._mode = "known"
         self._last_progress = progress
         await self._send(progress, total, message or f"{self.label}: {progress:g}/{total:g}")
 
     async def elapsed(self, message: str | None = None) -> None:
         """Report actual elapsed time when no completion total is available."""
-        seconds = max(self._last_progress, self.clock() - self._started)
+        if self._mode not in {None, "elapsed"}:
+            raise ValueError("cannot switch a progress reporter from known to elapsed units")
+        seconds = self.clock() - self._started
+        self._mode = "elapsed"
         self._last_progress = seconds
         await self._send(
             seconds, None, message or f"{self.label}: {seconds:.1f}s elapsed; total unknown"
@@ -88,7 +96,7 @@ def install_progress(server: Any, *, enabled: bool = True) -> ProgressInstallati
     may omit this and retain synchronous function objects for unit-level compatibility.
     """
     installation = ProgressInstallation() if enabled else None
-    setattr(server, "_seohead_progress", installation)
+    server._seohead_progress = installation
     return installation
 
 

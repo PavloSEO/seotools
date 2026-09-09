@@ -14,12 +14,12 @@ import itertools
 import json
 import sqlite3
 import time
-from threading import Lock
 from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from pathlib import Path
+from threading import Lock
 from typing import Any, cast
 from urllib.parse import urlsplit
 
@@ -967,8 +967,9 @@ def crawl_to_scan(
                     break
 
         if finish_reason not in {"errors", "storage_backpressure"}:
-            from .sqlite_resources import capture_resources
             from seohead.storage.resource_graph import capture as capture_resource_graph
+
+            from .sqlite_resources import capture_resources
 
             capture_resources(
                 scan,

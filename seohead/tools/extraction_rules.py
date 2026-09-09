@@ -13,7 +13,8 @@ import re
 from typing import Any
 
 from bs4 import BeautifulSoup
-from soupsieve import SelectorSyntaxError, compile as compile_selector
+from soupsieve import SelectorSyntaxError
+from soupsieve import compile as compile_selector
 
 VERSION = "extraction_rules.v1"
 MAX_RULES = 100

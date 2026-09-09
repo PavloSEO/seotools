@@ -789,9 +789,14 @@ def open_scan(path: str | Path, *, require_audit: bool = True):
         if app_id != APPLICATION_ID:
             raise ScanError(f"foreign application_id {app_id}; expected {APPLICATION_ID} (SEOH)")
         if version == 2:
-            from .retry import validate_v2
+            from .native_scan import NativeScan
 
-            validate_v2(con, require_audit=require_audit)
+            NativeScan._validate_native(con)
+            if (
+                require_audit
+                and con.execute("SELECT 1 FROM audit WHERE singleton=1").fetchone() is None
+            ):
+                raise ScanError("scan.v2 has no current audit")
         else:
             _validate(con, require_audit=require_audit)
         return con

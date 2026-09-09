@@ -472,6 +472,11 @@ RESULTS_AFFECTING: frozenset[str] = frozenset(
 # --config-help and, eventually, an MCP "describe settings" tool (#23) — so the three cannot drift
 # into different descriptions of the same setting. A test fails if a DEFAULTS path has no entry here.
 DESCRIPTIONS: dict[str, str] = {
+    "evidence.content_area.include_selector": "Optional CSS selector for included main-content regions.",
+    "evidence.content_area.root_selector": "Optional CSS root within which main content is extracted.",
+    "evidence.content_area.exclude_tags": "HTML element names excluded from the saved main-content signature.",
+    "evidence.content_area.exclude_selectors": "CSS selectors excluded from the saved main-content signature.",
+    "evidence.extraction_rules": "Bounded declarative extraction rules; no executable code or arbitrary regular expressions.",
     "resources.fetch": "SQLite only: opt in to fetching directly declared same-origin scripts and stylesheets; never follows CSS imports or JavaScript modules.",
     "resources.max_requests": "SQLite only: maximum resource HTTP attempts, including redirects and retries; independent of the page URL limit.",
     "resources.max_response_bytes": "SQLite only: maximum content-decoded bytes per resource response; total crawl time and body-store limits still apply.",

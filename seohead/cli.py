@@ -943,7 +943,7 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
         sub.add_argument(
             "--approve-large-crawl",
             action="store_true",
-            help="explicitly approve budgets above the project admission thresholds",
+            help="approve exceeding project budgets",
         )
         sub.add_argument("--user-agent", help="request identity or googlebot diagnostic preset")
         _source_flag(
@@ -959,7 +959,7 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
         _source_flag(
             sub,
             "--urls-file",
-            help="TXT, CSV, XLSX, or XML URL list: list mode, no discovery",
+            help="list mode: TXT/CSV/XLSX/XML URL file",
         )
         sub.add_argument("--max-urls", type=int, help="URL budget (default 200)")
         sub.add_argument(
@@ -1005,17 +1005,14 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
             "--max-urls-per-second",
             type=float,
             metavar="N",
-            help="cap the request rate to one host, the way a site owner states it "
-            "(sets speed.min_delay_seconds to 1/N). Parity with 'sf run'.",
+            help="requests/second per host (sets speed.min_delay_seconds)",
         )
         sub.add_argument(
             "--set",
             action="append",
             dest="set_settings",
             metavar="PATH=VALUE",
-            help="set any crawler setting without writing a config file, e.g. "
-            "--set speed.concurrency=4 --set scope.include_patterns=/blog/,/docs/. "
-            "Repeatable; applied after --config. See --config-help for every path.",
+            help="set PATH=VALUE after --config; repeatable; paths: --config-help",
         )
         # Kept working for scripts written before --config existed, but no longer advertised in
         # --help: depth and delay are exactly the kind of setting #13's config file exists for, and

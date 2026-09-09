@@ -81,7 +81,7 @@ def test_wrapped_fastmcp_tool_preserves_schema_annotations_and_meta():
     assert after.inputSchema == before.inputSchema
     assert after.outputSchema == before.outputSchema
     assert after.annotations == before.annotations
-    assert after._meta == before._meta
+    assert after.meta == before.meta
 
 
 class _Clock:
@@ -118,6 +118,8 @@ def test_progress_requires_token_is_monotonic_throttled_and_stops():
             await report.known(2, 2)
             with pytest.raises(ValueError, match="monotonic"):
                 await report.known(1, 2)
+            with pytest.raises(ValueError, match="known to elapsed"):
+                await report.elapsed()
         count = len(context.notifications)
         await report.known(2, 2, "must not notify after close")
         assert len(context.notifications) == count
@@ -128,6 +130,8 @@ def test_progress_requires_token_is_monotonic_throttled_and_stops():
         async with elapsed:
             clock.value += 1
             await elapsed.elapsed()
+            with pytest.raises(ValueError, match="elapsed to known"):
+                await elapsed.known(1, 2)
         assert elapsed_context.notifications[-1]["total"] is None
         assert "total unknown" in elapsed_context.notifications[-1]["message"]
 

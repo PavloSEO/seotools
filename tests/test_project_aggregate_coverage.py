@@ -14,6 +14,7 @@ def test_uninitialized_competitor_withholds_aggregate_state_and_counts(tmp_path)
     primary = create_project(root, "https://example.test/")["project"]
     initialize_coverage(root)
     child = root / "competitors" / "candidate"
+    child.parent.mkdir()
     competitor = create_project(child, "https://competitor.test/")["project"]
     (root / "preparation.json").write_text(
         json.dumps(

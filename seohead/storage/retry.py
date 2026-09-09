@@ -98,6 +98,7 @@ def validate_v2(con: sqlite3.Connection, *, require_audit: bool = False) -> None
     from .resource_graph import validate as validate_resource_graph
 
     validate_resource_graph(con)
+    validate_discovery_ledger(con)
     if require_audit and con.execute("SELECT 1 FROM audit WHERE singleton=1").fetchone() is None:
         raise ScanError("scan.v2 has no current audit")
     for row in con.execute("SELECT * FROM retry_attempts"):
@@ -116,23 +117,102 @@ def validate_v2(con: sqlite3.Connection, *, require_audit: bool = False) -> None
             json.loads(row["prior_page_json"])
 
 
+def validate_discovery_ledger(con: sqlite3.Connection) -> None:
+    """Validate optional v2 discovery evidence without mutating a reader connection."""
+    names = {row[0] for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    present = {"discovery_occurrences", "discovery_ledger_coverage"} & names
+    if not present:
+        return
+    if present != {"discovery_occurrences", "discovery_ledger_coverage"}:
+        raise ScanError("discovery ledger schema is incomplete")
+    relations = {
+        "seed",
+        "hyperlink",
+        "redirect",
+        "canonical",
+        "alternate",
+        "hreflang",
+        "x_default",
+        "next",
+        "prev",
+        "refresh",
+        "form_action",
+        "http_link",
+    }
+    outcomes = {"queued", "fetched", "excluded", "blocked", "unresolved", "unmeasured"}
+    for row in con.execute("SELECT * FROM discovery_occurrences"):
+        if (
+            not isinstance(row["occurrence_key"], str)
+            or not row["occurrence_key"]
+            or row["relation"] not in relations
+            or row["outcome"] not in outcomes
+            or row["representation"] not in {"static", "rendered", "legacy_fragment", "unmeasured"}
+            or not isinstance(row["raw_value"], str)
+            or not isinstance(row["resolved_value"], str)
+            or not isinstance(row["reason"], str)
+            or (row["depth"] is not None and (type(row["depth"]) is not int or row["depth"] < 0))
+            or not isinstance(json.loads(row["attributes_json"]), dict)
+        ):
+            raise ScanError("discovery occurrence is invalid")
+        if (
+            row["source_url_id"] is not None
+            and not con.execute(
+                "SELECT 1 FROM urls WHERE url_id=?", (row["source_url_id"],)
+            ).fetchone()
+        ):
+            raise ScanError("discovery occurrence source URL is missing")
+        if (
+            row["source_document_id"] is not None
+            and not con.execute(
+                "SELECT 1 FROM documents WHERE document_id=? AND url_id=? AND representation=?",
+                (row["source_document_id"], row["source_url_id"], row["representation"]),
+            ).fetchone()
+        ):
+            raise ScanError("discovery occurrence source document is invalid")
+        if (
+            row["source_response_id"] is not None
+            and not con.execute(
+                "SELECT 1 FROM documents WHERE document_id=? AND source_response_id=?",
+                (row["source_document_id"], row["source_response_id"]),
+            ).fetchone()
+        ):
+            raise ScanError("discovery occurrence source response is invalid")
+        target = con.execute(
+            "SELECT url_id FROM urls WHERE url=?", (row["resolved_value"],)
+        ).fetchone()
+        if (target[0] if target else None) != row["target_url_id"]:
+            raise ScanError(
+                "discovery occurrence target identity disagrees with its resolved value"
+            )
+    for row in con.execute("SELECT * FROM discovery_ledger_coverage"):
+        if (
+            row["representation"] not in {"static", "rendered", "legacy_fragment"}
+            or type(row["captured"]) is not int
+            or type(row["omitted"]) is not int
+            or row["captured"] < 0
+            or row["omitted"] < 0
+            or row["captured"] > 2_000
+            or row["state"] not in {"complete", "partial"}
+            or not isinstance(row["reason"], str)
+            or (row["state"] == "complete" and (row["omitted"] != 0 or row["reason"]))
+            or (row["state"] == "partial" and (row["omitted"] < 1 or not row["reason"]))
+            or not con.execute(
+                "SELECT 1 FROM documents WHERE document_id=? AND representation=?",
+                (row["source_document_id"], row["representation"]),
+            ).fetchone()
+        ):
+            raise ScanError("discovery ledger coverage is invalid")
+        count = con.execute(
+            "SELECT COUNT(*) FROM discovery_occurrences WHERE source_document_id=? AND representation=?",
+            (row["source_document_id"], row["representation"]),
+        ).fetchone()[0]
+        if count != row["captured"]:
+            raise ScanError("discovery ledger coverage count disagrees with occurrences")
+
+
 def _validate_copy(path: Path) -> None:
-    con = sqlite3.connect(path.absolute().as_uri() + "?mode=ro", uri=True, timeout=5)
-    try:
-        con.row_factory = sqlite3.Row
-        con.execute("PRAGMA trusted_schema=OFF")
-        con.execute("BEGIN")
-        version = con.execute("PRAGMA user_version").fetchone()[0]
-        if version == V2_USER_VERSION:
-            validate_v2(con, require_audit=False)
-        else:
-            con.close()
-            con = None
-            with contextlib.closing(open_scan(path, require_audit=False)):
-                return
-    finally:
-        if con is not None:
-            con.close()
+    with contextlib.closing(open_scan(path, require_audit=False)):
+        return
 
 
 def _backup(path: Path, backup_path: Path) -> str:
@@ -322,6 +402,9 @@ def requeue_scan(
             backup_sha256=backup_sha256,
             source_scan_uuid=source_scan_uuid,
         )
+        from .resource_graph import invalidate_pages as invalidate_resource_graph_pages
+
+        invalidate_resource_graph_pages(con, [row["url_id"] for row in rows])
         for row in rows:
             page = dict(row)
             digest, counts = _evidence_digest(con, row["url_id"], row["queue_ordinal"])

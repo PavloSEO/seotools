@@ -377,7 +377,10 @@ def crawl_site_scan(
         seed_loader=seed_loader,
         progress=progress,
     )
-    if settings["rendering"]["rendered_links"]["crawl"] and settings["rendering"]["mode"] != "raw":
+    if (
+        settings.get("rendering", {}).get("rendered_links", {}).get("crawl", False)
+        and settings.get("rendering", {}).get("mode", "raw") != "raw"
+    ):
         from dataclasses import replace
 
         from seohead.crawl.sqlite_render import run_render_escalation
