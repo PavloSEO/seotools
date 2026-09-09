@@ -115,7 +115,7 @@ def test_native_render_commits_each_dom_then_discards_html(monkeypatch):
         }
 
     monkeypatch.setattr(render_tool, "render_document", fake_document)
-    escalation = run_render_escalation(scan, result, _settings())
+    escalation = run_render_escalation(scan, result, _settings(**{"rendering.rendered_links.store": True}))
 
     assert scan.preflight_calls >= 2
     assert seen["max_html_bytes"] == 5 * 1024 * 1024
@@ -128,6 +128,11 @@ def test_native_render_commits_each_dom_then_discards_html(monkeypatch):
         "https://example.test/new",
     }
     assert kwargs["forms"][0]["has_password"] is True
+    assert {row["resolved_url"] for row in kwargs["route_observations"]} == {
+        "https://example.test/raw",
+        "https://example.test/new",
+    }
+    assert kwargs["route_coverage"]["completeness"] == "complete"
     assert kwargs["html"].startswith("<html>")
     assert result.pages[0].title == "DOM"
     # Native analysis reads the SQL graph, so the transient result does not
