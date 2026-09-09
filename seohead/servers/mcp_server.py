@@ -602,7 +602,10 @@ def build_server():  # -> FastMCP
 
     @mcp.tool(annotations=create_files, structured_output=True)
     def seo_report_build(
-        audit: dict | str, fmt: str = "xlsx", out: str | None = None
+        audit: dict | str,
+        fmt: str = "xlsx",
+        out: str | None = None,
+        project: str | None = None,
     ) -> dict[str, Any]:
         """Turn an audit document into a file: xlsx, docx, csv, md or json. Pass the dict
         returned by seo_site_audit, an SF Analyzer audit.json from sf_audit_run (or a
@@ -613,8 +616,10 @@ def build_server():  # -> FastMCP
         scope-evidence, and page tables for a tracker, listed under outputs;
         md is for reading and for git. The generators compute nothing and reach no network:
         what is not in the JSON does not appear in the report. A document matching neither
-        schema is refused with ok: false naming the mismatch, never rendered as an empty report."""
-        return _checked(handlers.report_build(audit=audit, fmt=fmt, out=out))
+        schema is refused with ok: false naming the mismatch, never rendered as an empty report.
+        Pass project to include validated checklist coverage, reasons, scope and measurements in a
+        human report; the original JSON audit remains unchanged. This never makes a network request."""
+        return _checked(handlers.report_build(audit=audit, fmt=fmt, out=out, project=project))
 
     @mcp.tool(annotations=pure, structured_output=True)
     def seo_facts_export(sites: list[dict[str, Any]]) -> dict[str, Any]:
@@ -978,6 +983,57 @@ def build_server():  # -> FastMCP
     def seo_project_status(directory: str) -> dict[str, Any]:
         """Show project scan history and named pending checklist/preparation states."""
         return _checked(handlers.project_status(directory=directory))
+
+    @mcp.tool(annotations=create_files, structured_output=True)
+    def seo_project_checklist_init(
+        directory: str, template: dict | None = None, expected_revision: int | None = None
+    ) -> dict[str, Any]:
+        """Initialize or reconcile a local checklist without executing a check, skill, or scenario.
+
+        template is an optional data-only ``seohead.checklist-template.v1`` document. The result
+        returns the current state, revision, counts, views and items; use that revision for a
+        later conditional write. This never makes a network request.
+        """
+        return _checked(
+            handlers.project_checklist_init(
+                directory=directory, template=template, expected_revision=expected_revision
+            )
+        )
+
+    @mcp.tool(annotations=create_files, structured_output=True)
+    def seo_project_checklist_update(
+        directory: str, item: dict, expected_revision: int
+    ) -> dict[str, Any]:
+        """Add or update one local checklist definition without executing it.
+
+        expected_revision prevents a writer from silently replacing a newer checklist. Built-in
+        identity and source provenance remain validated by the project core. This never makes a
+        network request.
+        """
+        return _checked(
+            handlers.project_checklist_update(
+                directory=directory, item=item, expected_revision=expected_revision
+            )
+        )
+
+    @mcp.tool(annotations=create_files, structured_output=True)
+    def seo_project_checklist_record(
+        directory: str, item_id: str, record: dict, expected_revision: int
+    ) -> dict[str, Any]:
+        """Record supplied evidence for one checklist item without executing its operation.
+
+        expected_revision prevents an overwrite of newer checklist history. The record is
+        validated against the item's scope and evidence contract, then the returned status names
+        remaining, blocked and manual-review work. This never makes a network request.
+        """
+        return _checked(
+            handlers.project_checklist_record(
+                directory=directory,
+                item_id=item_id,
+                record=record,
+                expected_revision=expected_revision,
+            )
+        )
 
     @mcp.tool(annotations=read_files, structured_output=True)
     def seo_scan_list(

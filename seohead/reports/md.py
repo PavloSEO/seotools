@@ -11,6 +11,11 @@ def _field(value: Any, limit: int | None = None) -> str:
     return text.replace("|", "\\|")[:limit] if limit else text
 
 
+def _coverage_field(value: Any) -> str:
+    """Keep project-controlled newlines from changing the Markdown table shape."""
+    return _field(value).replace("\r", " ").replace("\n", " ")
+
+
 def write(document: dict[str, Any], path: pathlib.Path) -> None:
     from seohead.reports import SEVERITY_TITLES
     from seohead.reports.client_findings import check_title
@@ -36,6 +41,62 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
         bits = [b for b in (f"stopped: {finish}" if finish else None, scope) if b]
         detail = f" {'; '.join(bits)}" if bits else ""
         out += [f"> **Partial crawl — scope is limited.**{detail}", ""]
+
+    coverage = summary.get("project_coverage")
+    if isinstance(coverage, dict):
+        from seohead.reports.project_coverage import value_text
+
+        project = coverage.get("project") or {}
+        status = coverage.get("status") or {}
+        out += [
+            "## Project checklist coverage",
+            "",
+            f"Project: {project.get('site', '')} · UUID: {project.get('uuid', '')}",
+            f"Checklist state: {status.get('state', '')} · Revision: {status.get('revision', '')}",
+            "",
+        ]
+        counts = status.get("counts")
+        if isinstance(counts, dict):
+            out += [
+                "| Total | Complete | Remaining | Run | Not applicable | Not run | Stale | Disabled |",
+                "|---|---|---|---|---|---|---|---|",
+                "| {} | {} | {} | {} | {} | {} | {} | {} |".format(
+                    _field(counts.get("total")),
+                    _field(counts.get("complete")),
+                    _field(counts.get("remaining")),
+                    _field(counts.get("run")),
+                    _field(counts.get("not_applicable")),
+                    _field(counts.get("not_run")),
+                    _field(counts.get("stale")),
+                    _field(counts.get("disabled")),
+                ),
+                "",
+            ]
+        elif status.get("reason"):
+            out += [f"Reason: {_field(status['reason'])}", ""]
+        items = status.get("items") or []
+        if items:
+            out += [
+                "| Item | Kind | Execution | State | Attempt | Complete | Blocked by | Enabled | Scope | Measurement | Reason |",
+                "|---|---|---|---|---|---|---|---|---|---|---|",
+            ]
+            for item in items:
+                out.append(
+                    "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |".format(
+                        _coverage_field(item.get("title") or item.get("id")),
+                        _coverage_field(item.get("kind")),
+                        _coverage_field(item.get("execution_kind")),
+                        _coverage_field(item.get("state")),
+                        _coverage_field(item.get("attempt_status")),
+                        _coverage_field(item.get("complete")),
+                        _coverage_field(value_text(item.get("blocked_by"))),
+                        _coverage_field(item.get("enabled")),
+                        _coverage_field(value_text(item.get("scope"))),
+                        _coverage_field(value_text(item.get("measurement"))),
+                        _coverage_field(item.get("reason")),
+                    )
+                )
+            out.append("")
 
     out += [
         "| Metric | Value |",

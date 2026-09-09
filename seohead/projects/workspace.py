@@ -297,11 +297,15 @@ def open_project(directory: str | Path, *, expected_site: str | None = None) -> 
     root, document = _load(directory)
     if expected_site is not None and normalize_domain(expected_site) != document["site"]["host"]:
         raise ValueError("project site identity conflicts with the requested site")
-    return {"ok": True, "project": document, "path": str(root)}
+    from .coverage import coverage_status
+
+    return {"ok": True, "project": document, "path": str(root), "checklist": coverage_status(root)}
 
 
 def project_status(directory: str | Path) -> dict[str, Any]:
-    """Report scan history and the intentionally uninitialized child-B checklist state."""
+    """Report scan history, evidence-backed checklist state and pending preparation."""
+    from .coverage import coverage_status
+
     root, document = _load(directory)
     return {
         "ok": True,
@@ -311,10 +315,7 @@ def project_status(directory: str | Path) -> dict[str, Any]:
             "profile_references": document["profile_references"],
         },
         "scans": list_scans(root / "scans"),
-        "checklist": {
-            "state": "not_initialized",
-            "reason": "coverage checklist is initialized by project checklist setup, not project creation",
-        },
+        "checklist": coverage_status(root),
         "preparation": {
             "state": "pending",
             "reason": "automatic project preparation is not implemented",
