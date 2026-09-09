@@ -97,7 +97,7 @@ template first; do not pay for the whole site to learn what one page would have 
 **6. Verify every serious finding live.** → [verifying](subskills/verifying.md)
 
 **7. Produce the thing that was actually asked for.**
-→ [deliverables](subskills/deliverables.md), and `docs/scenarios/` for 56 chains end to end.
+→ [deliverables](subskills/deliverables.md), and `docs/scenarios/` for 59 chains end to end.
 
 ## Decision points
 

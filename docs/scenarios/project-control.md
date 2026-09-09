@@ -7,8 +7,8 @@ workspace into a completed audit or a delivered report.
 ## 1. Read the available playbooks
 
 ```bash
-seohead skill list
-seohead scenario show --name provider-evidence
+seohead skill-list
+seohead scenario-show --name provider-evidence
 ```
 
 Use an unambiguous full identifier when a short name is ambiguous. These calls
@@ -27,22 +27,11 @@ bounded crawl policy, and writes an initial plan. A failure or partial crawl
 remains recorded as such in `preparation.json` and project status.
 
 Supply candidate competitors only when their source is known. They are local
-candidate workspaces, not evidence that they rank or compete:
-
-```bash
-seohead project prepare --directory ./example-project --input '{
-  "competitors":[
-    {"url":"https://competitor.example/","source":"operator shortlist","observed_at":"2026-09-09T00:00:00Z"}
-  ]
-}'
-```
+candidate workspaces, not evidence that they rank or compete. Pass them as the
+structured `competitors` input to a deliberate `project-prepare` operation on
+the created workspace.
 
 ## 3. Review policy before widening scope
-
-```bash
-seohead project policy --directory ./example-project
-seohead project status --directory ./example-project
-```
 
 `project-policy` previews a data-only policy. Applying a changed policy requires
 the current `expected_revision`; a crawl above the project thresholds requires
@@ -54,3 +43,13 @@ supplied evidence, with its own expected revision.
 - `project-status` names the retained scan or names the crawl as not run/partial.
 - Every competitor has an operator source and stays a candidate until separately measured.
 - The policy revision, preparation state, and checklist coverage can be reviewed from the local workspace.
+
+## Covers
+
+Project control coordinates recorded checklist and preparation evidence; it does
+not add a separate technical finding to the SF issue catalogue.
+
+## What it cannot answer
+
+It cannot establish competitor performance, provider access, a complete site
+audit, or client acceptance without the separately recorded evidence.

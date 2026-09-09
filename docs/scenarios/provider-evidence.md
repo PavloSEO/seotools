@@ -73,6 +73,11 @@ A provider evidence envelope proves what was asked, when it was retrieved, its c
 and whether it is usable. It never proves a clean technical result just because a provider was not
 configured, a target was not granted, or a result was truncated.
 
+## Covers
+
+Provider enrichment is an external-evidence workflow; it does not add a
+separate SF issue-catalogue finding.
+
 ## What it cannot answer
 
 - **Whether an authenticated account owns a requested target.** Only `target_access: verified`

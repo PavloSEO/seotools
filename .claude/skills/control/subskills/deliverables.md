@@ -16,7 +16,7 @@ Real numbers from one run: 10 files, 7.92 MB → 2.58 MB, −67%. The archive is
 It does not fix a server with no compression configured — but it proves the server has none,
 with the bytes to show for it.
 
-`docs/scenarios/` holds 56 chains in this shape, each with its commands, its output, its cost
+`docs/scenarios/` holds 59 chains in this shape, each with its commands, its output, its cost
 and its limits.
 
 ## Choosing the format
