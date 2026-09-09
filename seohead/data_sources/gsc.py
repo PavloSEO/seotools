@@ -48,6 +48,9 @@ _ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 # payload, bearer token -> response body text
 Fetcher = Callable[[dict[str, Any], str], str]
+RequestTransport = Callable[[str, str, dict[str, Any] | None, str], str]
+MAX_INSPECTION_URLS = 50
+MAX_ANALYTICS_ROWS = 25_000
 
 
 def default_date_range() -> tuple[str, str]:
@@ -251,3 +254,169 @@ def inspect_url(
         "google_canonical": index_status.get("googleCanonical"),
         "user_canonical": index_status.get("userCanonical"),
     }
+
+
+def _request(method: str, url: str, payload: dict[str, Any] | None, token: str) -> str:
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    request = urllib.request.Request(
+        url,
+        data=data,
+        method=method,
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=TIMEOUT) as response:  # nosec B310
+        return response.read().decode("utf-8")
+
+
+def _token(value: str | None) -> str | None:
+    from seohead.data_sources.credentials import MissingCredential, gsc_access_token
+
+    try:
+        return value or gsc_access_token()
+    except MissingCredential:
+        return None
+
+
+def durable_oauth_token(*, refresh_transport: Callable[[dict[str, str]], dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Refresh an explicitly stored ``webmasters.readonly`` grant for a bounded operation."""
+    from seohead.data_sources.oauth import refresh_access_token
+
+    return refresh_access_token("gsc", transport=refresh_transport)
+
+
+def discover_properties(
+    *, token: str | None = None, transport: RequestTransport | None = None
+) -> dict[str, Any]:
+    """List properties the authenticated principal can access; never treats a token as verified."""
+    bearer = _token(token)
+    if bearer is None:
+        return {"ok": False, "state": "not_configured", "verified": False}
+    try:
+        body = _response_object((transport or _request)("GET", f"{SEARCH_ANALYTICS_HOST}/sites", None, bearer))
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
+        return {"ok": False, "state": "verification_failed", "verified": False, "error": str(exc)}
+    entries = body.get("siteEntry") if body else None
+    if not isinstance(entries, list) or not all(isinstance(entry, dict) for entry in entries):
+        return {"ok": False, "state": "verification_failed", "verified": False, "error": "malformed GSC property response"}
+    return {
+        "ok": True,
+        "verified": True,
+        "properties": [
+            {"site_url": entry.get("siteUrl"), "permission_level": entry.get("permissionLevel")}
+            for entry in entries
+        ],
+        "scopes": ["https://www.googleapis.com/auth/webmasters.readonly"],
+    }
+
+
+def search_analytics_pages(
+    site_url: str,
+    *,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    dimensions: list[str] | None = None,
+    row_limit: int = 1_000,
+    max_rows: int = MAX_ANALYTICS_ROWS,
+    token: str | None = None,
+    transport: RequestTransport | None = None,
+) -> dict[str, Any]:
+    """Paginate bounded Search Analytics rows with explicit truncation and quota limits."""
+    if not site_url or not 1 <= row_limit <= 25_000 or not 1 <= max_rows <= MAX_ANALYTICS_ROWS:
+        raise ValueError("site_url and bounded row limits are required")
+    start_date, end_date = _resolve_date_range(start_date, end_date)
+    if error := _validate_date_range(start_date, end_date):
+        return {"ok": False, "error": error}
+    bearer = _token(token)
+    if bearer is None:
+        return {"ok": False, "state": "not_configured", "verified": False}
+    endpoint = f"{SEARCH_ANALYTICS_HOST}/sites/{urllib.parse.quote(site_url, safe='')}/searchAnalytics/query"
+    request = transport or _request
+    rows: list[dict[str, Any]] = []
+    offset = 0
+    while offset < max_rows:
+        payload = {
+            "startDate": start_date,
+            "endDate": end_date,
+            "dimensions": dimensions or ["page"],
+            "rowLimit": min(row_limit, max_rows - offset),
+            "startRow": offset,
+        }
+        try:
+            body = _response_object(request("POST", endpoint, payload, bearer))
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
+            return {"ok": False, "state": "failed", "error": str(exc), "returned": len(rows)}
+        batch = body.get("rows", []) if body else None
+        if not isinstance(batch, list) or not all(isinstance(row, dict) for row in batch):
+            return {"ok": False, "state": "failed", "error": "malformed GSC analytics response"}
+        rows.extend(batch)
+        if len(batch) < payload["rowLimit"]:
+            break
+        offset += len(batch)
+    return {
+        "ok": True,
+        "state": "complete" if len(rows) < max_rows else "partial",
+        "period": {"start_date": start_date, "end_date": end_date},
+        "dimensions": dimensions or ["page"],
+        "rows": rows,
+        "returned": len(rows),
+        "truncated": len(rows) == max_rows,
+        "quota_mode": "provider row limit; bounded locally",
+    }
+
+
+def inspect_urls(
+    site_url: str,
+    urls: list[str],
+    *,
+    token: str | None = None,
+    transport: RequestTransport | None = None,
+) -> dict[str, Any]:
+    """Inspect a declared bounded sample; this is never an index census."""
+    if not site_url or not urls or len(urls) > MAX_INSPECTION_URLS:
+        raise ValueError(f"site_url and 1..{MAX_INSPECTION_URLS} inspection URLs are required")
+    bearer = _token(token)
+    if bearer is None:
+        return {"ok": False, "state": "not_configured", "verified": False}
+    request = transport or _request
+    outcomes = []
+    for url in urls:
+        try:
+            body = _response_object(
+                request(
+                    "POST",
+                    f"{INSPECTION_HOST}/urlInspection/index:inspect",
+                    {"inspectionUrl": url, "siteUrl": site_url},
+                    bearer,
+                )
+            )
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
+            outcomes.append({"url": url, "state": "failed", "error": str(exc)})
+            continue
+        status = (body or {}).get("inspectionResult", {}).get("indexStatusResult", {})
+        outcomes.append({"url": url, "state": "complete", "index_status": status})
+    return {
+        "ok": all(item["state"] == "complete" for item in outcomes),
+        "state": "complete" if all(item["state"] == "complete" for item in outcomes) else "partial",
+        "scope": "bounded URL diagnostic; not an index census",
+        "urls": outcomes,
+    }
+
+
+def sitemap_status(
+    site_url: str, *, token: str | None = None, transport: RequestTransport | None = None
+) -> dict[str, Any]:
+    """Read the selected property's submitted sitemap status."""
+    if not site_url:
+        raise ValueError("site_url required")
+    bearer = _token(token)
+    if bearer is None:
+        return {"ok": False, "state": "not_configured", "verified": False}
+    endpoint = f"{SEARCH_ANALYTICS_HOST}/sites/{urllib.parse.quote(site_url, safe='')}/sitemaps"
+    try:
+        body = _response_object((transport or _request)("GET", endpoint, None, bearer))
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
+        return {"ok": False, "state": "failed", "error": str(exc)}
+    sitemaps = (body or {}).get("sitemap")
+    if not isinstance(sitemaps, list) or not all(isinstance(item, dict) for item in sitemaps):
+        return {"ok": False, "state": "failed", "error": "malformed GSC sitemap response"}
+    return {"ok": True, "state": "complete", "sitemaps": sitemaps, "returned": len(sitemaps)}

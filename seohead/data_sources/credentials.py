@@ -125,6 +125,31 @@ def gsc_access_token() -> str:
     )
 
 
+def ga4_access_token() -> str:
+    """Read a read-only Google Analytics Data API bearer token."""
+    return read(
+        "ga4/access_token",
+        "GA4_ACCESS_TOKEN",
+        hint="Authorize only analytics.readonly for the selected GA4 property.",
+    )
+
+
+def yandex_webmaster_token() -> str:
+    return read(
+        "yandex-webmaster/access_token",
+        "YANDEX_WEBMASTER_TOKEN",
+        hint="Authorize a read-only Yandex Webmaster application before collecting evidence.",
+    )
+
+
+def bing_webmaster_key() -> str:
+    return read(
+        "bing-webmaster/api_key",
+        "BING_WEBMASTER_API_KEY",
+        hint="Create a Bing Webmaster API key for the verified site.",
+    )
+
+
 def crux_api_key() -> str:
     return read(
         "crux/api_key",
