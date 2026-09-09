@@ -167,8 +167,10 @@ def _seed_scan_inputs(tmp_path: Path) -> None:
     scan = import_run(
         source, tmp_path / "scan.sqlite", producer_build="1" * 40, effective_config=original_config
     )
-    for name in ("before.sqlite", "after.sqlite", "native.sqlite"):
-        shutil.copyfile(scan, tmp_path / name)
+    for name in ("before.sqlite", "after.sqlite", "native.sqlite", "scans/audit.sqlite"):
+        target = tmp_path / name
+        target.parent.mkdir(exist_ok=True)
+        shutil.copyfile(scan, target)
 
 
 def _seed_documented_body_scan(tmp_path: Path, target: str) -> None:
@@ -286,6 +288,13 @@ def test_documented_command_executes_or_at_least_still_parses(
     from seohead.cli import main as cli_main
 
     _seed_workdir(tmp_path, fixture_site)
+    if argv[:2] in (["project", "open"], ["project", "status"]):
+        # Each documentation case runs independently; opening/status require the
+        # project that the preceding creation command would have published.
+        from seohead.projects.workspace import create_project
+
+        directory = argv[argv.index("--directory") + 1]
+        create_project(tmp_path / directory, "https://example.test/")
     if any(".sqlite" in value for value in argv) and not {"--scan-out", "--resume"} & set(argv):
         _seed_scan_inputs(tmp_path)
     if argv[:1] in (["duplicate-check"], ["boilerplate-report"]) and "--scan" in argv:

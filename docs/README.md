@@ -116,3 +116,5 @@ recounts them. It fails when:
 
 The contract test derives counts and command names directly from registries, so public prose
 cannot silently drift away from the interfaces users actually receive.
+
+- [Projects](PROJECTS.md) — portable site facts, custom template references and scan history.

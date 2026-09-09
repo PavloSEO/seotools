@@ -9,6 +9,7 @@ from __future__ import annotations
 import sys
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -61,6 +62,32 @@ def _warn_ignored_robots(settings: dict[str, Any], url: str | None, urls: list[s
             print(
                 f"warning: robots.txt bypass enabled for {host} (policy: ignore)", file=sys.stderr
             )
+
+
+def _default_scan_path(url: str, producer_build: str | None) -> str:
+    """Reserve a caller-local, collision-safe scan name after provenance validates."""
+    import os
+    import uuid
+    from pathlib import Path
+
+    from seohead.servers.scan_handlers import _producer_provenance
+    from seohead.storage.history import new_scan_path
+
+    # Do this before making the caller-local directory: a bad/unknown producer
+    # must not leave a plausible-looking output location behind.
+    _producer_provenance(producer_build)
+    directory = Path.cwd() / "scans"
+    if os.path.lexists(directory) and directory.is_symlink():
+        raise ValueError(
+            "default scans directory must not be a symlink; pass --scan-out explicitly"
+        )
+    if not directory.exists():
+        directory.mkdir()
+    if not directory.is_dir():
+        raise ValueError(
+            "default scans path exists but is not a directory; pass --scan-out explicitly"
+        )
+    return str(new_scan_path(directory, url, str(uuid.uuid4())))
 
 
 # SEO core is extracted BY DEFAULT (the caller can turn any field off with False).
@@ -491,6 +518,7 @@ def crawl_site(
     overrides: dict[str, Any] | None = None,
     resume: str | None = None,
     progress: Callable[[int, int], None] | None = None,
+    project: str | None = None,
 ) -> dict[str, Any]:
     """Crawl a site from a start URL, or fetch an explicit list, then audit it.
 
@@ -526,6 +554,14 @@ def crawl_site(
     the first request, and the honest report of a known total is a different
     line than this one (see ``seohead.crawl.progress``).
     """
+    project_root = None
+    if project is not None:
+        from seohead.projects.workspace import open_project
+
+        opened = open_project(project)
+        project_root = Path(opened["path"])
+        if resume is None and url is None and urls is None and urls_file is None:
+            url = opened["project"]["site"]["target"]
     if resume is not None:
         # ``is not None`` rather than truthiness: --min-delay 0 and --max-urls 0 are
         # settings the caller stated, and silently accepting them here would let a
@@ -593,6 +629,18 @@ def crawl_site(
         if value is not None:
             resolved_overrides[path] = value
     settings = crawl_config.load(config, overrides=resolved_overrides)
+    if (
+        project_root is not None
+        and not scan_out
+        and url
+        and not urls
+        and not settings["output"]["dir"]
+    ):
+        import uuid
+
+        from seohead.storage.history import new_scan_path
+
+        scan_out = str(new_scan_path(project_root / "scans", url, str(uuid.uuid4())))
     analysis_segments = settings["analysis"]["segments"]
     if analysis_segments:
         from seohead.sf.core.segments import SegmentError, resolve_order
@@ -602,12 +650,29 @@ def crawl_site(
         except SegmentError as exc:
             raise crawl_config.ConfigError(f"analysis.segments: {exc}") from exc
     _warn_ignored_robots(settings, url, urls)
+    legacy_output = bool(out_dir or settings["output"]["dir"])
+    if not scan_out and not legacy_output:
+        if not url or urls:
+            raise ValueError(
+                "list mode has no default SQLite artifact; pass --out-dir for the legacy directory route"
+            )
+        if settings["cache"]["mode"] != "off":
+            raise ValueError(
+                f"cache.mode={settings['cache']['mode']!r} is unavailable for the default native "
+                "SQLite capture; pass --out-dir for the legacy directory route"
+            )
+        scan_out = _default_scan_path(url, producer_build)
+    if scan_out and settings["cache"]["mode"] != "off":
+        raise ValueError(
+            f"cache.mode={settings['cache']['mode']!r} is unavailable for native SQLite capture; "
+            "pass --out-dir for the legacy directory route"
+        )
     if settings.get("resources", {}).get("fetch") and not scan_out:
-        raise ValueError("resources.fetch requires a SQLite scan_out artifact")
+        raise ValueError("resources.fetch requires a SQLite scan artifact")
     if scan_out:
         if not url or urls:
             raise ValueError(
-                "SQLite scan mode requires a start URL; list mode remains directory-based"
+                "SQLite scan mode requires a start URL; pass --out-dir for the legacy list-mode route"
             )
         if out_dir or settings["output"]["dir"]:
             raise ValueError("scan_out and a legacy output directory cannot be combined")
@@ -2515,9 +2580,18 @@ def scan_reanalyze(input_path: str, out: str, producer_build: str | None = None)
     return reanalyze_scan(input_path=input_path, out=out, producer_build=producer_build)
 
 
-def scan_list(directory: str, offset: int = 0, limit: int = 100) -> dict[str, Any]:
+def scan_list(
+    directory: str | None = None, offset: int = 0, limit: int = 100, project: str | None = None
+) -> dict[str, Any]:
     from seohead.servers.history_handlers import scan_list as core
 
+    if project is not None:
+        from seohead.projects.workspace import open_project
+
+        opened = open_project(project)
+        directory = directory or str(Path(opened["path"]) / "scans")
+    if directory is None:
+        raise ValueError("directory or project is required")
     return core(directory, offset=offset, limit=limit)
 
 
@@ -2546,14 +2620,22 @@ def scan_pin(input_path: str, pinned: bool = True) -> dict[str, Any]:
 
 
 def scan_prune(
-    directory: str,
+    directory: str | None = None,
     older_than_days: int = 30,
     keep_newest: int = 5,
     plan: dict[str, Any] | str | None = None,
     apply: bool = False,
+    project: str | None = None,
 ) -> dict[str, Any]:
     from seohead.servers.history_handlers import scan_prune as core
 
+    if project is not None:
+        from seohead.projects.workspace import open_project
+
+        opened = open_project(project)
+        directory = directory or str(Path(opened["path"]) / "scans")
+    if directory is None:
+        raise ValueError("directory or project is required")
     return core(
         directory,
         older_than_days=older_than_days,
@@ -2585,6 +2667,38 @@ def scan_body_diff(
         max_bytes=max_bytes,
         max_lines=max_lines,
     )
+
+
+def project_new(
+    directory: str,
+    target: str,
+    label: str | None = None,
+    facts: list[dict[str, Any]] | None = None,
+    template_references: list[str] | None = None,
+    profile_references: list[str] | None = None,
+) -> dict[str, Any]:
+    from seohead.servers.project_handlers import project_new as core
+
+    return core(
+        directory,
+        target,
+        label=label,
+        facts=facts,
+        template_references=template_references,
+        profile_references=profile_references,
+    )
+
+
+def project_open(directory: str, expected_site: str | None = None) -> dict[str, Any]:
+    from seohead.servers.project_handlers import project_open as core
+
+    return core(directory, expected_site=expected_site)
+
+
+def project_status(directory: str) -> dict[str, Any]:
+    from seohead.servers.project_handlers import project_basic_status
+
+    return project_basic_status(directory)
 
 
 _RAW_HANDLERS = {
@@ -2652,6 +2766,9 @@ _RAW_HANDLERS = {
     "scan_pin": scan_pin,
     "scan_prune": scan_prune,
     "scan_body_diff": scan_body_diff,
+    "project_new": project_new,
+    "project_open": project_open,
+    "project_status": project_status,
 }
 
 # Journaling sits here rather than in each interface: the CLI and the MCP server

@@ -30,16 +30,21 @@ def test_out_dir_derives_a_state_path_and_a_config_fingerprint(tmp_path, monkeyp
     assert captured["max_seconds"] == 0
 
 
-def test_no_out_dir_means_no_state_path(monkeypatch):
+def test_no_out_dir_routes_to_the_native_writer(monkeypatch, tmp_path):
     captured = {}
 
     def fake(*args, **kwargs):
         captured.update(kwargs)
         return SpiderResult()
 
-    monkeypatch.setattr(spider_mod, "crawl_site", fake)
-    handlers.crawl_site(url="https://example.com/")
-    assert captured["state_path"] is None
+    monkeypatch.setattr(
+        "seohead.servers.scan_handlers.crawl_site_scan",
+        lambda url, **kwargs: captured.update(url=url, **kwargs) or {"scan": kwargs["scan_out"]},
+    )
+    monkeypatch.chdir(tmp_path)
+    result = handlers.crawl_site(url="https://example.com/", producer_build="a" * 40)
+    assert result["scan"] == captured["scan_out"]
+    assert captured["scan_out"].startswith(str(tmp_path / "scans"))
 
 
 def test_urls_file_enters_the_existing_list_collector_in_source_order(tmp_path, monkeypatch):
@@ -58,7 +63,7 @@ def test_urls_file_enters_the_existing_list_collector_in_source_order(tmp_path, 
     import seohead.crawl.collect as collect_mod
 
     monkeypatch.setattr(collect_mod, "collect_urls", fake)
-    result = handlers.crawl_site(urls_file=str(source))
+    result = handlers.crawl_site(urls_file=str(source), out_dir=str(tmp_path / "legacy"))
 
     assert captured["urls"] == ["https://example.com/first", "https://example.com/second"]
     assert result["discovery"]["mode"] == "list"
@@ -74,7 +79,7 @@ def test_urls_file_is_not_ambiguous_with_another_crawl_input(tmp_path):
         handlers.crawl_site(url="https://example.com/", urls_file=str(source))
 
 
-def test_finish_reason_and_resumed_reach_the_handler_output(monkeypatch):
+def test_finish_reason_and_resumed_reach_the_handler_output(monkeypatch, tmp_path):
     def fake(*args, **kwargs):
         result = SpiderResult()
         result.finish_reason = "url_limit"
@@ -83,13 +88,13 @@ def test_finish_reason_and_resumed_reach_the_handler_output(monkeypatch):
         return result
 
     monkeypatch.setattr(spider_mod, "crawl_site", fake)
-    out = handlers.crawl_site(url="https://example.com/")
+    out = handlers.crawl_site(url="https://example.com/", out_dir=str(tmp_path))
     assert out["finish_reason"] == "url_limit"
     assert out["resumed"] is True
     assert out["partial"] is True
 
 
-def test_link_position_classify_defaults_off_and_is_not_computed(monkeypatch):
+def test_link_position_classify_defaults_off_and_is_not_computed(monkeypatch, tmp_path):
     captured = {}
 
     def fake(*args, **kwargs):
@@ -99,7 +104,7 @@ def test_link_position_classify_defaults_off_and_is_not_computed(monkeypatch):
         return result
 
     monkeypatch.setattr(spider_mod, "crawl_site", fake)
-    out = handlers.crawl_site(url="https://example.com/")
+    out = handlers.crawl_site(url="https://example.com/", out_dir=str(tmp_path))
     assert captured["classify_links"] is False
     assert out["link_position"] == {}
 
@@ -125,7 +130,9 @@ def test_link_position_classify_config_reaches_the_spider_and_the_output(tmp_pat
     captured = {}
     monkeypatch.setattr(spider_mod, "crawl_site", fake)
 
-    out = handlers.crawl_site(url="https://example.com/", config=str(config))
+    out = handlers.crawl_site(
+        url="https://example.com/", config=str(config), out_dir=str(tmp_path / "legacy")
+    )
 
     assert captured["classify_links"] is True
     boilerplate_only = out["link_position"]["pages_boilerplate_only"]
@@ -163,17 +170,17 @@ def test_cache_replay_and_stats_reach_the_handler_output_and_the_audit_manifest(
     assert audit["run"]["cache_stats"]["revalidations"] == 1
 
 
-def test_with_no_cache_configured_the_handler_output_says_so_plainly(monkeypatch):
+def test_with_no_cache_configured_the_handler_output_says_so_plainly(monkeypatch, tmp_path):
     def fake(*args, **kwargs):
         return SpiderResult()
 
     monkeypatch.setattr(spider_mod, "crawl_site", fake)
-    out = handlers.crawl_site(url="https://example.com/")
+    out = handlers.crawl_site(url="https://example.com/", out_dir=str(tmp_path))
     assert out["cache_replay"] is False
     assert out["cache_stats"] == {}
 
 
-def test_cache_mode_off_by_default_means_the_spider_receives_no_cache_object(monkeypatch):
+def test_cache_mode_off_by_default_means_the_spider_receives_no_cache_object(monkeypatch, tmp_path):
     """The default must not create any cache — see the settings-level test for why."""
     captured = {}
 
@@ -182,7 +189,7 @@ def test_cache_mode_off_by_default_means_the_spider_receives_no_cache_object(mon
         return SpiderResult()
 
     monkeypatch.setattr(spider_mod, "crawl_site", fake)
-    handlers.crawl_site(url="https://example.com/")
+    handlers.crawl_site(url="https://example.com/", out_dir=str(tmp_path))
     assert captured["cache"] is None
 
 
@@ -207,38 +214,38 @@ def _fake_spider_with_start_page(outlinks, external_outlinks, html):
     return fake
 
 
-def test_zero_internal_links_on_the_start_page_requires_rendering(monkeypatch):
+def test_zero_internal_links_on_the_start_page_requires_rendering(monkeypatch, tmp_path):
     fake = _fake_spider_with_start_page(0, 0, "<html><body>hi</body></html>")
     monkeypatch.setattr(spider_mod, "crawl_site", fake)
-    out = handlers.crawl_site(url="https://example.com/")
+    out = handlers.crawl_site(url="https://example.com/", out_dir=str(tmp_path))
     assert out["requires_rendering"] is True
     assert "zero internal links" in out["requires_rendering_reason"]
     assert out["summary"]["health_score"] is None
 
 
-def test_an_empty_spa_shell_on_the_start_page_requires_rendering(monkeypatch):
+def test_an_empty_spa_shell_on_the_start_page_requires_rendering(monkeypatch, tmp_path):
     html = '<html><body><div id="root"></div></body></html>'
     fake = _fake_spider_with_start_page(3, 0, html)
     monkeypatch.setattr(spider_mod, "crawl_site", fake)
-    out = handlers.crawl_site(url="https://example.com/")
+    out = handlers.crawl_site(url="https://example.com/", out_dir=str(tmp_path))
     assert out["requires_rendering"] is True
     assert "empty SPA shell" in out["requires_rendering_reason"]
 
 
-def test_a_normal_start_page_does_not_require_rendering(monkeypatch):
+def test_a_normal_start_page_does_not_require_rendering(monkeypatch, tmp_path):
     fake = _fake_spider_with_start_page(5, 0, "<html><body>hi there</body></html>")
     monkeypatch.setattr(spider_mod, "crawl_site", fake)
-    out = handlers.crawl_site(url="https://example.com/")
+    out = handlers.crawl_site(url="https://example.com/", out_dir=str(tmp_path))
     assert out["requires_rendering"] is False
     assert out["requires_rendering_reason"] == ""
 
 
-def test_the_gate_applies_even_in_the_default_raw_mode(monkeypatch):
+def test_the_gate_applies_even_in_the_default_raw_mode(monkeypatch, tmp_path):
     """Both checks are static-only, so the default (no rendering ever configured)
     still catches the false-green case #18 exists for."""
     fake = _fake_spider_with_start_page(0, 0, "<html></html>")
     monkeypatch.setattr(spider_mod, "crawl_site", fake)
-    out = handlers.crawl_site(url="https://example.com/")
+    out = handlers.crawl_site(url="https://example.com/", out_dir=str(tmp_path))
     assert out["requires_rendering"] is True
     assert out["render_escalation"] == {}
 
@@ -291,7 +298,9 @@ def test_js_mode_escalates_only_the_pattern_that_needs_it(tmp_path, monkeypatch)
     config_path = _rendering_config_file(
         tmp_path, "js", escalation={"sample_per_pattern": 1, "max_render_urls": 10}
     )
-    out = handlers.crawl_site(url="https://example.com/", config=config_path)
+    out = handlers.crawl_site(
+        url="https://example.com/", config=config_path, out_dir=str(tmp_path / "legacy")
+    )
 
     escalation = out["render_escalation"]
     assert escalation["mode"] == "js"
@@ -343,7 +352,9 @@ def test_legacy_fragment_mode_needs_no_browser(tmp_path, monkeypatch):
     monkeypatch.setattr(net_mod, "validate_url", lambda url: url)
 
     config_path = _rendering_config_file(tmp_path, "legacy_fragment")
-    out = handlers.crawl_site(url="https://example.com/", config=config_path)
+    out = handlers.crawl_site(
+        url="https://example.com/", config=config_path, out_dir=str(tmp_path / "legacy")
+    )
 
     assert out["render_escalation"]["mode"] == "legacy_fragment"
     assert start.representation == "legacy_fragment"
@@ -366,7 +377,7 @@ def test_raw_mode_never_imports_playwright(tmp_path, monkeypatch):
     monkeypatch.setattr(spider_mod, "crawl_site", fake)
     monkeypatch.setattr(builtins, "__import__", fail_on_playwright)
 
-    handlers.crawl_site(url="https://example.com/")
+    handlers.crawl_site(url="https://example.com/", out_dir=str(tmp_path))
 
 
 # ── #242: resume must not depend on output.write_pages_jsonl ────────────────
@@ -584,7 +595,7 @@ def _partial_link_graph_result(*, partial: bool, finish_reason: str) -> SpiderRe
     return result
 
 
-def test_low_link_score_is_withheld_on_a_partial_native_crawl(monkeypatch):
+def test_low_link_score_is_withheld_on_a_partial_native_crawl(monkeypatch, tmp_path):
     """LOW_LINK_SCORE, like the three checks beside it in
     aggregate.GRAPH_WIDE_FINDING_CHECKS, is a whole-graph verdict: a URL-limit
     crawl's unfetched frontier could still hold the edge that would clear
@@ -595,7 +606,7 @@ def test_low_link_score_is_withheld_on_a_partial_native_crawl(monkeypatch):
         "crawl_site",
         lambda *a, **kw: _partial_link_graph_result(partial=True, finish_reason="url_limit"),
     )
-    out = handlers.crawl_site(url="https://example.test/")
+    out = handlers.crawl_site(url="https://example.test/", out_dir=str(tmp_path / "partial"))
     assert out["partial"] is True
     assert out["summary"]["by_check"].get("LOW_LINK_SCORE", 0) == 0
 
@@ -604,7 +615,7 @@ def test_low_link_score_is_withheld_on_a_partial_native_crawl(monkeypatch):
         "crawl_site",
         lambda *a, **kw: _partial_link_graph_result(partial=False, finish_reason="finished"),
     )
-    complete = handlers.crawl_site(url="https://example.test/")
+    complete = handlers.crawl_site(url="https://example.test/", out_dir=str(tmp_path / "complete"))
     assert complete["partial"] is False
     assert complete["summary"]["by_check"].get("LOW_LINK_SCORE") == 1
 
@@ -677,14 +688,18 @@ def test_inlink_boilerplate_only_is_withheld_on_a_partial_native_crawl(tmp_path,
     monkeypatch.setattr(
         spider_mod, "crawl_site", lambda *a, **kw: result(partial=True, finish_reason="url_limit")
     )
-    partial_out = handlers.crawl_site(url=f"{base}/", config=str(config))
+    partial_out = handlers.crawl_site(
+        url=f"{base}/", config=str(config), out_dir=str(tmp_path / "partial")
+    )
     assert partial_out["summary"]["by_check"].get("INLINK_BOILERPLATE_ONLY", 0) == 0
     assert f"{base}/target" in partial_out["link_position"]["pages_boilerplate_only"]
 
     monkeypatch.setattr(
         spider_mod, "crawl_site", lambda *a, **kw: result(partial=False, finish_reason="finished")
     )
-    complete_out = handlers.crawl_site(url=f"{base}/", config=str(config))
+    complete_out = handlers.crawl_site(
+        url=f"{base}/", config=str(config), out_dir=str(tmp_path / "complete")
+    )
     assert complete_out["summary"]["by_check"].get("INLINK_BOILERPLATE_ONLY") == 1
 
 
@@ -753,12 +768,14 @@ def test_same_origin_blank_link_is_absent_from_unsafe_cross_origin_summary(monke
     config = tmp_path / "crawl.json"
     config.write_text(json.dumps({"link_attributes": {"capture": True}}), encoding="utf-8")
 
-    audit = handlers.crawl_site(url="https://example.test/", config=str(config))
+    audit = handlers.crawl_site(
+        url="https://example.test/", config=str(config), out_dir=str(tmp_path / "legacy")
+    )
 
     assert audit["summary"]["by_check"].get("UNSAFE_CROSS_ORIGIN_LINK", 0) == 0
 
 
-def test_normal_spider_discovery_names_the_directive_policy(monkeypatch):
+def test_normal_spider_discovery_names_the_directive_policy(monkeypatch, tmp_path):
     """Issue #332: the reference (docs/TOOL_REFERENCE.md) promises
     ``discovery.directive_policy`` for crawl-site's own result, not only for list mode
     -- a robots-blocked count with no stated policy is not self-explanatory."""
@@ -770,14 +787,16 @@ def test_normal_spider_discovery_names_the_directive_policy(monkeypatch):
 
     monkeypatch.setattr(spider_mod, "crawl_site", fake)
 
-    out = handlers.crawl_site(url="https://example.com/", robots="report_only")
+    out = handlers.crawl_site(
+        url="https://example.com/", robots="report_only", out_dir=str(tmp_path)
+    )
 
     assert out["discovery"]["mode"] == "spider"
     assert out["discovery"]["directive_policy"] == "report_only"
     assert out["discovery"]["robots_blocked"] == 1
 
 
-def test_list_mode_directive_policy_still_matches_spider_mode(monkeypatch):
+def test_list_mode_directive_policy_still_matches_spider_mode(monkeypatch, tmp_path):
     """Negative control: list mode already reported this field (the bug was the spider
     branch omitting it) -- it must keep reporting the same value, unchanged."""
     import seohead.crawl.collect as collect_mod
@@ -789,7 +808,9 @@ def test_list_mode_directive_policy_still_matches_spider_mode(monkeypatch):
 
     monkeypatch.setattr(collect_mod, "collect_urls", fake_collect_urls)
 
-    out = handlers.crawl_site(urls=["https://example.com/"], robots="report_only")
+    out = handlers.crawl_site(
+        urls=["https://example.com/"], robots="report_only", out_dir=str(tmp_path)
+    )
 
     assert out["discovery"]["mode"] == "list"
     assert out["discovery"]["directive_policy"] == "report_only"
@@ -815,15 +836,17 @@ def test_a_scoped_crawl_names_its_segments_only_in_the_run_output(tmp_path, monk
     )
     monkeypatch.setattr(spider_mod, "crawl_site", lambda *a, **kw: SpiderResult())
 
-    out = handlers.crawl_site(url="https://example.com/", config=str(config))
+    out = handlers.crawl_site(
+        url="https://example.com/", config=str(config), out_dir=str(tmp_path / "legacy")
+    )
 
     assert out["discovery"]["segments_only"] == ["blog"]
 
 
-def test_an_unscoped_crawl_does_not_mention_segments_only(monkeypatch):
+def test_an_unscoped_crawl_does_not_mention_segments_only(monkeypatch, tmp_path):
     monkeypatch.setattr(spider_mod, "crawl_site", lambda *a, **kw: SpiderResult())
 
-    out = handlers.crawl_site(url="https://example.com/")
+    out = handlers.crawl_site(url="https://example.com/", out_dir=str(tmp_path))
 
     assert "segments_only" not in out["discovery"]
 
@@ -848,7 +871,9 @@ def test_segments_summary_reports_page_and_issue_counts_per_segment(tmp_path, mo
 
     monkeypatch.setattr(spider_mod, "crawl_site", fake)
 
-    out = handlers.crawl_site(url="https://example.com/", config=str(config))
+    out = handlers.crawl_site(
+        url="https://example.com/", config=str(config), out_dir=str(tmp_path / "legacy")
+    )
 
     assert out["segments"]["blog"]["pages"] == 1
     assert out["segments"]["default"]["pages"] == 1
@@ -889,7 +914,9 @@ def test_analysis_segments_use_post_crawl_fields_and_dependencies(tmp_path, monk
         return result
 
     monkeypatch.setattr(spider_mod, "crawl_site", fake)
-    out = handlers.crawl_site(url="https://example.com/", config=str(config))
+    out = handlers.crawl_site(
+        url="https://example.com/", config=str(config), out_dir=str(tmp_path / "legacy")
+    )
 
     assert out["segments"]["broken"]["pages"] == 1
     assert out["segments"]["broken-pages"]["pages"] == 0
@@ -973,7 +1000,7 @@ def test_segment_counting_is_wired_through_the_sf_core_segments_engine():
     assert "assign_segments" in source
 
 
-def test_without_declared_segments_no_segments_summary_is_reported(monkeypatch):
+def test_without_declared_segments_no_segments_summary_is_reported(monkeypatch, tmp_path):
     """A plain crawl that never opted into #358 gets an unchanged, empty summary --
     not a single 'default' bucket holding everything, which would just be noise."""
 
@@ -986,6 +1013,6 @@ def test_without_declared_segments_no_segments_summary_is_reported(monkeypatch):
 
     monkeypatch.setattr(spider_mod, "crawl_site", fake)
 
-    out = handlers.crawl_site(url="https://example.com/")
+    out = handlers.crawl_site(url="https://example.com/", out_dir=str(tmp_path))
 
     assert out["segments"] == {}

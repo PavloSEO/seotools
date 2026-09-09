@@ -145,6 +145,7 @@ def build_server():  # -> FastMCP
         producer_build: str | None = None,
         overrides: dict[str, Any] | None = None,
         resume: str | None = None,
+        project: str | None = None,
     ) -> dict[str, Any]:
         """Crawl a site from a start URL by following links, or fetch an explicit
         ``urls`` list instead of following links at all, then audit the result
@@ -175,9 +176,11 @@ def build_server():  # -> FastMCP
         change that one setting. ``seo_crawl_describe_settings`` lists the
         defaults each of them falls back to.
 
-        ``scan_out`` opts into a SQLite scan file with bounded collection and
-        resume; it cannot be combined with list mode or ``out_dir``. It requires
-        ``cache.mode=off``. Native scans retain bounded HTML entities and separate
+        A URL crawl with neither ``scan_out`` nor ``out_dir`` writes a collision-safe
+        SQLite scan below the caller's ``scans/`` directory. ``scan_out`` overrides
+        that destination; ``out_dir`` selects the explicit legacy directory route.
+        List mode and ``cache.mode`` live/replay require ``out_dir`` during this
+        migration. Native scans retain bounded HTML entities and separate
         DOM; their policy records disabled, sensitive, no-store and budget omissions.
         In the config file, ``resources.fetch=true`` opts into direct same-origin
         script/stylesheet capture (20,000 HTTP attempts and 5 MiB per response by
@@ -213,6 +216,7 @@ def build_server():  # -> FastMCP
                 producer_build=producer_build,
                 overrides=overrides,
                 resume=resume,
+                project=project,
             )
         )
 
@@ -945,9 +949,44 @@ def build_server():  # -> FastMCP
         return _checked(handlers.indexnow_submit(urls=urls, host=host, key_location=key_location))
 
     @mcp.tool(annotations=read_files, structured_output=True)
-    def seo_scan_list(directory: str, offset: int = 0, limit: int = 100) -> dict[str, Any]:
+    def seo_project_open(directory: str, expected_site: str | None = None) -> dict[str, Any]:
+        """Open a local project workspace without executing template references."""
+        return _checked(handlers.project_open(directory=directory, expected_site=expected_site))
+
+    @mcp.tool(annotations=create_files, structured_output=True)
+    def seo_project_new(
+        directory: str,
+        target: str,
+        label: str | None = None,
+        facts: list[dict[str, Any]] | None = None,
+        template_references: list[str] | None = None,
+        profile_references: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Create a local project workspace; no crawl, checklist execution, or network work starts."""
+        return _checked(
+            handlers.project_new(
+                directory=directory,
+                target=target,
+                label=label,
+                facts=facts,
+                template_references=template_references,
+                profile_references=profile_references,
+            )
+        )
+
+    @mcp.tool(annotations=read_files, structured_output=True)
+    def seo_project_status(directory: str) -> dict[str, Any]:
+        """Show project scan history and named pending checklist/preparation states."""
+        return _checked(handlers.project_status(directory=directory))
+
+    @mcp.tool(annotations=read_files, structured_output=True)
+    def seo_scan_list(
+        directory: str | None = None, offset: int = 0, limit: int = 100, project: str | None = None
+    ) -> dict[str, Any]:
         """List saved SQLite scan metadata without loading retained bodies."""
-        return _checked(handlers.scan_list(directory=directory, offset=offset, limit=limit))
+        return _checked(
+            handlers.scan_list(directory=directory, offset=offset, limit=limit, project=project)
+        )
 
     @mcp.tool(annotations=read_files, structured_output=True)
     def seo_scan_inspect(
@@ -980,11 +1019,12 @@ def build_server():  # -> FastMCP
 
     @mcp.tool(annotations=rewrite_files, structured_output=True)
     def seo_scan_prune(
-        directory: str,
+        directory: str | None = None,
         older_than_days: int = 30,
         keep_newest: int = 5,
         plan: dict[str, Any] | None = None,
         apply: bool = False,
+        project: str | None = None,
     ) -> dict[str, Any]:
         """Preview candidates by default; deletion requires apply plus the reviewed plan."""
         return _checked(
@@ -994,6 +1034,7 @@ def build_server():  # -> FastMCP
                 keep_newest=keep_newest,
                 plan=plan,
                 apply=apply,
+                project=project,
             )
         )
 

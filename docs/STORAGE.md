@@ -6,9 +6,10 @@ and its identity is also recorded as `application_id=1397051208` (`SEOH`) and
 `user_version=1`. A reader must require all three identifiers to agree before it
 treats a file as a scan artifact.
 
-The legacy importer packages an existing crawl directory. Native crawling can
-also write directly to SQLite with `crawl-site --scan-out`; the default remains
-the existing directory workflow. Both retain the existing audit/report contract.
+The legacy importer packages an existing crawl directory. A URL-mode `crawl-site`
+run writes a native SQLite artifact under `./scans/` by default; `--scan-out` chooses
+an explicit file. An explicit `--out-dir` or configured `output.dir` selects the
+legacy directory workflow. Both retain the existing audit/report contract.
 Use one file per imported run; do not merge runs or write an imported artifact
 concurrently.
 
@@ -485,15 +486,15 @@ compare complete bytes for JSON, Markdown, both CSV files, XLSX and DOCX; Office
 creation/ZIP timestamps are held equal in both test branches. Normal independent
 Office builds can differ in timestamps even for the same original audit.
 
-These are opt-in storage entry points and artifact inputs for the additive
-foundation. Existing `seohead crawl-site` keeps its directory workflow. For a
-legacy imported three-file directory, native resume, retained bodies/resources,
+Import and export remain explicit operations. URL-mode `seohead crawl-site` uses
+a native artifact by default; the explicit legacy directory route remains available.
+For a legacy imported three-file directory, native resume, retained bodies/resources,
 and reanalysis remain unavailable because that source never retained the needed
 corpus. Audit-level findings and context already saved in the exact audit remain
 available; the missing raw crawl corpus cannot be reconstructed from the three
 exported files.
 
-## Native collection (opt-in)
+## Native collection
 
 ```bash
 seohead crawl-site --url https://example.com --max-urls 50 --scan-out native.sqlite
@@ -517,7 +518,10 @@ back from the artifact rather than from the command line; repeating the original
 command with the same `--scan-out` path and identical settings resumes it too.
 A finished file is immutable and cannot be overwritten or resumed for writing. Use a new destination
 for a new run. `--scan-out` cannot be combined with `--out-dir` or URL-list mode;
-SQLite mode currently requires `cache.mode=off`. Credentials are re-supplied out
+SQLite mode currently requires `cache.mode=off`. List inputs and cache live/replay
+require the explicit legacy directory route; unsupported combinations refuse before
+collection instead of falling back silently. The returned `scan` path and run journal
+identify the generated filename. Credentials are re-supplied out
 of band and resumability is governed by the redacted credential context above. The MCP
 `seo_crawl_site` exposes the same `scan_out`, `resume` and `producer_build` parameters.
 Native capture retains bounded HTML entities and rendered DOMs under the recorded
@@ -676,13 +680,13 @@ cannot fit; the oversized-audit result must never be mistaken for a clean report
 ## Native transactions and recovery
 
 `seohead.storage.native_scan.NativeScan` is an internal Python storage API for a
-native `scan.v1` file used by the opt-in collector. Its
+native `scan.v1` file used by the default URL collector. Its
 `create`, `open`, `enqueue`, `claim`, `commit_page`, `recover_inflight`, `interrupt`,
 `inspect`, `finish_without_audit`, `resume_or_finalize`, and `snapshot` operations
 are exercised with offline page observations.
 Fetch workers must return their bounded results to the one writer; they must not
 share its connection or start additional writers. The directory crawler and
-legacy-import validator remain separate; CLI/MCP select native capture explicitly.
+legacy-import validator remain separate; CLI/MCP select the same default native route.
 
 A committed page unit contains its page projection, ordered duplicate link/form
 occurrences, decisions, accepted query variants, frontier updates, runtime state,

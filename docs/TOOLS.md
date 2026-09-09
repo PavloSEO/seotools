@@ -1,6 +1,6 @@
 # Tool reference
 
-64 + 5 tools, reachable identically from the CLI and from MCP. One
+67 + 5 tools, reachable identically from the CLI and from MCP. One
 implementation, two faces: `seohead <command>` in the terminal and
 `seo_<command>` on the MCP server (`seohead mcp`). Five more `sf_*` tools cover
 the Screaming Frog crawl audit workflow specifically — see that section below
@@ -15,6 +15,18 @@ docstring's failure-mode notes — read straight from the MCP tool definitions.
 The shared contract: JSON out; when a source is unreachable the tool returns
 `{"ok": false, "error": "..."}` instead of raising. An unreachable site is
 data, not an accident.
+
+## Project workspace
+
+| Command | What it does | Network |
+|---|---|---|
+| `project-new` | Create a portable local project with site facts and custom template/profile references; does not execute a checklist | no |
+| `project-open` | Validate and open a saved project without rewriting it | no |
+| `project-status` | Show scan history and explicit pending checklist/preparation states | no |
+
+The nested aliases are `seohead project new`, `seohead project open` and
+`seohead project status`. See [PROJECTS.md](PROJECTS.md) for the format, custom
+references and shared CLI/MCP scan-routing rules.
 
 ## How to read the tables
 
@@ -126,14 +138,14 @@ details (adaptive back-off, which checks come back `skipped` and why) and
 
 | Command | What it does | Side effects |
 |---|---|---|
-| `crawl-site` | Follows links from a start URL on the same host, respects `robots.txt`, and audits the result. Not full Screaming Frog parity — checks needing evidence a native crawl cannot produce (redirect chains, near-duplicates, readability, ...) come back `skipped`, never a false clean | writes `pages.jsonl` and the audit document under `--out-dir` |
+| `crawl-site` | Follows links from a start URL on the same host, respects `robots.txt`, and audits the result. A URL crawl writes one collision-safe native SQLite artifact under `./scans/` by default; `--out-dir` is the explicit legacy directory route. Not full Screaming Frog parity — checks needing evidence a native crawl cannot produce (redirect chains, near-duplicates, readability, ...) come back `skipped`, never a false clean | writes a native scan, or legacy files under explicit `--out-dir` |
 | `compare-crawls` | Diffs two audit documents into `entered` / `left` / `appeared` / `disappeared` findings, so a fix is distinguished from a page that simply dropped out of the crawl. Refuses known-different effective crawl settings unless the operator explicitly passes `--force`. | — |
 | `crawl-enrich` | Joins an existing audit or scan to a local URL-keyed traffic/search CSV. It keeps matched, crawl-only, external-only, and unkeyable rows distinct; a completed crawl can export reliable same-origin external-only URLs for list mode. | optionally writes a URL-list file under `--out-urls` |
 | `segment-diff` | Answers "which pages exist in one segment and not in another" from one crawl, using the site's own hreflang declarations as the authority. Mirrored paths are a fallback only where the site's declared pairs prove it mirrors them; a partially crawled target segment yields no absences at all, because a page nobody fetched is not a page that is missing. Reads a native crawl whose config declared `scope.segments`, not an SF export | — |
 | `crawl-describe-settings` | Lists every `crawl-site` config setting — dotted path, type, default, description, and whether it is results-affecting — generated from `seohead/crawl/settings.py`. Same source as `crawl-site --config-help`, reachable over MCP for an agent with no filesystem access | — |
 
 ```bash
-seohead crawl-site --url https://example.com/ --max-urls 200 --out-dir ./report
+seohead crawl-site --url https://example.com/ --max-urls 200
 seohead compare-crawls --before old-audit.json --after new-audit.json
 seohead segment-diff --audit ./multilingual/audit.json --source en --target pl
 seohead crawl-describe-settings

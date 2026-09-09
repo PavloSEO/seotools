@@ -6,7 +6,7 @@ Generated from the MCP tool definitions in `seohead/servers/mcp_server.py` and `
 python scripts/generate_tool_reference.py
 ```
 
-**64 core tools** (`seohead <command>` / `seo_<command>` on the MCP server) plus **5 crawl-audit tools** (`sf_<command>`, driven by `seohead sf ...`) — 69 in total.
+**67 core tools** (`seohead <command>` / `seo_<command>` on the MCP server) plus **5 crawl-audit tools** (`sf_<command>`, driven by `seohead sf ...`) — 72 in total.
 
 Every tool shares one contract: JSON in, JSON out. A target that could not be reached comes back as `{"ok": false, "error": "..."}` instead of raising, so an unreachable site is data, not a crash.
 
@@ -104,6 +104,7 @@ Crawl a site from a start URL by following links, or fetch an explicit ``urls`` 
 | `producer_build` | `str | None` | `None` |
 | `overrides` | `dict[str, Any] | None` | `None` |
 | `resume` | `str | None` | `None` |
+| `project` | `str | None` | `None` |
 
 **Cost** — network: yes · writes files: yes · idempotent: no · spends money: no
 
@@ -131,9 +132,11 @@ says, exactly like the CLI's flags -- pass one explicitly only to
 change that one setting. ``seo_crawl_describe_settings`` lists the
 defaults each of them falls back to.
 
-``scan_out`` opts into a SQLite scan file with bounded collection and
-resume; it cannot be combined with list mode or ``out_dir``. It requires
-``cache.mode=off``. Native scans retain bounded HTML entities and separate
+A URL crawl with neither ``scan_out`` nor ``out_dir`` writes a collision-safe
+SQLite scan below the caller's ``scans/`` directory. ``scan_out`` overrides
+that destination; ``out_dir`` selects the explicit legacy directory route.
+List mode and ``cache.mode`` live/replay require ``out_dir`` during this
+migration. Native scans retain bounded HTML entities and separate
 DOM; their policy records disabled, sensitive, no-store and budget omissions.
 In the config file, ``resources.fetch=true`` opts into direct same-origin
 script/stylesheet capture (20,000 HTTP attempts and 5 MiB per response by
@@ -914,6 +917,48 @@ crawl schedule. Requires a self-generated key published at https://<host>/<key>.
 before the first call; see docs/SETUP.md. Natural pairing: submit exactly the URLs
 seo_compare_crawls reports as new or changed.
 
+### `project-open`
+
+MCP name: `seo_project_open`
+
+Open a local project workspace without executing template references.
+
+| Argument | Type | Default |
+|---|---|---|
+| `directory` | `str` | `required` |
+| `expected_site` | `str | None` | `None` |
+
+**Cost** — network: no · writes files: no · idempotent: yes · spends money: no
+
+### `project-new`
+
+MCP name: `seo_project_new`
+
+Create a local project workspace; no crawl, checklist execution, or network work starts.
+
+| Argument | Type | Default |
+|---|---|---|
+| `directory` | `str` | `required` |
+| `target` | `str` | `required` |
+| `label` | `str | None` | `None` |
+| `facts` | `list[dict[str, Any]] | None` | `None` |
+| `template_references` | `list[str] | None` | `None` |
+| `profile_references` | `list[str] | None` | `None` |
+
+**Cost** — network: no · writes files: yes · idempotent: no · spends money: no
+
+### `project-status`
+
+MCP name: `seo_project_status`
+
+Show project scan history and named pending checklist/preparation states.
+
+| Argument | Type | Default |
+|---|---|---|
+| `directory` | `str` | `required` |
+
+**Cost** — network: no · writes files: no · idempotent: yes · spends money: no
+
 ### `scan-list`
 
 MCP name: `seo_scan_list`
@@ -922,9 +967,10 @@ List saved SQLite scan metadata without loading retained bodies.
 
 | Argument | Type | Default |
 |---|---|---|
-| `directory` | `str` | `required` |
+| `directory` | `str | None` | `None` |
 | `offset` | `int` | `0` |
 | `limit` | `int` | `100` |
+| `project` | `str | None` | `None` |
 
 **Cost** — network: no · writes files: no · idempotent: yes · spends money: no
 
@@ -978,11 +1024,12 @@ Preview candidates by default; deletion requires apply plus the reviewed plan.
 
 | Argument | Type | Default |
 |---|---|---|
-| `directory` | `str` | `required` |
+| `directory` | `str | None` | `None` |
 | `older_than_days` | `int` | `30` |
 | `keep_newest` | `int` | `5` |
 | `plan` | `dict[str, Any] | None` | `None` |
 | `apply` | `bool` | `False` |
+| `project` | `str | None` | `None` |
 
 **Cost** — network: no · writes files: yes · idempotent: no · spends money: no · can overwrite/remove existing data
 
