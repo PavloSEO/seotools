@@ -1,8 +1,9 @@
 """Closed declarative extraction rules over one already captured document.
 
-Rules deliberately have no callable, import, template or shell field.  They
-can inspect bounded text, HTML attributes and JSON-LD paths and return typed
-values or explicit unavailable states; they cannot execute user code.
+Rules deliberately have no callable, import, template, shell or regular
+expression field. They can inspect bounded text, HTML attributes and JSON-LD
+paths and return typed values or explicit unavailable states; they cannot
+execute user code.
 """
 
 from __future__ import annotations
@@ -17,6 +18,9 @@ VERSION = "extraction_rules.v1"
 MAX_RULES = 100
 MAX_MATCHES = 100
 MAX_VALUE_BYTES = 8192
+MAX_GLOB_PATTERN_CHARS = 256
+MAX_GLOB_VALUE_CHARS = 2048
+MAX_GLOB_STEPS = 16_384
 _KINDS = {"text", "attribute", "structured", "presence", "count"}
 _OPERATORS = {"equals", "contains", "matches", "exists"}
 
@@ -48,23 +52,57 @@ def validate_rules(value: Any) -> list[dict[str, Any]]:
             raise ValueError("attribute selector must end in @attribute")
         if rule["kind"] == "structured" and not rule["selector"].startswith("/"):
             raise ValueError("structured selector must be a JSON pointer")
-        if rule["operator"] == "matches":
-            try:
-                re.compile(rule["value"])
-            except re.error as exc:
-                raise ValueError("extraction rule regex is invalid") from exc
+        if rule["operator"] == "matches" and len(rule["value"]) > MAX_GLOB_PATTERN_CHARS:
+            raise ValueError("extraction rule glob pattern is too long")
         rules.append(dict(rule))
     return sorted(rules, key=lambda rule: rule["id"])
 
 
-def _match(values: list[str], operator: str, expected: str) -> bool:
+def _glob_match(value: str, pattern: str) -> bool | None:
+    """Match the closed ``*``/``?`` glob grammar with a deterministic step cap."""
+    if len(value) > MAX_GLOB_VALUE_CHARS:
+        return None
+    value_index = pattern_index = 0
+    star_index = retry_index = -1
+    steps = 0
+    while value_index < len(value):
+        steps += 1
+        if steps > MAX_GLOB_STEPS:
+            return None
+        if pattern_index < len(pattern) and (
+            pattern[pattern_index] == "?" or pattern[pattern_index] == value[value_index]
+        ):
+            value_index += 1
+            pattern_index += 1
+        elif pattern_index < len(pattern) and pattern[pattern_index] == "*":
+            star_index = pattern_index
+            pattern_index += 1
+            retry_index = value_index
+        elif star_index >= 0:
+            pattern_index = star_index + 1
+            retry_index += 1
+            value_index = retry_index
+        else:
+            return False
+    while pattern_index < len(pattern) and pattern[pattern_index] == "*":
+        pattern_index += 1
+    return pattern_index == len(pattern)
+
+
+def _match(values: list[str], operator: str, expected: str) -> tuple[bool | None, str]:
     if operator == "exists":
-        return bool(values)
+        return bool(values), ""
     if operator == "equals":
-        return any(value == expected for value in values)
+        return any(value == expected for value in values), ""
     if operator == "contains":
-        return any(expected in value for value in values)
-    return any(re.search(expected, value) is not None for value in values)
+        return any(expected in value for value in values), ""
+    for value in values:
+        matched = _glob_match(value, expected)
+        if matched is None:
+            return None, "glob match exceeded the bounded input or step limit"
+        if matched:
+            return True, ""
+    return False, ""
 
 
 def _pointer(value: Any, pointer: str) -> list[str]:
@@ -97,33 +135,80 @@ def evaluate(
     soup = BeautifulSoup(html, features="lxml")
     results = []
     for rule in selected:
-        values: list[str]
+        raw_values: list[str]
         if rule["kind"] == "structured":
-            values = []
+            raw_values = []
             for block in parsed.get("jsonld") or []:
-                values.extend(_pointer(block, rule["selector"]))
+                raw_values.extend(_pointer(block, rule["selector"]))
         elif rule["kind"] == "attribute":
             selector, attribute = rule["selector"].rsplit("@", 1)
-            values = [str(tag.get(attribute)) for tag in soup.select(selector) if tag.has_attr(attribute)]
+            raw_values = [
+                str(tag.get(attribute)) for tag in soup.select(selector) if tag.has_attr(attribute)
+            ]
         elif rule["kind"] in {"text", "presence", "count"}:
             tags = soup.select(rule["selector"]) if rule["selector"] else [soup]
-            values = [" ".join(tag.get_text(" ").split()) for tag in tags]
+            raw_values = [" ".join(tag.get_text(" ").split()) for tag in tags]
         else:
-            values = []
-        values = [value for value in values if len(value.encode("utf-8")) <= MAX_VALUE_BYTES][: rule["max_matches"]]
-        matched = _match(values, rule["operator"], rule["value"])
-        typed: Any = len(values) if rule["kind"] == "count" else values
-        results.append({"id": rule["id"], "state": "complete", "matched": matched, "value": typed, "count": len(values)})
-    return {"schema_version": VERSION, "representation": representation, "state": "complete", "reason": "", "rules": results}
+            raw_values = []
+        values = [value for value in raw_values if len(value.encode("utf-8")) <= MAX_VALUE_BYTES]
+        stored_values = values[: rule["max_matches"]]
+        typed: Any = len(raw_values) if rule["kind"] == "count" else stored_values
+        unavailable_reason = ""
+        if rule["operator"] == "matches" and len(values) != len(raw_values):
+            unavailable_reason = "glob match has an oversized candidate value"
+        elif rule["operator"] == "matches" and len(values) > len(stored_values):
+            unavailable_reason = "glob match has more candidates than the rule cap"
+        if rule["operator"] == "exists":
+            matched, match_reason = bool(raw_values), ""
+        else:
+            matched, match_reason = _match(stored_values, rule["operator"], rule["value"])
+        unavailable_reason = unavailable_reason or match_reason
+        if unavailable_reason:
+            results.append(
+                {
+                    "id": rule["id"],
+                    "state": "unavailable",
+                    "reason": unavailable_reason,
+                    "value": typed,
+                    "count": len(raw_values),
+                }
+            )
+        else:
+            results.append(
+                {
+                    "id": rule["id"],
+                    "state": "complete",
+                    "reason": "",
+                    "matched": matched,
+                    "value": typed,
+                    "count": len(raw_values),
+                }
+            )
+    unavailable = [row for row in results if row["state"] == "unavailable"]
+    if not results:
+        state = "complete"
+    elif len(unavailable) == len(results):
+        state = "unavailable"
+    elif unavailable:
+        state = "partial"
+    else:
+        state = "complete"
+    return {
+        "schema_version": VERSION,
+        "representation": representation,
+        "state": state,
+        "reason": "some extraction rules were unavailable" if unavailable else "",
+        "rules": results,
+    }
 
 
 def validate_result(value: Any) -> None:
-    """Validate a persisted extraction result without rerunning selectors or regexes."""
+    """Validate a persisted extraction result without rerunning selectors or globs."""
     if not isinstance(value, dict) or set(value) != {"schema_version", "representation", "state", "reason", "rules"}:
         raise ValueError("extraction evidence has unsupported fields")
     if value["schema_version"] != VERSION or value["representation"] not in {"static", "rendered", "legacy_fragment"}:
         raise ValueError("extraction evidence version or representation is invalid")
-    if value["state"] not in {"complete", "unavailable"} or not isinstance(value["reason"], str) or not isinstance(value["rules"], list):
+    if value["state"] not in {"complete", "partial", "unavailable"} or not isinstance(value["reason"], str) or not isinstance(value["rules"], list):
         raise ValueError("extraction evidence state is invalid")
     ids = set()
     for row in value["rules"]:
