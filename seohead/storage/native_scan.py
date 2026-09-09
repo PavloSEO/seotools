@@ -896,14 +896,15 @@ class NativeScan:
     def _validate_native(con: sqlite3.Connection) -> None:
         if con.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID:
             raise ScanError("foreign application_id")
-        if con.execute("PRAGMA user_version").fetchone()[0] == 2:
+        version = con.execute("PRAGMA user_version").fetchone()[0]
+        v2 = version == 2
+        if v2:
             from .retry import validate_v2
 
             validate_v2(con, require_audit=False)
-            return
-        if con.execute("PRAGMA user_version").fetchone()[0] != USER_VERSION:
+        if version not in {USER_VERSION, 2}:
             raise ScanError("unsupported scan user_version")
-        if _objects(con) != _expected()[0]:
+        if not v2 and _objects(con) != _expected()[0]:
             raise ScanError("scan.v1 schema differs")
         _validate_scalar_storage(con)
         if con.execute("PRAGMA quick_check").fetchone()[0] != "ok":
@@ -915,9 +916,9 @@ class NativeScan:
         scan = con.execute("SELECT * FROM scan WHERE singleton=1").fetchone()
         if (
             scan["source_kind"] not in {"native", "reanalysis"}
-            or scan["format_version"] != FORMAT_VERSION
+            or scan["format_version"] != ("scan.v2" if v2 else FORMAT_VERSION)
         ):
-            raise ScanError("not a native scan.v1 artifact")
+            raise ScanError("not a native scan artifact with the declared format version")
         if scan["evidence_version"] != "crawl.v1" or scan["pinned"] not in (0, 1):
             raise ScanError(
                 "native evidence version, corpus completeness, parent or pin metadata is unsupported"
