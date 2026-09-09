@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import copy
 import hashlib
 import itertools
 import json
@@ -138,17 +139,105 @@ def _native_config(value: Any, *, recorded: bool = False) -> dict[str, Any]:
             if isinstance(default, dict):
                 require_fields(actual[name], default, f"{path}.{name}")
 
-    # Earlier native v1 captures predate the optional storage settings. Validate
-    # their recorded configuration without filling it or changing its fingerprint.
-    require_fields(
-        config,
-        {k: v for k, v in DEFAULTS.items() if k not in {"storage", "resources"} or k in config},
-    )
+    expected = copy.deepcopy(DEFAULTS)
+    if recorded:
+        # These optional fields were added after native v1 artifacts existed.
+        # Validate an ephemeral current-shape projection, while returning the
+        # original recorded mapping so its historical fingerprint is unchanged.
+        for name in ("storage", "resources"):
+            if name not in config:
+                expected.pop(name)
+        if "rendering" in config and "rendered_links" not in config["rendering"]:
+            expected["rendering"].pop("rendered_links")
+    require_fields(config, expected)
+    validation_config = copy.deepcopy(config)
+    if recorded:
+        for name in ("storage", "resources"):
+            validation_config.setdefault(name, copy.deepcopy(DEFAULTS[name]))
+        validation_config.setdefault("rendering", {})
+        validation_config["rendering"].setdefault(
+            "rendered_links", copy.deepcopy(DEFAULTS["rendering"]["rendered_links"])
+        )
     try:
-        validate_crawl_config(validate_recorded_credentials(config) if recorded else value)
+        validate_crawl_config(
+            validate_recorded_credentials(validation_config) if recorded else value
+        )
     except (TypeError, ValueError, KeyError) as exc:
         raise ScanError(f"native effective configuration is invalid: {exc}") from exc
     return config
+
+
+def _resume_fingerprint(expected_config: Any, recorded_config: Any) -> str:
+    """Compare a current request using the recorded artifact's known option shape."""
+    expected = _native_config(expected_config)
+    recorded = _native_config(recorded_config, recorded=True)
+    for name in ("storage", "resources"):
+        if name not in recorded and expected.get(name) == DEFAULTS[name]:
+            expected.pop(name)
+    if (
+        "rendering" in recorded
+        and "rendered_links" not in recorded["rendering"]
+        and expected["rendering"].get("rendered_links") == DEFAULTS["rendering"]["rendered_links"]
+    ):
+        expected["rendering"].pop("rendered_links")
+    return crawl_config_fingerprint(expected)
+
+
+_CONTENT_CAPTURE_FIELDS = {
+    "html",
+    "parsed",
+    "settings",
+    "indexable",
+    "canonical_target",
+    "unavailable_reason",
+    "extraction_rules",
+}
+
+
+def _content_capture(value: Any) -> dict[str, Any] | None:
+    """Validate the bounded collector input used to create document contexts."""
+    if value is None:
+        return None
+    if not isinstance(value, dict) or set(value) != _CONTENT_CAPTURE_FIELDS:
+        raise ScanError("content evidence capture has unsupported fields")
+    if value["html"] is not None and not isinstance(value["html"], str):
+        raise ScanError("content evidence HTML must be text or unavailable")
+    if value["parsed"] is not None and not isinstance(value["parsed"], dict):
+        raise ScanError("content evidence parser result must be a mapping or unavailable")
+    if not isinstance(value["settings"], dict):
+        raise ScanError("content evidence settings must be a mapping")
+    if value["indexable"] is not None and type(value["indexable"]) is not bool:
+        raise ScanError("content evidence indexability must be boolean or unavailable")
+    if any(
+        not isinstance(value[name], str) for name in ("canonical_target", "unavailable_reason")
+    ):
+        raise ScanError("content evidence text fields must be strings")
+    return value
+
+
+def _put_content_evidence(
+    con: sqlite3.Connection,
+    *,
+    page_url_id: int,
+    source_document_id: int | None,
+    representation: str,
+    content_capture: dict[str, Any] | None,
+) -> None:
+    """Derive body-free evidence only after the bound document exists."""
+    if content_capture is None:
+        return
+    if source_document_id is None:
+        raise ScanError("content evidence requires a stored source document")
+    from seohead.crawl.content_evidence import capture
+    from seohead.storage.native_context import put_context
+
+    for item in capture(
+        page_url_id=page_url_id,
+        source_document_id=source_document_id,
+        representation=representation,
+        **content_capture,
+    ):
+        put_context(con, item)
 
 
 @dataclass(frozen=True)
@@ -488,9 +577,11 @@ class NativeScan:
                 and scan["writer_revision"] != expected_writer_revision
             ):
                 raise ScanError("native scan producing build differs; refusing mixed-build resume")
-            if expected_config is not None and scan[
-                "config_fingerprint"
-            ] != crawl_config_fingerprint(_native_config(expected_config)):
+            if (
+                expected_config is not None
+                and scan["config_fingerprint"]
+                != _resume_fingerprint(expected_config, json.loads(scan["config_json"]))
+            ):
                 raise ScanError("native scan configuration differs; refusing unsafe resume")
             # Credential references/values never enter the artifact. A local,
             # per-scan verifier detects a changed explicit context on resume.
@@ -944,6 +1035,9 @@ class NativeScan:
             from .native_context import validate_context
 
             validate_context(con, dict(item), sitemap_roots=sitemap_roots)
+        from .rendered_routes import validate_ledger
+
+        validate_ledger(con)
         if scan["source_kind"] == "reanalysis":
             marker = con.execute(
                 "SELECT payload_json FROM context_items WHERE kind='reanalysis_provenance' AND item_key='run'"
@@ -1617,6 +1711,7 @@ class NativeScan:
         partial_reasons: Iterable[str] = (),
         runtime: dict[str, Any] | None = None,
         context: Iterable[dict[str, Any]] = (),
+        content_capture: dict[str, Any] | None = None,
         route_observations: Iterable[dict[str, Any]] = (),
         route_coverage: dict[str, Any] | None = None,
         captures: Iterable[Any] = (),
@@ -1650,6 +1745,7 @@ class NativeScan:
         resources = _bounded_items(resources, "resource declarations", MAX_EDGES_PER_PAGE)
         candidates = _bounded_items(candidates, "ordered discovery candidates")
         partial_reasons = _bounded_items(partial_reasons, "partial reasons", 16)
+        content_capture = _content_capture(content_capture)
         for _ in _json_chunks(record):
             pass
         links, forms, decisions, discovered, query_reservations, context, route_observations = (
@@ -1672,6 +1768,11 @@ class NativeScan:
             "runtime": runtime or {},
             "context": context,
             "route_observations": route_observations,
+            "content_capture": hashlib.sha256(
+                _dump(content_capture).encode("utf-8")
+            ).hexdigest()
+            if content_capture is not None
+            else None,
         }
         if capture_metadata:
             payload["captures"] = capture_metadata
@@ -1752,6 +1853,13 @@ class NativeScan:
             _insert(self.con, "pages", page_row)
             self._hit("after_page")
             self._write_observations(lease, document_id, "static", links, forms)
+            _put_content_evidence(
+                self.con,
+                page_url_id=lease.url_id,
+                source_document_id=document_id,
+                representation="static",
+                content_capture=content_capture,
+            )
             if route_coverage is not None:
                 from .rendered_routes import context_items
 
@@ -1971,6 +2079,7 @@ class NativeScan:
         elapsed_seconds: float | None = None,
         route_observations: Iterable[dict[str, Any]] = (),
         route_coverage: dict[str, Any] | None = None,
+        content_capture: dict[str, Any] | None = None,
     ) -> int:
         """Retain one render attempt and its accepted extraction atomically."""
         from .corpus import store_rendered_document, store_response
@@ -1986,6 +2095,7 @@ class NativeScan:
         route_observations = _bounded_items(
             route_observations, "rendered route observations", MAX_EDGES_PER_PAGE
         )
+        content_capture = _content_capture(content_capture)
         captures = list(itertools.islice(captures, 1001))
         if (
             len(captures) > 1000
@@ -2088,6 +2198,13 @@ class NativeScan:
                     )
             elif links or forms:
                 raise ScanError("unaccepted render cannot replace graph observations")
+            _put_content_evidence(
+                self.con,
+                page_url_id=page["url_id"],
+                source_document_id=document_id,
+                representation=representation,
+                content_capture=content_capture,
+            )
             if route_coverage is not None:
                 from .native_context import put_context
                 from .rendered_routes import context_items

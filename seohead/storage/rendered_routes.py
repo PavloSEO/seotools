@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 from typing import Any
-from urllib.parse import urldefrag
+from urllib.parse import urldefrag, urlsplit
 
 from . import ScanError
 
@@ -22,23 +22,36 @@ def observations(
     parsed: dict[str, Any] | None, batch: Any, representation: str
 ) -> tuple[list[dict], dict]:
     """Return only parser-emitted eligible anchors; never admit or fetch a route."""
-    links = (parsed or {}).get("links") or []
-    omitted = int(((parsed or {}).get("link_observation") or {}).get("omitted") or 0)
+    if (
+        not isinstance(parsed, dict)
+        or not isinstance(parsed.get("_raw_html"), str)
+        or not isinstance(parsed.get("links"), list)
+    ):
+        return [], {
+            "representation": representation,
+            "observed": 0,
+            "omitted": 0,
+            "completeness": "unavailable",
+            "reason": "eligible anchor extraction is unavailable because the document was not parsed as HTML",
+        }
+    links = parsed["links"]
+    omitted = int((parsed.get("link_observation") or {}).get("omitted") or 0)
     reasons: dict[str, str] = {}
     for decision in getattr(batch, "decisions", ()):
         if isinstance(decision, dict) and isinstance(decision.get("url"), str):
             reasons.setdefault(decision["url"], str(decision.get("reason") or "excluded"))
     values = []
-    for ordinal, link in enumerate(links):
+    for link in links:
         if not isinstance(link, dict) or not isinstance(link.get("href"), str):
             continue
         resolved = urldefrag(link["href"].strip())[0]
-        if not resolved:
+        target = urlsplit(resolved)
+        if target.scheme not in {"http", "https"} or not target.netloc:
             continue
         reason = reasons.get(link["href"]) or reasons.get(resolved)
         values.append(
             {
-                "ordinal": ordinal,
+                "ordinal": len(values),
                 "raw_value": str(link.get("raw_href") or ""),
                 "resolved_url": resolved,
                 "outcome": {
@@ -47,17 +60,14 @@ def observations(
                 },
             }
         )
-    completeness = (
-        "partial"
-        if omitted or "link_observations_omitted" in getattr(batch, "partial_reasons", ())
-        else "complete"
-    )
+    partial = omitted or "link_observations_omitted" in getattr(batch, "partial_reasons", ())
+    completeness = "partial" if partial else "complete"
     return values, {
         "representation": representation,
         "observed": len(values),
         "omitted": omitted,
         "completeness": completeness,
-        "reason": "link observations omitted by parser cap" if omitted else "",
+        "reason": "link observations omitted by parser cap" if partial else "",
     }
 
 
@@ -66,7 +76,14 @@ def context_items(
 ) -> list[dict]:
     """Build immutable route and coverage contexts after a document is stored."""
     representation = coverage["representation"]
-    if representation not in _REPRESENTATIONS or type(page_url_id) is not int:
+    if (
+        representation not in _REPRESENTATIONS
+        or type(page_url_id) is not int
+        or type(coverage.get("observed")) is not int
+        or coverage["observed"] < 0
+        or coverage["observed"] != len(values)
+        or [value.get("ordinal") for value in values] != list(range(len(values)))
+    ):
         raise ScanError("rendered route ledger has invalid page identity or representation")
     items = []
     for value in values:
@@ -207,6 +224,18 @@ def validate_context(con: Any, item: dict[str, Any], payload: Any) -> None:
             )
             or payload["completeness"] not in {"complete", "partial", "unavailable"}
             or not isinstance(payload["reason"], str)
+            or (
+                payload["completeness"] == "complete"
+                and (payload["omitted"] != 0 or payload["reason"])
+            )
+            or (
+                payload["completeness"] == "partial"
+                and not payload["reason"]
+            )
+            or (
+                payload["completeness"] == "unavailable"
+                and (payload["observed"] != 0 or payload["omitted"] != 0 or not payload["reason"])
+            )
             or item["completeness"] != payload["completeness"]
             or item["reason"] != payload["reason"]
             or item["item_key"]
@@ -217,13 +246,66 @@ def validate_context(con: Any, item: dict[str, Any], payload: Any) -> None:
         raise ScanError("native rendered route context kind is invalid")
     if not con.execute("SELECT 1 FROM pages WHERE url_id=?", (payload["page_url_id"],)).fetchone():
         raise ScanError("native rendered route context references an unknown page")
-    if (
-        payload["source_document_id"] is not None
-        and not con.execute(
-            "SELECT 1 FROM documents WHERE document_id=?", (payload["source_document_id"],)
-        ).fetchone()
+    if payload["source_document_id"] is not None and not con.execute(
+        "SELECT 1 FROM documents WHERE document_id=? AND url_id=? AND representation=?",
+        (
+            payload["source_document_id"],
+            payload["page_url_id"],
+            payload["representation"],
+        ),
+    ).fetchone():
+        raise ScanError(
+            "native rendered route context document does not match its page or representation"
+        )
+    if item["kind"] == COVERAGE_KIND:
+        _validate_coverage_routes(con, payload)
+
+
+def _validate_coverage_routes(con: Any, coverage: dict[str, Any]) -> None:
+    """Check a stored coverage record against the occurrence rows it closes."""
+    ordinals = []
+    for row in con.execute(
+        "SELECT payload_json FROM context_items WHERE kind=? AND item_key LIKE ?",
+        (
+            KIND,
+            f"page:{coverage['page_url_id']}:representation:{coverage['representation']}:ordinal:%",
+        ),
     ):
-        raise ScanError("native rendered route context references an unknown document")
+        try:
+            route = json.loads(row[0])
+        except (TypeError, ValueError) as exc:
+            raise ScanError("native rendered route ledger context is invalid JSON") from exc
+        if (
+            route.get("page_url_id") != coverage["page_url_id"]
+            or route.get("representation") != coverage["representation"]
+            or type(route.get("ordinal")) is not int
+        ):
+            raise ScanError("native rendered route coverage does not match its occurrence rows")
+        ordinals.append(route["ordinal"])
+    if sorted(ordinals) != list(range(coverage["observed"])):
+        raise ScanError(
+            "native rendered route coverage has noncontiguous ordinals or wrong observed count"
+        )
+
+
+def validate_ledger(con: Any) -> None:
+    """Validate every closed occurrence population after all contexts are available."""
+    coverage = []
+    routes_without_coverage = set()
+    for row in con.execute(
+        "SELECT kind,payload_json FROM context_items WHERE kind IN (?,?)", (KIND, COVERAGE_KIND)
+    ):
+        payload = json.loads(row["payload_json"])
+        key = (payload["page_url_id"], payload["representation"])
+        if row["kind"] == COVERAGE_KIND:
+            coverage.append(payload)
+        else:
+            routes_without_coverage.add(key)
+    for item in coverage:
+        _validate_coverage_routes(con, item)
+        routes_without_coverage.discard((item["page_url_id"], item["representation"]))
+    if routes_without_coverage:
+        raise ScanError("native rendered route occurrences lack coverage")
 
 
 def read(con: Any) -> dict:
@@ -281,10 +363,10 @@ def read(con: Any) -> dict:
         "routes": output,
         "coverage": list(coverage.values())
         if coverage
-        else [{"state": "unavailable", "reason": "route ledger was not stored in this scan"}],
+        else [{"state": "unavailable", "reason": "route ledger is absent from this older scan"}],
         "run_coverage": run
         if "run" in locals()
-        else {"state": "unavailable", "reason": "route ledger was not stored in this scan"},
+        else {"state": "unavailable", "reason": "route ledger is absent from this older scan"},
     }
 
 

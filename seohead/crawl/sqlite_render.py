@@ -117,6 +117,26 @@ def _rendered_batch(
     return batch.links, batch.forms, batch.partial_reasons, routes, coverage
 
 
+def _content_capture(
+    *,
+    html: Any,
+    parsed: dict[str, Any] | None,
+    settings: dict[str, Any],
+    canonical_target: str = "",
+    unavailable_reason: str = "",
+) -> dict[str, Any]:
+    """Carry one parsed representation into the writer-owned document context hook."""
+    return {
+        "html": html if isinstance(html, str) else None,
+        "parsed": parsed,
+        "settings": settings,
+        "indexable": None,
+        "canonical_target": canonical_target,
+        "unavailable_reason": unavailable_reason,
+        "extraction_rules": None,
+    }
+
+
 def _candidate(
     record: Any,
     target_url: str,
@@ -375,6 +395,12 @@ def run_render_escalation(
                     captured_at=_now(),
                     body_state="unavailable",
                     body_reason="not_in_corpus",
+                    content_capture=_content_capture(
+                        html=None,
+                        parsed=None,
+                        settings=settings,
+                        unavailable_reason="retained static body is unavailable",
+                    ),
                 )
                 return {
                     "ok": False,
@@ -405,6 +431,12 @@ def run_render_escalation(
                     body_reason="truncated"
                     if fetched.get("dom_state") == "truncated"
                     else "fetch_failed",
+                    content_capture=_content_capture(
+                        html=None,
+                        parsed=None,
+                        settings=settings,
+                        unavailable_reason=str(fetched.get("error") or "render failed"),
+                    ),
                 )
                 return {"ok": False, "needs_escalation": False}
             # A probe DOM is an observation in its own right.  Store it before
@@ -416,6 +448,12 @@ def run_render_escalation(
                 html=fetched.get("html"),
                 renderer=renderer,
                 captured_at=_now(),
+                content_capture=_content_capture(
+                    html=fetched.get("html"),
+                    parsed=None,
+                    settings=settings,
+                    unavailable_reason="rendered probe was not parsed for content evidence",
+                ),
             )
             raw = render_tool._snapshot(raw_html, target)
             rendered_html = str(fetched.get("html") or "")
@@ -488,6 +526,12 @@ def run_render_escalation(
                 if fetched.get("dom_state") == "truncated"
                 else "fetch_failed",
                 captures=fetched.get("captures", ()) if label == "legacy_fragment" else (),
+                content_capture=_content_capture(
+                    html=None,
+                    parsed=None,
+                    settings=settings,
+                    unavailable_reason=str(fetched.get("error") or "render failed"),
+                ),
                 route_coverage=(
                     {
                         "representation": label,
@@ -528,6 +572,16 @@ def run_render_escalation(
                 captured_at=str(fetched.get("captured_at") or _now()),
                 representation=label,
                 captures=fetched.get("captures", ()) if label == "legacy_fragment" else (),
+                content_capture=_content_capture(
+                    html=fetched.get("html") if label == "rendered" else None,
+                    parsed=None,
+                    settings=settings,
+                    unavailable_reason=(
+                        "rendered body is degenerate"
+                        if degenerate
+                        else "rendered body is not parseable"
+                    ),
+                ),
                 route_coverage=(
                     {
                         "representation": label,
@@ -572,6 +626,12 @@ def run_render_escalation(
             representation=label,
             captures=captures,
             partial_reasons=partial_reasons,
+            content_capture=_content_capture(
+                html=fetched.get("html") if label == "rendered" else None,
+                parsed=parsed,
+                settings=settings,
+                canonical_target=candidate.canonical,
+            ),
             route_observations=route_observations,
             route_coverage=route_coverage,
             **resource_observations,

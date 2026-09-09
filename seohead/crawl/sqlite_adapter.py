@@ -215,14 +215,17 @@ def _document_batch(
     settings: dict[str, Any],
 ) -> _DocumentBatch:
     """Use the shared helper; this module never reparses HTML or recreates links."""
+    batch = _DocumentBatch()
     if parsed is None:
-        return _DocumentBatch()
+        if settings["rendering"]["rendered_links"]["store"]:
+            from seohead.storage.rendered_routes import observations
+
+            batch.route_observations, batch.route_coverage = observations(parsed, batch, "static")
+        return batch
     try:
         from seohead.crawl.spider import apply_document_links, form_edges
     except ImportError as exc:  # integration order guard until shared helper merges
         raise RuntimeError("SQLite adapter requires shared spider document helpers") from exc
-
-    batch = _DocumentBatch()
 
     def record_edge(edge: Any) -> None:
         batch.links.append(dataclasses.asdict(edge))
@@ -858,6 +861,21 @@ def crawl_to_scan(
                             ),
                             partial_reasons=tuple(batch.partial_reasons),
                             context=robots_context.get(lease.queue_ordinal, ()),
+                            content_capture={
+                                "html": (
+                                    parsed.get("_raw_html") if isinstance(parsed, dict) else None
+                                ),
+                                "parsed": parsed,
+                                "settings": settings,
+                                "indexable": None,
+                                "canonical_target": record.canonical,
+                                "unavailable_reason": (
+                                    "static document was not parsed as eligible HTML"
+                                    if parsed is None
+                                    else ""
+                                ),
+                                "extraction_rules": None,
+                            },
                             route_observations=batch.route_observations,
                             route_coverage=batch.route_coverage,
                             captures=captures,
