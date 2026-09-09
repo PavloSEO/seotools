@@ -97,6 +97,16 @@ COMMANDS = (
     "project-checklist-update",
     "project-checklist-record",
     "project-priorities",
+    "project-policy",
+    "project-prepare",
+    "project-start",
+    "skill-list",
+    "skill-show",
+    "scenario-show",
+    "provider-registry",
+    "provider-verify",
+    "provider-collect",
+    "provider-join",
 )
 
 # Tools whose complete direct CLI input can be supplied by one --url flag.
@@ -233,6 +243,10 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
             kw["urls_file"] = args.urls_file
         if getattr(args, "project", None):
             kw["project"] = args.project
+        if getattr(args, "approve_large_crawl", False):
+            kw["approve_large_crawl"] = True
+        if getattr(args, "user_agent", None):
+            kw["user_agent"] = args.user_agent
         for flag in (
             "config",
             "max_urls",
@@ -304,6 +318,9 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
         "project-checklist-update",
         "project-checklist-record",
         "project-priorities",
+        "project-policy",
+        "project-prepare",
+        "project-start",
     }:
         for name in ("directory", "target", "label", "expected_site"):
             value = getattr(args, name, None)
@@ -313,8 +330,19 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
             kw["expected_revision"] = args.expected_revision
         if getattr(args, "item_id", None) is not None:
             kw["item_id"] = args.item_id
-        if cmd == "project-priorities" and getattr(args, "apply", False):
+        if cmd in {"project-priorities", "project-policy"} and getattr(args, "apply", False):
             kw["apply"] = True
+        if getattr(args, "approve_large_crawl", False):
+            kw["approve_large_crawl"] = True
+        if getattr(args, "producer_build", None):
+            kw["producer_build"] = args.producer_build
+    elif cmd in {"skill-show", "scenario-show"}:
+        if getattr(args, "name", None) or getattr(args, "playbook_name", None):
+            kw["name"] = getattr(args, "name", None) or args.playbook_name
+    elif cmd in {"provider-verify", "provider-collect"}:
+        for name in ("provider", "operation", "artifact_dir"):
+            if getattr(args, name, None) is not None:
+                kw[name] = getattr(args, name)
     elif cmd == "boilerplate-report":
         if getattr(args, "scan", None):
             kw["scan"] = args.scan
@@ -619,11 +647,19 @@ def _crawl_overrides(kwargs: dict[str, Any]) -> dict[str, Any]:
         ("speed.min_delay_seconds", kwargs.get("min_delay")),
         ("speed.concurrency", kwargs.get("concurrency")),
         ("robots.policy", kwargs.get("robots")),
+        ("http.user_agent", kwargs.get("user_agent")),
         ("output.dir", kwargs.get("out_dir")),
     ):
         if value is not None:
             overrides[path] = value
     return overrides
+
+
+def _project_crawl_defaults(kwargs: dict[str, Any]) -> dict | None:
+    if not kwargs.get("project"):
+        return None
+    from seohead.projects.runtime import project_policy
+    return project_policy(kwargs["project"])["policy"]["crawl_overrides"]
 
 
 def _print_effective_rate(kwargs: dict[str, Any]) -> None:
@@ -642,7 +678,7 @@ def _print_effective_rate(kwargs: dict[str, Any]) -> None:
         # The same overrides the handler will resolve, in the same precedence, or
         # the printed rate describes a run that is not the one about to happen --
         # which is worse than printing nothing, because it is believed.
-        resolved = crawl_config.load(kwargs.get("config"), overrides=_crawl_overrides(kwargs))
+        resolved = crawl_config.load(kwargs.get("config"), overrides=_crawl_overrides(kwargs), base_overrides=_project_crawl_defaults(kwargs))
     except crawl_config.ConfigError:
         return  # the handler call below reports the same error to the user
     rate = crawl_config.effective_request_rate(resolved)
@@ -757,7 +793,7 @@ def _crawl_progress(kwargs: dict[str, Any]) -> CrawlProgress | None:
 
             resolved = resume_inputs(resume)["settings"]
         else:
-            resolved = crawl_config.load(kwargs.get("config"), overrides=_crawl_overrides(kwargs))
+            resolved = crawl_config.load(kwargs.get("config"), overrides=_crawl_overrides(kwargs), base_overrides=_project_crawl_defaults(kwargs))
     except (crawl_config.ConfigError, OSError, ValueError, sqlite3.Error):
         return None
     stream = sys.stderr
@@ -802,6 +838,8 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
             "(performs network lookups)",
         )
     if cmd == "crawl-site":
+        sub.add_argument("--approve-large-crawl", action="store_true", help="explicitly approve budgets above the project admission thresholds")
+        sub.add_argument("--user-agent", help="request identity or googlebot diagnostic preset")
         _source_flag(
             sub,
             "--project",
@@ -1119,12 +1157,28 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
             type=int,
             help="current checklist revision required before a write",
         )
-    if cmd == "project-priorities":
+    if cmd in {"project-priorities", "project-policy"}:
         sub.add_argument(
             "--apply",
             action="store_true",
             help="apply the previewed policy with an expected revision",
         )
+    if cmd in {"project-policy", "project-prepare", "project-start"}:
+        _source_flag(sub, "--directory", help="project directory")
+    if cmd == "project-policy":
+        sub.add_argument("--expected-revision", type=int, help="current policy revision, zero for a new policy")
+    if cmd in {"project-prepare", "project-start"}:
+        sub.add_argument("--approve-large-crawl", action="store_true")
+        sub.add_argument("--producer-build", help="explicit producer revision when working outside a clean build")
+    if cmd == "project-start":
+        _source_flag(sub, "--target", help="site URL for the new project")
+    if cmd in {"skill-show", "scenario-show"}:
+        _source_flag(sub, "--name", help="full playbook identifier or unambiguous name")
+    if cmd in {"provider-verify", "provider-collect"}:
+        _source_flag(sub, "--provider", help="provider registry identifier")
+    if cmd == "provider-collect":
+        _source_flag(sub, "--operation", help="declared read-only provider operation")
+        _source_flag(sub, "--artifact-dir", help="restricted local raw-evidence directory")
     if cmd == "project-checklist-record":
         _source_flag(sub, "--item-id", help="checklist item identifier to record")
     if cmd == "scan-body-diff":
@@ -1263,10 +1317,25 @@ def build_parser() -> argparse.ArgumentParser:
         "checklist-update",
         "checklist-record",
         "priorities",
+        "policy",
+        "prepare",
+        "start",
     ):
         cmd = "project-" + action
         sp = project_subs.add_parser(action, help=f"run {cmd}")
         _add_flags(sp, cmd)
+    skill = subs.add_parser("skill", help="packaged method playbooks")
+    skill_actions = skill.add_subparsers(dest="skill_command", required=True)
+    for action in ("list", "show"):
+        leaf = skill_actions.add_parser(action)
+        _add_flags(leaf, "skill-" + action)
+        if action == "show":
+            leaf.add_argument("playbook_name", nargs="?")
+    scenario = subs.add_parser("scenario", help="packaged workflow scenarios")
+    scenario_actions = scenario.add_subparsers(dest="scenario_command", required=True)
+    leaf = scenario_actions.add_parser("show")
+    _add_flags(leaf, "scenario-show")
+    leaf.add_argument("playbook_name", nargs="?")
     sf = subs.add_parser("sf", help="Screaming Frog crawl audit (run | tasks | doctor)")
     sf.add_argument(
         "sf_args", nargs=argparse.REMAINDER, help="arguments forwarded to the sf-analyzer CLI"
@@ -1287,6 +1356,10 @@ def main(argv: list[str] | None = None) -> int:
         cmd = "scan-" + args.scan_command
     if cmd == "project":
         cmd = "project-" + args.project_command
+    if cmd == "skill":
+        cmd = "skill-" + args.skill_command
+    if cmd == "scenario":
+        cmd = "scenario-" + args.scenario_command
     if not cmd:
         build_parser().print_help()
         return 0
@@ -1302,6 +1375,8 @@ def main(argv: list[str] | None = None) -> int:
         # diagnostic (#366), so the direct `python -m seohead.servers.mcp_server` entry
         # point advertised in that module's docstring gives the same outcome as this one.
         return mcp_main()
+    from seohead.terminal_progress import show_banner
+    show_banner(cmd, quiet=getattr(args, "quiet", False))
     if cmd == "crawl-site" and getattr(args, "config_help", False):
         _print_config_help()
         return 0

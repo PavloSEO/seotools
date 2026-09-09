@@ -146,6 +146,8 @@ def build_server():  # -> FastMCP
         overrides: dict[str, Any] | None = None,
         resume: str | None = None,
         project: str | None = None,
+        approve_large_crawl: bool = False,
+        user_agent: str | None = None,
     ) -> dict[str, Any]:
         """Crawl a site from a start URL by following links, or fetch an explicit
         ``urls`` list instead of following links at all, then audit the result
@@ -217,6 +219,8 @@ def build_server():  # -> FastMCP
                 overrides=overrides,
                 resume=resume,
                 project=project,
+                approve_large_crawl=approve_large_crawl,
+                user_agent=user_agent,
             )
         )
 
@@ -1054,6 +1058,65 @@ def build_server():  # -> FastMCP
                 directory=directory, policy=policy, apply=apply, expected_revision=expected_revision
             )
         )
+
+    @mcp.tool(annotations=create_files, structured_output=True)
+    def seo_project_policy(directory: str, policy: dict | None = None, apply: bool = False, expected_revision: int | None = None) -> dict[str, Any]:
+        """Read or explicitly update operator crawl defaults and project admission thresholds."""
+        return _checked(handlers.project_policy(directory, policy=policy, apply=apply, expected_revision=expected_revision))
+
+    @mcp.tool(annotations=create_files_from_web, structured_output=True)
+    def seo_project_prepare(directory: str, template: dict | None = None, competitors: list | None = None, approve_large_crawl: bool = False, producer_build: str | None = None) -> dict[str, Any]:
+        """Prepare an existing project with a bounded native crawl and saved sitemap coverage.
+
+        Competitors must be supplied candidates with provenance; absent sources stay pending.
+        All site checklists remain separate. Paid provider calls are never hidden in preparation.
+        """
+        return _checked(handlers.project_prepare(directory, template=template, competitors=competitors, approve_large_crawl=approve_large_crawl, producer_build=producer_build))
+
+    @mcp.tool(annotations=create_files_from_web, structured_output=True)
+    def seo_project_start(directory: str, target: str, facts: list[dict[str, Any]] | None = None, template: dict | None = None, competitors: list | None = None, approve_large_crawl: bool = False, producer_build: str | None = None) -> dict[str, Any]:
+        """Create and prepare a new bounded project; failures leave inspectable pending work."""
+        return _checked(handlers.project_start(directory, target, facts=facts, template=template, competitors=competitors, approve_large_crawl=approve_large_crawl, producer_build=producer_build))
+
+    @mcp.tool(annotations=read_files, structured_output=True)
+    def seo_skill_list() -> dict[str, Any]:
+        """List the packaged, source-derived method playbooks without executing them."""
+        return _checked(handlers.skill_list())
+
+    @mcp.tool(annotations=read_files, structured_output=True)
+    def seo_skill_show(name: str) -> dict[str, Any]:
+        """Return a packaged skill's exact text and definition identity."""
+        return _checked(handlers.skill_show(name))
+
+    @mcp.tool(annotations=read_files, structured_output=True)
+    def seo_scenario_show(name: str) -> dict[str, Any]:
+        """Return a packaged workflow scenario's text without running its commands."""
+        return _checked(handlers.scenario_show(name))
+
+    @mcp.tool(annotations=read_files, structured_output=True)
+    def seo_provider_registry() -> dict[str, Any]:
+        """List provider operations, credential components, quota and privacy boundaries."""
+        return _checked(handlers.provider_registry())
+
+    @mcp.tool(annotations=fetch, structured_output=True)
+    def seo_provider_verify(provider: str, request: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Explicitly verify bounded read-only account/target access; present credentials are not verification."""
+        return _checked(handlers.provider_verify(provider, request))
+
+    @mcp.tool(annotations=paid, structured_output=True)
+    def seo_provider_collect(provider: str, operation: str, request: dict[str, Any], artifact_dir: str | None = None) -> dict[str, Any]:
+        """Collect a declared provider operation with versioned redacted evidence.
+
+        Raw identifiers and rows belong only in an explicit restricted artifact directory.
+        Paid operations require their provider's explicit production and cost guards; the
+        backlink-index adapter is disabled by default. Collection never implies indexing.
+        """
+        return _checked(handlers.provider_collect(provider, operation, request, artifact_dir=artifact_dir))
+
+    @mcp.tool(annotations=pure, structured_output=True)
+    def seo_provider_join(crawl_pages: list[dict[str, Any]], evidence_rows: list[dict[str, Any]], review_external_only: bool = False, adjustments: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        """Join supplied URL evidence exactly and preserve unmatched populations and technical severity."""
+        return _checked(handlers.provider_join(crawl_pages, evidence_rows, review_external_only=review_external_only, adjustments=adjustments))
 
     @mcp.tool(annotations=read_files, structured_output=True)
     def seo_scan_list(

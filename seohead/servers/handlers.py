@@ -519,6 +519,8 @@ def crawl_site(
     resume: str | None = None,
     progress: Callable[[int, int], None] | None = None,
     project: str | None = None,
+    approve_large_crawl: bool = False,
+    user_agent: str | None = None,
 ) -> dict[str, Any]:
     """Crawl a site from a start URL, or fetch an explicit list, then audit it.
 
@@ -580,6 +582,7 @@ def crawl_site(
                 ("out_dir", out_dir),
                 ("sitemap", sitemap),
                 ("overrides", overrides),
+                ("user_agent", user_agent),
             )
             if value is not None and value != "" and value not in ([], {})
         ]
@@ -592,6 +595,12 @@ def crawl_site(
             )
         from seohead.servers.scan_handlers import resume_scan
 
+        if project_root is not None:
+            from seohead.projects.runtime import admission
+            from seohead.servers.scan_handlers import resume_inputs
+            gate = admission(str(project_root), resume_inputs(resume)["settings"], approved=approve_large_crawl)
+            if not gate["ok"]:
+                return {"ok": False, "error": gate["reason"], "admission": gate}
         return resume_scan(resume, url=url, producer_build=producer_build, progress=progress)
 
     import contextlib
@@ -624,11 +633,23 @@ def crawl_site(
         ("speed.min_delay_seconds", min_delay),
         ("speed.concurrency", concurrency),
         ("robots.policy", robots),
+        ("http.user_agent", user_agent),
         ("output.dir", out_dir),
     ):
         if value is not None:
             resolved_overrides[path] = value
-    settings = crawl_config.load(config, overrides=resolved_overrides)
+    base_overrides = None
+    if project_root is not None:
+        from seohead.projects.runtime import admission, project_policy
+        base_overrides = project_policy(str(project_root))["policy"]["crawl_overrides"]
+    if user_agent == "googlebot":
+        resolved_overrides["http.user_agent"] = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+        resolved_overrides.setdefault("robots.user_agent_token", "Googlebot")
+    settings = crawl_config.load(config, overrides=resolved_overrides, base_overrides=base_overrides)
+    if project_root is not None:
+        gate = admission(str(project_root), settings, approved=approve_large_crawl)
+        if not gate["ok"]:
+            return {"ok": False, "error": gate["reason"], "admission": gate}
     if (
         project_root is not None
         and not scan_out
@@ -2575,7 +2596,8 @@ def sources_doctor() -> dict[str, Any]:
     sources["dataforseo"]["components"] = dataforseo_components
     from seohead.data_sources import spend as spend_core
 
-    return {"ok": True, "sources": sources, "spend_log": str(spend_core.log_path())}
+    from seohead.data_sources.providers import sources_doctor as provider_doctor
+    return {"ok": True, "sources": sources, "provider_status": provider_doctor()["providers"], "spend_log": str(spend_core.log_path())}
 
 
 def scan_reanalyze(input_path: str, out: str, producer_build: str | None = None) -> dict[str, Any]:
@@ -2745,6 +2767,61 @@ def project_priorities(
     return core(directory, policy=policy, apply=apply, expected_revision=expected_revision)
 
 
+
+def project_policy(directory: str, policy: dict | None = None, apply: bool = False, expected_revision: int | None = None) -> dict[str, Any]:
+    from seohead.projects.runtime import project_policy as core
+    return core(directory, policy=policy, apply=apply, expected_revision=expected_revision)
+
+
+def project_prepare(directory: str, template: dict | None = None, competitors: list | None = None, approve_large_crawl: bool = False, producer_build: str | None = None) -> dict[str, Any]:
+    from seohead.projects.runtime import prepare_project
+    return prepare_project(directory, tools=HANDLERS, template=template, competitors=competitors, approve_large_crawl=approve_large_crawl, producer_build=producer_build)
+
+
+def project_start(directory: str, target: str, facts: list[dict[str, Any]] | None = None, template: dict | None = None, competitors: list | None = None, approve_large_crawl: bool = False, producer_build: str | None = None) -> dict[str, Any]:
+    from seohead.projects.workspace import create_project
+    created = create_project(directory, target, facts=facts)
+    try:
+        return project_prepare(directory, template=template, competitors=competitors, approve_large_crawl=approve_large_crawl, producer_build=producer_build)
+    except (ValueError, OSError) as exc:
+        return {"ok": False, "error": str(exc), "project": created, "next": "Use project-prepare to continue the inspectable project"}
+
+
+def skill_list() -> dict[str, Any]:
+    from seohead.projects.runtime import playbook_list
+    return playbook_list("skill")
+
+
+def skill_show(name: str) -> dict[str, Any]:
+    from seohead.projects.runtime import playbook_show
+    return playbook_show(name, "skill")
+
+
+def scenario_show(name: str) -> dict[str, Any]:
+    from seohead.projects.runtime import playbook_show
+    return playbook_show(name, "scenario")
+
+
+def provider_registry() -> dict[str, Any]:
+    from seohead.servers.provider_handlers import provider_registry as core
+    return core()
+
+
+def provider_verify(provider: str, request: dict[str, Any] | None = None) -> dict[str, Any]:
+    from seohead.servers.provider_handlers import provider_verify as core
+    return core(provider, request)
+
+
+def provider_collect(provider: str, operation: str, request: dict[str, Any], artifact_dir: str | None = None) -> dict[str, Any]:
+    from seohead.servers.provider_handlers import provider_collect as core
+    return core(provider, operation, request, artifact_dir=artifact_dir)
+
+
+def provider_join(crawl_pages: list[dict[str, Any]], evidence_rows: list[dict[str, Any]], review_external_only: bool = False, adjustments: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    from seohead.servers.provider_handlers import provider_join as core
+    return core(crawl_pages, evidence_rows, review_external_only=review_external_only, adjustments=adjustments)
+
+
 _RAW_HANDLERS = {
     "parse": parse,
     "redirects_generate": redirects_generate,
@@ -2818,6 +2895,17 @@ _RAW_HANDLERS = {
     "project_checklist_update": project_checklist_update,
     "project_checklist_record": project_checklist_record,
     "project_priorities": project_priorities,
+    "project_policy": project_policy,
+    "project_prepare": project_prepare,
+    "project_start": project_start,
+    "skill_list": skill_list,
+    "skill_show": skill_show,
+    "scenario_show": scenario_show,
+    "provider_registry": provider_registry,
+    "provider_verify": provider_verify,
+    "provider_collect": provider_collect,
+    "provider_join": provider_join,
+
 }
 
 # Journaling sits here rather than in each interface: the CLI and the MCP server
