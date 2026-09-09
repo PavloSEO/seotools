@@ -138,16 +138,22 @@ def test_v1_and_read_only_v2_access_do_not_create_or_upgrade_resource_graph(tmp_
             "state": "unavailable",
             "reason": "resource graph was not stored in this scan",
         }
-        assert scan.con.execute(
-            "SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'resource_graph_%'"
-        ).fetchone()[0] == 0
+        assert (
+            scan.con.execute(
+                "SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'resource_graph_%'"
+            ).fetchone()[0]
+            == 0
+        )
 
     con = sqlite3.connect(tmp_path / "reader-v2.sqlite")
     try:
         con.execute("PRAGMA user_version=2")
         assert read(con) == {"state": "unavailable", "reason": "resource graph extension is absent"}
-        assert con.execute(
-            "SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'resource_graph_%'"
-        ).fetchone()[0] == 0
+        assert (
+            con.execute(
+                "SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'resource_graph_%'"
+            ).fetchone()[0]
+            == 0
+        )
     finally:
         con.close()

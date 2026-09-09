@@ -19,7 +19,9 @@ def test_capability_prerequisites_follow_declared_sources_not_check_name_heurist
 
     sitemap = rows["SITEMAP_DESYNC"]["prerequisites"]
     assert sitemap["population"] == {
-        "state": "derived", "value": "sitemap declarations", "reason": ""
+        "state": "derived",
+        "value": "sitemap declarations",
+        "reason": "",
     }
     assert sitemap["representation"]["state"] == "not_applicable"
 

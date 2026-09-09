@@ -1,4 +1,5 @@
 """The render time allowance survives phase boundaries instead of resetting."""
+
 import json
 from types import SimpleNamespace
 
@@ -33,7 +34,9 @@ def test_render_phase_consumes_saved_allowance(monkeypatch):
         return render_escalation.EscalationResult(mode="js")
 
     monkeypatch.setattr(render_escalation, "escalate", escalate)
-    settings = load(overrides={"rendering.mode": "js", "rendering.escalation.max_render_seconds": 10})
+    settings = load(
+        overrides={"rendering.mode": "js", "rendering.escalation.max_render_seconds": 10}
+    )
     scan = ContextScan()
     result = SimpleNamespace(pages=[PageRecord(url="https://example.test/")], links=[])
     sqlite_render.run_render_escalation(scan, result, settings)
@@ -46,22 +49,33 @@ def test_render_phase_consumes_saved_allowance(monkeypatch):
 
 
 def test_killed_render_phase_does_not_get_a_fresh_finite_budget(monkeypatch):
-    monkeypatch.setattr(render_escalation, "escalate", lambda *_a, **_k: pytest.fail("unexpected rendering"))
+    monkeypatch.setattr(
+        render_escalation, "escalate", lambda *_a, **_k: pytest.fail("unexpected rendering")
+    )
     scan = ContextScan({"schema_version": "render_elapsed.v1", "seconds": 2, "active": True})
-    settings = load(overrides={"rendering.mode": "js", "rendering.escalation.max_render_seconds": 10})
+    settings = load(
+        overrides={"rendering.mode": "js", "rendering.escalation.max_render_seconds": 10}
+    )
     result = SimpleNamespace(pages=[PageRecord(url="https://example.test/")], links=[])
     assert sqlite_render.run_render_escalation(scan, result, settings).time_budget_exhausted
 
 
 def test_full_policy_renders_eligible_pages_without_sampling():
-    records = [SimpleNamespace(url=f"https://example.test/{n}", is_html=True, status_code=200) for n in range(3)]
-    records.append(SimpleNamespace(url="https://example.test/failure", is_html=False, status_code=500))
+    records = [
+        SimpleNamespace(url=f"https://example.test/{n}", is_html=True, status_code=200)
+        for n in range(3)
+    ]
+    records.append(
+        SimpleNamespace(url="https://example.test/failure", is_html=False, status_code=500)
+    )
     seen = []
     result = render_escalation.escalate(
         records,
         {"mode": "js", "escalation": {"policy": "full", "max_render_urls": 2}},
         probe=lambda *_: pytest.fail("full policy must not probe"),
-        render_fetch=lambda url: seen.append(url) or {"ok": True, "html": "<title>Rendered</title>"},
+        render_fetch=lambda url: (
+            seen.append(url) or {"ok": True, "html": "<title>Rendered</title>"}
+        ),
     )
     assert len(seen) == 2
     assert result.probe_requests == 0
