@@ -251,6 +251,86 @@ def _seed_reanalysis_input(tmp_path: Path) -> None:
     _source(tmp_path / "old.sqlite")
 
 
+def _private_grant() -> dict:
+    return {
+        "refresh_token": "fixture-refresh-token",
+        "client_id": "fixture-client-id",
+        "client_secret": "fixture-client-secret",
+        "scopes": ["https://www.googleapis.com/auth/webmasters.readonly"],
+    }
+
+
+def _seed_provider_auth(tmp_path: Path, argv: list[str], monkeypatch) -> None:
+    """Exercise grant lifecycle docs with a private fixture and injected refresh, never Google."""
+    from seohead.data_sources import oauth
+
+    config_root = tmp_path / "provider-config"
+    monkeypatch.setattr(oauth, "CONFIG_ROOT", config_root)
+    monkeypatch.setattr(
+        oauth,
+        "refresh_access_token",
+        lambda *_args, **_kwargs: {
+            "access_token": "fixture-access-token",
+            "scopes": _private_grant()["scopes"],
+            "expires_in": 3600,
+        },
+    )
+    action = argv[argv.index("--action") + 1]
+    if action == "connect":
+        source = tmp_path / argv[argv.index("--grant-file") + 1]
+        source.parent.mkdir(mode=0o700, exist_ok=True)
+        source.write_text(json.dumps(_private_grant()), encoding="utf-8")
+        source.chmod(0o600)
+    elif action in {"status", "refresh"}:
+        oauth.save_grant("gsc", _private_grant())
+
+
+def _seed_provider_replay(tmp_path: Path, argv: list[str]) -> None:
+    """Write a private saved envelope that joins to a real local synthetic scan, with no API call."""
+    from seohead.storage import open_scan
+
+    scan = tmp_path / argv[argv.index("--scan") + 1]
+    if scan.exists():
+        scan.unlink()
+    scan.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    _seed_documented_body_scan(tmp_path, str(scan.relative_to(tmp_path)))
+    with open_scan(scan, require_audit=False) as con:
+        url = con.execute("SELECT url FROM urls ORDER BY url_id LIMIT 1").fetchone()[0]
+    evidence = tmp_path / argv[argv.index("--evidence-file") + 1]
+    evidence.parent.mkdir(mode=0o700, exist_ok=True)
+    evidence.write_text(
+        json.dumps(
+            {
+                "evidence": {
+                    "format": "seohead.provider-evidence.v1",
+                    "provider": "fixture",
+                    "period": None,
+                    "status": "complete",
+                    "sampling": "unknown",
+                },
+                "result": {"rows": [{"url": url}], "dimensions": []},
+            }
+        ),
+        encoding="utf-8",
+    )
+    evidence.chmod(0o600)
+
+
+def _seed_project_prepare(tmp_path: Path, monkeypatch) -> None:
+    """Inject a bounded saved crawl into project preparation instead of contacting the fixture site."""
+    from seohead.servers import handlers
+
+    _seed_documented_body_scan(tmp_path, "preparation-source.sqlite")
+    source = tmp_path / "preparation-source.sqlite"
+
+    def crawl_site(*, project: str, **_kwargs):
+        target = Path(project) / "scans" / "preparation.sqlite"
+        shutil.copyfile(source, target)
+        return {"ok": True, "scan": str(target)}
+
+    monkeypatch.setitem(handlers.HANDLERS, "crawl_site", crawl_site)
+
+
 @pytest.fixture(scope="module")
 def fixture_site():
     with run_fixture_site() as base_url:
@@ -294,6 +374,7 @@ def test_documented_command_executes_or_at_least_still_parses(
         "checklist-init",
         "checklist-update",
         "checklist-record",
+        "priorities",
     }:
         # Each documentation case runs independently; opening/status require the
         # project that the preceding creation command would have published.
@@ -301,14 +382,31 @@ def test_documented_command_executes_or_at_least_still_parses(
 
         directory = argv[argv.index("--directory") + 1]
         create_project(tmp_path / directory, "https://example.test/")
-        if argv[1] in {"checklist-update", "checklist-record"}:
+        if argv[1] in {"checklist-update", "checklist-record", "priorities"}:
             from seohead.projects.coverage import initialize_coverage
 
             initialize_coverage(tmp_path / directory)
+    if argv[:2] == ["project", "prepare"]:
+        from seohead.projects.workspace import create_project
+
+        directory = argv[argv.index("--directory") + 1]
+        create_project(tmp_path / directory, "https://example.test/")
+    if argv[:2] in (["project", "start"], ["project", "prepare"]):
+        _seed_project_prepare(tmp_path, monkeypatch)
     if argv[:1] in (["duplicate-check"], ["boilerplate-report"]) and "--scan" in argv:
         # Body consumers need a native retained corpus, including when they use
         # the same filename that report examples use for a saved audit.
         _seed_documented_body_scan(tmp_path, argv[argv.index("--scan") + 1])
+    elif argv[:2] in (
+        ["scan", "evidence"],
+        ["scan", "extract"],
+        ["scan", "requeue"],
+        ["scan", "import-urls"],
+    ):
+        _seed_documented_body_scan(tmp_path, argv[argv.index("--scan") + 1])
+        (tmp_path / "review-urls.csv").write_text(
+            "url\nhttps://example.test/page\n", encoding="utf-8"
+        )
     elif any(".sqlite" in value for value in argv) and not {"--scan-out", "--resume"} & set(argv):
         _seed_scan_inputs(tmp_path)
     if argv[:1] == ["report-build"] and "--project" in argv:
@@ -332,6 +430,10 @@ def test_documented_command_executes_or_at_least_still_parses(
     monkeypatch.setattr("sys.stdin", io.StringIO(command.stdin or ""))
 
     substituted = to_argv(_substitute(command.raw, fixture_site))
+    if substituted[:1] == ["provider-auth"]:
+        _seed_provider_auth(tmp_path, substituted, monkeypatch)
+    if substituted[:1] == ["provider-replay"]:
+        _seed_provider_replay(tmp_path, substituted)
     if "--resume" in substituted:
         # After the loopback authorization above, and after substitution: seeding this
         # one runs a real crawl, under the artifact path and build SHA the line names.

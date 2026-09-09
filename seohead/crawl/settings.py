@@ -156,6 +156,7 @@ DEFAULTS: dict[str, Any] = {
         "max_response_bytes": 5 * 1024 * 1024,
         "max_url_length": 2000,
         "max_crawl_seconds": 0,  # 0 = no wall-clock limit
+        "max_requests": 20_000,  # 0 = no total HTTP-attempt limit
     },
     "http": {
         "timeout_seconds": 15.0,
@@ -245,8 +246,27 @@ DEFAULTS: dict[str, Any] = {
         "fetch": False,
         "max_requests": 20_000,
         "max_response_bytes": 5 * 1024 * 1024,
+        "graph": {
+            "max_requests": 2_000,
+            "max_bytes": 100 * 1024 * 1024,
+            "max_bytes_per_resource": 5 * 1024 * 1024,
+            "max_seconds": 0,
+            "max_origins": 1,
+            "max_redirects": 0,
+            "max_nesting": 2,
+        },
+    },
+    "evidence": {
+        "content_area": {
+            "include_selector": "",
+            "root_selector": "",
+            "exclude_tags": ["nav", "header", "aside", "footer"],
+            "exclude_selectors": [],
+        },
+        "extraction_rules": [],
     },
     "storage": {
+        "format_version": "scan.v1",
         "body_mode": "captured_entity_bytes",
         "max_body_bytes": 5 * 1024 * 1024,
         "max_body_store_bytes": 10 * 1024 * 1024 * 1024,
@@ -265,6 +285,7 @@ DEFAULTS: dict[str, Any] = {
         # "legacy_fragment" are applied selectively rather than to every URL.
         "mode": "raw",  # raw | legacy_fragment | js
         "escalation": {
+            "policy": "sampled",  # sampled | full
             # How many URLs per detected template pattern are probed
             # raw-versus-fuller before the whole pattern is escalated.
             # Sampling patterns, not every URL, is what keeps rendering an
@@ -275,6 +296,14 @@ DEFAULTS: dict[str, Any] = {
             # pattern would erase the saving sampling was meant to buy.
             "max_render_urls": 30,
             "max_render_seconds": 0,  # 0 = no wall-clock limit
+        },
+        "rendered_links": {
+            # Store immutable raw/rendered eligible-anchor observations. This
+            # never admits a route to the frontier or fetches it.
+            "store": False,
+            # Independently admit eligible rendered-only candidates through the
+            # normal frontier after scope/depth/query validation.
+            "crawl": False,
         },
         "browser": {
             # How long JavaScript may keep running after the page and its
@@ -357,6 +386,7 @@ RESULTS_AFFECTING: frozenset[str] = frozenset(
         "limits.max_response_bytes",
         "limits.max_url_length",
         "limits.max_crawl_seconds",
+        "limits.max_requests",
         # A short timeout turns slow pages into "no response"; the user agent and
         # headers change what a UA- or locale-adaptive site serves.
         "http.timeout_seconds",
@@ -388,9 +418,22 @@ RESULTS_AFFECTING: frozenset[str] = frozenset(
         "cache.mode",
         "cache.invalidate",
         "storage.body_mode",
+        "storage.format_version",
         "resources.fetch",
         "resources.max_requests",
         "resources.max_response_bytes",
+        "resources.graph.max_requests",
+        "resources.graph.max_bytes",
+        "resources.graph.max_bytes_per_resource",
+        "resources.graph.max_seconds",
+        "resources.graph.max_origins",
+        "resources.graph.max_redirects",
+        "resources.graph.max_nesting",
+        "evidence.content_area.include_selector",
+        "evidence.content_area.root_selector",
+        "evidence.content_area.exclude_tags",
+        "evidence.content_area.exclude_selectors",
+        "evidence.extraction_rules",
         "storage.max_body_bytes",
         "storage.max_body_store_bytes",
         "storage.min_free_bytes",
@@ -400,9 +443,12 @@ RESULTS_AFFECTING: frozenset[str] = frozenset(
         # docstring on why raw and rendered numbers are not comparable
         # unless the settings that produced each are recorded.
         "rendering.mode",
+        "rendering.escalation.policy",
         "rendering.escalation.sample_per_pattern",
         "rendering.escalation.max_render_urls",
         "rendering.escalation.max_render_seconds",
+        "rendering.rendered_links.store",
+        "rendering.rendered_links.crawl",
         "rendering.browser.script_timeout_seconds",
         "rendering.browser.viewport",
         "rendering.browser.resize_to_content",
@@ -426,10 +472,23 @@ RESULTS_AFFECTING: frozenset[str] = frozenset(
 # --config-help and, eventually, an MCP "describe settings" tool (#23) — so the three cannot drift
 # into different descriptions of the same setting. A test fails if a DEFAULTS path has no entry here.
 DESCRIPTIONS: dict[str, str] = {
+    "evidence.content_area.include_selector": "Optional CSS selector for included main-content regions.",
+    "evidence.content_area.root_selector": "Optional CSS root within which main content is extracted.",
+    "evidence.content_area.exclude_tags": "HTML element names excluded from the saved main-content signature.",
+    "evidence.content_area.exclude_selectors": "CSS selectors excluded from the saved main-content signature.",
+    "evidence.extraction_rules": "Bounded declarative extraction rules; no executable code or arbitrary regular expressions.",
     "resources.fetch": "SQLite only: opt in to fetching directly declared same-origin scripts and stylesheets; never follows CSS imports or JavaScript modules.",
     "resources.max_requests": "SQLite only: maximum resource HTTP attempts, including redirects and retries; independent of the page URL limit.",
     "resources.max_response_bytes": "SQLite only: maximum content-decoded bytes per resource response; total crawl time and body-store limits still apply.",
+    "resources.graph.max_requests": "scan.v2 only: bounded deduplicated declared-resource fetch count.",
+    "resources.graph.max_bytes": "scan.v2 only: total bytes accepted by the declared-resource graph.",
+    "resources.graph.max_bytes_per_resource": "scan.v2 only: maximum bytes accepted from one declared resource.",
+    "resources.graph.max_seconds": "scan.v2 only: resource graph wall-clock budget; 0 means no graph-specific limit.",
+    "resources.graph.max_origins": "scan.v2 only: maximum admitted resource origins.",
+    "resources.graph.max_redirects": "scan.v2 only: maximum redirects per declared resource.",
+    "resources.graph.max_nesting": "scan.v2 only: CSS import/url nesting depth.",
     "storage.body_mode": "SQLite only: captured_entity_bytes retains fetched HTML/DOM; off retains metadata only.",
+    "storage.format_version": "Explicit scan storage format: scan.v1 (default) or scan.v2 for optional graph/event extensions.",
     "storage.max_body_bytes": "SQLite only: maximum decoded bytes retained for one complete body.",
     "storage.max_body_store_bytes": "SQLite only: total unique encoded body bytes retained per scan.",
     "storage.min_free_bytes": "SQLite only: filesystem reserve; low space interrupts collection with a checkpoint.",
@@ -486,6 +545,10 @@ DESCRIPTIONS: dict[str, str] = {
     "limits.max_response_bytes": "Response bodies larger than this are truncated before parsing.",
     "limits.max_url_length": "URLs longer than this are not fetched.",
     "limits.max_crawl_seconds": "Wall-clock budget for the whole crawl; 0 means no limit.",
+    "limits.max_requests": (
+        "Total HTTP attempts for the crawl, including bootstrap, redirects and retries; 0 means "
+        "no total-attempt limit."
+    ),
     "http.timeout_seconds": "Per-request timeout in seconds.",
     "http.user_agent": "Request User-Agent string; empty uses the toolkit's identifiable default.",
     "http.headers": (
@@ -550,6 +613,7 @@ DESCRIPTIONS: dict[str, str] = {
         "'_escaped_fragment_' opt-in), or 'js' (execute JavaScript in a headless "
         "browser, selectively -- see rendering.escalation)."
     ),
+    "rendering.escalation.policy": "Sample template patterns or render every eligible URL within the independent URL/time budgets.",
     "rendering.escalation.sample_per_pattern": (
         "URLs probed raw-versus-fuller per detected template pattern before deciding "
         "whether the whole pattern needs escalation."
@@ -560,6 +624,14 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "rendering.escalation.max_render_seconds": (
         "Wall-clock budget for the escalation step; 0 means no limit."
+    ),
+    "rendering.rendered_links.store": (
+        "Store eligible a[href] route observations from static and rendered documents; "
+        "this records evidence only and never crawls discovered routes."
+    ),
+    "rendering.rendered_links.crawl": (
+        "Admit eligible rendered-link candidates through the normal bounded crawl frontier; "
+        "independent of rendered route evidence storage."
     ),
     "rendering.browser.script_timeout_seconds": (
         "How long JavaScript may keep running after the page and its subresources have "
@@ -777,8 +849,22 @@ def validate(config: dict[str, Any]) -> None:
             value = resources[name]
             if type(value) is not int or not 0 <= value <= 2**63 - 1:
                 raise ConfigError(f"resources.{name} must be a nonnegative SQLite-sized integer")
+        graph = resources["graph"]
+        if not isinstance(graph, dict):
+            raise ConfigError("resources.graph must be an object")
+        for name, value in graph.items():
+            if type(value) is not int or value < 0:
+                raise ConfigError(f"resources.graph.{name} must be a nonnegative integer")
+        if graph["max_requests"] < 1 or graph["max_bytes_per_resource"] < 1:
+            raise ConfigError(
+                "resources.graph request and per-resource byte limits must be positive"
+            )
+        if graph["max_origins"] < 1:
+            raise ConfigError("resources.graph.max_origins must be positive")
     if "storage" in config:
         storage = config["storage"]
+        if storage["format_version"] not in {"scan.v1", "scan.v2"}:
+            raise ConfigError("storage.format_version must be scan.v1 or scan.v2")
         if storage["body_mode"] not in {"off", "captured_entity_bytes"}:
             raise ConfigError("storage.body_mode must be off or captured_entity_bytes")
         for name in (
@@ -815,6 +901,8 @@ def validate(config: dict[str, Any]) -> None:
         )
     if limits["max_depth"] < 0:
         raise ConfigError("limits.max_depth cannot be negative")
+    if type(limits["max_requests"]) is not int or limits["max_requests"] < 0:
+        raise ConfigError("limits.max_requests must be a nonnegative integer")
     if limits["max_query_variants_per_path"] < 0:
         # 0 is the crawler's own "unlimited" (see spider.py's truthy check on this
         # value); a negative number is not a smaller budget, it makes every
@@ -827,9 +915,14 @@ def validate(config: dict[str, Any]) -> None:
         raise ConfigError("speed.concurrency must be at least 1")
 
     # A crawl with no budget at all runs forever on an infinite URL space.
-    if not limits["max_urls"] and not limits["max_depth"] and not limits["max_crawl_seconds"]:
+    if (
+        not limits["max_urls"]
+        and not limits["max_depth"]
+        and not limits["max_crawl_seconds"]
+        and not limits["max_requests"]
+    ):
         raise ConfigError(
-            "a crawl needs at least one budget: max_urls, max_depth or max_crawl_seconds"
+            "a crawl needs at least one budget: max_urls, max_depth, max_crawl_seconds or max_requests"
         )
 
     for rule in config["link_position"]["rules"]:
@@ -908,6 +1001,12 @@ def _validate_rendering(rendering: dict[str, Any]) -> None:
         )
 
     escalation = rendering["escalation"]
+    if type(rendering["rendered_links"]["store"]) is not bool:
+        raise ConfigError("rendering.rendered_links.store must be a boolean")
+    if type(rendering["rendered_links"]["crawl"]) is not bool:
+        raise ConfigError("rendering.rendered_links.crawl must be a boolean")
+    if escalation.get("policy", "sampled") not in {"sampled", "full"}:
+        raise ConfigError("rendering.escalation.policy must be sampled or full")
     if escalation["sample_per_pattern"] < 1:
         raise ConfigError("rendering.escalation.sample_per_pattern must be at least 1")
     if escalation["max_render_urls"] < 0:
@@ -1002,13 +1101,27 @@ def redact_sensitive_headers(headers: Any) -> Any:
     }
 
 
-def load(path: str | None = None, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Resolve the configuration: defaults, then file, then environment, then arguments.
+def load(
+    path: str | None = None,
+    overrides: dict[str, Any] | None = None,
+    *,
+    base_overrides: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Resolve defaults, project defaults, file, environment, then explicit overrides.
 
     The order is fixed and tested. Explicit arguments win because they are the
     most local statement of intent.
     """
     config = copy.deepcopy(DEFAULTS)
+
+    for setting, value in (base_overrides or {}).items():
+        if value is None:
+            continue
+        if isinstance(value, dict) and not isinstance(_flatten(DEFAULTS).get(setting), dict):
+            raise ConfigError(
+                f"base override {setting!r} is a mapping; use a dotted setting path instead"
+            )
+        _set_path(config, setting, value)
 
     if path:
         try:

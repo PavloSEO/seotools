@@ -40,5 +40,9 @@ def policy_for_config(config: dict[str, Any]) -> dict[str, Any]:
     if "storage" not in config:
         return dict(NO_BODY_RETENTION)
     return validate_policy(
-        {"policy_version": "scan_retention.v1", **config["storage"], "automatic_delete": False}
+        {
+            "policy_version": "scan_retention.v1",
+            **{key: value for key, value in config["storage"].items() if key != "format_version"},
+            "automatic_delete": False,
+        }
     )

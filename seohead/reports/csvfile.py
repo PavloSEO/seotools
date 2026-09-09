@@ -21,8 +21,9 @@ from typing import Any
 def _scope_rows(summary: dict[str, Any]) -> list[list[Any]]:
     """Return run evidence separately from task-tracker finding rows (#574)."""
     from seohead.reports.client_findings import check_title
+    from seohead.reports.evidence_summary import rows as evidence_rows
 
-    rows: list[list[Any]] = []
+    rows: list[list[Any]] = evidence_rows(summary)
     if summary.get("crawl_valid") is False:
         rows.append(
             [
@@ -69,6 +70,9 @@ def _write_project_coverage(summary: dict[str, Any], path: pathlib.Path) -> None
                 "Item",
                 "Kind",
                 "Execution",
+                "Priority",
+                "Priority origin",
+                "Priority reason",
                 "State",
                 "Attempt",
                 "Complete",
@@ -94,6 +98,9 @@ def _write_project_coverage(summary: dict[str, Any], path: pathlib.Path) -> None
                     neutralize_formula(item.get("title", "")),
                     neutralize_formula(item.get("kind", "")),
                     neutralize_formula(item.get("execution_kind", "")),
+                    neutralize_formula(item.get("priority", "")),
+                    neutralize_formula(item.get("priority_origin", "")),
+                    neutralize_formula(item.get("priority_reason", "")),
                     neutralize_formula(item.get("state", "")),
                     neutralize_formula(item.get("attempt_status", "")),
                     item.get("complete", ""),

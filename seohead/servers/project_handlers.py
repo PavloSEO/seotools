@@ -43,13 +43,33 @@ def project_checklist_init(
 
 def project_checklist_update(directory: str, item: dict, expected_revision: int) -> dict[str, Any]:
     """Update one checklist definition without executing it."""
-    return update_item(directory, item=item, expected_revision=expected_revision)
+    from seohead.projects.runtime import resolve_item_scope
+
+    if not isinstance(item, dict):
+        raise ValueError("item must be an object")
+    target, local_id = resolve_item_scope(directory, item.get("id"))
+    return update_item(target, item={**item, "id": local_id}, expected_revision=expected_revision)
 
 
 def project_checklist_record(
     directory: str, item_id: str, record: dict, expected_revision: int
 ) -> dict[str, Any]:
     """Record supplied evidence for one item without running its operation."""
+    from seohead.projects.runtime import resolve_item_scope
+
+    target, local_id = resolve_item_scope(directory, item_id)
     return record_execution(
-        directory, item_id=item_id, record=record, expected_revision=expected_revision
+        target, item_id=local_id, record=record, expected_revision=expected_revision
     )
+
+
+def project_priorities(
+    directory: str,
+    policy: dict | None = None,
+    apply: bool = False,
+    expected_revision: int | None = None,
+) -> dict[str, Any]:
+    """Preview or explicitly apply an offline priority policy."""
+    from seohead.projects.priorities import project_priorities as core
+
+    return core(directory, policy=policy, apply=apply, expected_revision=expected_revision)

@@ -224,6 +224,12 @@ def compare(
             )
             row[bucket_name] += 1
 
+    # The established warning text remains the compatibility surface for older
+    # callers.  The additive rows preserve the individual bases (scope,
+    # configuration, representation, saved corpus and provider) so a report
+    # cannot flatten an unknown basis into an apparent apples-to-apples diff.
+    from .evidence_contract import comparison_compatibility
+
     return {
         "schema_version": "compare.v1",
         "before": {
@@ -235,6 +241,7 @@ def compare(
             "urls_crawled": len(after_urls),
         },
         "warnings": preflight(before, after),
+        "compatibility": comparison_compatibility(before, after),
         "summary": {
             "entered": len(entered),
             "left": len(left),

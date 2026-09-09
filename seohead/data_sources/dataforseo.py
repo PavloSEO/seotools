@@ -31,6 +31,7 @@ from seohead.data_sources.credentials import (
     dataforseo_login,
     dataforseo_password,
 )
+from seohead.data_sources.http import open_no_redirect
 
 PROD_BASE = "https://api.dataforseo.com/"
 SANDBOX_BASE = "https://sandbox.dataforseo.com/"
@@ -73,6 +74,7 @@ ENDPOINTS = {
     "keyword_ideas": "v3/dataforseo_labs/google/keyword_ideas/live",
     "keyword_difficulty": "v3/dataforseo_labs/google/bulk_keyword_difficulty/live",
     "serp": "v3/serp/google/organic/live/advanced",
+    "backlinks_summary": "v3/backlinks/summary/live",
 }
 
 
@@ -155,7 +157,7 @@ class DataForSEOClient:
             )
             try:
                 # The request URL is built from the fixed HTTPS provider base.
-                with urllib.request.urlopen(request, timeout=TIMEOUT) as response:  # nosec B310
+                with open_no_redirect(request, timeout=TIMEOUT) as response:
                     raw = response.read().decode("utf-8")
                     try:
                         return json.loads(raw)
@@ -201,7 +203,7 @@ class DataForSEOClient:
         url = self.base + "v3/appendix/user_data"
         request = urllib.request.Request(url, headers={"Authorization": self._auth})
         # The request URL is built from the fixed HTTPS provider base.
-        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:  # nosec B310
+        with open_no_redirect(request, timeout=TIMEOUT) as response:
             body = json.loads(response.read().decode("utf-8"))
         info = ((body.get("tasks") or [{}])[0].get("result") or [{}])[0]
         return {
@@ -488,4 +490,79 @@ def serp(
             }
             for i in organic
         ],
+    }
+
+
+def backlinks_summary(
+    target: str,
+    *,
+    enabled: bool = False,
+    account_eligible: bool = False,
+    production_approved: bool = False,
+    cost_approved: bool = False,
+    spend_ceiling_usd: float | None = None,
+    cache_key: str | None = None,
+    env: str | None = None,
+    client: DataForSEOClient | None = None,
+) -> dict:
+    """Optional backlink-index summary outside every default crawl and audit path.
+
+    The adapter is deliberately disabled until the operator records account eligibility, an
+    approved production/cost decision, and a local cache key.  It returns a bounded summary,
+    never an unbounded backlink export.
+    """
+    if not target:
+        raise ValueError("target required")
+    requested_env = (env or "sandbox").lower()
+    if not enabled:
+        return {
+            "ok": False,
+            "state": "skipped",
+            "reason": "backlink adapter is disabled by default",
+        }
+    if not account_eligible or not cache_key:
+        return {
+            "ok": False,
+            "state": "skipped",
+            "reason": "account eligibility and an explicit local cache key are required",
+        }
+    if requested_env == "prod" and (not production_approved or not cost_approved):
+        return {
+            "ok": False,
+            "state": "skipped",
+            "reason": "production backlink calls require explicit production and cost approval",
+        }
+    if spend_ceiling_usd is not None and (
+        not isinstance(spend_ceiling_usd, (int, float)) or spend_ceiling_usd < 0
+    ):
+        raise ValueError("spend_ceiling_usd must be a non-negative number")
+    try:
+        source = client or DataForSEOClient(env=requested_env)
+        items, errors, cost, failed = _run(
+            source,
+            "backlinks_summary",
+            [{"target": target, "internal_list_limit": 0, "backlinks_limit": 0}],
+            1,
+        )
+    except MissingCredential as exc:
+        return {"ok": False, "state": "not_configured", "error": str(exc)}
+    except DataForSEOError as exc:
+        return {"ok": False, "state": "failed", "error": exc.message, "status": exc.status}
+    if spend_ceiling_usd is not None and cost > spend_ceiling_usd:
+        return {
+            "ok": False,
+            "state": "partial",
+            "error": "provider-reported cost exceeds the declared spend ceiling",
+            "cost_usd": cost,
+        }
+    return {
+        "ok": not failed,
+        "state": "complete" if not failed else "failed",
+        "env": source.env,
+        "operation": "backlinks_summary",
+        "api_version": "v3",
+        "cache_key": cache_key,
+        "cost_usd": cost,
+        "errors": errors,
+        "summary": items,
     }

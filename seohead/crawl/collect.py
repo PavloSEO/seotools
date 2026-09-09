@@ -485,6 +485,7 @@ def fetch_one(
     than only once every attempt in this call has already failed (#196).
     """
     record = PageRecord(url=url)
+    observed_protocol: str | None = None
     capture_started = None
     response = None
     sent_headers = {"User-Agent": user_agent or UA, **(extra_headers or {})}
@@ -582,6 +583,8 @@ def fetch_one(
                     name == "set-cookie" and value for name, value in header_pairs(final_headers)
                 )
                 or any(name == "cookie" and value for name, value in request_pairs),
+                http_version=observed_protocol,
+                timing_state="partial" if record.response_time is not None else "unavailable",
             )
         )
 
@@ -676,6 +679,7 @@ def fetch_one(
                             if isinstance(exc, EntityDecodeError):
                                 capture_failure_reason = "fetch_failed"
                             captured_text = ""
+            observed_protocol = str(getattr(response, "http_version", "") or "") or None
             break
         except BlockedRedirectError as exc:
             # The origin answered in full — this is a redirect our own guard refused to

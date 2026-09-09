@@ -13,7 +13,8 @@ from pathlib import Path
 
 from scripts.doc_commands import extract_commands, to_argv
 from seohead import cli
-from seohead.storage import read_audit
+from seohead.storage import open_scan, read_audit
+from tests.evidence_contract_assertions import assert_saved_contract, semantic_audit
 from tests.test_scan_artifact_office import frozen_office_clock as frozen_office_clock
 from tests.test_scan_reanalysis_integration import (
     MIT_SYNTHETIC_HTML,
@@ -197,7 +198,11 @@ def test_offline_saved_scan_operator_workflow(tmp_path, monkeypatch, capsys, fro
             "b" * 40,
         )
         assert reanalysis["source_kind"] == "reanalysis" and reanalysis["audit_available"] is True
-        assert read_audit(derived)["issues"] == source_audit["issues"]
+        derived_audit = read_audit(derived)
+        with open_scan(source) as source_con, open_scan(derived) as derived_con:
+            assert_saved_contract(source_audit, source_con)
+            assert_saved_contract(derived_audit, derived_con)
+        assert semantic_audit(derived_audit)["issues"] == semantic_audit(source_audit)["issues"]
         assert _cli(capsys, "scan", "inspect", "--input", str(derived))["rows"]
         assert _cli(capsys, "scan", "list", "--directory", str(tmp_path))["total"] == 3
 

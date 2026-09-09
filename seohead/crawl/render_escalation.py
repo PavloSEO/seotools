@@ -215,7 +215,17 @@ def escalate(
     is injectable so a test can advance a fake one from inside a fake ``render_fetch`` instead
     of sleeping in real time.
     """
-    urls = [p.url for p in pages]
+    full_render = rendering_config.get("escalation", {}).get("policy", "sampled") == "full"
+    urls = [
+        p.url
+        for p in pages
+        if not full_render
+        or (
+            getattr(p, "is_html", False)
+            and isinstance(getattr(p, "status_code", None), int)
+            and 200 <= p.status_code < 300
+        )
+    ]
     result = EscalationResult(mode=rendering_config.get("mode", "raw"))
     for u in urls:
         result.representations[u] = "static"
@@ -233,7 +243,12 @@ def escalate(
     escalated: set[str] = set()
     probed_patterns: set[str] = set()
     unprobed_reasons: dict[str, str] = {}
-    for pattern, sample_urls in samples.items():
+    full_render = escalation_cfg.get("policy", "sampled") == "full"
+    if full_render:
+        escalated = set(samples)
+        probed_patterns = set(samples)
+        result.patterns_sampled = 0
+    for pattern, sample_urls in () if full_render else samples.items():
         if not time_left():
             break
         needs_it = False

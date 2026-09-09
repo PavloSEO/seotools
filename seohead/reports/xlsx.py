@@ -265,6 +265,9 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
                 "Item",
                 "Kind",
                 "Execution",
+                "Priority",
+                "Priority origin",
+                "Priority reason",
                 "State",
                 "Attempt",
                 "Complete",
@@ -286,6 +289,9 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
                     neutralize_formula(item.get("title", "")),
                     neutralize_formula(item.get("kind", "")),
                     neutralize_formula(item.get("execution_kind", "")),
+                    neutralize_formula(item.get("priority", "")),
+                    neutralize_formula(item.get("priority_origin", "")),
+                    neutralize_formula(item.get("priority_reason", "")),
                     neutralize_formula(item.get("state", "")),
                     neutralize_formula(item.get("attempt_status", "")),
                     item.get("complete", ""),
@@ -298,7 +304,18 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
                 ]
             )
         if ws.max_row > 7:
-            ws.auto_filter.ref = f"A7:M{ws.max_row}"
-        _autofit(ws, {2: 45, 11: 70, 12: 70, 13: 70})
+            ws.auto_filter.ref = f"A7:P{ws.max_row}"
+        _autofit(ws, {2: 45, 7: 60, 14: 70, 15: 70, 16: 70})
+
+    from seohead.reports.evidence_summary import rows as evidence_rows
+
+    evidence = evidence_rows(summary)
+    if evidence:
+        evidence_sheet = wb.create_sheet("Evidence coverage")
+        evidence_sheet.append(["Kind", "Measurement", "State", "Scope or reason"])
+        for row in evidence:
+            evidence_sheet.append([neutralize_formula(value) for value in row])
+        evidence_sheet.freeze_panes = "A2"
+        evidence_sheet.auto_filter.ref = evidence_sheet.dimensions
 
     wb.save(path)

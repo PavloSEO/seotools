@@ -86,6 +86,7 @@ COMMANDS = (
     "scan-list",
     "scan-inspect",
     "scan-status",
+    "scan-rendered-routes",
     "scan-snapshot",
     "scan-pin",
     "scan-prune",
@@ -96,6 +97,26 @@ COMMANDS = (
     "project-checklist-init",
     "project-checklist-update",
     "project-checklist-record",
+    "project-priorities",
+    "project-policy",
+    "project-prepare",
+    "project-start",
+    "skill-list",
+    "skill-show",
+    "scenario-show",
+    "provider-replay",
+    "provider-auth",
+    "provider-registry",
+    "provider-verify",
+    "provider-collect",
+    "provider-join",
+    "inspect-url",
+    "audit-workflow",
+    "tool-catalog",
+    "scan-evidence",
+    "scan-extract",
+    "scan-requeue",
+    "scan-import-urls",
 )
 
 # Tools whose complete direct CLI input can be supplied by one --url flag.
@@ -211,6 +232,34 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
             value = getattr(args, flag, None)
             if value is not None:
                 kw[flag] = value
+    elif cmd in {"scan-evidence", "scan-extract", "scan-requeue", "scan-import-urls"}:
+        for name in (
+            "input_path",
+            "section",
+            "limit",
+            "offset",
+            "where",
+            "backup_path",
+            "from_scan",
+            "urls_file",
+            "url",
+            "representation",
+        ):
+            if getattr(args, name, None) is not None:
+                kw[name] = getattr(args, name)
+    elif cmd == "inspect-url":
+        if getattr(args, "url", None):
+            kw["url"] = args.url
+    elif cmd == "audit-workflow":
+        for name in ("directory", "action", "target", "out", "fmt"):
+            if getattr(args, name, None) is not None:
+                kw[name] = getattr(args, name)
+    elif cmd == "tool-catalog":
+        for name in ("query", "limit"):
+            if getattr(args, name, None) is not None:
+                kw[name] = getattr(args, name)
+        if getattr(args, "include_arguments", False):
+            kw["include_arguments"] = True
     elif cmd == "parse":
         if args.url:
             kw["url"] = args.url
@@ -232,6 +281,10 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
             kw["urls_file"] = args.urls_file
         if getattr(args, "project", None):
             kw["project"] = args.project
+        if getattr(args, "approve_large_crawl", False):
+            kw["approve_large_crawl"] = True
+        if getattr(args, "user_agent", None):
+            kw["user_agent"] = args.user_agent
         for flag in (
             "config",
             "max_urls",
@@ -302,6 +355,10 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
         "project-checklist-init",
         "project-checklist-update",
         "project-checklist-record",
+        "project-priorities",
+        "project-policy",
+        "project-prepare",
+        "project-start",
     }:
         for name in ("directory", "target", "label", "expected_site"):
             value = getattr(args, name, None)
@@ -311,6 +368,31 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
             kw["expected_revision"] = args.expected_revision
         if getattr(args, "item_id", None) is not None:
             kw["item_id"] = args.item_id
+        if cmd in {"project-priorities", "project-policy"} and getattr(args, "apply", False):
+            kw["apply"] = True
+        if getattr(args, "approve_large_crawl", False):
+            kw["approve_large_crawl"] = True
+        if getattr(args, "producer_build", None):
+            kw["producer_build"] = args.producer_build
+    elif cmd in {"skill-show", "scenario-show"}:
+        if getattr(args, "name", None) or getattr(args, "playbook_name", None):
+            kw["name"] = getattr(args, "name", None) or args.playbook_name
+    elif cmd == "provider-replay":
+        for name in ("input_path", "evidence_file", "out_dir", "url_column"):
+            if getattr(args, name, None) is not None:
+                kw[name] = getattr(args, name)
+        if getattr(args, "review_external_only", False):
+            kw["review_external_only"] = True
+    elif cmd == "provider-auth":
+        for name in ("provider", "action", "grant_file"):
+            if getattr(args, name, None) is not None:
+                kw[name] = getattr(args, name)
+        if getattr(args, "confirm", False):
+            kw["confirm"] = True
+    elif cmd in {"provider-verify", "provider-collect"}:
+        for name in ("provider", "operation", "artifact_dir"):
+            if getattr(args, name, None) is not None:
+                kw[name] = getattr(args, name)
     elif cmd == "boilerplate-report":
         if getattr(args, "scan", None):
             kw["scan"] = args.scan
@@ -499,7 +581,7 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
             value = getattr(args, name, None)
             if value is not None:
                 kw[name] = value
-    if cmd == "scan-status" and getattr(args, "input_path", None):
+    if cmd in {"scan-status", "scan-rendered-routes"} and getattr(args, "input_path", None):
         kw["input_path"] = args.input_path
     if cmd == "scan-snapshot":
         if getattr(args, "input_path", None):
@@ -615,11 +697,20 @@ def _crawl_overrides(kwargs: dict[str, Any]) -> dict[str, Any]:
         ("speed.min_delay_seconds", kwargs.get("min_delay")),
         ("speed.concurrency", kwargs.get("concurrency")),
         ("robots.policy", kwargs.get("robots")),
+        ("http.user_agent", kwargs.get("user_agent")),
         ("output.dir", kwargs.get("out_dir")),
     ):
         if value is not None:
             overrides[path] = value
     return overrides
+
+
+def _project_crawl_defaults(kwargs: dict[str, Any]) -> dict | None:
+    if not kwargs.get("project"):
+        return None
+    from seohead.projects.runtime import project_policy
+
+    return project_policy(kwargs["project"])["policy"]["crawl_overrides"]
 
 
 def _print_effective_rate(kwargs: dict[str, Any]) -> None:
@@ -638,7 +729,11 @@ def _print_effective_rate(kwargs: dict[str, Any]) -> None:
         # The same overrides the handler will resolve, in the same precedence, or
         # the printed rate describes a run that is not the one about to happen --
         # which is worse than printing nothing, because it is believed.
-        resolved = crawl_config.load(kwargs.get("config"), overrides=_crawl_overrides(kwargs))
+        resolved = crawl_config.load(
+            kwargs.get("config"),
+            overrides=_crawl_overrides(kwargs),
+            base_overrides=_project_crawl_defaults(kwargs),
+        )
     except crawl_config.ConfigError:
         return  # the handler call below reports the same error to the user
     rate = crawl_config.effective_request_rate(resolved)
@@ -651,6 +746,7 @@ def _print_effective_rate(kwargs: dict[str, Any]) -> None:
 BUDGET_STOPS = {
     "url_limit": "The URL budget (limits.max_urls)",
     "duration_limit": "The crawl-time budget (limits.max_crawl_seconds)",
+    "request_limit": "The total HTTP-attempt budget (limits.max_requests)",
 }
 
 
@@ -753,7 +849,11 @@ def _crawl_progress(kwargs: dict[str, Any]) -> CrawlProgress | None:
 
             resolved = resume_inputs(resume)["settings"]
         else:
-            resolved = crawl_config.load(kwargs.get("config"), overrides=_crawl_overrides(kwargs))
+            resolved = crawl_config.load(
+                kwargs.get("config"),
+                overrides=_crawl_overrides(kwargs),
+                base_overrides=_project_crawl_defaults(kwargs),
+            )
     except (crawl_config.ConfigError, OSError, ValueError, sqlite3.Error):
         return None
     stream = sys.stderr
@@ -797,7 +897,55 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
             help="verify bot identities with forward-confirmed reverse DNS "
             "(performs network lookups)",
         )
+    if cmd in {"scan-evidence", "scan-extract", "scan-requeue", "scan-import-urls"}:
+        _source_flag(sub, "--scan", dest="input_path", help="existing SQLite artifact")
+    if cmd == "scan-evidence":
+        sub.add_argument(
+            "--section",
+            choices=(
+                "capabilities",
+                "corpus",
+                "structured",
+                "routes",
+                "resources",
+                "timeline",
+                "relations",
+                "browser",
+                "extraction",
+            ),
+        )
+        sub.add_argument("--limit", type=int)
+        sub.add_argument("--offset", type=int)
+    if cmd == "scan-extract":
+        _source_flag(sub, "--url", help="optional exact logical URL")
+        sub.add_argument("--representation", choices=("static", "rendered", "legacy_fragment"))
+        sub.add_argument("--limit", type=int)
+    if cmd in {"scan-requeue", "scan-import-urls"}:
+        _source_flag(sub, "--backup", dest="backup_path", help="new mandatory verified backup path")
+    if cmd == "scan-requeue":
+        _source_flag(sub, "--where", help="restricted predicate over saved URL/page fields")
+        _source_flag(sub, "--from-scan", help="optional alternate SQLite selection source")
+    if cmd == "scan-import-urls":
+        _source_flag(sub, "--urls-file", help="explicit external TXT/CSV/XLSX/XML URL list")
+    if cmd == "inspect-url":
+        _source_flag(sub, "--url", help="one page URL")
+    if cmd == "audit-workflow":
+        _source_flag(sub, "--directory", help="project workspace")
+        sub.add_argument("--action", choices=("status", "start", "prepare", "report"))
+        _source_flag(sub, "--target", help="target for a new project")
+        sub.add_argument("--out")
+        sub.add_argument("--format", dest="fmt", choices=("md", "csv", "xlsx", "docx", "json"))
+    if cmd == "tool-catalog":
+        sub.add_argument("--query")
+        sub.add_argument("--limit", type=int)
+        sub.add_argument("--include-arguments", action="store_true")
     if cmd == "crawl-site":
+        sub.add_argument(
+            "--approve-large-crawl",
+            action="store_true",
+            help="approve exceeding project budgets",
+        )
+        sub.add_argument("--user-agent", help="request identity or googlebot diagnostic preset")
         _source_flag(
             sub,
             "--project",
@@ -811,7 +959,7 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
         _source_flag(
             sub,
             "--urls-file",
-            help="TXT, CSV, XLSX, or XML URL list: list mode, no discovery",
+            help="list mode: TXT/CSV/XLSX/XML URL file",
         )
         sub.add_argument("--max-urls", type=int, help="URL budget (default 200)")
         sub.add_argument(
@@ -857,17 +1005,14 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
             "--max-urls-per-second",
             type=float,
             metavar="N",
-            help="cap the request rate to one host, the way a site owner states it "
-            "(sets speed.min_delay_seconds to 1/N). Parity with 'sf run'.",
+            help="requests/second per host (sets speed.min_delay_seconds)",
         )
         sub.add_argument(
             "--set",
             action="append",
             dest="set_settings",
             metavar="PATH=VALUE",
-            help="set any crawler setting without writing a config file, e.g. "
-            "--set speed.concurrency=4 --set scope.include_patterns=/blog/,/docs/. "
-            "Repeatable; applied after --config. See --config-help for every path.",
+            help="set PATH=VALUE after --config; repeatable; paths: --config-help",
         )
         # Kept working for scripts written before --config existed, but no longer advertised in
         # --help: depth and delay are exactly the kind of setting #13's config file exists for, and
@@ -1074,7 +1219,7 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
         sub.add_argument("--offset", type=int)
         sub.add_argument("--limit", type=int)
         _source_flag(sub, "--project", help="project directory whose scans/ directory is listed")
-    if cmd in {"scan-inspect", "scan-status", "scan-snapshot", "scan-pin"}:
+    if cmd in {"scan-inspect", "scan-status", "scan-rendered-routes", "scan-snapshot", "scan-pin"}:
         _source_flag(sub, "--input", dest="input_path", required=False, help="scan SQLite file")
     if cmd == "scan-inspect":
         sub.add_argument("--table")
@@ -1102,7 +1247,12 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
         _source_flag(sub, "--directory", help="project directory")
     if cmd == "project-open":
         sub.add_argument("--expected-site", help="expected target host")
-    if cmd in {"project-checklist-init", "project-checklist-update", "project-checklist-record"}:
+    if cmd in {
+        "project-checklist-init",
+        "project-checklist-update",
+        "project-checklist-record",
+        "project-priorities",
+    }:
         _source_flag(sub, "--directory", help="project directory")
         sub.add_argument(
             "--expected-revision",
@@ -1110,6 +1260,47 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
             type=int,
             help="current checklist revision required before a write",
         )
+    if cmd in {"project-priorities", "project-policy"}:
+        sub.add_argument(
+            "--apply",
+            action="store_true",
+            help="apply the previewed policy with an expected revision",
+        )
+    if cmd in {"project-policy", "project-prepare", "project-start"}:
+        _source_flag(sub, "--directory", help="project directory")
+    if cmd == "project-policy":
+        sub.add_argument(
+            "--expected-revision", type=int, help="current policy revision, zero for a new policy"
+        )
+    if cmd in {"project-prepare", "project-start"}:
+        sub.add_argument("--approve-large-crawl", action="store_true")
+        sub.add_argument(
+            "--producer-build", help="explicit producer revision when working outside a clean build"
+        )
+    if cmd == "project-start":
+        _source_flag(sub, "--target", help="site URL for the new project")
+    if cmd in {"skill-show", "scenario-show"}:
+        _source_flag(sub, "--name", help="full playbook identifier or unambiguous name")
+    if cmd == "provider-replay":
+        _source_flag(sub, "--scan", dest="input_path", help="saved scan")
+        _source_flag(sub, "--evidence-file", help="private saved provider collection")
+        _source_flag(sub, "--out-dir", help="private local join output directory")
+        sub.add_argument("--url-column")
+        sub.add_argument("--review-external-only", action="store_true")
+    if cmd == "provider-auth":
+        _source_flag(sub, "--provider", help="OAuth provider (gsc)")
+        sub.add_argument(
+            "--action", choices=("status", "connect", "refresh", "disconnect", "revoke")
+        )
+        _source_flag(
+            sub, "--grant-file", help="private bounded JSON grant obtained through provider consent"
+        )
+        sub.add_argument("--confirm", action="store_true")
+    if cmd in {"provider-verify", "provider-collect"}:
+        _source_flag(sub, "--provider", help="provider registry identifier")
+    if cmd == "provider-collect":
+        _source_flag(sub, "--operation", help="declared read-only provider operation")
+        _source_flag(sub, "--artifact-dir", help="restricted local raw-evidence directory")
     if cmd == "project-checklist-record":
         _source_flag(sub, "--item-id", help="checklist item identifier to record")
     if cmd == "scan-body-diff":
@@ -1234,7 +1425,20 @@ def build_parser() -> argparse.ArgumentParser:
         _add_flags(sp, cmd)
     scan = subs.add_parser("scan", help="saved SQLite scan history")
     scan_subs = scan.add_subparsers(dest="scan_command", metavar="<action>", required=True)
-    for action in ("list", "inspect", "status", "snapshot", "pin", "prune", "body-diff"):
+    for action in (
+        "list",
+        "inspect",
+        "status",
+        "rendered-routes",
+        "snapshot",
+        "pin",
+        "prune",
+        "body-diff",
+        "evidence",
+        "extract",
+        "requeue",
+        "import-urls",
+    ):
         cmd = "scan-" + action
         sp = scan_subs.add_parser(action, help=f"run {cmd}")
         _add_flags(sp, cmd)
@@ -1247,10 +1451,26 @@ def build_parser() -> argparse.ArgumentParser:
         "checklist-init",
         "checklist-update",
         "checklist-record",
+        "priorities",
+        "policy",
+        "prepare",
+        "start",
     ):
         cmd = "project-" + action
         sp = project_subs.add_parser(action, help=f"run {cmd}")
         _add_flags(sp, cmd)
+    skill = subs.add_parser("skill", help="packaged method playbooks")
+    skill_actions = skill.add_subparsers(dest="skill_command", required=True)
+    for action in ("list", "show"):
+        leaf = skill_actions.add_parser(action)
+        _add_flags(leaf, "skill-" + action)
+        if action == "show":
+            leaf.add_argument("playbook_name", nargs="?")
+    scenario = subs.add_parser("scenario", help="packaged workflow scenarios")
+    scenario_actions = scenario.add_subparsers(dest="scenario_command", required=True)
+    leaf = scenario_actions.add_parser("show")
+    _add_flags(leaf, "scenario-show")
+    leaf.add_argument("playbook_name", nargs="?")
     sf = subs.add_parser("sf", help="Screaming Frog crawl audit (run | tasks | doctor)")
     sf.add_argument(
         "sf_args", nargs=argparse.REMAINDER, help="arguments forwarded to the sf-analyzer CLI"
@@ -1259,7 +1479,13 @@ def build_parser() -> argparse.ArgumentParser:
     _source_flag(reanalyze, "--input", dest="input_path", required=True, help="source SQLite scan")
     reanalyze.add_argument("--out", required=True, help="new derived SQLite scan")
     reanalyze.add_argument("--producer-build", metavar="SHA", help="current analyzer source build")
-    subs.add_parser("mcp", help="run the MCP server (stdio)")
+    mcp = subs.add_parser("mcp", help="run the MCP server (stdio)")
+    mcp.add_argument(
+        "--profile", choices=("full", "audit", "infra", "quick-check", "router"), default="full"
+    )
+    mcp.add_argument(
+        "--no-progress", action="store_true", help="disable optional MCP progress notifications"
+    )
     return p
 
 
@@ -1271,6 +1497,10 @@ def main(argv: list[str] | None = None) -> int:
         cmd = "scan-" + args.scan_command
     if cmd == "project":
         cmd = "project-" + args.project_command
+    if cmd == "skill":
+        cmd = "skill-" + args.skill_command
+    if cmd == "scenario":
+        cmd = "scenario-" + args.scenario_command
     if not cmd:
         build_parser().print_help()
         return 0
@@ -1285,7 +1515,12 @@ def main(argv: list[str] | None = None) -> int:
         # mcp_main() itself catches a missing optional SDK and returns 1 after a stderr
         # diagnostic (#366), so the direct `python -m seohead.servers.mcp_server` entry
         # point advertised in that module's docstring gives the same outcome as this one.
-        return mcp_main()
+        if args.profile == "full" and not args.no_progress:
+            return mcp_main()
+        return mcp_main(profile=args.profile, progress_notifications=not args.no_progress)
+    from seohead.terminal_progress import show_banner
+
+    show_banner(cmd, quiet=getattr(args, "quiet", False))
     if cmd == "crawl-site" and getattr(args, "config_help", False):
         _print_config_help()
         return 0

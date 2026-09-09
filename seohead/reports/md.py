@@ -42,9 +42,24 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
         detail = f" {'; '.join(bits)}" if bits else ""
         out += [f"> **Partial crawl — scope is limited.**{detail}", ""]
 
+    from seohead.reports.evidence_summary import rows as evidence_rows
+
+    evidence = evidence_rows(summary)
+    if evidence:
+        out += [
+            "## Saved evidence coverage",
+            "",
+            "| Kind | Measurement | State | Scope or reason |",
+            "|---|---|---|---|",
+        ]
+        out.extend(
+            "| " + " | ".join(_coverage_field(value) for value in row) + " |" for row in evidence
+        )
+        out.append("")
+
     coverage = summary.get("project_coverage")
     if isinstance(coverage, dict):
-        from seohead.reports.project_coverage import value_text
+        from seohead.reports.project_coverage import priority_text, value_text
 
         project = coverage.get("project") or {}
         status = coverage.get("status") or {}
@@ -77,15 +92,16 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
         items = status.get("items") or []
         if items:
             out += [
-                "| Item | Kind | Execution | State | Attempt | Complete | Blocked by | Enabled | Scope | Measurement | Reason |",
-                "|---|---|---|---|---|---|---|---|---|---|---|",
+                "| Item | Kind | Execution | Priority | State | Attempt | Complete | Blocked by | Enabled | Scope | Measurement | Reason |",
+                "|---|---|---|---|---|---|---|---|---|---|---|---|",
             ]
             for item in items:
                 out.append(
-                    "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |".format(
+                    "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |".format(
                         _coverage_field(item.get("title") or item.get("id")),
                         _coverage_field(item.get("kind")),
                         _coverage_field(item.get("execution_kind")),
+                        _coverage_field(priority_text(item)),
                         _coverage_field(item.get("state")),
                         _coverage_field(item.get("attempt_status")),
                         _coverage_field(item.get("complete")),

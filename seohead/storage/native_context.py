@@ -7,6 +7,40 @@ from typing import Any
 from . import ScanError, _insert
 
 
+def _validate_extraction_rule_evidence(con: Any, item: dict[str, Any], payload: Any) -> None:
+    """Validate closed rule results and bind their envelope to one document."""
+    from seohead.tools.extraction_rules import validate_result
+
+    try:
+        validate_result(payload)
+    except ValueError as exc:
+        raise ScanError("native extraction rule evidence is invalid") from exc
+    if (
+        len(payload["rules"]) > 100
+        or item["completeness"] != payload["state"]
+        or item["reason"] != payload["reason"]
+    ):
+        raise ScanError("native extraction rule evidence envelope disagrees")
+    prefix, marker, suffix = item["item_key"].partition(":document:")
+    if not prefix.startswith("page:") or marker != ":document:" or ":representation:" not in suffix:
+        raise ScanError("native extraction rule evidence key is invalid")
+    document_text, representation = suffix.split(":representation:", 1)
+    try:
+        page_url_id, document_id = int(prefix[5:]), int(document_text)
+    except ValueError as exc:
+        raise ScanError("native extraction rule evidence key is invalid") from exc
+    if (
+        page_url_id < 1
+        or document_id < 1
+        or representation != payload["representation"]
+        or not con.execute(
+            "SELECT 1 FROM documents WHERE document_id=? AND url_id=? AND representation=?",
+            (document_id, page_url_id, representation),
+        ).fetchone()
+    ):
+        raise ScanError("native extraction rule evidence binds the wrong document")
+
+
 def validate_context(
     con: Any, item: dict[str, Any], *, sitemap_roots: set[int] | None = None
 ) -> None:
@@ -34,10 +68,68 @@ def validate_context(
     if item["kind"] in sitemaps.KINDS:
         sitemaps.validate_context(con, item, payload, sitemap_roots)
         return
+    if item["kind"] == "render_phase_summary":
+        from .render_summary import validate
+
+        validate(payload)
+        if (
+            not item["item_key"].startswith("phase:")
+            or item["completeness"] != "complete"
+            or item["reason"]
+        ):
+            raise ScanError("invalid render phase summary envelope")
+        return
+    if item["kind"] == "render_elapsed":
+        if (
+            not isinstance(payload, dict)
+            or set(payload) != {"schema_version", "seconds", "active"}
+            or payload["schema_version"] != "render_elapsed.v1"
+            or type(payload["seconds"]) not in {int, float}
+            or not math.isfinite(payload["seconds"])
+            or payload["seconds"] < 0
+            or type(payload["active"]) is not bool
+            or item["item_key"] != "run"
+            or item["completeness"] != "complete"
+            or item["reason"]
+        ):
+            raise ScanError("native render elapsed context is invalid")
+        return
     if item["kind"] == "resource_inventory":
         from .resources import validate_inventory_context
 
         validate_inventory_context(con, item)
+        return
+    if item["kind"] == "resource_graph_coverage":
+        from .resource_graph import validate_coverage_context
+
+        validate_coverage_context(con, item, payload)
+        return
+    if item["kind"] in {
+        "rendered_route_ledger",
+        "rendered_route_coverage",
+        "rendered_route_run_coverage",
+    }:
+        from .rendered_routes import validate_context as validate_rendered_routes
+
+        validate_rendered_routes(con, item, payload)
+        return
+    if item["kind"] == "content_evidence":
+        from .content_evidence import validate_context as validate_content_evidence
+
+        validate_content_evidence(con, item, payload)
+        return
+    if item["kind"] == "browser_artifacts":
+        from .browser_artifacts import validate_context as validate_browser_artifacts
+
+        validate_browser_artifacts(con, item, payload)
+        return
+    if item["kind"] in {"structured_evidence", "language_evidence"}:
+        from .structured_evidence import validate_context as validate_structured_evidence
+
+        validate_structured_evidence(con, item, payload)
+        return
+    if item["kind"] == "extraction_rule_evidence":
+        _validate_extraction_rule_evidence(con, item, payload)
         return
     if item["kind"] == "resource_commit":
         if (
@@ -272,6 +364,16 @@ def put_context(con: Any, item: dict[str, Any], *, sitemap_roots: set[int] | Non
         "SELECT * FROM context_items WHERE kind=? AND item_key=?", (item["kind"], item["item_key"])
     ).fetchone()
     if existing is not None:
+        if item["kind"] == "render_elapsed":
+            previous = json.loads(existing["payload_json"])
+            current = json.loads(item["payload_json"])
+            if current["seconds"] < previous["seconds"]:
+                raise ScanError("render elapsed seconds cannot decrease")
+            con.execute(
+                "UPDATE context_items SET payload_json=? WHERE kind='render_elapsed' AND item_key='run'",
+                (item["payload_json"],),
+            )
+            return
         if dict(existing) != item:
             raise ScanError("native context retry disagrees with committed observation")
         return

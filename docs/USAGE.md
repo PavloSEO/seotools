@@ -109,6 +109,16 @@ seohead project checklist-record \
 record local status; neither command executes a checklist operation or contacts a
 site, browser, provider or crawler.
 
+Preview project work priorities from saved facts, then explicitly apply the reviewed
+policy with the current checklist revision:
+
+```bash
+seohead project priorities --directory ./example-project
+```
+
+The MCP equivalent is `seo_project_priorities`. Its default is read-only preview;
+`apply: true` requires `expected_revision`. See [priority policy details](PROJECTS.md#preview-and-apply-work-priorities).
+
 ## Saved scan history
 
 These commands are local and offline. `scan list` validates artifact metadata and
@@ -122,6 +132,7 @@ report their frontier as unavailable because they retain no native queue.
 seohead scan-list --directory . --limit 100
 seohead scan-inspect --input native.sqlite --table pages --offset 0 --limit 100 --max-bytes 1048576
 seohead scan-status --input native.sqlite
+seohead scan-rendered-routes --input native.sqlite
 
 # --out is either a new filename or an existing directory; neither form overwrites
 seohead scan-snapshot --input native.sqlite --out snapshot.sqlite
@@ -255,7 +266,7 @@ Money rules for this layer: [GOTCHAS.md](GOTCHAS.md).
 ## MCP server
 
 ```bash
-seohead mcp        # stdio server, all 71 seo_* tools + 5 sf_* audit tools
+seohead mcp        # stdio server, all 92 seo_* tools + 5 sf_* audit tools
 ```
 
 Client config (`.mcp.json` in this repo does exactly this):

@@ -41,14 +41,9 @@ MAX_DELAY_S = 60.0
 # more concurrent request. Slow to grow, fast to collapse.
 WIDEN_AFTER_CONSECUTIVE_OK = 3
 
-# A ceiling on the *configured* value, not on what the adaptive throttle will
-# actually use — ``concurrency`` starts low and earns its way up to whichever
-# of this or the caller's request is smaller (#14: "a hard ceiling on
-# concurrency that a config file alone cannot raise"). Enforced here, inside
-# the constructor, rather than only at the one call site that currently reads
-# a config value — so any caller building a ``Throttle`` directly, not only
-# ``crawl_site()``, is bound by it too.
-MAX_CONCURRENCY_CEILING = 16
+
+class RequestBudgetExhausted(RuntimeError):
+    """The configured total HTTP-attempt budget was consumed before dispatch."""
 
 
 class DispatchGate:
@@ -59,20 +54,49 @@ class DispatchGate:
         throttle: Throttle,
         sleeper: Callable[[float], None],
         clock: Callable[[], float] = time.monotonic,
+        max_requests: int = 0,
+        requests_used: int = 0,
+        event_callback: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> None:
         self._throttle = throttle
         self._sleeper = sleeper
         self._clock = clock
         self._lock = threading.Lock()
         self._last_at: float | None = None
+        if type(max_requests) is not int or max_requests < 0:
+            raise ValueError("request budget must be a nonnegative integer")
+        if type(requests_used) is not int or requests_used < 0:
+            raise ValueError("request count must be a nonnegative integer")
+        if max_requests and requests_used > max_requests:
+            raise ValueError("request count exceeds configured budget")
+        self._max_requests = max_requests
+        self._requests_used = requests_used
+        self._event_callback = event_callback
 
     @property
     def throttle(self) -> Throttle:
         """The live throttle whose delay this gate reserves against."""
         return self._throttle
 
+    @property
+    def requests_used(self) -> int:
+        with self._lock:
+            return self._requests_used
+
+    def restore_requests_used(self, value: int) -> None:
+        if (
+            type(value) is not int
+            or value < 0
+            or (self._max_requests and value > self._max_requests)
+        ):
+            raise ValueError("request count is outside configured budget")
+        with self._lock:
+            self._requests_used = value
+
     def wait_turn(self) -> None:
         with self._lock:
+            if self._max_requests and self._requests_used >= self._max_requests:
+                raise RequestBudgetExhausted("total HTTP request budget exhausted")
             now = self._clock()
             # Read the current delay when reserving a turn: a timeout or a newly
             # learned robots delay must apply to the next request, not one later.
@@ -80,7 +104,17 @@ class DispatchGate:
                 now if self._last_at is None else max(now, self._last_at + self._throttle.delay)
             )
             self._last_at = start_at
+            self._requests_used += 1
             wait = start_at - now
+            if self._event_callback is not None:
+                self._event_callback(
+                    "throttle",
+                    {
+                        "delay_ms": round(self._throttle.delay * 1000),
+                        "concurrency": self._throttle.concurrency,
+                        "state": "dispatch",
+                    },
+                )
         if wait > 0:
             self._sleeper(wait)
 
@@ -103,7 +137,7 @@ class Throttle:
         self.server_errors = 0
         # The ceiling is a configured, bounded fact; ``concurrency`` is what the
         # origin has earned so far, never more than the ceiling allows.
-        self.max_concurrency = max(1, min(int(max_concurrency), MAX_CONCURRENCY_CEILING))
+        self.max_concurrency = max(1, int(max_concurrency))
         self.concurrency = min(2, self.max_concurrency)
         self._consecutive_ok = 0
         # speed.adaptive. When False the delay stays exactly where it was configured and the
@@ -246,7 +280,25 @@ class Throttle:
         The payload is deliberately closed: accepting a missing/defaulted field
         would turn a resumed crawl into a different adaptive policy.
         """
-        if not isinstance(state, dict) or set(state) != {
+        if not isinstance(state, dict):
+            raise ValueError("invalid throttle state keys")
+        if state.get("schema_version") in {"scan_throttle.v1", "scan_throttle.v2"}:
+            allowed = {
+                "schema_version",
+                "delay_seconds",
+                "concurrency",
+                "consecutive_ok",
+            }
+            if state["schema_version"] == "scan_throttle.v2":
+                allowed.add("requests_used")
+            if set(state) != allowed:
+                raise ValueError("invalid throttle state keys")
+            state = {
+                key: value
+                for key, value in state.items()
+                if key in {"delay_seconds", "concurrency", "consecutive_ok"}
+            }
+        if set(state) != {
             "delay_seconds",
             "concurrency",
             "consecutive_ok",

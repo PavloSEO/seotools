@@ -106,6 +106,8 @@ class CaptureEvent:
     effective_headers: tuple[tuple[str, str], ...] = ()
     response_time: float | None = None
     session_changed: bool = False
+    http_version: str | None = None
+    timing_state: str = "unavailable"
 
 
 class EntityLimitError(ValueError):

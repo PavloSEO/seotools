@@ -137,6 +137,12 @@ def _validate_event(event: Any) -> CaptureEvent:
         or event.response_time < 0
     ):
         raise ScanError("captured response time must be a finite nonnegative number")
+    if event.http_version is not None and (
+        not isinstance(event.http_version, str) or len(event.http_version) > 32
+    ):
+        raise ScanError("captured HTTP protocol is invalid")
+    if event.timing_state not in {"partial", "unavailable"}:
+        raise ScanError("captured timing state is invalid")
     if not isinstance(event.redirect_history, tuple):
         raise ScanError("captured redirect history must be a tuple")
     for hop in event.redirect_history:
@@ -497,6 +503,9 @@ def store_response(
         ),
     )
     response_id = int(con.execute("SELECT last_insert_rowid()").fetchone()[0])
+    from .transport import record as record_transport
+
+    record_transport(con, response_id, event)
     document_id = None
     if purpose == "page":
         url_id = _intern_url(con, logical_url if logical_url is not None else event.requested_url)

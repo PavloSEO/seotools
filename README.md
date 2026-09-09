@@ -95,6 +95,15 @@ seohead images-optimize \
 
 For a retained native scan, `scan reanalyze` creates a new derived SQLite artifact without a network request. [Storage documentation](docs/STORAGE.md) describes retention, provenance, and the limits of offline reanalysis.
 
+## Start a controlled project
+
+Use `project-start` with a local directory and public target URL to create a
+workspace and enter its policy-bounded preparation path. Preparation records its crawl scope, operator-supplied competitor candidates,
+and each unavailable step. It does not invent competitors or turn a partial
+crawl into a completed audit. [The project-control scenario](docs/scenarios/project-control.md)
+shows the review points and [PROJECTS.md](docs/PROJECTS.md) describes the local
+workspace files.
+
 ## Focused investigations
 
 Choose the input that matches the question; a single-page check, an access log and a saved crawl answer different things.
@@ -153,6 +162,12 @@ For example, after an MCP client connects, these `tools/call` parameters perform
 The corresponding mobile-render tool is `seo_render_check` with `url` and `viewport: "mobile"`. File-producing tools return paths so the next step can reuse the saved output.
 
 The CLI and MCP server share handlers and registration checks. The generated [tool reference](docs/TOOL_REFERENCE.md) is the authoritative list of available commands, arguments, side effects, network use, idempotency, and provider spend. [Scenarios](docs/scenarios/README.md) connect a specialist goal to an ordered tool chain and a usable artifact. For an agent beginning an unscoped audit, start with [the control workflow](.claude/skills/control/SKILL.md).
+
+Start with `seohead mcp --profile full` for the complete local surface. The
+`audit`, `infra`, `quick-check`, and `router` profiles remove unrelated schemas
+at startup. MCP progress notifications are sent only when the caller provides a
+standard progress token; elapsed updates label the total as unknown and do not
+claim completion. See [MCP profiles and progress](docs/MCP_PROFILES.md).
 
 ## External sources and safety boundaries
 

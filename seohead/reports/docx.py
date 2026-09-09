@@ -63,9 +63,23 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
         row = table.add_row().cells
         row[0].text, row[1].text = name, str(value)
 
+    from seohead.reports.evidence_summary import rows as evidence_rows
+
+    evidence = evidence_rows(summary)
+    if evidence:
+        doc.add_heading("Saved evidence coverage", level=1)
+        table = doc.add_table(rows=1, cols=4)
+        for cell, value in zip(
+            table.rows[0].cells, ("Kind", "Measurement", "State", "Scope or reason"), strict=True
+        ):
+            cell.text = value
+        for row in evidence:
+            for cell, value in zip(table.add_row().cells, row, strict=True):
+                cell.text = value
+
     coverage = summary.get("project_coverage")
     if isinstance(coverage, dict):
-        from seohead.reports.project_coverage import value_text
+        from seohead.reports.project_coverage import priority_text, value_text
 
         project = coverage.get("project") or {}
         checklist = coverage.get("status") or {}
@@ -108,6 +122,7 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
                         f"ID: {item.get('id', '')}",
                         f"Kind: {item.get('kind', '')}",
                         f"Execution: {item.get('execution_kind', '')}",
+                        f"Priority: {priority_text(item)}",
                         f"State: {item.get('state', '')}",
                         f"Attempt: {item.get('attempt_status', '')}",
                         f"Complete: {item.get('complete', '')}",

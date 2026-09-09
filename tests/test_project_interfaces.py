@@ -52,11 +52,16 @@ def test_project_crawl_defaults_and_explicit_output_precedence(tmp_path, monkeyp
 
     monkeypatch.setattr("seohead.servers.scan_handlers.crawl_site_scan", capture)
     tool = build_server()._tool_manager.get_tool("seo_crawl_site")
-    result = tool.fn(project=str(project), producer_build="a" * 40)
+    result = tool.fn(project=str(project), producer_build="a" * 40, approve_large_crawl=True)
     assert Path(result["scan"]).parent == project / "scans"
     assert captured["url"] == "https://example.test/"
     explicit = str(tmp_path / "competitor.sqlite")
-    tool.fn(project=str(project), url="https://competitor.test/", scan_out=explicit)
+    tool.fn(
+        project=str(project),
+        url="https://competitor.test/",
+        scan_out=explicit,
+        approve_large_crawl=True,
+    )
     assert captured["url"] == "https://competitor.test/"
     assert captured["scan_out"] == explicit
 
@@ -71,6 +76,12 @@ def test_project_resume_does_not_inject_new_crawl_arguments(tmp_path, monkeypatc
         return {"ok": True}
 
     monkeypatch.setattr("seohead.servers.scan_handlers.resume_scan", resume)
+    monkeypatch.setattr(
+        "seohead.servers.scan_handlers.resume_inputs",
+        lambda _path: {
+            "settings": {"limits": {"max_urls": 50, "max_requests": 150, "max_crawl_seconds": 60}}
+        },
+    )
     assert handlers.crawl_site(project=str(project), resume="saved.sqlite")["ok"]
     assert captured["path"] == "saved.sqlite" and captured["url"] is None
 
@@ -118,5 +129,5 @@ def test_project_preserves_explicit_legacy_output(tmp_path, monkeypatch, from_co
     else:
         kwargs = {"out_dir": str(legacy)}
     with pytest.raises(LegacySelected):
-        handlers.crawl_site(project=str(project), **kwargs)
+        handlers.crawl_site(project=str(project), approve_large_crawl=True, **kwargs)
     assert list((project / "scans").iterdir()) == []

@@ -152,6 +152,52 @@ def _location_rows(locations: Any) -> list[str]:
     return shown
 
 
+def _evidence_reference(value: Any) -> dict[str, str]:
+    """Project the closed audit-evidence reference without exposing raw inputs.
+
+    Export file names, paths and collector-specific payloads stay in the
+    machine audit.  Human reports receive only a stable saved-observation ID,
+    or the explicit reason that an older/export-only audit cannot provide one.
+    """
+    contract = value.get("contract") if isinstance(value, dict) else None
+    if not isinstance(contract, dict):
+        return {
+            "state": "unavailable",
+            "reason": "no stable saved-evidence reference is present in this audit",
+        }
+    observations = contract.get("observations")
+    if isinstance(observations, list):
+        for observation in observations:
+            if not isinstance(observation, dict):
+                continue
+            if observation.get("state") in {"measured", "imported_projection"}:
+                contract = observation
+                break
+    state = contract.get("state")
+    if state not in {"measured", "imported_projection"}:
+        return {
+            "state": "unavailable",
+            "reason": str(contract.get("reason") or "saved evidence is unavailable"),
+        }
+    identifier = contract.get("id")
+    source_table = contract.get("source_table")
+    observation_id = contract.get("observation_id")
+    if not all(
+        isinstance(item, str) and item for item in (identifier, source_table, observation_id)
+    ):
+        return {
+            "state": "unavailable",
+            "reason": "saved evidence reference is incomplete",
+        }
+    return {
+        "state": state,
+        "id": identifier,
+        "source_table": source_table,
+        "observation_id": observation_id,
+        "role": str(contract.get("role") or "observation"),
+    }
+
+
 def reproduction(finding: dict[str, Any], observation: str = "") -> str:
     """State only the primitive observation the saved audit can support."""
     url = finding.get("url")
@@ -200,6 +246,15 @@ def project_finding(finding: dict[str, Any]) -> dict[str, Any]:
     projected["client_reproduction"] = reproduction(finding, observation)
     projected["client_details"] = _detail_rows(finding.get("details"))
     projected["client_locations"] = _location_rows(finding.get("locations"))
+    projected["client_evidence"] = _evidence_reference(finding.get("evidence"))
+    if finding.get("evidence"):
+        reference = projected["client_evidence"]
+        if reference.get("id"):
+            projected["client_details"].append("Saved observation: " + reference["id"])
+        else:
+            projected["client_details"].append(
+                "Saved observation unavailable: " + reference.get("reason", "not captured")
+            )
     return projected
 
 

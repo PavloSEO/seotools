@@ -20,7 +20,10 @@ import urllib.request
 from collections.abc import Callable
 from typing import Any
 
+from seohead.data_sources.http import open_no_redirect
+
 HOST = "https://chromeuxreport.googleapis.com/v1/records:queryRecord"
+HISTORY_HOST = "https://chromeuxreport.googleapis.com/v1/records:queryHistoryRecord"
 TIMEOUT = 30
 
 # payload, api key -> response body text
@@ -37,7 +40,19 @@ def _default_fetcher(payload: dict[str, Any], api_key: str) -> str:
         # echoed into a URL that lands in a log line or an exception message.
         headers={"Content-Type": "application/json", "X-goog-api-key": api_key},
     )
-    with urllib.request.urlopen(request, timeout=TIMEOUT) as response:  # nosec B310
+    with open_no_redirect(request, timeout=TIMEOUT) as response:
+        return response.read().decode("utf-8")
+
+
+def _history_fetcher(payload: dict[str, Any], api_key: str) -> str:
+    data = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(
+        HISTORY_HOST,
+        data=data,
+        method="POST",
+        headers={"Content-Type": "application/json", "X-goog-api-key": api_key},
+    )
+    with open_no_redirect(request, timeout=TIMEOUT) as response:
         return response.read().decode("utf-8")
 
 
@@ -123,4 +138,60 @@ def query(
         "metrics": {
             name: {"p75": percentiles.get("p75")} for name, percentiles in values_by_metric.items()
         },
+    }
+
+
+def history(
+    *,
+    url: str | None = None,
+    origin: str | None = None,
+    form_factor: str | None = None,
+    metrics: list[str] | None = None,
+    api_key: str | None = None,
+    fetcher: Fetcher | None = None,
+) -> dict[str, Any]:
+    """Return reportable CrUX History field trends, distinct from current-record failures."""
+    from seohead.data_sources.credentials import MissingCredential, crux_api_key
+
+    if bool(url) == bool(origin):
+        raise ValueError("exactly one of url or origin is required")
+    try:
+        key = api_key or crux_api_key()
+    except MissingCredential as exc:
+        return {"ok": False, "state": "not_configured", "error": str(exc)}
+    payload: dict[str, Any] = {"url": url} if url else {"origin": origin}
+    if form_factor:
+        payload["formFactor"] = form_factor
+    if metrics:
+        payload["metrics"] = metrics
+    try:
+        raw = (fetcher or _history_fetcher)(payload, key)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return {
+                "ok": True,
+                "state": "no_field_data",
+                "target": url or origin,
+                "records": [],
+            }
+        return {"ok": False, "state": "failed", "error": _api_error(exc), "status": exc.code}
+    except (urllib.error.URLError, TimeoutError) as exc:
+        return {"ok": False, "state": "failed", "error": f"CrUX request failed: {exc}"}
+    body = _response_object(raw)
+    record = (body or {}).get("record")
+    if not isinstance(record, dict):
+        return {"ok": False, "state": "failed", "error": "CrUX History malformed response"}
+    key_data = record.get("key")
+    metric_data = record.get("metrics")
+    if not isinstance(key_data, dict) or not isinstance(metric_data, dict):
+        return {"ok": False, "state": "failed", "error": "CrUX History malformed response"}
+    return {
+        "ok": True,
+        "state": "complete",
+        "target": url or origin,
+        "target_kind": "url" if url else "origin",
+        "form_factor": key_data.get("formFactor"),
+        "collection_period": record.get("collectionPeriods"),
+        "metric_source": "CrUX History field data",
+        "metrics": metric_data,
     }

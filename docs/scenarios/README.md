@@ -1,6 +1,6 @@
 # Usage scenarios
 
-The rest of the documentation lists what this toolkit *has*: 71 commands, 76 callable tools,
+The rest of the documentation lists what this toolkit *has*: 92 commands, 97 callable tools,
 161 checks, 30 workflow skills, each described on its own. This directory describes what it
 **does** — the chains that run several of them in order and end in something a person can act on.
 
@@ -33,7 +33,7 @@ build rather than sitting here misleading its next reader.
 
 ## The scenarios
 
-Fifty-six chains, grouped by the question you arrived with. Every issue this toolkit can find
+59 chains, grouped by the question you arrived with. Every issue this toolkit can find
 appears in at least one of them — `tests/test_scenario_coverage.py` asserts that against
 [COVERAGE_SF_ISSUES.md](../COVERAGE_SF_ISSUES.md), so the catalogue is decided by what the code
 does rather than by what somebody thought of.
@@ -176,6 +176,9 @@ does rather than by what somebody thought of.
 | 54 | [AI visibility](ai-visibility.md) | will an assistant cite this site |
 | 55 | [Comparing two crawls](comparison.md) | what changed since the release |
 | 56 | [From audit to deliverable](deliverable.md) | the last mile |
+| 57 | [Provider evidence](provider-evidence.md) | connect, verify, collect, join, refresh, and revoke external evidence |
+| 58 | [Project control](project-control.md) | prepare a bounded local project without claiming the audit is complete |
+| 59 | [Saved evidence](saved-evidence.md) | reuse retained observations and separate backup-protected mutations |
 
 
 ## The rule underneath all of them
