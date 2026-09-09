@@ -278,12 +278,36 @@ def provider_join(
         required = {"source_fields", "period", "coverage", "adjustment"}
         if not isinstance(rule, dict) or not required <= set(rule):
             raise ValueError("priority adjustment requires source fields, period, coverage, and adjustment")
+        if (
+            not isinstance(rule["source_fields"], list)
+            or not rule["source_fields"]
+            or not all(isinstance(name, str) and name for name in rule["source_fields"])
+        ):
+            raise ValueError("priority adjustment requires named source fields")
         if rule["coverage"] not in {"complete", "partial", "sampled", "truncated", "unmatched", "privacy_thresholded"}:
             raise ValueError("priority adjustment has unsupported coverage")
         if rule["coverage"] != "complete":
             applied.append({"applied": False, "reason": "prioritization evidence unavailable", "rule": rule})
         else:
-            applied.append({"applied": True, "technical_severity_changed": False, "rule": rule})
+            matches = [
+                entry for entry in joined["joined"]
+                if all(field in entry["external"] and entry["external"][field] is not None for field in rule["source_fields"])
+            ]
+            if not matches:
+                applied.append({"applied": False, "reason": "no matched source-backed rows", "rule": rule})
+                continue
+            applied.extend(
+                {
+                    "applied": True,
+                    "url": entry["url"],
+                    "adjustment": rule["adjustment"],
+                    "source_fields": rule["source_fields"],
+                    "period": rule["period"],
+                    "technical_severity": entry["page"].get("severity"),
+                    "technical_severity_changed": False,
+                }
+                for entry in matches
+            )
     return {
         "format": "seohead.provider-join.v1", "join": joined,
         "list_crawl_candidates": candidates, "frontier_mutated": False,
