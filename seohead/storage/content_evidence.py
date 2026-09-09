@@ -56,6 +56,8 @@ def capture_document(
     html: str | None,
     parsed: dict[str, Any] | None,
     content_area: dict[str, Any] | None,
+    indexable: bool | None = None,
+    canonical_target: str = "",
     unavailable_reason: str = "",
 ) -> dict[str, Any]:
     """Build one closed content-evidence payload for a captured document.
@@ -78,6 +80,8 @@ def capture_document(
             "representation": representation,
             "state": "unavailable",
             "reason": unavailable_reason or "captured document was not parsed as eligible HTML",
+            "indexable": indexable,
+            "canonical_target": canonical_target,
             "strategy": None,
             "implementation": _implementation(),
             "exact_hash": None,
@@ -101,6 +105,8 @@ def capture_document(
         "representation": representation,
         "state": state,
         "reason": "main content area is empty" if state == "empty" else "",
+        "indexable": indexable,
+        "canonical_target": canonical_target,
         "strategy": str(parsed.get("content_area_strategy") or extracted["content_area_strategy"]),
         "implementation": _implementation(),
         "exact_hash": _sha(content),
@@ -134,6 +140,8 @@ def validate_payload(payload: Any) -> None:
         "representation",
         "state",
         "reason",
+        "indexable",
+        "canonical_target",
         "strategy",
         "implementation",
         "exact_hash",
@@ -151,6 +159,10 @@ def validate_payload(payload: Any) -> None:
         raise ScanError("content evidence representation or state is invalid")
     if not isinstance(payload["reason"], str):
         raise ScanError("content evidence reason is invalid")
+    if payload["indexable"] is not None and type(payload["indexable"]) is not bool:
+        raise ScanError("content evidence indexability is invalid")
+    if not isinstance(payload["canonical_target"], str):
+        raise ScanError("content evidence canonical target is invalid")
     if payload["state"] == "unavailable":
         if payload["reason"] == "" or any(payload[key] is not None for key in (
             "strategy", "exact_hash", "normalized_hash", "boilerplate_hash", "simhash"
@@ -211,4 +223,66 @@ def read(con: Any) -> dict[str, Any]:
             if rows
             else {"state": "unavailable", "reason": "content evidence was not stored in this scan"}
         ),
+    }
+
+
+def derive_duplicates(
+    items: list[dict[str, Any]], *, threshold: float = 0.92, include_nonindexable: bool = False
+) -> dict[str, Any]:
+    """Derive reproducible duplicate witnesses from stored hashes/fingerprints only.
+
+    The output deliberately names filters and every excluded population.  It
+    does not fetch bodies, recalculate extraction, or turn unavailable evidence
+    into a clean non-duplicate result.
+    """
+    if not isinstance(threshold, float) or not 0.0 <= threshold <= 1.0:
+        raise ValueError("duplicate threshold must be a float from 0 to 1")
+    eligible, excluded = [], []
+    for item in items:
+        if item.get("state") not in {"complete", "empty"}:
+            excluded.append({"page_url_id": item.get("page_url_id"), "reason": item.get("reason")})
+        elif not include_nonindexable and item.get("indexable") is False:
+            excluded.append({"page_url_id": item["page_url_id"], "reason": "non-indexable"})
+        elif not include_nonindexable and item.get("canonical_target"):
+            excluded.append({"page_url_id": item["page_url_id"], "reason": "canonicalized"})
+        else:
+            eligible.append(item)
+    exact: dict[str, list[int]] = {}
+    for item in eligible:
+        exact.setdefault(item["normalized_hash"], []).append(item["page_url_id"])
+    exact_groups = [
+        {"normalized_hash": digest, "pages": sorted(pages)}
+        for digest, pages in sorted(exact.items())
+        if len(pages) > 1
+    ]
+    witnesses = []
+    for index, left in enumerate(eligible):
+        for right in eligible[index + 1 :]:
+            if left["normalized_hash"] == right["normalized_hash"]:
+                continue
+            distance = (int(left["simhash"], 16) ^ int(right["simhash"], 16)).bit_count()
+            similarity = 1.0 - distance / 64.0
+            if similarity >= threshold:
+                witnesses.append(
+                    {
+                        "left_page_url_id": left["page_url_id"],
+                        "right_page_url_id": right["page_url_id"],
+                        "similarity": similarity,
+                        "left_representation": left["representation"],
+                        "right_representation": right["representation"],
+                    }
+                )
+    return {
+        "schema_version": "content_duplicate_derivation.v1",
+        "settings": {
+            "threshold": threshold,
+            "include_nonindexable": include_nonindexable,
+            "identity": "normalized_hash + representation-scoped simhash",
+        },
+        "exact_groups": exact_groups,
+        "near_witnesses": sorted(
+            witnesses,
+            key=lambda row: (-row["similarity"], row["left_page_url_id"], row["right_page_url_id"]),
+        ),
+        "excluded": excluded,
     }
