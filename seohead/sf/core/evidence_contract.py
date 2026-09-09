@@ -21,7 +21,7 @@ from typing import Any
 from .registry import CHECKS
 
 CONTRACT_VERSION = "audit_evidence_contract.v1"
-SAVED_CORPUS_VERSION = "saved_corpus_derivations.v1"
+SAVED_CORPUS_VERSION = "saved_corpus_derivations.v2"
 AUDIT_SCHEMA_VERSION = "2.0"
 _ISSUE_ID = re.compile(r"ISSUE-[0-9]{6}")
 _TABLE = re.compile(r"[a-z][a-z0-9_]{0,63}")

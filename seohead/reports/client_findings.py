@@ -165,6 +165,14 @@ def _evidence_reference(value: Any) -> dict[str, str]:
             "state": "unavailable",
             "reason": "no stable saved-evidence reference is present in this audit",
         }
+    observations = contract.get("observations")
+    if isinstance(observations, list):
+        for observation in observations:
+            if not isinstance(observation, dict):
+                continue
+            if observation.get("state") in {"measured", "imported_projection"}:
+                contract = observation
+                break
     state = contract.get("state")
     if state not in {"measured", "imported_projection"}:
         return {
@@ -186,6 +194,7 @@ def _evidence_reference(value: Any) -> dict[str, str]:
         "id": identifier,
         "source_table": source_table,
         "observation_id": observation_id,
+        "role": str(contract.get("role") or "observation"),
     }
 
 
