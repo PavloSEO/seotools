@@ -285,3 +285,18 @@ def test_low_text_ratio_still_fires_when_column_present_and_below_threshold(tmp_
     res = _audit_with(tmp_path, headers, row)
     assert _URL in {i.target_url for i in issues_of(res, "LOW_TEXT_RATIO")}
     assert "LOW_TEXT_RATIO" not in {s.id for s in res.skipped}
+
+
+def test_canonical_multiple_verdict_distinguishes_two_declarations_from_one(tmp_path):
+    """Report-only identifier checks must not stand in for a real clean/defect verdict."""
+    clean_dir = tmp_path / "clean"
+    duplicate_dir = tmp_path / "duplicate"
+    clean_dir.mkdir()
+    duplicate_dir.mkdir()
+    headers = [*_BASE_COLS, "Canonical Link Element 2"]
+    clean = _audit_with(clean_dir, headers, [_URL, "text/html", "200", "Indexable", _URL, ""])
+    duplicate = _audit_with(
+        duplicate_dir, headers, [_URL, "text/html", "200", "Indexable", _URL, _URL + "/other"]
+    )
+    assert "CANONICAL_MULTIPLE" in checks_in(duplicate)
+    assert "CANONICAL_MULTIPLE" not in checks_in(clean)
