@@ -89,13 +89,13 @@ def _rendered_batch(
     list[str],
     list[dict[str, Any]],
     dict[str, Any] | None,
+    list[dict[str, Any]],
+    list[dict[str, Any]],
 ]:
     """Use the native collector's existing parser-to-observation contract.
 
-    Rendered evidence never discovers or queues a URL.  ``_document_batch``
-    is still the right conversion because it applies the same storage and
-    attribute gates as static evidence; its candidates and decisions are
-    intentionally discarded.
+    The caller may opt into normal frontier admission after this shared scope,
+    depth, URL-length and query-candidate conversion has completed.
     """
     from seohead.crawl.spider import Scope
     from seohead.crawl.sqlite_adapter import _document_batch
@@ -114,7 +114,9 @@ def _rendered_batch(
         routes, coverage = observations(parsed, batch, "rendered")
     else:
         routes, coverage = [], None
-    return batch.links, batch.forms, batch.partial_reasons, routes, coverage
+    candidates = batch.candidates if settings["rendering"]["rendered_links"]["crawl"] else []
+    decisions = batch.decisions if settings["rendering"]["rendered_links"]["crawl"] else []
+    return batch.links, batch.forms, batch.partial_reasons, routes, coverage, candidates, decisions
 
 
 def _content_capture(
@@ -316,9 +318,11 @@ def run_render_escalation(
     serialized HTML is released as soon as its transaction has committed.
     """
     mode = settings["rendering"]["mode"]
-    from seohead.storage.rendered_routes import run_context
+    from seohead.storage.rendered_routes import RUN_KIND, run_context
 
-    if hasattr(scan, "write_context"):
+    if hasattr(scan, "write_context") and (
+        not hasattr(scan, "read_context") or scan.read_context(RUN_KIND) is None
+    ):
         enabled = settings["rendering"]["rendered_links"]["store"]
         if not enabled:
             scan.write_context(
@@ -603,7 +607,7 @@ def run_render_escalation(
                 if degenerate
                 else "rendered body is not parseable",
             }
-        links, forms, partial_reasons, route_observations, route_coverage = _rendered_batch(
+        links, forms, partial_reasons, route_observations, route_coverage, candidates, decisions = _rendered_batch(
             parsed,
             target_url=target,
             depth=candidate.crawl_depth,
@@ -634,6 +638,8 @@ def run_render_escalation(
             ),
             route_observations=route_observations,
             route_coverage=route_coverage,
+            candidates=candidates,
+            decisions=decisions,
             **resource_observations,
         )
         state, reason = _document_state(scan, document_id)
@@ -644,15 +650,36 @@ def run_render_escalation(
             result._rendered_start_html = fetched.get("html")
         return {"accepted": True, "state": state, "reason": reason}
 
+    render_pages = result.pages
+    if settings["rendering"]["rendered_links"]["crawl"] and getattr(scan, "con", None) is not None:
+        attempted = {
+            row[0]
+            for row in scan.con.execute(
+                "SELECT u.url FROM documents d JOIN urls u ON u.url_id=d.url_id "
+                "WHERE d.representation=?",
+                (representation,),
+            )
+        }
+        render_pages = [page for page in result.pages if page.url not in attempted]
+        import copy
+
+        rendering_config = copy.deepcopy(rendering_config)
+        rendering_config["escalation"]["max_render_urls"] = max(
+            0, rendering_config["escalation"]["max_render_urls"] - len(attempted)
+        )
     outcome = render_escalation.escalate(
-        result.pages,
+        render_pages,
         rendering_config,
         probe=probe,
         render_fetch=render_fetch,
         representation_label=representation,
         render_consumer=consume,
     )
-    if hasattr(scan, "write_context") and settings["rendering"]["rendered_links"]["store"]:
+    if (
+        hasattr(scan, "write_context")
+        and settings["rendering"]["rendered_links"]["store"]
+        and (not hasattr(scan, "read_context") or scan.read_context(RUN_KIND) is None)
+    ):
         partial = (
             outcome.render_budget_exhausted
             or outcome.time_budget_exhausted
