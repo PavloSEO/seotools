@@ -102,6 +102,11 @@ def validate_context(
 
         validate_content_evidence(con, item, payload)
         return
+    if item["kind"] == "browser_artifacts":
+        from .browser_artifacts import validate_context as validate_browser_artifacts
+
+        validate_browser_artifacts(con, item, payload)
+        return
     if item["kind"] in {"structured_evidence", "language_evidence"}:
         from .structured_evidence import validate_context as validate_structured_evidence
 
