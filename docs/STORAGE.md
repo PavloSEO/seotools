@@ -500,9 +500,14 @@ seohead crawl-site --url https://example.com --max-urls 50 --scan-out native.sql
 seohead report-build --audit native.sqlite --format md --out native-report.md
 ```
 
-The collector derives provenance from its current source build. The producing version/revision, runtime
-versions, full effective configuration and result-affecting fingerprint are stored
-in the scan. A different configuration or producing build refuses resume.
+The collector derives provenance from its current source build. A clean distribution build embeds
+its producer Git revision and a relative hash manifest for the packaged runtime files; an installed
+wheel validates that metadata against its own wheel `RECORD` before using it. This is only
+same-package consistency, not a cryptographic attestation or tamper-proof claim. A dirty or
+unverifiable source checkout still requires an explicit `--producer-build`
+SHA; the runtime never borrows an enclosing repository's revision. The producing version/revision,
+runtime versions, full effective configuration and result-affecting fingerprint are stored in the
+scan. A different configuration or producing build refuses resume.
 
 `python -m seohead.storage inspect native.sqlite` also validates a capture with
 no audit and reports `audit_available`; report commands still require an audit.
