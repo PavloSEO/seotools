@@ -156,6 +156,7 @@ DEFAULTS: dict[str, Any] = {
         "max_response_bytes": 5 * 1024 * 1024,
         "max_url_length": 2000,
         "max_crawl_seconds": 0,  # 0 = no wall-clock limit
+        "max_requests": 20_000,  # 0 = no total HTTP-attempt limit
     },
     "http": {
         "timeout_seconds": 15.0,
@@ -362,6 +363,7 @@ RESULTS_AFFECTING: frozenset[str] = frozenset(
         "limits.max_response_bytes",
         "limits.max_url_length",
         "limits.max_crawl_seconds",
+        "limits.max_requests",
         # A short timeout turns slow pages into "no response"; the user agent and
         # headers change what a UA- or locale-adaptive site serves.
         "http.timeout_seconds",
@@ -492,6 +494,10 @@ DESCRIPTIONS: dict[str, str] = {
     "limits.max_response_bytes": "Response bodies larger than this are truncated before parsing.",
     "limits.max_url_length": "URLs longer than this are not fetched.",
     "limits.max_crawl_seconds": "Wall-clock budget for the whole crawl; 0 means no limit.",
+    "limits.max_requests": (
+        "Total HTTP attempts for the crawl, including bootstrap, redirects and retries; 0 means "
+        "no total-attempt limit."
+    ),
     "http.timeout_seconds": "Per-request timeout in seconds.",
     "http.user_agent": "Request User-Agent string; empty uses the toolkit's identifiable default.",
     "http.headers": (
@@ -825,6 +831,8 @@ def validate(config: dict[str, Any]) -> None:
         )
     if limits["max_depth"] < 0:
         raise ConfigError("limits.max_depth cannot be negative")
+    if type(limits["max_requests"]) is not int or limits["max_requests"] < 0:
+        raise ConfigError("limits.max_requests must be a nonnegative integer")
     if limits["max_query_variants_per_path"] < 0:
         # 0 is the crawler's own "unlimited" (see spider.py's truthy check on this
         # value); a negative number is not a smaller budget, it makes every
@@ -837,9 +845,14 @@ def validate(config: dict[str, Any]) -> None:
         raise ConfigError("speed.concurrency must be at least 1")
 
     # A crawl with no budget at all runs forever on an infinite URL space.
-    if not limits["max_urls"] and not limits["max_depth"] and not limits["max_crawl_seconds"]:
+    if (
+        not limits["max_urls"]
+        and not limits["max_depth"]
+        and not limits["max_crawl_seconds"]
+        and not limits["max_requests"]
+    ):
         raise ConfigError(
-            "a crawl needs at least one budget: max_urls, max_depth or max_crawl_seconds"
+            "a crawl needs at least one budget: max_urls, max_depth, max_crawl_seconds or max_requests"
         )
 
     for rule in config["link_position"]["rules"]:

@@ -656,6 +656,7 @@ def _print_effective_rate(kwargs: dict[str, Any]) -> None:
 BUDGET_STOPS = {
     "url_limit": "The URL budget (limits.max_urls)",
     "duration_limit": "The crawl-time budget (limits.max_crawl_seconds)",
+    "request_limit": "The total HTTP-attempt budget (limits.max_requests)",
 }
 
 

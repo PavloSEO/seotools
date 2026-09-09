@@ -149,6 +149,8 @@ def _native_config(value: Any, *, recorded: bool = False) -> dict[str, Any]:
                 expected.pop(name)
         if "rendering" in config and "rendered_links" not in config["rendering"]:
             expected["rendering"].pop("rendered_links")
+        if "limits" in config and "max_requests" not in config["limits"]:
+            expected["limits"].pop("max_requests")
     require_fields(config, expected)
     validation_config = copy.deepcopy(config)
     if recorded:
@@ -157,6 +159,10 @@ def _native_config(value: Any, *, recorded: bool = False) -> dict[str, Any]:
         validation_config.setdefault("rendering", {})
         validation_config["rendering"].setdefault(
             "rendered_links", copy.deepcopy(DEFAULTS["rendering"]["rendered_links"])
+        )
+        validation_config.setdefault("limits", {})
+        validation_config["limits"].setdefault(
+            "max_requests", DEFAULTS["limits"]["max_requests"]
         )
     try:
         validate_crawl_config(
@@ -180,6 +186,12 @@ def _resume_fingerprint(expected_config: Any, recorded_config: Any) -> str:
         and expected["rendering"].get("rendered_links") == DEFAULTS["rendering"]["rendered_links"]
     ):
         expected["rendering"].pop("rendered_links")
+    if (
+        "limits" in recorded
+        and "max_requests" not in recorded["limits"]
+        and expected["limits"].get("max_requests") == DEFAULTS["limits"]["max_requests"]
+    ):
+        expected["limits"].pop("max_requests")
     return crawl_config_fingerprint(expected)
 
 
@@ -470,10 +482,11 @@ class NativeScan:
                     "crawl_delay_applied": None,
                     "throttle_state_json": _dump(
                         {
-                            "schema_version": "scan_throttle.v1",
+                            "schema_version": "scan_throttle.v2",
                             "delay_seconds": 0.0,
                             "concurrency": 1,
                             "consecutive_ok": 0,
+                            "requests_used": 0,
                         }
                     ),
                 },
@@ -860,12 +873,27 @@ class NativeScan:
             throttle = json.loads(runtime["throttle_state_json"])
         except (TypeError, ValueError) as exc:
             raise ScanError("native scan throttle state is invalid JSON") from exc
+        throttle_v1 = {"schema_version", "delay_seconds", "concurrency", "consecutive_ok"}
+        throttle_v2 = {*throttle_v1, "requests_used"}
         if (
             not isinstance(throttle, dict)
-            or set(throttle) != {"schema_version", "delay_seconds", "concurrency", "consecutive_ok"}
-            or throttle["schema_version"] != "scan_throttle.v1"
+            or (
+                set(throttle) != throttle_v1
+                if throttle.get("schema_version") == "scan_throttle.v1"
+                else set(throttle) != throttle_v2
+            )
+            or throttle["schema_version"] not in {"scan_throttle.v1", "scan_throttle.v2"}
             or type(throttle["concurrency"]) is not int
             or type(throttle["consecutive_ok"]) is not int
+            or (
+                throttle["schema_version"] == "scan_throttle.v2"
+                and (type(throttle["requests_used"]) is not int or throttle["requests_used"] < 0)
+            )
+            or (
+                throttle["schema_version"] == "scan_throttle.v2"
+                and config["limits"].get("max_requests", 0)
+                and throttle["requests_used"] > config["limits"]["max_requests"]
+            )
             or not isinstance(throttle["delay_seconds"], (int, float))
             or not math.isfinite(float(throttle["delay_seconds"]))
             or throttle["delay_seconds"] < 0
@@ -1152,6 +1180,7 @@ class NativeScan:
         runtime = dict(self.con.execute("SELECT * FROM resume_state WHERE singleton=1").fetchone())
         throttle = json.loads(runtime.pop("throttle_state_json"))
         throttle.pop("schema_version")
+        throttle.setdefault("requests_used", 0)
         runtime["throttle"] = throttle
         runtime.pop("singleton")
         runtime.pop("state_version")
@@ -2245,7 +2274,10 @@ class NativeScan:
         if set(runtime) != required:
             raise ScanError("runtime state must have the exact child-C key set")
         throttle = runtime["throttle"]
-        if set(throttle) != {"delay_seconds", "concurrency", "consecutive_ok"}:
+        if set(throttle) == {"delay_seconds", "concurrency", "consecutive_ok"}:
+            throttle = {**throttle, "requests_used": 0}
+            runtime = {**runtime, "throttle": throttle}
+        if set(throttle) != {"delay_seconds", "concurrency", "consecutive_ok", "requests_used"}:
             raise ScanError("runtime throttle state must have the exact child-C key set")
         config = _config(
             json.loads(
@@ -2279,6 +2311,8 @@ class NativeScan:
             or not 1 <= throttle["concurrency"] <= config["speed"]["concurrency"]
             or type(throttle["consecutive_ok"]) is not int
             or not 0 <= throttle["consecutive_ok"] <= 2
+            or type(throttle["requests_used"]) is not int
+            or throttle["requests_used"] < 0
         ):
             raise ScanError("runtime state has invalid finite values or throttle bounds")
         current = self.con.execute(
@@ -2294,13 +2328,36 @@ class NativeScan:
             runtime["circuit_timeout_streak"],
             runtime["circuit_server_error_streak"],
             runtime["crawl_delay_applied"],
-            _dump({"schema_version": "scan_throttle.v1", **throttle}),
+            _dump({"schema_version": "scan_throttle.v2", **throttle}),
         )
         self.con.execute(
             "UPDATE resume_state SET max_depth_reached=?, elapsed_seconds=?, circuit_timeout_streak=?, "
             "circuit_server_error_streak=?, crawl_delay_applied=?, throttle_state_json=? WHERE singleton=1",
             values,
         )
+
+    def record_request_count(self, requests_used: int) -> None:
+        """Checkpoint the shared HTTP-attempt count without changing frontier state."""
+        self._assert_mutable()
+        if type(requests_used) is not int or requests_used < 0:
+            raise ScanError("request count must be a nonnegative integer")
+        config = json.loads(
+            self.con.execute("SELECT config_json FROM scan WHERE singleton=1").fetchone()[0]
+        )
+        maximum = config.get("limits", {}).get("max_requests", 0)
+        if type(maximum) is not int or maximum < 0:
+            raise ScanError("stored request budget is invalid")
+        if maximum and requests_used > maximum:
+            raise ScanError("request count exceeds the stored budget")
+        self._begin()
+        try:
+            runtime = self.resume_snapshot()["runtime"]
+            runtime["throttle"]["requests_used"] = requests_used
+            self._write_runtime(runtime, runtime["max_depth_reached"])
+            self.con.commit()
+        except BaseException:
+            self._rollback()
+            raise
 
     def _stored_query_limit(self) -> int:
         try:

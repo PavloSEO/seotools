@@ -696,7 +696,9 @@ def crawl_site(
             max_concurrency=settings["speed"]["concurrency"],
             adaptive=settings["speed"]["adaptive"],
         )
-        dispatch_gate = DispatchGate(throttle, time.sleep)
+        dispatch_gate = DispatchGate(
+            throttle, time.sleep, max_requests=settings["limits"]["max_requests"]
+        )
     out_dir = settings["output"]["dir"] or None
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
@@ -758,6 +760,7 @@ def crawl_site(
         result = _spider(
             url,
             max_urls=settings["limits"]["max_urls"],
+            max_requests=settings["limits"]["max_requests"],
             max_depth=settings["limits"]["max_depth"],
             max_seconds=max_seconds,
             min_delay=settings["speed"]["min_delay_seconds"],

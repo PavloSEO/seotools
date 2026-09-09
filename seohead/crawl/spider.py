@@ -43,7 +43,7 @@ from seohead.crawl.settings import (
     checked_url_budget,
     resolve_credential_headers,
 )
-from seohead.crawl.throttle import MAX_CONCURRENCY_CEILING, MAX_DELAY_S, DispatchGate, Throttle
+from seohead.crawl.throttle import MAX_DELAY_S, DispatchGate, Throttle
 from seohead.models import ParsedRobots
 from seohead.recon.net import UA, http_client, normalize_url, registrable_domain
 from seohead.tools.robots import is_allowed, match_path, parse_robots, politeness_delay
@@ -607,6 +607,7 @@ def crawl_site(
     start_url: str,
     *,
     max_urls: int = 200,
+    max_requests: int = 0,
     max_depth: int = 5,
     max_seconds: float = 0,
     min_delay: float = 0.5,
@@ -735,7 +736,7 @@ def crawl_site(
     rules = scope if isinstance(scope, Scope) else Scope.from_config(scope)
     limit = checked_url_budget(max_urls)
     depth_limit = max(0, min(int(max_depth), MAX_DEPTH_CEILING))
-    max_concurrency = max(1, min(int(concurrency), MAX_CONCURRENCY_CEILING))
+    max_concurrency = max(1, int(concurrency))
     if state_path:
         crawl_state.ensure_safe_dir(os.path.dirname(os.path.abspath(state_path)) or ".")
     parse_options = (
@@ -756,7 +757,7 @@ def crawl_site(
             max_concurrency=max_concurrency,
             adaptive=adaptive,
         )
-        dispatch_gate = _DispatchGate(throttle, sleeper, clock)
+        dispatch_gate = _DispatchGate(throttle, sleeper, clock, max_requests=max_requests)
     else:
         throttle = dispatch_gate.throttle
     excluded: dict[str, int] = {}

@@ -36,7 +36,7 @@ from seohead.crawl.spider import (
     _fold_failure_streaks,
     _strip_fragment,
 )
-from seohead.crawl.throttle import Throttle
+from seohead.crawl.throttle import RequestBudgetExhausted, Throttle
 from seohead.models import ParsedRobots
 from seohead.recon.net import UA, http_client, normalize_url
 from seohead.storage import MAX_RECORD_BYTES, ScanBackpressure, ScanError
@@ -107,15 +107,18 @@ def _runtime(
     timeouts: int,
     server_errors: int,
     robots_delay: float | None,
+    dispatch_gate: _DispatchGate | None = None,
 ) -> dict[str, Any]:
     """The C-owned resume shape; no adapter-side state file exists."""
+    throttle_state = throttle.snapshot_state()
+    throttle_state["requests_used"] = dispatch_gate.requests_used if dispatch_gate else 0
     return {
         "max_depth_reached": max_depth,
         "elapsed_seconds": elapsed,
         "circuit_timeout_streak": timeouts,
         "circuit_server_error_streak": server_errors,
         "crawl_delay_applied": robots_delay,
-        "throttle": throttle.snapshot_state(),
+        "throttle": throttle_state,
     }
 
 
@@ -182,11 +185,13 @@ def _client_context(
 
 
 def _restore_runtime(
-    throttle: Throttle, snapshot: dict[str, Any]
+    throttle: Throttle, dispatch_gate: _DispatchGate, snapshot: dict[str, Any]
 ) -> tuple[int, float, int, int, float | None]:
     """Use the shared Throttle restore API; never re-create hidden counters here."""
     runtime = snapshot["runtime"]
-    throttle.restore_state(runtime["throttle"])
+    throttle_state = dict(runtime["throttle"])
+    dispatch_gate.restore_requests_used(int(throttle_state.pop("requests_used", 0)))
+    throttle.restore_state(throttle_state)
     return (
         runtime["max_depth_reached"],
         runtime["elapsed_seconds"],
@@ -396,7 +401,12 @@ def crawl_to_scan(
         max_concurrency=settings["speed"]["concurrency"],
         adaptive=settings["speed"]["adaptive"],
     )
-    dispatch_gate = _DispatchGate(throttle, sleeper, clock)
+    dispatch_gate = _DispatchGate(
+        throttle,
+        sleeper,
+        clock,
+        max_requests=settings["limits"]["max_requests"],
+    )
     started = clock()
     timeouts = server_errors = max_depth = 0
     elapsed_before = 0.0
@@ -537,7 +547,7 @@ def crawl_to_scan(
         if existing:
             snapshot = scan.resume_snapshot()
             max_depth, elapsed_before, timeouts, server_errors, robots_delay = _restore_runtime(
-                throttle, snapshot
+                throttle, dispatch_gate, snapshot
             )
             scan.recover_inflight()
         if not seeded:
@@ -738,6 +748,7 @@ def crawl_to_scan(
                                     timeouts=timeouts,
                                     server_errors=server_errors,
                                     robots_delay=robots_delay,
+                                    dispatch_gate=dispatch_gate,
                                 ),
                             )
                         except (ScanError, sqlite3.Error) as exc:
@@ -746,6 +757,10 @@ def crawl_to_scan(
                         continue
                     try:
                         lease, (record, parsed), captures = futures[lease.queue_ordinal].result()
+                    except RequestBudgetExhausted:
+                        partial, finish_reason = True, "request_limit"
+                        scan.interrupt("total HTTP request budget exhausted")
+                        break
                     except ScanError as exc:
                         _storage_failure(scan, exc)
                         raise
@@ -858,6 +873,7 @@ def crawl_to_scan(
                                 timeouts=timeouts,
                                 server_errors=server_errors,
                                 robots_delay=robots_delay,
+                                dispatch_gate=dispatch_gate,
                             ),
                             partial_reasons=tuple(batch.partial_reasons),
                             context=robots_context.get(lease.queue_ordinal, ()),
@@ -904,6 +920,7 @@ def crawl_to_scan(
                 throttle=throttle,
                 dispatch_gate=dispatch_gate,
             )
+        scan.record_request_count(dispatch_gate.requests_used)
         if start_page_gate is None:
             start_page_gate = retained_start_gate(scan, settings, content_area_config)
         outcome = scan.resume_snapshot(include_edges=True)
