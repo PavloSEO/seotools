@@ -19,10 +19,16 @@ def scan_status(input_path: str) -> dict[str, Any]:
             key: scan[key]
             for key in (
                 "scan_uuid",
+                "format_version",
+                "source_kind",
+                "parent_scan_uuid",
                 "writer_version",
                 "writer_revision",
                 "evidence_revision",
+                "created_at",
+                "finished_at",
                 "lifecycle",
+                "finish_reason",
             )
         }
         source.update(

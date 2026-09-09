@@ -2607,6 +2607,12 @@ def scan_inspect(
     return core(input_path, table=table, offset=offset, limit=limit, max_bytes=max_bytes)
 
 
+def scan_status(input_path: str) -> dict[str, Any]:
+    from seohead.servers.history_handlers import scan_status as core
+
+    return core(input_path)
+
+
 def scan_snapshot(input_path: str, out: str) -> dict[str, Any]:
     from seohead.servers.history_handlers import scan_snapshot as core
 
@@ -2762,6 +2768,7 @@ _RAW_HANDLERS = {
     "scan_reanalyze": scan_reanalyze,
     "scan_list": scan_list,
     "scan_inspect": scan_inspect,
+    "scan_status": scan_status,
     "scan_snapshot": scan_snapshot,
     "scan_pin": scan_pin,
     "scan_prune": scan_prune,

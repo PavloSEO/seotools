@@ -24,6 +24,21 @@ def test_nested_scan_list_routes_flags_without_reading_stdin(monkeypatch, capsys
     assert json.loads(capsys.readouterr().out) == {"items": []}
 
 
+def test_flat_and_nested_scan_status_share_the_same_input_path(monkeypatch, capsys):
+    received = []
+    monkeypatch.setitem(
+        handlers.HANDLERS,
+        "scan_status",
+        lambda **kwargs: received.append(kwargs) or {"ok": True, "frontier": {}},
+    )
+
+    assert cli.main(["scan-status", "--input", "saved.sqlite"]) == 0
+    assert cli.main(["scan", "status", "--input", "saved.sqlite"]) == 0
+
+    assert received == [{"input_path": "saved.sqlite"}, {"input_path": "saved.sqlite"}]
+    assert capsys.readouterr().out.count('"ok": true') == 2
+
+
 def test_flat_scan_body_diff_and_prune_apply_forward_explicit_arguments(monkeypatch, capsys):
     calls = []
     monkeypatch.setitem(
@@ -105,7 +120,7 @@ def test_mcp_history_annotations_match_real_file_side_effects():
     from seohead.servers.mcp_server import build_server
 
     tools = {tool.name: tool for tool in build_server()._tool_manager.list_tools()}
-    for name in ("seo_scan_list", "seo_scan_inspect", "seo_scan_body_diff"):
+    for name in ("seo_scan_list", "seo_scan_inspect", "seo_scan_status", "seo_scan_body_diff"):
         assert tools[name].annotations.readOnlyHint is True
         assert tools[name].annotations.destructiveHint is False
     assert tools["seo_scan_snapshot"].annotations.readOnlyHint is False

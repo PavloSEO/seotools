@@ -85,6 +85,7 @@ and this decision makes no backend migration.
 | `project-open` | Project directory (`directory`) | — |
 | `project-status` | Project directory (`directory`) | — |
 | `scan-inspect` | Scan artifact (`input_path`) | — |
+| `scan-status` | Scan artifact (`input_path`) | — |
 | `scan-snapshot` | Scan artifact (`input_path`) | — |
 | `scan-pin` | Scan artifact (`input_path`) | — |
 | `scan-prune` | Local directory (`directory`)<br>Local file (`plan`)<br>Project directory (`project`) | Defaults the directory to project scans/; apply remains explicit. |
