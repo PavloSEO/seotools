@@ -14,9 +14,10 @@ from pathlib import Path
 from typing import Any
 
 from .catalogue import load_catalogue
-from .workspace import _load, _target
+from .workspace import _facts, _load, _target
 
 FORMAT = "seohead.coverage.v1"
+FORMAT_V2 = "seohead.coverage.v2"
 MAX_BYTES = 32 * 1024 * 1024
 _ID = re.compile(
     r"(?:check:[A-Z][A-Z0-9_]*|skill:(?:workflow|general)/[a-z0-9_-]+|scenario:[a-z0-9_-]+|custom:[a-z][a-z0-9._/-]{0,127})\Z"
@@ -28,9 +29,11 @@ def _now() -> str:
 
 
 def _hash(value: Any) -> str:
-    return hashlib.sha256(
-        json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
-    ).hexdigest()
+    try:
+        encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("coverage value is not canonical JSON") from exc
+    return hashlib.sha256(encoded.encode()).hexdigest()
 
 
 def _completion_hash(definition: dict) -> str:
@@ -120,6 +123,7 @@ def _definition(value: Any, catalogue: dict, *, historical: bool = False) -> dic
     if not isinstance(value["priority_origin"], str) or value["priority_origin"] not in {
         "default",
         "operator",
+        "policy",
     }:
         raise ValueError("invalid priority origin")
     if (
@@ -178,6 +182,140 @@ def _dependencies(items: dict) -> None:
         visit(item_id)
 
 
+def _priority(value: Any, label: str) -> None:
+    if type(value) is not str or value not in {"P0", "P1", "P2"}:
+        raise ValueError(f"invalid {label} priority")
+
+
+def _priority_origin(value: Any, label: str) -> None:
+    if type(value) is not str or value not in {"default", "operator", "policy"}:
+        raise ValueError(f"invalid {label} priority origin")
+
+
+def _application_time(value: Any) -> None:
+    _text(value, "priority policy application time", 128)
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("priority policy application time must be RFC3339 UTC") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() != timezone.utc.utcoffset(parsed):
+        raise ValueError("priority policy application time must be RFC3339 UTC")
+
+
+def _historical_policy(value: Any) -> None:
+    if not isinstance(value, dict) or set(value) != {"format", "rules"}:
+        raise ValueError("invalid priority policy receipt")
+    if value["format"] != "seohead.project-priorities.v1" or not isinstance(value["rules"], list):
+        raise ValueError("invalid priority policy receipt")
+    if len(value["rules"]) > 100:
+        raise ValueError("invalid priority policy receipt")
+    ids = set()
+    for rule in value["rules"]:
+        if not isinstance(rule, dict) or set(rule) != {"id", "facts", "priority", "items"}:
+            raise ValueError("invalid priority policy receipt")
+        if (
+            type(rule["id"]) is not str
+            or not rule["id"]
+            or len(rule["id"]) > 128
+            or rule["id"] in ids
+        ):
+            raise ValueError("invalid priority policy receipt")
+        ids.add(rule["id"])
+        _priority(rule["priority"], "priority rule")
+        facts = rule["facts"]
+        if not isinstance(facts, dict) or len(facts) > 16:
+            raise ValueError("invalid priority policy receipt")
+        for name, values in facts.items():
+            if (
+                type(name) is not str
+                or not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", name)
+                or not isinstance(values, list)
+                or not values
+                or len(values) > 100
+                or any(type(item) is not str or not item or len(item) > 128 for item in values)
+            ):
+                raise ValueError("invalid priority policy receipt")
+            if len(values) != len(set(values)):
+                raise ValueError("invalid priority policy receipt")
+        items = rule["items"]
+        if not isinstance(items, list) or not items or len(items) > 100:
+            raise ValueError("invalid priority policy receipt")
+        if any(type(item) is not str for item in items) or len(items) != len(set(items)):
+            raise ValueError("invalid priority policy receipt")
+        for item_id in items:
+            _identifier(item_id)
+
+
+def _receipt_fingerprint(decisions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": decision["id"],
+            "after": decision["after"],
+            "reason": decision["reason"],
+            "consulted_facts": decision["consulted_facts"],
+        }
+        for decision in decisions
+    ]
+
+
+def _priority_receipt(value: Any, item_ids: set[str]) -> None:
+    if not isinstance(value, dict) or set(value) != {
+        "policy",
+        "policy_hash",
+        "facts",
+        "decisions",
+        "decision_fingerprint",
+    }:
+        raise ValueError("invalid priority policy receipt")
+    _historical_policy(value["policy"])
+    if type(value["policy_hash"]) is not str or value["policy_hash"] != _hash(value["policy"]):
+        raise ValueError("invalid priority policy receipt")
+    facts = _facts(value["facts"])
+    if facts != value["facts"]:
+        raise ValueError("invalid priority policy receipt")
+    decisions = value["decisions"]
+    if not isinstance(decisions, list) or len(decisions) != len(item_ids):
+        raise ValueError("invalid priority policy receipt")
+    seen = set()
+    for decision in decisions:
+        if not isinstance(decision, dict) or set(decision) != {
+            "id",
+            "before",
+            "after",
+            "reason",
+            "consulted_facts",
+        }:
+            raise ValueError("invalid priority policy receipt")
+        item_id = decision["id"]
+        if type(item_id) is not str or item_id not in item_ids or item_id in seen:
+            raise ValueError("invalid priority policy receipt")
+        seen.add(item_id)
+        for state in ("before", "after"):
+            definition = decision[state]
+            if not isinstance(definition, dict) or set(definition) != {
+                "priority",
+                "priority_origin",
+            }:
+                raise ValueError("invalid priority policy receipt")
+            _priority(definition["priority"], "priority decision")
+            _priority_origin(definition["priority_origin"], "priority decision")
+        _text(decision["reason"], "priority decision reason", 512)
+        consulted = decision["consulted_facts"]
+        if (
+            not isinstance(consulted, list)
+            or len(consulted) > 16
+            or consulted != sorted(set(consulted))
+            or any(
+                type(name) is not str or not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", name)
+                for name in consulted
+            )
+        ):
+            raise ValueError("invalid priority policy receipt")
+    fingerprint = value["decision_fingerprint"]
+    if fingerprint != _receipt_fingerprint(decisions):
+        raise ValueError("invalid priority policy receipt")
+
+
 def _read(root: Path, project: dict) -> dict | None:
     path = root / "coverage.json"
     if not os.path.lexists(path):
@@ -188,19 +326,18 @@ def _read(root: Path, project: dict) -> dict | None:
         document = json.loads(path.read_text())
     except (ValueError, OSError) as exc:
         raise ValueError("coverage.json is not valid JSON") from exc
-    if not isinstance(document, dict) or set(document) != {
-        "format",
-        "version",
-        "project_uuid",
-        "revision",
-        "items",
-    }:
+    if not isinstance(document, dict) or type(document.get("format")) is not str:
         raise ValueError("unsupported coverage document shape")
-    if (
-        document["format"] != FORMAT
-        or type(document["version"]) is not int
-        or document["version"] != 1
-    ):
+    expected_keys = (
+        {"format", "version", "project_uuid", "revision", "items"}
+        if document["format"] == FORMAT
+        else {"format", "version", "project_uuid", "revision", "items", "priority_policy"}
+        if document["format"] == FORMAT_V2
+        else None
+    )
+    if set(document) != expected_keys or type(document["version"]) is not int:
+        raise ValueError("unsupported coverage document shape")
+    if document["version"] != (1 if document["format"] == FORMAT else 2):
         raise ValueError("unsupported coverage version")
     if document["project_uuid"] != project["project_uuid"]:
         raise ValueError("coverage project UUID mismatch")
@@ -227,6 +364,8 @@ def _read(root: Path, project: dict) -> dict | None:
         ):
             raise ValueError("current definition is absent from history")
         _definition(item["definition"], {}, historical=True)
+        if document["format"] == FORMAT and item["definition"]["priority_origin"] == "policy":
+            raise ValueError("v1 coverage cannot contain policy priority origins")
         hashes = {}
         for version in item["definitions"]:
             if not isinstance(version, dict) or set(version) != {"observed_at", "definition"}:
@@ -235,9 +374,27 @@ def _read(root: Path, project: dict) -> dict | None:
             _definition(version["definition"], {}, historical=True)
             if version["definition"]["id"] != item_id:
                 raise ValueError("historical item identity mismatch")
+            if (
+                document["format"] == FORMAT
+                and version["definition"]["priority_origin"] == "policy"
+            ):
+                raise ValueError("v1 coverage cannot contain policy priority origins")
             hashes[_completion_hash(version["definition"])] = version["definition"]
         for record in item["records"]:
             _record_shape(record, hashes)
+    if document["format"] == FORMAT_V2:
+        policy = document["priority_policy"]
+        if (
+            not isinstance(policy, dict)
+            or set(policy) != {"applications"}
+            or not isinstance(policy["applications"], list)
+        ):
+            raise ValueError("invalid priority policy history")
+        for application in policy["applications"]:
+            if not isinstance(application, dict) or set(application) != {"applied_at", "receipt"}:
+                raise ValueError("invalid priority policy application")
+            _application_time(application["applied_at"])
+            _priority_receipt(application["receipt"], set(document["items"]))
     _dependencies(document["items"])
     return document
 
@@ -348,7 +505,10 @@ def _transaction(directory: str | Path, expected_revision: int | None):
                 "revision": 0,
                 "items": {},
             }
+        original = copy.deepcopy(document)
         yield root, project, document
+        if document == original:
+            return
         _dependencies(document["items"])
         document["revision"] += 1
         content = json.dumps(document, indent=2, sort_keys=True, allow_nan=False) + "\n"
@@ -533,7 +693,7 @@ def record_execution(
     return coverage_status(directory)
 
 
-def _status(root: Path, document: dict, catalogue: dict) -> dict:
+def _status(root: Path, document: dict, catalogue: dict, project: dict | None = None) -> dict:
     from .evidence import evidence_stale
 
     document = copy.deepcopy(document)
@@ -568,6 +728,7 @@ def _status(root: Path, document: dict, catalogue: dict) -> dict:
             "scope": definition["scope"],
             "priority": definition["priority"],
             "priority_origin": definition["priority_origin"],
+            "priority_reason": "not applied",
             "order": definition["order"],
             "enabled": definition["enabled"],
             "execution_kind": definition["execution_kind"],
@@ -637,6 +798,26 @@ def _status(root: Path, document: dict, catalogue: dict) -> dict:
         }
         for kind in ("check", "skill", "scenario", "custom")
     }
+    applications = document.get("priority_policy", {}).get("applications", [])
+    latest_policy = applications[-1] if applications else None
+    if latest_policy is not None:
+        for decision in latest_policy["receipt"]["decisions"]:
+            if decision["id"] in rows:
+                rows[decision["id"]]["priority_reason"] = (
+                    "operator priority preserved"
+                    if rows[decision["id"]]["priority_origin"] == "operator"
+                    else decision["reason"]
+                )
+    saved_facts_state = "not_applied"
+    if latest_policy is not None:
+        current_facts = sorted(
+            copy.deepcopy((project or _load(root)[1])["facts"]), key=lambda fact: fact["name"]
+        )
+        saved_facts_state = (
+            "matches_current_project"
+            if current_facts == latest_policy["receipt"]["facts"]
+            else "changed_since_application"
+        )
     return {
         "state": "initialized",
         "revision": document["revision"],
@@ -645,6 +826,12 @@ def _status(root: Path, document: dict, catalogue: dict) -> dict:
         "by_kind": by_kind,
         "views": views,
         "items": ordered,
+        "priority_policy": {
+            "state": "applied" if latest_policy else "not_applied",
+            "policy_hash": latest_policy["receipt"]["policy_hash"] if latest_policy else None,
+            "applied_at": latest_policy["applied_at"] if latest_policy else None,
+            "facts_state": saved_facts_state,
+        },
         "complete": bool(active) and counts["remaining"] == 0,
     }
 
@@ -658,4 +845,4 @@ def coverage_status(directory: str | Path) -> dict:
             "state": "not_initialized",
             "reason": "coverage checklist is initialized by project checklist setup, not project creation",
         }
-    return _status(root, document, load_catalogue())
+    return _status(root, document, load_catalogue(), project)

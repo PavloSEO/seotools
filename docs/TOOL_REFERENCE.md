@@ -6,7 +6,7 @@ Generated from the MCP tool definitions in `seohead/servers/mcp_server.py` and `
 python scripts/generate_tool_reference.py
 ```
 
-**71 core tools** (`seohead <command>` / `seo_<command>` on the MCP server) plus **5 crawl-audit tools** (`sf_<command>`, driven by `seohead sf ...`) — 76 in total.
+**72 core tools** (`seohead <command>` / `seo_<command>` on the MCP server) plus **5 crawl-audit tools** (`sf_<command>`, driven by `seohead sf ...`) — 77 in total.
 
 Every tool shares one contract: JSON in, JSON out. A target that could not be reached comes back as `{"ok": false, "error": "..."}` instead of raising, so an unreachable site is data, not a crash.
 
@@ -1020,6 +1020,28 @@ Record supplied evidence for one checklist item without executing its operation.
 expected_revision prevents an overwrite of newer checklist history. The record is
 validated against the item's scope and evidence contract, then the returned status names
 remaining, blocked and manual-review work. This never makes a network request.
+
+### `project-priorities`
+
+MCP name: `seo_project_priorities`
+
+Preview stack-aware project priorities from saved facts without network requests.
+
+| Argument | Type | Default |
+|---|---|---|
+| `directory` | `str` | `required` |
+| `policy` | `dict | None` | `None` |
+| `apply` | `bool` | `False` |
+| `expected_revision` | `int | None` | `None` |
+
+**Cost** — network: no · writes files: yes · idempotent: no · spends money: no
+
+**Behavior and failure modes**
+
+The default is read-only preview. apply=true requires expected_revision and atomically
+saves policy provenance; it preserves explicit operator choices and completion evidence.
+Read-only status and reports never upgrade coverage schemas. A custom policy is data,
+not executable code; omitted policy uses the packaged defaults.
 
 ### `scan-list`
 

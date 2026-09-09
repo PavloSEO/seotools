@@ -132,3 +132,37 @@ an interrupted process leaves a lock, confirm that no writer is active before
 removing that lock and retrying with the freshly read revision. Unknown coverage
 schemas, unsafe paths and malformed history refuse rather than being migrated
 on read.
+
+
+### Preview and apply work priorities
+
+```bash
+seohead project priorities --directory ./example-project
+seohead project priorities --directory ./example-project --apply --expected-revision 1
+```
+
+Initialize the checklist first and pass the revision returned by its current status.
+Preview is offline and does not change files. Apply records the policy, saved fact
+provenance, and per-item reasons in an atomic `seohead.coverage.v2` update. Reading a
+v1 checklist never upgrades it; existing definitions, attempts and completion
+hashes survive the explicit update. Reapplying unchanged decisions and inputs is a
+byte-preserving no-op. Explicit operator/template priorities, including P1, win.
+
+The [packaged policy](../seohead/data/project_priorities.json) assigns baseline
+P0 response/robots/canonical reviews and P2 URL-style reviews; other defaults stay
+P1. Saved `framework` facts raise JavaScript rendering work; `cms` facts raise PHP
+and CMS URL/security work; `site_type: publisher` raises pagination/depth/sitemap
+work. These are configurable specialist work priorities, not Google requirements
+or changes to finding severity. Missing stack facts do not imply a detected stack.
+
+A custom `policy` object can be supplied with `--input` JSON or through MCP. Its
+format is `seohead.project-priorities.v1`; each rule has `id`, `facts`, `priority`
+(P0/P1/P2), and a list of exact catalogue `items`. An empty facts object is an
+unconditional rule. Other fact conditions compare declared string values without
+case sensitivity; all conditions in a rule must match. Contradictory matching
+rules refuse instead of silently choosing a winner. Policy text never executes
+code, fetches a site, or contacts a provider.
+
+Status and human reports display the saved priority, origin and reason. A priority
+change does not complete work or invalidate a previously reviewed result; changes
+to the work definition or evidence still follow the normal stale-evidence rules.

@@ -96,6 +96,7 @@ COMMANDS = (
     "project-checklist-init",
     "project-checklist-update",
     "project-checklist-record",
+    "project-priorities",
 )
 
 # Tools whose complete direct CLI input can be supplied by one --url flag.
@@ -302,6 +303,7 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
         "project-checklist-init",
         "project-checklist-update",
         "project-checklist-record",
+        "project-priorities",
     }:
         for name in ("directory", "target", "label", "expected_site"):
             value = getattr(args, name, None)
@@ -311,6 +313,8 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
             kw["expected_revision"] = args.expected_revision
         if getattr(args, "item_id", None) is not None:
             kw["item_id"] = args.item_id
+        if cmd == "project-priorities" and getattr(args, "apply", False):
+            kw["apply"] = True
     elif cmd == "boilerplate-report":
         if getattr(args, "scan", None):
             kw["scan"] = args.scan
@@ -1102,13 +1106,24 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
         _source_flag(sub, "--directory", help="project directory")
     if cmd == "project-open":
         sub.add_argument("--expected-site", help="expected target host")
-    if cmd in {"project-checklist-init", "project-checklist-update", "project-checklist-record"}:
+    if cmd in {
+        "project-checklist-init",
+        "project-checklist-update",
+        "project-checklist-record",
+        "project-priorities",
+    }:
         _source_flag(sub, "--directory", help="project directory")
         sub.add_argument(
             "--expected-revision",
             dest="expected_revision",
             type=int,
             help="current checklist revision required before a write",
+        )
+    if cmd == "project-priorities":
+        sub.add_argument(
+            "--apply",
+            action="store_true",
+            help="apply the previewed policy with an expected revision",
         )
     if cmd == "project-checklist-record":
         _source_flag(sub, "--item-id", help="checklist item identifier to record")
@@ -1247,6 +1262,7 @@ def build_parser() -> argparse.ArgumentParser:
         "checklist-init",
         "checklist-update",
         "checklist-record",
+        "priorities",
     ):
         cmd = "project-" + action
         sp = project_subs.add_parser(action, help=f"run {cmd}")

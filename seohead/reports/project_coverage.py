@@ -111,3 +111,12 @@ def value_text(value: Any) -> str:
     if isinstance(value, (dict, list)):
         return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return str(value)
+
+
+def priority_text(item: dict[str, Any]) -> str:
+    """Show the saved work priority and its recorded origin, without recalculating policy."""
+    if not item.get("priority"):
+        return ""
+    return (
+        f"{item['priority']} ({item.get('priority_origin', '')}): {item.get('priority_reason', '')}"
+    )

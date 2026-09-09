@@ -1035,6 +1035,26 @@ def build_server():  # -> FastMCP
             )
         )
 
+    @mcp.tool(annotations=create_files, structured_output=True)
+    def seo_project_priorities(
+        directory: str,
+        policy: dict | None = None,
+        apply: bool = False,
+        expected_revision: int | None = None,
+    ) -> dict[str, Any]:
+        """Preview stack-aware project priorities from saved facts without network requests.
+
+        The default is read-only preview. apply=true requires expected_revision and atomically
+        saves policy provenance; it preserves explicit operator choices and completion evidence.
+        Read-only status and reports never upgrade coverage schemas. A custom policy is data,
+        not executable code; omitted policy uses the packaged defaults.
+        """
+        return _checked(
+            handlers.project_priorities(
+                directory=directory, policy=policy, apply=apply, expected_revision=expected_revision
+            )
+        )
+
     @mcp.tool(annotations=read_files, structured_output=True)
     def seo_scan_list(
         directory: str | None = None, offset: int = 0, limit: int = 100, project: str | None = None
