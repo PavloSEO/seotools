@@ -256,6 +256,15 @@ DEFAULTS: dict[str, Any] = {
             "max_nesting": 2,
         },
     },
+    "evidence": {
+        "content_area": {
+            "include_selector": "",
+            "root_selector": "",
+            "exclude_tags": ["nav", "header", "aside", "footer"],
+            "exclude_selectors": [],
+        },
+        "extraction_rules": [],
+    },
     "storage": {
         "format_version": "scan.v1",
         "body_mode": "captured_entity_bytes",
@@ -419,6 +428,11 @@ RESULTS_AFFECTING: frozenset[str] = frozenset(
         "resources.graph.max_origins",
         "resources.graph.max_redirects",
         "resources.graph.max_nesting",
+        "evidence.content_area.include_selector",
+        "evidence.content_area.root_selector",
+        "evidence.content_area.exclude_tags",
+        "evidence.content_area.exclude_selectors",
+        "evidence.extraction_rules",
         "storage.max_body_bytes",
         "storage.max_body_store_bytes",
         "storage.min_free_bytes",

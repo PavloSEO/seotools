@@ -40,6 +40,18 @@ def ensure_schema(con: sqlite3.Connection) -> None:
         "resolved_url TEXT NOT NULL,nesting_depth INTEGER NOT NULL,state TEXT NOT NULL,reason TEXT NOT NULL,"
         "UNIQUE(page_url_id,source_document_id,representation,ordinal))"
     )
+    existing = {row[1] for row in con.execute("PRAGMA table_info(resource_graph_fetches)")}
+    for name, definition in (
+        ("final_url", "TEXT NOT NULL DEFAULT ''"),
+        ("compression", "TEXT NOT NULL DEFAULT 'unknown'"),
+        ("cache_state", "TEXT NOT NULL DEFAULT 'unknown'"),
+        ("integrity_state", "TEXT NOT NULL DEFAULT 'unknown'"),
+        ("width", "INTEGER"),
+        ("height", "INTEGER"),
+        ("body_state", "TEXT NOT NULL DEFAULT 'unavailable'"),
+    ):
+        if name not in existing:
+            con.execute(f"ALTER TABLE resource_graph_fetches ADD COLUMN {name} {definition}")
     con.execute(
         "CREATE TABLE IF NOT EXISTS resource_graph_fetches (resolved_url TEXT PRIMARY KEY,state TEXT NOT NULL,"
         "reason TEXT NOT NULL,status_code INTEGER,content_type TEXT NOT NULL,bytes_received INTEGER NOT NULL,"
@@ -345,27 +357,43 @@ def capture(
         events = []
         before = clock() if clock is not None else 0.0
         try:
-            record, _parsed = fetch_one(
-                url,
+            current = url
+            redirects = 0
+            while True:
+                record, _parsed = fetch_one(
+                current,
                 client=client,
                 fetcher=fetcher,
-                extra_headers=_headers(settings, url),
+                extra_headers=_headers(settings, current),
                 user_agent=settings["http"]["user_agent"],
                 max_response_bytes=graph["max_bytes_per_resource"],
                 retry_on_timeout=0,
                 wait=wait,
                 capture_observer=events.append,
                 capture_max_bytes=graph["max_bytes_per_resource"],
-            )
+                )
+                if not record.redirect_url or not 300 <= (record.status_code or 0) < 400:
+                    break
+                if redirects >= graph["max_redirects"]:
+                    break
+                next_url = urljoin(current, record.redirect_url)
+                redirect_reason = scope.rejection(next_url, start_host)
+                if redirect_reason:
+                    _set_occurrence_state(scan.con, url, "excluded", redirect_reason)
+                    totals["excluded"] += 1
+                    break
+                redirects += 1
+                current = next_url
             event = events[-1] if events else None
             body = event.entity_bytes if event is not None else None
             content_type = record.content_type or ""
             status = record.status_code
-            redirects = 1 if record.redirect_url else 0
-            if redirects > graph["max_redirects"]:
+            if record.redirect_url and 300 <= (record.status_code or 0) < 400:
                 state, reason = "failed", "resource redirect budget exhausted"
             elif status is None or not 200 <= status < 300:
                 state, reason = "failed", record.error or "resource response was not successful"
+            elif body is None:
+                state, reason = "partial", "resource response body was not retained completely"
             else:
                 state, reason = "complete", ""
             received = len(body or b"")
@@ -373,8 +401,8 @@ def capture(
             used_bytes += received
             seen_origins.add(host)
             scan.con.execute(
-                "INSERT INTO resource_graph_fetches VALUES(?,?,?,?,?,?,?,?,?,?)",
-                (url, state, reason, status, content_type, received, (clock() - before) if clock else None, host, redirects, row["nesting_depth"]),
+                "INSERT INTO resource_graph_fetches(resolved_url,state,reason,status_code,content_type,bytes_received,elapsed_seconds,origin_host,redirects,nesting_depth,final_url,compression,cache_state,integrity_state,width,height,body_state) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (url, state, reason, status, content_type, received, (clock() - before) if clock else None, host, redirects, row["nesting_depth"], current, (event.content_encoding if event is not None else "unknown") or "identity", record.cache_status or "unknown", "unknown", None, None, "complete" if body is not None else "partial"),
             )
             _set_occurrence_state(scan.con, url, state, reason)
             totals["fetched" if state == "complete" else "failed"] += 1
