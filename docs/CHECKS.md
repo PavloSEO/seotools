@@ -157,7 +157,7 @@ python scripts/generate_checks_reference.py
 |---|---|---|---|---|
 | `URL_UNDERSCORES` | notice | SF:URL:Underscores | URL contains underscores | Use hyphens instead of underscores in URL path segments. |
 | `URL_MULTIPLE_SLASHES` | notice | SF:URL:Multiple Slashes | URL path contains repeated slashes | Remove duplicate slashes and 301-redirect the malformed variant to the canonical path. |
-| `URL_CONTAINS_SPACE` | warning | SF:URL:Contains Space | URL contains a space | Remove literal spaces and %20 sequences from the canonical URL structure. |
+| `URL_CONTAINS_SPACE` | warning | SF:URL:Contains Space | URL contains a space | Encode literal spaces in links; do not mechanically remove percent-encoded values such as q=red%20shoes. Change a canonical path only after verifying equivalent content and planning redirects or canonicals. |
 | `URL_REPETITIVE_PATH` | notice | SF:URL:Repetitive Path | URL path contains a repeated segment | Simplify the URL structure so path segments are not duplicated. |
 | `URL_TRACKING_PARAMS` | warning | SF-derived | Indexable URL contains a tracking parameter such as utm_, gclid, or fbclid | Remove tracking parameters from public links; for parameterized URLs that still receive traffic, add a self-referencing canonical or manage crawling through robots.txt and Search Console as appropriate. |
 

@@ -48,7 +48,7 @@ Each directive becomes its own finding, so the report never says "robots problem
 |---|---|
 | `NOSNIPPET` | suppresses the search-result snippet for that page |
 | `NOIMAGEINDEX` | keeps images *on that page* out of image search |
-| `NOTRANSLATE` | suppresses the browser's offer to translate the page |
+| `NOTRANSLATE` | opts out of translation-related Google Search features; see [Google's translated-results guide](https://developers.google.com/search/docs/appearance/translated-results) |
 | `NOFOLLOW_PAGE` | page-level nofollow: no link on the page passes signals |
 | `UNAVAILABLE_AFTER` | a date after which the page leaves the index by itself |
 
