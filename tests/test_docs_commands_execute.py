@@ -48,6 +48,11 @@ NEEDS_LIVE_INFRASTRUCTURE = {
     # gap as domain-profile and mirror-check above, just surfaced only once ok:false reached the
     # exit code (#155) instead of being silently swallowed by an exit-0 success.
     "backlinks-check",
+    # Same gap, from the other side: a project records the site it is about, and the
+    # fixture server is 127.0.0.1 with no name to record. Creating a project is otherwise
+    # entirely offline -- every other project command below runs against the seeded
+    # workspace, so only the one that needs a real hostname is skipped here.
+    "project-new",
     "keywords-expand",
     "keywords-seasonality",
     "keywords-exact",
@@ -371,8 +376,13 @@ def _cases():
 def test_documented_command_executes_or_at_least_still_parses(
     command, argv, fixture_site, tmp_path, monkeypatch
 ):
-    tool = argv[0]
-    if tool in NEEDS_LIVE_INFRASTRUCTURE or _is_licensed_sf_mode(argv):
+    # A command has two spellings -- `project-new` and `project new` -- and the
+    # skip list names the flat one, so both have to be looked up or the same
+    # command is skipped in one document and executed in another.
+    spellings = {argv[0]}
+    if len(argv) > 1 and not argv[1].startswith("-"):
+        spellings.add(f"{argv[0]}-{argv[1]}")
+    if spellings & NEEDS_LIVE_INFRASTRUCTURE or _is_licensed_sf_mode(argv):
         from seohead.cli import build_parser
         from seohead.sf.cli import build_parser as build_sf_parser
 
