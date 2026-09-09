@@ -79,6 +79,7 @@ _LINK_KEYS = {
     "raw_href",
 }
 _FORM_KEYS = {"page", "method", "action", "has_password"}
+_EVENT_NOW = object()
 # Page fields the record carries as Python objects and the pages table stores as JSON
 # text. Spelled once: the same map was written out at three call sites below, and a
 # fourth entry (the canonical walk, #21) had to reach all of them to be stored at all.
@@ -404,17 +405,42 @@ class NativeScan:
         self.failpoint: Callable[[str], None] | None = None
         self._event_sink = None
         if self.con.execute("PRAGMA user_version").fetchone()[0] == 2:
-            from seohead.crawl.events import EventSink
+            from seohead.crawl.events import EventSink, MAX_EVENTS
             from seohead.storage.events import append, ensure_schema
 
             ensure_schema(self.con)
             prior = self.con.execute("SELECT COALESCE(MAX(sequence),0) FROM scan_events").fetchone()[0]
-            self._event_sink = EventSink(writer=lambda event: append(self.con, event))
+            meta = self.con.execute(
+                "SELECT cap,captured,dropped FROM scan_event_meta WHERE singleton=1"
+            ).fetchone()
+            cap = meta[0] if meta is not None else MAX_EVENTS
+            if (
+                type(cap) is not int
+                or not 1 <= cap <= MAX_EVENTS
+                or prior > cap
+                or (
+                    meta is not None
+                    and (
+                        type(meta[1]) is not int
+                        or type(meta[2]) is not int
+                        or meta[1] != prior
+                        or meta[2] < 0
+                    )
+                )
+            ):
+                raise ScanError("saved event timeline coverage is invalid")
+            self._event_sink = EventSink(cap=cap, writer=lambda event: append(self.con, event))
             self._event_sink.events = [{}] * prior
+            self._event_sink.dropped = meta[2] if meta is not None else 0
 
-    def _event(self, event_type: str, payload: dict[str, Any]) -> None:
+    def _event(
+        self, event_type: str, payload: dict[str, Any], *, occurred_at: Any = _EVENT_NOW
+    ) -> None:
         if self._event_sink is not None:
-            self._event_sink.emit(event_type, payload, occurred_at=None)
+            if occurred_at is _EVENT_NOW:
+                self._event_sink.emit(event_type, payload)
+            else:
+                self._event_sink.emit(event_type, payload, occurred_at=occurred_at)
 
     def _event_coverage(self) -> None:
         if self._event_sink is not None:
@@ -432,8 +458,13 @@ class NativeScan:
             raise ScanError("event sink is invalid")
         self._begin()
         try:
-            for event in events:
-                self._event(event["event_type"], event["payload"])
+            from seohead.crawl.events import validate
+
+            for raw_event in events:
+                event = validate(raw_event)
+                self._event(
+                    event["event_type"], event["payload"], occurred_at=event["occurred_at"]
+                )
             self._event_sink.dropped += dropped
             self._event_coverage()
             self.con.commit()

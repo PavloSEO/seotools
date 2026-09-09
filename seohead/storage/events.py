@@ -58,7 +58,9 @@ def set_coverage(con: sqlite3.Connection, coverage: dict[str, Any]) -> None:
         raise ScanError("scan event coverage is invalid")
     con.execute(
         f"INSERT INTO {META_TABLE}(singleton,cap,captured,dropped) VALUES(1,?,?,?) "
-        "ON CONFLICT(singleton) DO UPDATE SET cap=excluded.cap,captured=excluded.captured,dropped=excluded.dropped",
+        "ON CONFLICT(singleton) DO UPDATE SET cap=excluded.cap,"
+        "captured=MAX(scan_event_meta.captured,excluded.captured),"
+        "dropped=MAX(scan_event_meta.dropped,excluded.dropped)",
         (coverage["cap"], coverage["captured"], coverage["dropped"]),
     )
 

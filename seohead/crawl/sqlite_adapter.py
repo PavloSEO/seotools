@@ -409,7 +409,7 @@ def crawl_to_scan(
 
     def emit_event(event_type, payload):
         with event_lock:
-            adapter_events.emit(event_type, payload, occurred_at=None)
+            adapter_events.emit(event_type, payload)
 
     dispatch_gate = _DispatchGate(
         throttle,
