@@ -280,7 +280,25 @@ class Throttle:
         The payload is deliberately closed: accepting a missing/defaulted field
         would turn a resumed crawl into a different adaptive policy.
         """
-        if not isinstance(state, dict) or set(state) != {
+        if not isinstance(state, dict):
+            raise ValueError("invalid throttle state keys")
+        if state.get("schema_version") in {"scan_throttle.v1", "scan_throttle.v2"}:
+            allowed = {
+                "schema_version",
+                "delay_seconds",
+                "concurrency",
+                "consecutive_ok",
+            }
+            if state["schema_version"] == "scan_throttle.v2":
+                allowed.add("requests_used")
+            if set(state) != allowed:
+                raise ValueError("invalid throttle state keys")
+            state = {
+                key: value
+                for key, value in state.items()
+                if key in {"delay_seconds", "concurrency", "consecutive_ok"}
+            }
+        if set(state) != {
             "delay_seconds",
             "concurrency",
             "consecutive_ok",
