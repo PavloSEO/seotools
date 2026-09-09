@@ -50,6 +50,17 @@ def scan_status(input_path: str) -> dict[str, Any]:
     return _scan_status(_path(input_path, "input"))
 
 
+def scan_rendered_routes(input_path: str) -> dict[str, Any]:
+    """Read stored route observations without crawling or rendering."""
+    from seohead.storage.rendered_routes import read
+
+    con = open_scan(_path(input_path, "input"), require_audit=False)
+    try:
+        return read(con)
+    finally:
+        con.close()
+
+
 def scan_snapshot(input_path: str, out: str) -> dict[str, Any]:
     return {"snapshot": snapshot_scan(_path(input_path, "input"), _path(out, "out"))}
 
@@ -138,5 +149,6 @@ __all__ = [
     "scan_list",
     "scan_pin",
     "scan_prune",
+    "scan_rendered_routes",
     "scan_snapshot",
 ]

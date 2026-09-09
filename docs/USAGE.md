@@ -102,6 +102,7 @@ report their frontier as unavailable because they retain no native queue.
 seohead scan-list --directory . --limit 100
 seohead scan-inspect --input native.sqlite --table pages --offset 0 --limit 100 --max-bytes 1048576
 seohead scan-status --input native.sqlite
+seohead scan-rendered-routes --input native.sqlite
 
 # --out is either a new filename or an existing directory; neither form overwrites
 seohead scan-snapshot --input native.sqlite --out snapshot.sqlite
@@ -235,7 +236,7 @@ Money rules for this layer: [GOTCHAS.md](GOTCHAS.md).
 ## MCP server
 
 ```bash
-seohead mcp        # stdio server, all 68 seo_* tools + 5 sf_* audit tools
+seohead mcp        # stdio server, all 69 seo_* tools + 5 sf_* audit tools
 ```
 
 Client config (`.mcp.json` in this repo does exactly this):

@@ -83,7 +83,13 @@ def _rendered_batch(
     target_url: str,
     depth: int,
     settings: dict[str, Any],
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
+) -> tuple[
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[str],
+    list[dict[str, Any]],
+    dict[str, Any] | None,
+]:
     """Use the native collector's existing parser-to-observation contract.
 
     Rendered evidence never discovers or queues a URL.  ``_document_batch``
@@ -102,7 +108,13 @@ def _rendered_batch(
         start_host=(urlsplit(target_url).hostname or "").lower(),
         settings=settings,
     )
-    return batch.links, batch.forms, batch.partial_reasons
+    if settings["rendering"]["rendered_links"]["store"]:
+        from seohead.storage.rendered_routes import observations
+
+        routes, coverage = observations(parsed, batch, "rendered")
+    else:
+        routes, coverage = [], None
+    return batch.links, batch.forms, batch.partial_reasons, routes, coverage
 
 
 def _candidate(
@@ -483,7 +495,7 @@ def run_render_escalation(
                 if degenerate
                 else "rendered body is not parseable",
             }
-        links, forms, partial_reasons = _rendered_batch(
+        links, forms, partial_reasons, route_observations, route_coverage = _rendered_batch(
             parsed,
             target_url=target,
             depth=candidate.crawl_depth,
@@ -506,6 +518,8 @@ def run_render_escalation(
             representation=label,
             captures=captures,
             partial_reasons=partial_reasons,
+            route_observations=route_observations,
+            route_coverage=route_coverage,
             **resource_observations,
         )
         state, reason = _document_state(scan, document_id)

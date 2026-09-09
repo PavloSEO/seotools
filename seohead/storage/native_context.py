@@ -39,6 +39,11 @@ def validate_context(
 
         validate_inventory_context(con, item)
         return
+    if item["kind"] in {"rendered_route_ledger", "rendered_route_coverage"}:
+        from .rendered_routes import validate_context as validate_rendered_routes
+
+        validate_rendered_routes(con, item, payload)
+        return
     if item["kind"] == "resource_commit":
         if (
             not isinstance(payload, dict)

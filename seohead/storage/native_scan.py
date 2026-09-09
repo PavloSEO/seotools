@@ -1617,6 +1617,8 @@ class NativeScan:
         partial_reasons: Iterable[str] = (),
         runtime: dict[str, Any] | None = None,
         context: Iterable[dict[str, Any]] = (),
+        route_observations: Iterable[dict[str, Any]] = (),
+        route_coverage: dict[str, Any] | None = None,
         captures: Iterable[Any] = (),
         resources: Iterable[dict[str, Any]] = (),
         resource_inventory_state: str | None = None,
@@ -1650,13 +1652,14 @@ class NativeScan:
         partial_reasons = _bounded_items(partial_reasons, "partial reasons", 16)
         for _ in _json_chunks(record):
             pass
-        links, forms, decisions, discovered, query_reservations, context = (
+        links, forms, decisions, discovered, query_reservations, context, route_observations = (
             _bounded_items(links, "links", MAX_EDGES_PER_PAGE),
             _bounded_items(forms, "forms"),
             _bounded_items(decisions, "decisions"),
             _bounded_items(discovered, "discovered frontier entries"),
             _bounded_items(query_reservations, "query reservations"),
             _bounded_items(context, "context items"),
+            _bounded_items(route_observations, "rendered route observations", MAX_EDGES_PER_PAGE),
         )
         payload = {
             "lease": lease.__dict__,
@@ -1668,6 +1671,7 @@ class NativeScan:
             "query_reservations": query_reservations,
             "runtime": runtime or {},
             "context": context,
+            "route_observations": route_observations,
         }
         if capture_metadata:
             payload["captures"] = capture_metadata
@@ -1748,6 +1752,12 @@ class NativeScan:
             _insert(self.con, "pages", page_row)
             self._hit("after_page")
             self._write_observations(lease, document_id, "static", links, forms)
+            if route_coverage is not None:
+                from .rendered_routes import context_items
+
+                context.extend(
+                    context_items(lease.url_id, document_id, route_coverage, route_observations)
+                )
             if resource_inventory_state is not None:
                 from .resources import put_declarations
 
@@ -1959,6 +1969,8 @@ class NativeScan:
         resource_inventory_state: str | None = None,
         resources_omitted: int = 0,
         elapsed_seconds: float | None = None,
+        route_observations: Iterable[dict[str, Any]] = (),
+        route_coverage: dict[str, Any] | None = None,
     ) -> int:
         """Retain one render attempt and its accepted extraction atomically."""
         from .corpus import store_rendered_document, store_response
@@ -1971,6 +1983,9 @@ class NativeScan:
         forms = _bounded_items(forms, "rendered forms", 2000)
         partial_reasons = _bounded_items(partial_reasons, "render partial reasons", 16)
         resources = _bounded_items(resources, "render resource declarations", MAX_EDGES_PER_PAGE)
+        route_observations = _bounded_items(
+            route_observations, "rendered route observations", MAX_EDGES_PER_PAGE
+        )
         captures = list(itertools.islice(captures, 1001))
         if (
             len(captures) > 1000
@@ -2056,6 +2071,15 @@ class NativeScan:
                     (page["url_id"], representation),
                 )
                 self._write_observations(lease, document_id, representation, links, forms)
+                if route_coverage is not None:
+                    from .rendered_routes import context_items
+
+                    for item in context_items(
+                        lease.url_id, document_id, route_coverage, route_observations
+                    ):
+                        from .native_context import put_context
+
+                        put_context(self.con, item)
                 if resource_inventory_state is not None:
                     from .resources import put_declarations
 

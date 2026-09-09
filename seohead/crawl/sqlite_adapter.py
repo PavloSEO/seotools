@@ -95,6 +95,8 @@ class _DocumentBatch:
     decisions: list[dict[str, Any]] = field(default_factory=list)
     candidates: list[dict[str, Any]] = field(default_factory=list)
     partial_reasons: list[str] = field(default_factory=list)
+    route_observations: list[dict[str, Any]] = field(default_factory=list)
+    route_coverage: dict[str, Any] | None = None
 
 
 def _runtime(
@@ -275,6 +277,10 @@ def _document_batch(
     batch.forms.extend(dataclasses.asdict(form) for form in forms)
     if omitted:
         batch.partial_reasons.append("form_observations_omitted")
+    if settings["rendering"]["rendered_links"]["store"]:
+        from seohead.storage.rendered_routes import observations
+
+        batch.route_observations, batch.route_coverage = observations(parsed, batch, "static")
     return batch
 
 
@@ -815,6 +821,8 @@ def crawl_to_scan(
                         batch.decisions.extend(links_batch.decisions)
                         batch.candidates.extend(links_batch.candidates)
                         batch.partial_reasons.extend(links_batch.partial_reasons)
+                        batch.route_observations.extend(links_batch.route_observations)
+                        batch.route_coverage = links_batch.route_coverage
                     try:
                         if (
                             record.is_html
@@ -850,6 +858,8 @@ def crawl_to_scan(
                             ),
                             partial_reasons=tuple(batch.partial_reasons),
                             context=robots_context.get(lease.queue_ordinal, ()),
+                            route_observations=batch.route_observations,
+                            route_coverage=batch.route_coverage,
                             captures=captures,
                             **resource_observations,
                         )

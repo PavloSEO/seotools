@@ -1012,6 +1012,11 @@ def build_server():  # -> FastMCP
         """Summarize frontier work and committed page outcomes from one saved scan offline."""
         return _checked(handlers.scan_status(input_path=input_path))
 
+    @mcp.tool(annotations=read_files, structured_output=True)
+    def seo_scan_rendered_routes(input_path: str) -> dict[str, Any]:
+        """Read stored static/rendered route evidence without fetching routes."""
+        return _checked(handlers.scan_rendered_routes(input_path=input_path))
+
     @mcp.tool(annotations=create_files, structured_output=True)
     def seo_scan_snapshot(input_path: str, out: str) -> dict[str, Any]:
         """Create a consistent new SQLite snapshot without overwriting a destination."""

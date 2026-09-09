@@ -2613,6 +2613,12 @@ def scan_status(input_path: str) -> dict[str, Any]:
     return core(input_path)
 
 
+def scan_rendered_routes(input_path: str) -> dict[str, Any]:
+    from seohead.servers.history_handlers import scan_rendered_routes as core
+
+    return core(input_path)
+
+
 def scan_snapshot(input_path: str, out: str) -> dict[str, Any]:
     from seohead.servers.history_handlers import scan_snapshot as core
 
@@ -2769,6 +2775,7 @@ _RAW_HANDLERS = {
     "scan_list": scan_list,
     "scan_inspect": scan_inspect,
     "scan_status": scan_status,
+    "scan_rendered_routes": scan_rendered_routes,
     "scan_snapshot": scan_snapshot,
     "scan_pin": scan_pin,
     "scan_prune": scan_prune,
