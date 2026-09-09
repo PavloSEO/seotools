@@ -17,7 +17,13 @@ from collections.abc import Iterator
 from pathlib import Path
 
 SITE_DIR = Path(__file__).with_name("site")
-EXACT_FILES = {"/robots.txt", "/sitemap.xml", "/llms.txt", "/image.png"}
+EXACT_FILES = {
+    "/robots.txt": SITE_DIR / "robots.txt",
+    "/sitemap.xml": SITE_DIR / "sitemap.xml",
+    "/llms.txt": SITE_DIR / "llms.txt",
+    "/image.png": SITE_DIR / "image.png",
+}
+_ORIGIN_REWRITES = {"/robots.txt", "/sitemap.xml"}
 
 
 class _FixtureHandler(http.server.SimpleHTTPRequestHandler):
@@ -25,10 +31,34 @@ class _FixtureHandler(http.server.SimpleHTTPRequestHandler):
         super().__init__(*args, directory=str(SITE_DIR), **kwargs)
 
     def do_GET(self) -> None:
+        self._serve_fixture()
+
+    def do_HEAD(self) -> None:
+        self._serve_fixture()
+
+    def _serve_fixture(self) -> None:
         path = self.path.split("?", 1)[0]
+        if path in _ORIGIN_REWRITES:
+            body = (
+                EXACT_FILES[path].read_bytes().replace(b"http://127.0.0.1", self._origin().encode())
+            )
+            self.send_response(200)
+            self.send_header("Content-Type", self.guess_type(path))
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            if self.command == "GET":
+                self.wfile.write(body)
+            return
         if path not in EXACT_FILES:
             self.path = "/index.html"
-        super().do_GET()
+        if self.command == "GET":
+            super().do_GET()
+        else:
+            super().do_HEAD()
+
+    def _origin(self) -> str:
+        host, port = self.server.server_address[:2]
+        return f"http://{host}:{port}"
 
     def log_message(self, format: str, *args) -> None:
         pass  # keep pytest output clean; failures still surface through assertions
