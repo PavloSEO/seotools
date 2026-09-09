@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import json
 import sqlite3
 import struct
 
+import pytest
 from seohead.crawl.settings import load
+from seohead.crawl.sqlite_adapter import crawl_to_scan
+from seohead.storage import open_scan
 from seohead.storage.native_scan import NativeScan
 from seohead.storage.resource_graph import (
     _image_dimensions,
@@ -16,6 +21,7 @@ from seohead.storage.resource_graph import (
     read,
     store_document,
 )
+from seohead.storage.retry import requeue_scan
 from tests.test_native_capture import _claim, _event
 from tests.test_scan_native import _metadata, _record, _runtime
 
@@ -283,3 +289,111 @@ def test_v1_and_read_only_v2_access_do_not_create_or_upgrade_resource_graph(tmp_
         )
     finally:
         con.close()
+
+
+def _v2_crawl(path, fetcher):
+    settings = load(
+        overrides={
+            "storage.format_version": "scan.v2",
+            "resources.fetch": True,
+            "speed.min_delay_seconds": 0,
+            "limits.max_urls": 1,
+            "limits.max_depth": 1,
+            "resources.graph.max_requests": 10,
+        }
+    )
+    crawl_to_scan(
+        "https://example.test/",
+        scan_out=str(path),
+        settings=settings,
+        producer_version="3.0.0",
+        producer_revision="a" * 40,
+        runtime_versions={
+            "python": "test",
+            "sqlite": "test",
+            "httpx": "test",
+            "lxml": "test",
+            "beautifulsoup4": "test",
+        },
+        fetcher=fetcher,
+        sleeper=lambda _seconds: None,
+    )
+    return settings
+
+
+def _v2_site(url: str):
+    if url.endswith("/robots.txt"):
+        return _Response(200, b"User-agent: SEOHEAD-Tools\nAllow: /\n", {"content-type": "text/plain"})
+    if url.endswith("/site.css"):
+        return _Response(200, b".hero{background:url('/asset.png')}", {"content-type": "text/css"})
+    if url.endswith("/asset.png"):
+        return _Response(200, b"not-an-image", {"content-type": "image/png"})
+    return _Response(
+        200,
+        b'<html><head><link rel="stylesheet" href="/site.css"></head><body>page</body></html>',
+        {"content-type": "text/html"},
+    )
+
+
+def test_v2_crawl_reopens_with_closed_resource_graph_coverage_and_css_children(tmp_path):
+    path = tmp_path / "v2.sqlite"
+    _v2_crawl(path, _v2_site)
+
+    with open_scan(path, require_audit=False) as con:
+        graph = read(con)
+        coverage = con.execute(
+            "SELECT payload_json,completeness,reason FROM context_items "
+            "WHERE kind='resource_graph_coverage'"
+        ).fetchone()
+
+    assert graph["state"] == "complete"
+    assert [(row["carrier"], row["nesting_depth"]) for row in graph["occurrences"]] == [
+        ("link[href]", 0),
+        ("css", 1),
+    ]
+    assert json.loads(coverage[0])["state"] == "complete"
+    assert tuple(coverage[1:]) == ("complete", "")
+
+
+def test_v2_requeue_then_resume_replaces_active_graph_and_reanalysis_stays_offline(tmp_path, monkeypatch):
+    from seohead.servers.reanalysis_handlers import reanalyze_scan
+
+    path, backup, derived = tmp_path / "v2.sqlite", tmp_path / "before.sqlite", tmp_path / "derived.sqlite"
+    calls: list[str] = []
+
+    def fetcher(url: str):
+        calls.append(url)
+        return _v2_site(url)
+
+    settings = _v2_crawl(path, fetcher)
+    requeue_scan(path, where='url = "https://example.test/"', backup_path=backup)
+    assert backup.exists()
+    with open_scan(path, require_audit=False) as con:
+        assert read(con)["total"] == 0
+    before_resume = len(calls)
+    crawl_to_scan(
+        "https://example.test/",
+        scan_out=str(path),
+        settings=settings,
+        producer_version="3.0.0",
+        producer_revision="a" * 40,
+        runtime_versions={
+            "python": "test",
+            "sqlite": "test",
+            "httpx": "test",
+            "lxml": "test",
+            "beautifulsoup4": "test",
+        },
+        fetcher=fetcher,
+        sleeper=lambda _seconds: None,
+    )
+    assert len(calls) > before_resume
+    with open_scan(path, require_audit=False) as con:
+        assert read(con)["total"] == 2
+
+    monkeypatch.setattr("socket.getaddrinfo", lambda *_args, **_kwargs: pytest.fail("no network"))
+    resumed_digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    reanalyze_scan(str(path), str(derived), producer_build="b" * 40)
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == resumed_digest
+    with open_scan(derived, require_audit=False) as con:
+        assert con.execute("SELECT source_kind FROM scan").fetchone()[0] == "reanalysis"

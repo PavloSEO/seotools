@@ -99,6 +99,11 @@ def validate_context(
 
         validate_inventory_context(con, item)
         return
+    if item["kind"] == "resource_graph_coverage":
+        from .resource_graph import validate_coverage_context
+
+        validate_coverage_context(con, item, payload)
+        return
     if item["kind"] in {
         "rendered_route_ledger",
         "rendered_route_coverage",

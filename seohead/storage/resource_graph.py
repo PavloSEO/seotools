@@ -313,6 +313,67 @@ def store_document(
     return payload
 
 
+def validate_coverage_context(con: sqlite3.Connection, item: dict[str, str], payload: Any) -> None:
+    """Validate one document-bound declaration coverage envelope without extraction."""
+    if (
+        not isinstance(payload, dict)
+        or set(payload)
+        != {
+            "schema_version",
+            "page_url_id",
+            "source_document_id",
+            "representation",
+            "observed",
+            "omitted",
+            "state",
+            "reason",
+        }
+        or payload["schema_version"] != "resource_graph.v1"
+        or type(payload["page_url_id"]) is not int
+        or payload["page_url_id"] < 1
+        or type(payload["source_document_id"]) is not int
+        or payload["source_document_id"] < 1
+        or payload["representation"] not in _REPRESENTATIONS
+        or type(payload["observed"]) is not int
+        or payload["observed"] < 0
+        or type(payload["omitted"]) is not int
+        or payload["omitted"] < 0
+        or payload["state"] not in {"complete", "partial", "unavailable", "empty"}
+        or not isinstance(payload["reason"], str)
+        or item["item_key"] != f"document:{payload['source_document_id']}"
+        or not con.execute(
+            "SELECT 1 FROM documents WHERE document_id=? AND url_id=? AND representation=?",
+            (payload["source_document_id"], payload["page_url_id"], payload["representation"]),
+        ).fetchone()
+    ):
+        raise ScanError("resource graph coverage context is invalid")
+    direct, nested, invalid_nested = con.execute(
+        "SELECT SUM(nesting_depth=0),SUM(nesting_depth>0),"
+        "SUM(nesting_depth>0 AND carrier!='css') FROM resource_graph_occurrences "
+        "WHERE page_url_id=? AND source_document_id=? AND representation=?",
+        (payload["page_url_id"], payload["source_document_id"], payload["representation"]),
+    ).fetchone()
+    direct, nested, invalid_nested = int(direct or 0), int(nested or 0), int(invalid_nested or 0)
+    state, observed, omitted, reason = (
+        payload["state"],
+        payload["observed"],
+        payload["omitted"],
+        payload["reason"],
+    )
+    expected_completeness = "unavailable" if state == "unavailable" else "partial" if state == "partial" else "complete"
+    if (
+        invalid_nested
+        or observed != direct
+        or item["completeness"] != expected_completeness
+        or item["reason"] != reason
+        or (state == "unavailable" and (observed or omitted or direct or nested or reason != "document body was not available"))
+        or (state == "empty" and (observed or omitted or direct or nested or reason))
+        or (state == "complete" and (not observed or omitted or reason))
+        or (state == "partial" and (not omitted or reason != "resource declaration cap omitted occurrences"))
+    ):
+        raise ScanError("resource graph coverage context disagrees with stored declarations")
+
+
 def read(con: sqlite3.Connection, *, limit: int = 1_000, offset: int = 0) -> dict[str, Any]:
     """Read typed resource declarations/fetches without re-extracting or fetching."""
     if con.execute("PRAGMA user_version").fetchone()[0] != 2:

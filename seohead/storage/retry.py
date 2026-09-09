@@ -86,7 +86,11 @@ def validate_v2(con: sqlite3.Connection, *, require_audit: bool = False) -> None
         raise ScanError("unsupported scan.v2 user version")
     _v2_tables(con)
     scan = con.execute("SELECT * FROM scan WHERE singleton=1").fetchone()
-    if scan is None or scan["format_version"] != V2_FORMAT or scan["source_kind"] != "native":
+    if (
+        scan is None
+        or scan["format_version"] != V2_FORMAT
+        or scan["source_kind"] not in {"native", "reanalysis"}
+    ):
         raise ScanError("scan.v2 format header is invalid")
     if con.execute("SELECT COUNT(*) FROM scan").fetchone()[0] != 1:
         raise ScanError("scan.v2 requires one scan header")
@@ -437,9 +441,34 @@ def requeue_scan(
                 "UPDATE frontier SET state='queued' WHERE url_id=? AND state='done'",
                 (row["url_id"],),
             )
+        from .corpus import corpus_summary
+        from .native_scan import _reanalysis_capability
+
+        metadata = con.execute(
+            "SELECT capabilities_json,retention_json,source_kind FROM scan WHERE singleton=1"
+        ).fetchone()
+        capabilities = json.loads(metadata["capabilities_json"])
+        summary = corpus_summary(con, json.loads(metadata["retention_json"]))
+        capabilities.update(summary["capabilities"])
+        if metadata["source_kind"] == "native":
+            capabilities["offline_reanalysis"] = _reanalysis_capability(con)
+        evidence_revision = (
+            con.execute("SELECT COUNT(*) FROM pages").fetchone()[0]
+            + con.execute(
+                "SELECT COUNT(*) FROM context_items WHERE kind='resource_commit'"
+            ).fetchone()[0]
+            + con.execute(
+                "SELECT COUNT(*) FROM documents WHERE representation IN ('rendered','legacy_fragment')"
+            ).fetchone()[0]
+        )
         con.execute(
-            "UPDATE scan SET lifecycle='running',finished_at=NULL,finish_reason='retry_requeue',crawl_partial=1 "
-            "WHERE singleton=1"
+            "UPDATE scan SET lifecycle='running',finished_at=NULL,finish_reason='retry_requeue',"
+            "crawl_partial=1,corpus_partial=?,capabilities_json=?,evidence_revision=? WHERE singleton=1",
+            (
+                int(summary["corpus_partial"]),
+                json.dumps(capabilities, sort_keys=True, separators=(",", ":")),
+                evidence_revision,
+            ),
         )
         con.execute("DELETE FROM audit")
         con.commit()
