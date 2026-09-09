@@ -201,6 +201,9 @@ def upgrade_to_v2(con: sqlite3.Connection) -> None:
     )
     con.execute("CREATE INDEX retry_transitions_url_id ON retry_transitions(url_id,attempt_id)")
     con.execute(f"PRAGMA user_version={V2_USER_VERSION}")
+    from .discovery_ledger import ensure_schema as ensure_discovery_ledger
+
+    ensure_discovery_ledger(con)
 
 
 def _writer(path: Path) -> sqlite3.Connection:
