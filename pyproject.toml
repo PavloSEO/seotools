@@ -48,7 +48,7 @@ dependencies = [
 
 [project.optional-dependencies]
 sitemap = ["advertools>=0.16,<1", "python-dateutil>=2.8,<3"]
-mcp = ["mcp>=1.9,<2"]
+mcp = ["mcp>=1.29,<2"]
 render = ["playwright>=1.48,<2"]
 reports = ["openpyxl>=3.1,<4", "python-docx>=1.1,<2"]
 cluster = ["scikit-learn>=1.4,<2", "numpy>=1.26,<3", "snowballstemmer>=2.2,<4"]
@@ -65,7 +65,7 @@ dev = [
 ]
 all = [
     "advertools>=0.16,<1", "python-dateutil>=2.8,<3",
-    "mcp>=1.9,<2",
+    "mcp>=1.29,<2",
     "scikit-learn>=1.4,<2", "numpy>=1.26,<3", "snowballstemmer>=2.2,<4",
     "playwright>=1.48,<2",
     "google-auth[requests]>=2.0,<3",

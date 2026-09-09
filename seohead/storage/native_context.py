@@ -68,6 +68,17 @@ def validate_context(
     if item["kind"] in sitemaps.KINDS:
         sitemaps.validate_context(con, item, payload, sitemap_roots)
         return
+    if item["kind"] == "render_phase_summary":
+        from .render_summary import validate
+
+        validate(payload)
+        if (
+            not item["item_key"].startswith("phase:")
+            or item["completeness"] != "complete"
+            or item["reason"]
+        ):
+            raise ScanError("invalid render phase summary envelope")
+        return
     if item["kind"] == "render_elapsed":
         if (
             not isinstance(payload, dict)

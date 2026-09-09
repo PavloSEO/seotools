@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 
@@ -29,7 +28,12 @@ def rows(summary: dict[str, Any]) -> list[list[str]]:
                 "Run",
                 "Measured population",
                 "partial" if population.get("crawl_partial") else "recorded",
-                json.dumps(population, ensure_ascii=False, sort_keys=True),
+                "; ".join(
+                    (
+                        "URLs: " + str(population.get("urls_crawled", "unknown")),
+                        "Scope: " + str(population.get("scope_reason") or "saved crawl population"),
+                    )
+                ),
             ]
         )
     for row in contract.get("capability_rows") or []:
@@ -41,8 +45,17 @@ def rows(summary: dict[str, Any]) -> list[list[str]]:
                     str(row.get("state", "unmeasured")),
                     str(row.get("reason") or row.get("capability") or "not recorded")
                     + (
-                        "; prerequisites: "
-                        + json.dumps(row["prerequisites"], sort_keys=True, ensure_ascii=False)
+                        "; prerequisite metadata: "
+                        + str(
+                            row["prerequisites"]
+                            .get("required_evidence", {})
+                            .get("state", "unknown")
+                        )
+                        + "; population: "
+                        + str(
+                            row["prerequisites"].get("population", {}).get("value")
+                            or "not declared"
+                        )
                         if isinstance(row.get("prerequisites"), dict)
                         else ""
                     ),

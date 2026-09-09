@@ -719,7 +719,7 @@ def run_render_escalation(
         return {"accepted": True, "state": state, "reason": reason}
 
     render_pages = result.pages
-    if settings["rendering"]["rendered_links"]["crawl"] and getattr(scan, "con", None) is not None:
+    if getattr(scan, "con", None) is not None:
         attempted = {
             row[0]
             for row in scan.con.execute(
@@ -778,6 +778,18 @@ def run_render_escalation(
                 )
             ]
         )
+    if getattr(scan, "con", None) is not None:
+        from seohead.storage import render_summary
+
+        if outcome.probe_requests or outcome.render_requests:
+            render_summary.record(scan, outcome)
+            prior = render_escalation.EscalationResult(mode=mode)
+            prior.rendered = outcome.rendered
+            prior.representations = outcome.representations
+            prior.empty_shell_urls = outcome.empty_shell_urls
+            prior.time_budget_exhausted = outcome.time_budget_exhausted
+            return render_summary.aggregate(scan.con, prior)
+        return render_summary.aggregate(scan.con, outcome)
     return outcome
 
 
