@@ -19,6 +19,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from .registry import CHECKS
+from .sf_issue_map import entries as issue_map_entries
 
 CONTRACT_VERSION = "audit_evidence_contract.v1"
 SAVED_CORPUS_VERSION = "saved_corpus_derivations.v2"
@@ -91,6 +92,57 @@ def _population(document: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _issue_map_refs(check_id: str) -> list[dict[str, str]]:
+    """Return only issue-map rows that explicitly name this registry check."""
+    return [
+        {"category": category, "name": entry.name, "status": entry.status}
+        for category, entry in issue_map_entries()
+        if check_id in entry.refs
+    ]
+
+
+def _prerequisites(check_id: str, source: str) -> dict[str, Any]:
+    """Derive prerequisite labels from declared source metadata, never from check names."""
+    unknown = {"state": "unknown", "value": None, "reason": "registry source does not declare this prerequisite"}
+    result: dict[str, Any] = {
+        "source_tag": source,
+        "required_evidence": {"state": "unknown", "items": [], "reason": "registry source has no typed evidence declaration"},
+        "population": dict(unknown),
+        "representation": dict(unknown),
+        "issue_map_refs": _issue_map_refs(check_id),
+    }
+    if source.startswith("SF:"):
+        result["required_evidence"] = {
+            "state": "derived",
+            "items": [{"kind": "screaming_frog_export", "source": source}],
+            "reason": "",
+        }
+        result["population"] = {"state": "derived", "value": "Screaming Frog export rows", "reason": ""}
+    elif source.startswith("inlinks:"):
+        result["required_evidence"] = {
+            "state": "derived",
+            "items": [{"kind": "screaming_frog_inlinks_export", "source": source}],
+            "reason": "",
+        }
+        result["population"] = {"state": "derived", "value": "inlink relation rows", "reason": ""}
+    elif source == "sitemap":
+        result["required_evidence"] = {
+            "state": "derived",
+            "items": [{"kind": "sitemap_observations", "source": source}],
+            "reason": "",
+        }
+        result["population"] = {"state": "derived", "value": "sitemap declarations", "reason": ""}
+        result["representation"] = {"state": "not_applicable", "value": None, "reason": "sitemap declarations have no raw/rendered page representation"}
+    elif source.startswith("crawl:"):
+        result["required_evidence"] = {
+            "state": "derived",
+            "items": [{"kind": "native_crawl_evidence", "source": source}],
+            "reason": "",
+        }
+        result["population"] = {"state": "derived", "value": "native crawl evidence records", "reason": ""}
+    return result
+
+
 def capability_rows(document: Mapping[str, Any]) -> list[dict[str, Any]]:
     """Describe every registered check without treating missing data as clean.
 
@@ -134,6 +186,7 @@ def capability_rows(document: Mapping[str, Any]) -> list[dict[str, Any]]:
         row: dict[str, Any] = {
             "check": check_id,
             "source": str(meta["source"]),
+            "prerequisites": _prerequisites(check_id, str(meta["source"])),
             "state": "unmeasured",
             "capability": "unaccounted",
             "reason": "the saved audit does not account for this check",
