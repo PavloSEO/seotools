@@ -1145,9 +1145,9 @@ def build_server(profile: str = "full", progress_notifications: bool = False):  
         """Join a saved private provider collection to a saved scan with no network; retain raw rows locally and return counts."""
         return _checked(
             handlers.provider_replay(
-                input_path,
-                evidence_file,
-                out_dir,
+                input_path=input_path,
+                evidence_file=evidence_file,
+                out_dir=out_dir,
                 url_column=url_column,
                 review_external_only=review_external_only,
             )
@@ -1211,7 +1211,7 @@ def build_server(profile: str = "full", progress_notifications: bool = False):  
     @mcp.tool(annotations=fetch, structured_output=True)
     def seo_inspect_url(url: str, checks: list[str] | None = None) -> dict[str, Any]:
         """Inspect one URL with bounded metadata/header/robots/redirect/structured/render steps."""
-        return _checked(handlers.inspect_url(url, checks=checks))
+        return _checked(handlers.inspect_url(url=url, checks=checks))
 
     @mcp.tool(annotations=create_files_from_web, structured_output=True)
     def seo_audit_workflow(
@@ -1228,7 +1228,7 @@ def build_server(profile: str = "full", progress_notifications: bool = False):  
         """Use a closed project workflow: status, bounded start/prepare, or an evidence-backed report."""
         return _checked(
             handlers.audit_workflow(
-                directory,
+                directory=directory,
                 action=action,
                 target=target,
                 competitors=competitors,
@@ -1246,7 +1246,9 @@ def build_server(profile: str = "full", progress_notifications: bool = False):  
     ) -> dict[str, Any]:
         """Search complete source-derived tool metadata and load argument details only on request."""
         return _checked(
-            handlers.tool_catalog(query, limit=limit, include_arguments=include_arguments)
+            handlers.tool_catalog(
+                query=query, limit=limit, include_arguments=include_arguments
+            )
         )
 
     @mcp.tool(annotations=read_files, structured_output=True)
@@ -1268,7 +1270,9 @@ def build_server(profile: str = "full", progress_notifications: bool = False):  
     ) -> dict[str, Any]:
         """Read captured evidence, resource windows or the event timeline without fetching or migration."""
         return _checked(
-            handlers.scan_evidence(input_path, section=section, limit=limit, offset=offset)
+            handlers.scan_evidence(
+                input_path=input_path, section=section, limit=limit, offset=offset
+            )
         )
 
     @mcp.tool(annotations=read_files, structured_output=True)
@@ -1282,7 +1286,11 @@ def build_server(profile: str = "full", progress_notifications: bool = False):  
         """Run bounded data-only extraction rules on retained complete bodies, without network or writes."""
         return _checked(
             handlers.scan_extract(
-                input_path, rules, url=url, representation=representation, limit=limit
+                input_path=input_path,
+                rules=rules,
+                url=url,
+                representation=representation,
+                limit=limit,
             )
         )
 
@@ -1295,12 +1303,23 @@ def build_server(profile: str = "full", progress_notifications: bool = False):  
         where is a restricted validated predicate, never arbitrary SQL. This operation can perform
         an explicit write-time v1 to v2 upgrade; readers never upgrade. It makes no network request.
         """
-        return _checked(handlers.scan_requeue(input_path, where, backup_path, from_scan=from_scan))
+        return _checked(
+            handlers.scan_requeue(
+                input_path=input_path,
+                where=where,
+                backup_path=backup_path,
+                from_scan=from_scan,
+            )
+        )
 
     @mcp.tool(annotations=rewrite_files, structured_output=True)
     def seo_scan_import_urls(input_path: str, urls_file: str, backup_path: str) -> dict[str, Any]:
         """Explicitly import a TXT/CSV/XLSX/XML seed list through stored scope and query guards with backup."""
-        return _checked(handlers.scan_import_urls(input_path, urls_file, backup_path))
+        return _checked(
+            handlers.scan_import_urls(
+                input_path=input_path, urls_file=urls_file, backup_path=backup_path
+            )
+        )
 
     @mcp.tool(annotations=read_files, structured_output=True)
     def seo_scan_list(

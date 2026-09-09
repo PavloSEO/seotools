@@ -1515,6 +1515,8 @@ def main(argv: list[str] | None = None) -> int:
         # mcp_main() itself catches a missing optional SDK and returns 1 after a stderr
         # diagnostic (#366), so the direct `python -m seohead.servers.mcp_server` entry
         # point advertised in that module's docstring gives the same outcome as this one.
+        if args.profile == "full" and not args.no_progress:
+            return mcp_main()
         return mcp_main(profile=args.profile, progress_notifications=not args.no_progress)
     from seohead.terminal_progress import show_banner
 
