@@ -226,6 +226,7 @@ def _normalize_sf_audit(document: dict[str, Any]) -> dict[str, Any]:
             "fix_hint": issue.get("fix_hint") or "",
             "locations": issue.get("locations") or [],
             "details": issue.get("details") or {},
+            "evidence": issue.get("evidence") or {},
         }
         for issue in document.get("issues") or []
     ]

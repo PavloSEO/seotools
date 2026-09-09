@@ -142,7 +142,7 @@ def admission(directory: str, settings: dict, *, approved: bool = False) -> dict
             exceeded.append({"budget": key, "requested": value, "threshold": maximum, "reason": "request is not explicitly bounded"})
         elif value > maximum:
             exceeded.append({"budget": key, "requested": value, "threshold": maximum, "reason": "requested budget exceeds project threshold"})
-    return {"ok": not exceeded or approved, "approved": approved, "requested": requested, "exceeded": exceeded, "reason": "explicit approval recorded" if approved else "within project thresholds" if not exceeded else "project admission requires approve_large_crawl=true"}
+    return {"ok": not exceeded or approved, "approved": approved, "requested": requested, "exceeded": exceeded, "reason": "explicit budget override accepted" if approved else "within project thresholds" if not exceeded else "project admission requires approve_large_crawl=true"}
 
 
 def playbook_list(kind: str | None = None) -> dict:

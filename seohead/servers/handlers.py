@@ -1397,6 +1397,12 @@ def _audit_crawl_result(
         else {}
     )
 
+    if stored_scan is not None:
+        from seohead.sf.core.evidence_contract import attach_contract, attach_saved_corpus
+        scan_identity = stored_scan.con.execute("SELECT scan_uuid FROM scan WHERE singleton=1").fetchone()[0]
+        audit = attach_contract(audit, scan_uuid=scan_identity, con=stored_scan.con)
+        audit = attach_saved_corpus(audit, stored_scan.con)
+
     tasks_written: dict[str, str] = {}
     if out_dir:
         with open(os.path.join(out_dir, "audit.json"), "w", encoding="utf-8") as fh:
