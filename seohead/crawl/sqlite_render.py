@@ -296,6 +296,36 @@ def run_render_escalation(
     serialized HTML is released as soon as its transaction has committed.
     """
     mode = settings["rendering"]["mode"]
+    from seohead.storage.rendered_routes import run_context
+
+    if hasattr(scan, "write_context"):
+        enabled = settings["rendering"]["rendered_links"]["store"]
+        if not enabled:
+            scan.write_context(
+                [
+                    run_context(
+                        "unavailable",
+                        "rendered route ledger disabled by policy",
+                        False,
+                        mode,
+                        len(result.pages),
+                        0,
+                    )
+                ]
+            )
+        elif mode == "raw":
+            scan.write_context(
+                [
+                    run_context(
+                        "unavailable",
+                        "rendering mode is raw; rendered representation was not requested",
+                        True,
+                        mode,
+                        len(result.pages),
+                        0,
+                    )
+                ]
+            )
     if mode == "raw" or not result.pages:
         return render_escalation.EscalationResult(mode=mode)
 

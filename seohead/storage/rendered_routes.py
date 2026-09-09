@@ -11,6 +11,7 @@ from . import ScanError
 
 KIND = "rendered_route_ledger"
 COVERAGE_KIND = "rendered_route_coverage"
+RUN_KIND = "rendered_route_run_coverage"
 OUTER_VERSION = "scan_context.v1"
 ROUTE_VERSION = "rendered_route_ledger.v1"
 COVERAGE_VERSION = "rendered_route_coverage.v1"
@@ -111,6 +112,34 @@ def context_items(
 
 
 def validate_context(con: Any, item: dict[str, Any], payload: Any) -> None:
+    if item["kind"] == RUN_KIND:
+        if (
+            not isinstance(payload, dict)
+            or set(payload)
+            != {
+                "schema_version",
+                "state",
+                "reason",
+                "store_enabled",
+                "rendering_mode",
+                "static_sources",
+                "rendered_sources",
+            }
+            or payload["schema_version"] != "rendered_route_run_coverage.v1"
+            or payload["state"] not in {"complete", "partial", "unavailable"}
+            or not isinstance(payload["reason"], str)
+            or type(payload["store_enabled"]) is not bool
+            or payload["rendering_mode"] not in {"raw", "js", "legacy_fragment"}
+            or any(
+                type(payload[k]) is not int or payload[k] < 0
+                for k in ("static_sources", "rendered_sources")
+            )
+            or item["completeness"] != payload["state"]
+            or item["reason"] != payload["reason"]
+            or item["item_key"] != "run"
+        ):
+            raise ScanError("native rendered route run coverage is invalid")
+        return
     if item["kind"] == KIND:
         required = {
             "schema_version",
@@ -201,11 +230,13 @@ def read(con: Any) -> dict:
     """Read immutable observations and derive route relation only from complete sides."""
     routes, coverage = [], {}
     for row in con.execute(
-        "SELECT * FROM context_items WHERE kind IN (?,?) ORDER BY kind,item_key",
-        (KIND, COVERAGE_KIND),
+        "SELECT * FROM context_items WHERE kind IN (?,?,?) ORDER BY kind,item_key",
+        (KIND, COVERAGE_KIND, RUN_KIND),
     ):
         payload = json.loads(row["payload_json"])
-        if row["kind"] == COVERAGE_KIND:
+        if row["kind"] == RUN_KIND:
+            run = payload
+        elif row["kind"] == COVERAGE_KIND:
             coverage[(payload["page_url_id"], payload["representation"])] = payload
         else:
             routes.append(payload)
@@ -251,4 +282,29 @@ def read(con: Any) -> dict:
         "coverage": list(coverage.values())
         if coverage
         else [{"state": "unavailable", "reason": "route ledger was not stored in this scan"}],
+        "run_coverage": run
+        if "run" in locals()
+        else {"state": "unavailable", "reason": "route ledger was not stored in this scan"},
+    }
+
+
+def run_context(
+    state: str, reason: str, store_enabled: bool, mode: str, static: int, rendered: int
+) -> dict:
+    payload = {
+        "schema_version": "rendered_route_run_coverage.v1",
+        "state": state,
+        "reason": reason,
+        "store_enabled": store_enabled,
+        "rendering_mode": mode,
+        "static_sources": static,
+        "rendered_sources": rendered,
+    }
+    return {
+        "kind": RUN_KIND,
+        "item_key": "run",
+        "payload_version": OUTER_VERSION,
+        "payload_json": json.dumps(payload, sort_keys=True, separators=(",", ":")),
+        "completeness": state,
+        "reason": reason,
     }
