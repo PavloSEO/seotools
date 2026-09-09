@@ -21,6 +21,14 @@ from seohead.tools.external_join import join_external_data, orphan_urls
 EVIDENCE_FORMAT = "seohead.provider-evidence.v1"
 _STATES = {"complete", "partial", "failed", "skipped"}
 _REGISTRY: dict[str, dict[str, Any]] = {
+    "arsenkin": {
+        "credential_components": ["api_token"], "access": "read_only_paid",
+        "operations": ["keyword_frequency", "serp_clustering"], "quota_mode": "paid limit credits", "privacy_class": "aggregate",
+    },
+    "yandex_cloud": {
+        "credential_components": ["api_key", "folder_id"], "access": "read_only_paid",
+        "operations": ["wordstat", "web_search"], "quota_mode": "provider quota and recorded spend", "privacy_class": "aggregate",
+    },
     "gsc": {
         "credential_components": ["oauth_bearer"], "access": "read_only",
         "operations": ["verify", "properties", "search_analytics", "inspection", "sitemaps"],
@@ -58,6 +66,19 @@ _REGISTRY: dict[str, dict[str, Any]] = {
         "operations": ["backlinks_summary"], "quota_mode": "paid per provider response", "privacy_class": "restricted",
         "default_enabled": False,
     },
+    "indexnow": {
+        "credential_components": ["submission_key"], "access": "confirmed_write",
+        "operations": ["submit"], "quota_mode": "provider submission quota", "privacy_class": "public_url_list",
+        "default_enabled": False,
+    },
+    "wayback": {
+        "credential_components": [], "access": "read_only",
+        "operations": ["history"], "quota_mode": "public service pacing", "privacy_class": "public",
+    },
+    "crtsh": {
+        "credential_components": [], "access": "read_only",
+        "operations": ["subdomains"], "quota_mode": "public service availability", "privacy_class": "public",
+    },
 }
 
 
@@ -68,6 +89,11 @@ def provider_registry() -> dict[str, Any]:
 
 def _credential_components(provider: str) -> dict[str, bool]:
     paths = {
+        "arsenkin": {"api_token": ("arsenkin/token", "ARSENKIN_TOKEN")},
+        "yandex_cloud": {
+            "api_key": ("yandex-wordstat/api_key", "YANDEX_CLOUD_API_KEY"),
+            "folder_id": ("yandex-wordstat/folder_id", "YANDEX_CLOUD_FOLDER_ID"),
+        },
         "gsc": {"oauth_bearer": ("gsc/access_token", "GSC_ACCESS_TOKEN")},
         "crux": {"api_key": ("crux/api_key", "CRUX_API_KEY")},
         "pagespeed": {"api_key": ("pagespeed/api_key", "PAGESPEED_API_KEY")},
@@ -79,6 +105,9 @@ def _credential_components(provider: str) -> dict[str, bool]:
             "login": ("dataforseo/login", "DATAFORSEO_LOGIN"),
             "password": ("dataforseo/password", "DATAFORSEO_PASSWORD"),
         },
+        "indexnow": {"submission_key": ("indexnow/key", "INDEXNOW_KEY")},
+        "wayback": {},
+        "crtsh": {},
     }
     if provider not in paths:
         raise ValueError("unknown provider")
@@ -91,7 +120,13 @@ def sources_doctor() -> dict[str, Any]:
     for name in _REGISTRY:
         components = _credential_components(name)
         providers[name] = {
-            "state": "credential_present" if all(components.values()) else "not_configured",
+            "state": (
+                "credential_present"
+                if components and all(components.values())
+                else "not_configured"
+                if components
+                else "not_required"
+            ),
             "credential_components": components,
             "verified": False,
             "note": "run explicit provider-verify; configured credentials are not verified access",
@@ -160,6 +195,12 @@ def provider_verify(provider: str, request: dict[str, Any] | None = None, *, tra
     if provider not in _REGISTRY:
         raise ValueError("unknown provider")
     components = _credential_components(provider)
+    if not components:
+        return {
+            "ok": False, "provider": provider, "state": "not_required", "verified": False,
+            "credential_components": components,
+            "note": "this public source has no authenticated-access contract to verify",
+        }
     if not all(components.values()):
         return {"ok": False, "provider": provider, "state": "not_configured", "verified": False, "credential_components": components}
     if provider == "gsc":
@@ -227,6 +268,16 @@ def provider_collect(
     elif provider == "dataforseo_backlinks":
         from seohead.data_sources import dataforseo
         result = dataforseo.backlinks_summary(**request)
+    elif provider == "wayback":
+        from seohead.data_sources import wayback
+        result = wayback.history(fetcher=transport, **request)
+    elif provider == "crtsh":
+        from seohead.data_sources import crtsh
+        result = crtsh.subdomains(fetcher=transport, **request)
+    elif provider in {"arsenkin", "yandex_cloud"}:
+        raise ValueError("this paid provider uses its existing dedicated operation contract")
+    elif provider == "indexnow":
+        raise ValueError("IndexNow is a separately confirmed write action, not provider collection")
     elif provider == "metrika":
         if operation not in {"counters", "aggregate_report"}:
             raise ValueError("Metrika raw Logs API is intentionally unreachable")
