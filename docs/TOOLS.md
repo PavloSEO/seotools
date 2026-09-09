@@ -1,10 +1,10 @@
 # Tool reference
 
-72 + 5 tools, reachable identically from the CLI and from MCP. One
-implementation, two faces: `seohead <command>` in the terminal and
-`seo_<command>` on the MCP server (`seohead mcp`). Five more `sf_*` tools cover
-the Screaming Frog crawl audit workflow specifically — see that section below
-and the generated [CHECKS.md](CHECKS.md) for the 161 checks it runs.
+Tools are reachable identically from the CLI and MCP. One implementation, two
+faces: `seohead <command>` in the terminal and `seo_<command>` on the local MCP
+server (`seohead mcp`). The `sf_*` tools cover the Screaming Frog crawl-audit
+workflow specifically — see that section below and the generated
+[CHECKS.md](CHECKS.md) for its current check catalogue.
 
 This page is hand-written orientation: what each group is for, and the calling
 conventions shared across it. The generated [TOOL_REFERENCE.md](TOOL_REFERENCE.md)
@@ -26,12 +26,39 @@ data, not an accident.
 | `project-checklist-init` | Initialize or reconcile a local checklist from the built-in catalogue and an optional data-only template; does not execute items | no |
 | `project-checklist-update` | Add or edit one checklist definition with an expected revision; does not execute it | no |
 | `project-checklist-record` | Validate and record supplied evidence for one item with an expected revision; does not execute it | no |
+| `project-priorities` | Preview saved-fact work order; an explicit expected-revision apply preserves operator decisions and never changes technical severity | no |
+| `project-policy` | Preview or explicitly save the bounded crawl/admission policy; applying it requires the current policy revision | no |
+| `project-prepare` | Runs the declared bounded preparation path: checklist initialization, a policy-bounded crawl, supplied competitor workspace setup, and an inspectable initial plan | yes |
+| `project-start` | Creates a new local project then enters the same bounded preparation path | yes |
 
 The nested aliases are `seohead project new`, `seohead project open`,
 `seohead project status`, `seohead project checklist-init`,
-`seohead project checklist-update` and `seohead project checklist-record`.
+`seohead project checklist-update`, `seohead project checklist-record`,
+`seohead project priorities`, `seohead project policy`, `seohead project prepare`,
+and `seohead project start`.
 See [PROJECTS.md](PROJECTS.md) for the format, custom references and shared
 CLI/MCP scan-routing rules.
+
+`project-prepare` does not discover competitors or declare a completed audit on
+its own. Competitors must be supplied and the preparation state keeps every
+not-run or partial step. Use `project-policy` first when its default 50-page,
+150-request, 60-second preparation crawl is not the intended scope; a larger
+requested budget needs `approve_large_crawl=true`.
+
+## Guided workflow and catalogue tools
+
+| Command | What it does | Network |
+|---|---|---|
+| `skill-list`, `skill-show` | List or retrieve one addressable packaged skill playbook; showing a playbook does not execute it | no |
+| `scenario-show` | Retrieve one addressable packaged scenario without executing its steps | no |
+| `inspect-url` | Runs a bounded selection of metadata, headers, robots, redirects, structured-data, and render checks for one URL; representations and indexing outcomes remain separate | yes when selected checks read the target |
+| `audit-workflow` | Closed project action router: status, start, prepare, or report; it does not accept arbitrary handler names | depends on action |
+| `tool-catalog` | Searches source-derived tool metadata, optionally including argument shapes, without advertising every low-level schema | no |
+
+MCP startup can use the `full`, `audit`, `infra`, `quick-check`, or `router`
+profile. A restricted profile removes unavailable tool schemas at startup;
+the catalogue may still describe the route needed for a lower-level operation.
+See [MCP profiles and progress](MCP_PROFILES.md).
 
 ## How to read the tables
 
@@ -176,6 +203,10 @@ without deleting its scan. The exact arguments and defaults are in the generated
 | `scan-pin` | Explicitly pins a scan, or unpins it with `--unpin`, so retention will not select it. | changes scan metadata |
 | `scan-prune` | Produces a retention plan by default. Deletion needs `--apply` and the exact reviewed plan. | deletes only with `--apply` |
 | `scan-body-diff` | Compares matching retained body hashes from two validated scans; optional text output is bounded and only applies to compatible textual evidence. A changed body is not an SEO score or verdict. | — |
+| `scan-evidence` | Reads one bounded saved-evidence section: capabilities, corpus, structured data, rendered routes, resources, or timeline. It never fetches or replays a scan. | — |
+| `scan-extract` | Applies closed declarative extraction rules to retained complete bodies only. It is offline, body-retention limited, and does not persist the ad-hoc result. | — |
+| `scan-requeue` | Requeues a restricted saved URL/page selection only after creating a mandatory verified backup. | writes artifact and backup |
+| `scan-import-urls` | Imports an explicit local URL list into a saved scan only after creating a mandatory verified backup. | writes artifact and backup |
 
 ```bash
 # metadata-only directory view; no retained body BLOBs are read
@@ -200,6 +231,10 @@ seohead scan-prune --directory . > plan.json
 
 # hash-first comparison; text materialization is explicit and bounded
 seohead scan-body-diff --left before.sqlite --right after.sqlite --url https://example.com/ --text --max-bytes 5242880 --max-lines 10000
+
+# read retained evidence or make an ad-hoc offline extraction; neither fetches a URL
+seohead scan evidence --scan native.sqlite --section structured
+seohead scan extract --scan native.sqlite --json-input '{"rules":[{"id":"product-name","kind":"text","selector":"h1","operator":"matches","value":"Product *","max_matches":1}]}'
 ```
 
 The default retention plan selects only scans that are finished, unpinned,
@@ -225,6 +260,20 @@ while the audit, body records, and evidence revision stay intact.
 Technical checks describe what a site exposes; **demand** and traffic evidence lives behind
 external APIs. This layer keeps one client per provider with common credential, retry, quota,
 and spend-journal rules.
+
+### Provider evidence boundary
+
+| Command | What it does | Network / writes |
+|---|---|---|
+| `provider-registry` | Lists declared providers and their bounded operations; it does not verify credentials | no |
+| `provider-verify` | Performs one explicit read-only credential and optional target-access check. An authenticated account does not by itself prove access to a requested target. | provider read |
+| `provider-collect` | Performs one declared read-only operation and returns a versioned evidence envelope with complete, partial, failed, or skipped state. An optional restricted artifact directory keeps raw rows locally. | provider read; optional local artifact |
+| `provider-join` | Joins supplied crawl pages and collected evidence rows without changing a frontier. It preserves matched, crawl-only, external-only, and unkeyable populations. | no |
+
+Provider evidence can change work order only when its coverage is usable; sampled,
+truncated, unmatched, or privacy-thresholded values remain unavailable for a
+priority adjustment. It never changes a technical finding's severity. See the
+[provider-evidence scenario](scenarios/provider-evidence.md).
 
 | Command | What it does | Money |
 |---|---|---|
