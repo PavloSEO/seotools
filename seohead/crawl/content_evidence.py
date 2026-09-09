@@ -43,6 +43,7 @@ def capture(
         source_document_id=source_document_id,
         representation=representation,
         parsed=parsed,
+        html=html,
     )
     language = structured_evidence.language_payload(
         page_url_id=page_url_id,
