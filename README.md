@@ -95,6 +95,37 @@ seohead images-optimize \
 
 For a retained native scan, `scan reanalyze` creates a new derived SQLite artifact without a network request. [Storage documentation](docs/STORAGE.md) describes retention, provenance, and the limits of offline reanalysis.
 
+## Focused investigations
+
+Choose the input that matches the question; a single-page check, an access log and a saved crawl answer different things.
+
+| Question | Tools to start with | Input and useful output |
+|---|---|---|
+| Which URLs, links or redirects need attention? | `crawl-site`, `sitemap-crawl`, `links-check`, `redirects-check` | A site, sitemap or page URL; bounded crawl evidence, link targets and redirect observations |
+| What metadata and indexing directives are present? | `parse`, `headers-check`, `robots-check` | A page URL; titles/headings, canonical declarations, response headers and robots rules |
+| What appears only after JavaScript runs? | `render-check` | A page URL; raw/rendered differences, request identity and browser lab measurements |
+| Is structured data or language markup inconsistent? | `schema-check`, `hreflang-check` | A page URL, or inline HTML for structured data; validation findings and the declarations behind them |
+| Are pages duplicate candidates or template outliers? | `duplicate-check`, `boilerplate-report` | Retained scan bodies or an inline corpus; duplicate candidates, similarity evidence and template groups |
+| What is the site's delivery environment? | `domain-profile`, `tech-detect`, `cdn-check` | A domain or URL; DNS/hosting/TLS, stack and cache observations, with unavailable sources named |
+| What did clients and bots request? | `log-analyze` | An access log; request/status distributions and optional bot verification |
+| What changed, and what can I hand over? | `compare-crawls`, `report-build` | Compatible audit documents or scans; comparisons and reviewable report files |
+
+```bash
+# Compare the raw response with the mobile browser representation.
+seohead render-check --url https://example.com --viewport mobile
+
+# Reuse the scan produced above without fetching those pages again.
+seohead duplicate-check --scan ./scans/audit.sqlite
+seohead boilerplate-report --scan ./scans/audit.sqlite
+
+# Small existing inputs can also be passed directly as a JSON argument.
+seohead duplicate-check --input '{"items":[{"id":"a","text":"Example product description"},{"id":"b","text":"Example product description"}]}'
+```
+
+`render-check` requires the `render` extra and a Playwright Chromium installation. Its timings are lab observations, not real-user Core Web Vitals. Corpus analysis requires retained HTML: omitted, disabled or unsupported bodies remain coverage gaps. Duplicate groups are evidence to review before choosing redirects or canonicals, not automatic site changes.
+
+Use `seohead <command> --help` for calling syntax and `seohead crawl-site --config-help` for crawl settings. The [input catalogue](docs/INPUTS.md) explains what each tool consumes; the [generated tool reference](docs/TOOL_REFERENCE.md) gives arguments, defaults and execution notes. [Scenarios](docs/scenarios/README.md) show longer sequences with acceptance criteria.
+
 ## Local MCP server
 
 Register the installed CLI as a stdio server in a compatible client:
@@ -110,6 +141,17 @@ Register the installed CLI as a stdio server in a compatible client:
 }
 ```
 
+For example, after an MCP client connects, these `tools/call` parameters perform the same offline duplicate check as the CLI command above:
+
+```json
+{
+  "name": "seo_duplicate_check",
+  "arguments": {"scan": "./scans/audit.sqlite"}
+}
+```
+
+The corresponding mobile-render tool is `seo_render_check` with `url` and `viewport: "mobile"`. File-producing tools return paths so the next step can reuse the saved output.
+
 The CLI and MCP server share handlers and registration checks. The generated [tool reference](docs/TOOL_REFERENCE.md) is the authoritative list of available commands, arguments, side effects, network use, idempotency, and provider spend. [Scenarios](docs/scenarios/README.md) connect a specialist goal to an ordered tool chain and a usable artifact. For an agent beginning an unscoped audit, start with [the control workflow](.claude/skills/control/SKILL.md).
 
 ## External sources and safety boundaries
@@ -118,7 +160,7 @@ Provider integrations are optional and explicit. Yandex Cloud, Arsenkin, Yandex 
 
 Network tools block private targets by default. File changes, service-path probes, bot DNS verification, provider production mode, and paid calls require explicit inputs. Image optimization writes to a separate output directory unless in-place mutation is explicitly requested; in-place mode creates backups. Secrets and client crawl data do not belong in this repository or a client report.
 
-The toolkit does not provide a web-scale backlink index, field Core Web Vitals, a hosted multi-user dashboard, or a general-purpose content strategy. [Comparison notes](docs/COMPARISON.md) describe these boundaries before results are used in a client deliverable.
+Native crawl and browser results do not provide field Core Web Vitals. A separate `crux-report` entry point exists, but it is credential-gated and its live access is not claimed as verified; see the [source setup notes](docs/SETUP.md). The toolkit does not provide a web-scale backlink index, a hosted multi-user dashboard, or a general-purpose content strategy. [Comparison notes](docs/COMPARISON.md) describe these boundaries before results are used in a client deliverable.
 
 ## Development
 

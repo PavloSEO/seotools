@@ -295,10 +295,12 @@ def test_documented_command_executes_or_at_least_still_parses(
 
         directory = argv[argv.index("--directory") + 1]
         create_project(tmp_path / directory, "https://example.test/")
-    if any(".sqlite" in value for value in argv) and not {"--scan-out", "--resume"} & set(argv):
-        _seed_scan_inputs(tmp_path)
     if argv[:1] in (["duplicate-check"], ["boilerplate-report"]) and "--scan" in argv:
+        # Body consumers need a native retained corpus, including when they use
+        # the same filename that report examples use for a saved audit.
         _seed_documented_body_scan(tmp_path, argv[argv.index("--scan") + 1])
+    elif any(".sqlite" in value for value in argv) and not {"--scan-out", "--resume"} & set(argv):
+        _seed_scan_inputs(tmp_path)
     if argv[:2] == ["scan", "reanalyze"] or argv[:1] == ["scan-reanalyze"]:
         _seed_reanalysis_input(tmp_path)
     if "--plan" in argv:
