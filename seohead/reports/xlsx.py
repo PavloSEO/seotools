@@ -267,6 +267,8 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
                 "Execution",
                 "State",
                 "Attempt",
+                "Complete",
+                "Blocked by",
                 "Enabled",
                 "Stale",
                 "Scope",
@@ -286,6 +288,8 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
                     neutralize_formula(item.get("execution_kind", "")),
                     neutralize_formula(item.get("state", "")),
                     neutralize_formula(item.get("attempt_status", "")),
+                    item.get("complete", ""),
+                    neutralize_formula(value_text(item.get("blocked_by"))),
                     item.get("enabled", ""),
                     item.get("stale", ""),
                     neutralize_formula(value_text(item.get("scope"))),
@@ -294,7 +298,7 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
                 ]
             )
         if ws.max_row > 7:
-            ws.auto_filter.ref = f"A7:K{ws.max_row}"
-        _autofit(ws, {2: 45, 9: 70, 10: 70, 11: 70})
+            ws.auto_filter.ref = f"A7:M{ws.max_row}"
+        _autofit(ws, {2: 45, 11: 70, 12: 70, 13: 70})
 
     wb.save(path)

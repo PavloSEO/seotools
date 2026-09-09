@@ -110,6 +110,8 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
                         f"Execution: {item.get('execution_kind', '')}",
                         f"State: {item.get('state', '')}",
                         f"Attempt: {item.get('attempt_status', '')}",
+                        f"Complete: {item.get('complete', '')}",
+                        f"Blocked by: {value_text(item.get('blocked_by'))}",
                         f"Enabled: {item.get('enabled', '')}",
                         f"Stale: {item.get('stale', '')}",
                         f"Scope: {value_text(item.get('scope'))}",

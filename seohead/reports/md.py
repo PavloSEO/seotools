@@ -11,6 +11,11 @@ def _field(value: Any, limit: int | None = None) -> str:
     return text.replace("|", "\\|")[:limit] if limit else text
 
 
+def _coverage_field(value: Any) -> str:
+    """Keep project-controlled newlines from changing the Markdown table shape."""
+    return _field(value).replace("\r", " ").replace("\n", " ")
+
+
 def write(document: dict[str, Any], path: pathlib.Path) -> None:
     from seohead.reports import SEVERITY_TITLES
     from seohead.reports.client_findings import check_title
@@ -72,21 +77,23 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
         items = status.get("items") or []
         if items:
             out += [
-                "| Item | Kind | Execution | State | Attempt | Enabled | Scope | Measurement | Reason |",
-                "|---|---|---|---|---|---|---|---|---|",
+                "| Item | Kind | Execution | State | Attempt | Complete | Blocked by | Enabled | Scope | Measurement | Reason |",
+                "|---|---|---|---|---|---|---|---|---|---|---|",
             ]
             for item in items:
                 out.append(
-                    "| {} | {} | {} | {} | {} | {} | {} | {} | {} |".format(
-                        _field(item.get("title") or item.get("id")),
-                        _field(item.get("kind")),
-                        _field(item.get("execution_kind")),
-                        _field(item.get("state")),
-                        _field(item.get("attempt_status")),
-                        _field(item.get("enabled")),
-                        _field(value_text(item.get("scope"))),
-                        _field(value_text(item.get("measurement"))),
-                        _field(item.get("reason")),
+                    "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |".format(
+                        _coverage_field(item.get("title") or item.get("id")),
+                        _coverage_field(item.get("kind")),
+                        _coverage_field(item.get("execution_kind")),
+                        _coverage_field(item.get("state")),
+                        _coverage_field(item.get("attempt_status")),
+                        _coverage_field(item.get("complete")),
+                        _coverage_field(value_text(item.get("blocked_by"))),
+                        _coverage_field(item.get("enabled")),
+                        _coverage_field(value_text(item.get("scope"))),
+                        _coverage_field(value_text(item.get("measurement"))),
+                        _coverage_field(item.get("reason")),
                     )
                 )
             out.append("")

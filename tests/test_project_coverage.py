@@ -395,3 +395,27 @@ def test_skipped_check_and_absent_template_never_complete(project):
             reason="Try source",
             artifact="scans/source.sqlite",
         )
+
+
+@pytest.mark.parametrize("identifier", [[], {}, None])
+def test_malformed_update_identifier_refuses_cleanly(project, identifier):
+    before = (project / "coverage.json").read_bytes()
+    with pytest.raises(ValueError):
+        update_item(project, {"id": identifier}, coverage_status(project)["revision"])
+    assert (project / "coverage.json").read_bytes() == before
+
+
+def test_removed_builtin_can_be_explicitly_disabled_without_losing_history(project, monkeypatch):
+    from seohead.projects import coverage
+
+    item_id = "skill:workflow/control"
+    record(
+        project, item_id, status="succeeded", reason="Reviewed", reviewer="Specialist", signoff=True
+    )
+    catalogue = coverage.load_catalogue()
+    del catalogue[item_id]
+    monkeypatch.setattr(coverage, "load_catalogue", lambda: catalogue)
+    status = edit(project, id=item_id, enabled=False)
+    assert row(status, item_id)["attempts"] == 1
+    assert item_id not in status["views"]["remaining"]
+    assert status["counts"]["disabled"] == 1

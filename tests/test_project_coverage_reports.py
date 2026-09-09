@@ -129,6 +129,70 @@ def test_project_report_binds_sf_audit_to_its_recorded_crawl_identity(project, t
     assert result["ok"], result
 
 
+@pytest.mark.parametrize("fmt", ["md", "csv", "xlsx", "docx"])
+def test_dependency_blocker_is_visible_when_a_completed_parent_becomes_stale(
+    project, tmp_path, fmt
+):
+    revision = coverage_status(project)["revision"]
+    update_item(project, {"id": "custom:parent", "title": "Parent"}, expected_revision=revision)
+    revision = coverage_status(project)["revision"]
+    update_item(
+        project,
+        {
+            "id": "custom:child",
+            "title": "Child\nreview",
+            "dependencies": ["custom:parent"],
+        },
+        expected_revision=revision,
+    )
+    for item_id in ("custom:parent", "custom:child"):
+        record_execution(
+            project,
+            item_id,
+            {
+                "status": "succeeded",
+                "reason": "Reviewed",
+                "reviewer": "Specialist",
+                "signoff": True,
+            },
+            expected_revision=coverage_status(project)["revision"],
+        )
+    update_item(
+        project,
+        {"id": "custom:parent", "title": "Parent revised"},
+        expected_revision=coverage_status(project)["revision"],
+    )
+    child = next(item for item in coverage_status(project)["items"] if item["id"] == "custom:child")
+    assert child["state"] == "run" and child["complete"] is False
+    assert child["blocked_by"] == ["custom:parent"]
+
+    target = tmp_path / f"blocked.{fmt}"
+    result = build_report(AUDIT, fmt=fmt, path=str(target), project=str(project))
+    assert result["ok"], result
+    if fmt == "md":
+        text = target.read_text(encoding="utf-8")
+        child_row = next(line for line in text.splitlines() if "Child review" in line)
+        assert "Child\nreview" not in text
+        assert "False" in child_row and '["custom:parent"]' in child_row
+    elif fmt == "csv":
+        rows = csv.DictReader(
+            target.with_suffix(".coverage.csv").open(encoding="utf-8-sig"), delimiter=";"
+        )
+        child_row = next(row for row in rows if row["Item ID"] == "custom:child")
+        assert child_row["Complete"] == "False"
+        assert child_row["Blocked by"] == '["custom:parent"]'
+    elif fmt == "xlsx":
+        rows = load_workbook(target, data_only=False)["Project Coverage"].iter_rows(
+            values_only=True
+        )
+        child_row = next(row for row in rows if row[0] == "custom:child")
+        assert child_row[6] is False and child_row[7] == '["custom:parent"]'
+    else:
+        text = "\n".join(paragraph.text for paragraph in Document(str(target)).paragraphs)
+        assert "Complete: False" in text
+        assert 'Blocked by: ["custom:parent"]' in text
+
+
 def test_project_report_never_replaces_controls_or_referenced_artifact_sidecars(project):
     control = build_report(
         AUDIT, fmt="md", path=str(project / "project.json"), project=str(project)

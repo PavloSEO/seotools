@@ -389,7 +389,10 @@ def _custom(value: Any, site: str, catalogue: dict, previous: dict | None = None
         value.get(k, previous[k]) != previous[k] for k in ("id", "kind", "source_hash")
     ):
         raise ValueError("item identity/source is immutable")
-    return _definition({**base, **value}, catalogue)
+    removed = previous is not None and previous["kind"] != "custom" and item_id not in catalogue
+    if removed and set(value) - {"id", "enabled", "order", "priority", "title"}:
+        raise ValueError("removed built-ins can only be disabled or relabeled")
+    return _definition({**base, **value}, catalogue, historical=removed)
 
 
 def _builtin(item_id: str, entry: dict, order: int, site: str) -> dict:
@@ -449,6 +452,9 @@ def update_item(directory: str | Path, item: dict, expected_revision: int) -> di
     """Add or edit one item, preserving definitions and result history."""
     if type(expected_revision) is not int:
         raise ValueError("expected_revision must be an integer")
+    if not isinstance(item, dict):
+        raise ValueError("item must be an object")
+    _identifier(item.get("id"))
     catalogue = load_catalogue()
     with _transaction(directory, expected_revision) as (_, project, document):
         if document["revision"] == 0:
