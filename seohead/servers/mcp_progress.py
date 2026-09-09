@@ -29,6 +29,7 @@ class ProgressReporter(AbstractAsyncContextManager["ProgressReporter"]):
         self._started = clock()
         self._last_emit: float | None = None
         self._last_progress = 0.0
+        self._last_sent: float | None = None
         self._closed = False
 
     async def __aenter__(self) -> "ProgressReporter":
@@ -62,6 +63,9 @@ class ProgressReporter(AbstractAsyncContextManager["ProgressReporter"]):
         now = self.clock()
         if self._last_emit is not None and now - self._last_emit < MIN_INTERVAL_SECONDS:
             return
+        if self._last_sent is not None and progress <= self._last_sent:
+            return
+        self._last_sent = progress
         self._last_emit = now
         await self.context.report_progress(progress=progress, total=total, message=message)
 
@@ -82,3 +86,48 @@ def install_progress(server: Any, *, enabled: bool = True) -> ProgressInstallati
     installation = ProgressInstallation() if enabled else None
     setattr(server, "_seohead_progress", installation)
     return installation
+
+
+def wrap_long_tools(server: Any) -> None:
+    """Use SDK registration for async heartbeat wrappers without changing tool schemas."""
+    import asyncio
+    import functools
+    import inspect
+    import typing
+
+    names = {
+        "seo_crawl_site", "seo_parse", "seo_links_check", "seo_report_build",
+        "seo_project_start", "seo_project_prepare", "seo_provider_collect",
+        "seo_scan_reanalyze", "seo_inspect_url", "seo_audit_workflow", "sf_audit_run",
+    }
+
+    def wrapped(function, label):
+        @functools.wraps(function)
+        async def invoke(*args, **kwargs):
+            reporter = ProgressReporter(server.get_context(), label)
+            async with reporter:
+                work = asyncio.create_task(function(*args, **kwargs) if inspect.iscoroutinefunction(function) else asyncio.to_thread(function, *args, **kwargs))
+                try:
+                    while not work.done():
+                        finished, _ = await asyncio.wait({work}, timeout=1.0)
+                        if not finished:
+                            await reporter.elapsed()
+                    return await work
+                finally:
+                    if not work.done():
+                        work.cancel()
+        hints = typing.get_type_hints(function)
+        signature = inspect.signature(function)
+        invoke.__signature__ = signature.replace(
+            parameters=[parameter.replace(annotation=hints.get(name, parameter.annotation)) for name, parameter in signature.parameters.items()],
+            return_annotation=hints.get("return", signature.return_annotation),
+        )
+        invoke.__annotations__ = hints
+        return invoke
+
+    for tool in list(server._tool_manager.list_tools()):
+        if tool.name not in names:
+            continue
+        function = wrapped(tool.fn, tool.name)
+        server.remove_tool(tool.name)
+        server.add_tool(function, name=tool.name, title=tool.title, description=tool.description, annotations=tool.annotations, icons=tool.icons, meta=tool.meta, structured_output=tool.fn_metadata.output_schema is not None)

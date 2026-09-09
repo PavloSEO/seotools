@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Any
+from typing import Any, Literal
 
 from seohead import runlog
 from seohead.models import ParseManyResult, RobotsCheckResult
@@ -49,7 +49,7 @@ def _checked(result: Any) -> Any:
     return result
 
 
-def build_server():  # -> FastMCP
+def build_server(profile: str = "full", progress_notifications: bool = False):  # -> FastMCP
     runlog.set_interface("mcp")
     from mcp.server.fastmcp import FastMCP
     from mcp.types import ToolAnnotations
@@ -1118,6 +1118,45 @@ def build_server():  # -> FastMCP
         """Join supplied URL evidence exactly and preserve unmatched populations and technical severity."""
         return _checked(handlers.provider_join(crawl_pages, evidence_rows, review_external_only=review_external_only, adjustments=adjustments))
 
+    @mcp.tool(annotations=fetch, structured_output=True)
+    def seo_inspect_url(url: str, checks: list[str] | None = None) -> dict[str, Any]:
+        """Inspect one URL with bounded metadata/header/robots/redirect/structured/render steps."""
+        return _checked(handlers.inspect_url(url, checks=checks))
+
+    @mcp.tool(annotations=create_files_from_web, structured_output=True)
+    def seo_audit_workflow(directory: str, action: Literal["status", "start", "prepare", "report"] = "status", target: str | None = None, competitors: list | None = None, template: dict | None = None, audit: Any = None, fmt: str = "md", out: str | None = None, approve_large_crawl: bool = False) -> dict[str, Any]:
+        """Use a closed project workflow: status, bounded start/prepare, or an evidence-backed report."""
+        return _checked(handlers.audit_workflow(directory, action=action, target=target, competitors=competitors, template=template, audit=audit, fmt=fmt, out=out, approve_large_crawl=approve_large_crawl))
+
+    @mcp.tool(annotations=read_files, structured_output=True)
+    def seo_tool_catalog(query: str = "", limit: int = 10, include_arguments: bool = False) -> dict[str, Any]:
+        """Search complete source-derived tool metadata and load argument details only on request."""
+        return _checked(handlers.tool_catalog(query, limit=limit, include_arguments=include_arguments))
+
+    @mcp.tool(annotations=read_files, structured_output=True)
+    def seo_scan_evidence(input_path: str, section: Literal["capabilities", "corpus", "structured", "routes", "resources", "timeline"] = "capabilities", limit: int = 1000, offset: int = 0) -> dict[str, Any]:
+        """Read captured evidence, resource windows or the event timeline without fetching or migration."""
+        return _checked(handlers.scan_evidence(input_path, section=section, limit=limit, offset=offset))
+
+    @mcp.tool(annotations=read_files, structured_output=True)
+    def seo_scan_extract(input_path: str, rules: list[dict[str, Any]], url: str | None = None, representation: str = "static", limit: int = 100) -> dict[str, Any]:
+        """Run bounded data-only extraction rules on retained complete bodies, without network or writes."""
+        return _checked(handlers.scan_extract(input_path, rules, url=url, representation=representation, limit=limit))
+
+    @mcp.tool(annotations=rewrite_files, structured_output=True)
+    def seo_scan_requeue(input_path: str, where: str, backup_path: str, from_scan: str | None = None) -> dict[str, Any]:
+        """Explicitly requeue selected saved URLs in the same SQLite with verified backup and attempt history.
+
+        where is a restricted validated predicate, never arbitrary SQL. This operation can perform
+        an explicit write-time v1 to v2 upgrade; readers never upgrade. It makes no network request.
+        """
+        return _checked(handlers.scan_requeue(input_path, where, backup_path, from_scan=from_scan))
+
+    @mcp.tool(annotations=rewrite_files, structured_output=True)
+    def seo_scan_import_urls(input_path: str, urls_file: str, backup_path: str) -> dict[str, Any]:
+        """Explicitly import a TXT/CSV/XLSX/XML seed list through stored scope and query guards with backup."""
+        return _checked(handlers.scan_import_urls(input_path, urls_file, backup_path))
+
     @mcp.tool(annotations=read_files, structured_output=True)
     def seo_scan_list(
         directory: str | None = None, offset: int = 0, limit: int = 100, project: str | None = None
@@ -1216,11 +1255,16 @@ def build_server():  # -> FastMCP
     from seohead.servers import sf_mcp
 
     sf_mcp.register(mcp)
-
+    from seohead.servers.mcp_profiles import configure_profile
+    from seohead.servers.mcp_progress import install_progress, wrap_long_tools
+    if progress_notifications:
+        install_progress(mcp)
+        wrap_long_tools(mcp)
+    configure_profile(mcp, profile)
     return mcp
 
 
-def main() -> int:
+def main(profile: str = "full", progress_notifications: bool = True) -> int:
     """Run the stdio server; return an exit code instead of letting the caller import
     ``mcp`` itself to find out whether the server started.
 
@@ -1234,7 +1278,7 @@ def main() -> int:
     outcome.
     """
     try:
-        build_server().run()
+        build_server(profile=profile, progress_notifications=progress_notifications).run()
     except ModuleNotFoundError:
         # build_server()'s only lazy import is the optional "mcp" SDK (see its own
         # docstring) -- nothing else in this path is optional, so any

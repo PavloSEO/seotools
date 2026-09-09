@@ -13,6 +13,7 @@ import re
 from typing import Any
 
 from bs4 import BeautifulSoup
+from soupsieve import SelectorSyntaxError, compile as compile_selector
 
 VERSION = "extraction_rules.v1"
 MAX_RULES = 100
@@ -54,6 +55,12 @@ def validate_rules(value: Any) -> list[dict[str, Any]]:
             raise ValueError("structured selector must be a JSON pointer")
         if rule["operator"] == "matches" and len(rule["value"]) > MAX_GLOB_PATTERN_CHARS:
             raise ValueError("extraction rule glob pattern is too long")
+        if rule["kind"] != "structured" and rule["selector"]:
+            selector = rule["selector"].rsplit("@", 1)[0] if rule["kind"] == "attribute" else rule["selector"]
+            try:
+                compile_selector(selector)
+            except SelectorSyntaxError as exc:
+                raise ValueError("extraction rule CSS selector is invalid") from exc
         rules.append(dict(rule))
     return sorted(rules, key=lambda rule: rule["id"])
 

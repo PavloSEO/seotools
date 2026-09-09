@@ -2837,6 +2837,78 @@ def provider_join(crawl_pages: list[dict[str, Any]], evidence_rows: list[dict[st
     return core(crawl_pages, evidence_rows, review_external_only=review_external_only, adjustments=adjustments)
 
 
+
+def inspect_url(url: str, checks: list[str] | None = None) -> dict[str, Any]:
+    """Run a closed, bounded single-URL investigation using the existing shared tools."""
+    chosen = checks if checks is not None else ["metadata", "headers", "robots"]
+    operations = {"metadata": "parse", "headers": "headers_check", "robots": "robots_check", "redirects": "redirects_check", "structured": "schema_check", "render": "render_check"}
+    if not isinstance(chosen, list) or not chosen or len(chosen) > len(operations) or any(type(name) is not str or name not in operations for name in chosen):
+        raise ValueError("checks must be a bounded selection of metadata/headers/robots/redirects/structured/render")
+    results = {}
+    for name in dict.fromkeys(chosen):
+        try:
+            results[name] = HANDLERS[operations[name]](url=url)
+        except (ValueError, OSError) as exc:
+            results[name] = {"ok": False, "reason": str(exc)}
+    return {"ok": True, "url": url, "results": results, "scope": "one URL; rendering and field/indexing outcomes are not interchangeable"}
+
+
+def audit_workflow(directory: str, action: str = "status", target: str | None = None, competitors: list | None = None, template: dict | None = None, audit: Any = None, fmt: str = "md", out: str | None = None, approve_large_crawl: bool = False) -> dict[str, Any]:
+    """Expose a closed project workflow rather than an unrestricted action dispatcher."""
+    if action == "status":
+        return project_status(directory)
+    if action == "start":
+        if not target:
+            raise ValueError("start requires a target URL")
+        return project_start(directory, target, template=template, competitors=competitors, approve_large_crawl=approve_large_crawl)
+    if action == "prepare":
+        return project_prepare(directory, template=template, competitors=competitors, approve_large_crawl=approve_large_crawl)
+    if action == "report":
+        return report_build(audit=audit, fmt=fmt, out=out, project=directory)
+    raise ValueError("action must be status, start, prepare, or report")
+
+
+def tool_catalog(query: str = "", limit: int = 10, include_arguments: bool = False) -> dict[str, Any]:
+    """Discover source-derived tool metadata without advertising every schema up front."""
+    from dataclasses import asdict
+    from seohead.servers.tool_reference import load_seo_tools, load_sf_tools
+    if not isinstance(query, str) or len(query) > 500 or type(limit) is not int or not 1 <= limit <= 50:
+        raise ValueError("query must be bounded text and limit must be 1..50")
+    words = query.casefold().split()
+    matches = []
+    for tool in [*load_seo_tools(), *load_sf_tools()]:
+        text = (tool.name + " " + tool.summary + " " + tool.notes).casefold()
+        if not all(word in text for word in words):
+            continue
+        row = asdict(tool)
+        if not include_arguments:
+            row.pop("arguments", None)
+            row.pop("notes", None)
+        matches.append(row)
+    return {"ok": True, "total": len(matches), "items": matches[:limit], "has_more": len(matches) > limit, "access": "Use the matching startup profile or full profile for direct low-level calls; high-level workflows invoke their bounded steps internally."}
+
+
+
+def scan_evidence(input_path: str, section: str = "capabilities", limit: int = 1000, offset: int = 0) -> dict[str, Any]:
+    from seohead.servers.evidence_handlers import scan_evidence as core
+    return core(input_path, section=section, limit=limit, offset=offset)
+
+
+def scan_extract(input_path: str, rules: list[dict[str, Any]], url: str | None = None, representation: str = "static", limit: int = 100) -> dict[str, Any]:
+    from seohead.servers.evidence_handlers import scan_extract as core
+    return core(input_path, rules, url=url, representation=representation, limit=limit)
+
+
+def scan_requeue(input_path: str, where: str, backup_path: str, from_scan: str | None = None) -> dict[str, Any]:
+    from seohead.servers.history_handlers import scan_requeue as core
+    return core(input_path, where=where, backup_path=backup_path, from_scan=from_scan)
+
+
+def scan_import_urls(input_path: str, urls_file: str, backup_path: str) -> dict[str, Any]:
+    from seohead.servers.history_handlers import scan_import_urls as core
+    return core(input_path, urls_file=urls_file, backup_path=backup_path)
+
+
 _RAW_HANDLERS = {
     "parse": parse,
     "redirects_generate": redirects_generate,
@@ -2900,6 +2972,11 @@ _RAW_HANDLERS = {
     "scan_inspect": scan_inspect,
     "scan_status": scan_status,
     "scan_rendered_routes": scan_rendered_routes,
+    "scan_evidence": scan_evidence,
+    "scan_extract": scan_extract,
+    "scan_requeue": scan_requeue,
+    "scan_import_urls": scan_import_urls,
+
     "scan_snapshot": scan_snapshot,
     "scan_pin": scan_pin,
     "scan_prune": scan_prune,
@@ -2911,6 +2988,9 @@ _RAW_HANDLERS = {
     "project_checklist_update": project_checklist_update,
     "project_checklist_record": project_checklist_record,
     "project_priorities": project_priorities,
+    "inspect_url": inspect_url,
+    "audit_workflow": audit_workflow,
+    "tool_catalog": tool_catalog,
     "project_policy": project_policy,
     "project_prepare": project_prepare,
     "project_start": project_start,

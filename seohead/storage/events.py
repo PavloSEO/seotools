@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-from pathlib import Path
 from typing import Any
 
 from seohead.crawl.events import FORMAT, MAX_EVENTS, validate
@@ -99,7 +98,8 @@ def read_timeline(path: str, *, limit: int = 1_000) -> dict[str, Any]:
         raise ValueError("timeline path is required")
     if os.path.islink(path) or not os.path.isfile(path):
         raise ScanError("timeline path must be an existing non-symlink SQLite artifact")
-    con = sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True)
+    from seohead.storage import open_scan
+    con = open_scan(path, require_audit=False)
     try:
         con.execute("PRAGMA query_only=ON")
         return timeline(con, limit=limit)
