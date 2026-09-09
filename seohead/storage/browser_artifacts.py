@@ -160,6 +160,15 @@ def save(
         or not isinstance(rendered, dict)
     ):
         raise ScanError("browser artifact input is invalid")
+    policy = (rendered.get("renderer") or {}).get("policy", {})
+    retention_blocked = bool(policy.get("credentials_used") or policy.get("cache_control_no_store"))
+    if retention_blocked:
+        staged_path = rendered.get("screenshot_path")
+        if isinstance(staged_path, str):
+            candidate = Path(staged_path)
+            if not candidate.is_symlink() and candidate.is_file() and staging_dir(scan_path).resolve() in candidate.resolve().parents:
+                candidate.unlink()
+        rendered = {"ok": False}
     screenshot = (
         _move_screenshot(scan_path, rendered.get("screenshot_path"))
         if screenshots

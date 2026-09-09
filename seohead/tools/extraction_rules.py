@@ -217,6 +217,8 @@ def validate_result(value: Any) -> None:
         raise ValueError("extraction evidence version or representation is invalid")
     if value["state"] not in {"complete", "partial", "unavailable"} or not isinstance(value["reason"], str) or not isinstance(value["rules"], list):
         raise ValueError("extraction evidence state is invalid")
+    if len(value["rules"]) > MAX_RULES:
+        raise ValueError("extraction evidence exceeds rule limit")
     ids = set()
     for row in value["rules"]:
         if not isinstance(row, dict) or set(row) - {"id", "state", "reason", "matched", "value", "count"}:
@@ -228,3 +230,8 @@ def validate_result(value: Any) -> None:
             raise ValueError("extraction evidence rule reason is invalid")
         if row["state"] == "complete" and (type(row.get("matched")) is not bool or type(row.get("count")) is not int or row["count"] < 0):
             raise ValueError("complete extraction evidence row is invalid")
+
+    states = [row["state"] for row in value["rules"]]
+    expected = "partial" if "complete" in states and "unavailable" in states else "unavailable" if states and all(state == "unavailable" for state in states) else "complete"
+    if states and value["state"] != expected:
+        raise ValueError("extraction evidence summary disagrees with rule states")

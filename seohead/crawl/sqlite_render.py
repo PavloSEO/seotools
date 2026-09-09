@@ -422,8 +422,13 @@ def run_render_escalation(
         artifact_kwargs = {}
         if hasattr(scan, "path") and rendering_config["artifacts"]["screenshots"]:
             artifact_kwargs["artifacts_dir"] = str(browser_artifacts.staging_dir(scan.path))
+        capture_config = rendering_config
+        if _policy_facts(settings, target)["credentials_used"]:
+            capture_config = copy.deepcopy(rendering_config)
+            capture_config["artifacts"]["screenshots"] = False
+            capture_config["artifacts"]["console_errors"] = False
         fetched = render_tool.render_document(
-            target, rendering_config, user_agent=settings["http"]["user_agent"],
+            target, capture_config, user_agent=settings["http"]["user_agent"],
             max_html_bytes=max_parse_bytes, policy_facts=_policy_facts(settings, target),
             **gate_kwargs, **artifact_kwargs,
         )

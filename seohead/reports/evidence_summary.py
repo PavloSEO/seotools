@@ -17,5 +17,5 @@ def rows(summary: dict[str, Any]) -> list[list[str]]:
         output.append(["Run", "Measured population", "partial" if population.get("crawl_partial") else "recorded", json.dumps(population, ensure_ascii=False, sort_keys=True)])
     for row in contract.get("capability_rows") or []:
         if isinstance(row, dict):
-            output.append(["Check", check_title(row.get("check")), str(row.get("state", "unmeasured")), str(row.get("reason") or row.get("capability") or "not recorded")])
+            output.append(["Check", check_title(row.get("check")), str(row.get("state", "unmeasured")), str(row.get("reason") or row.get("capability") or "not recorded") + ("; prerequisites: " + json.dumps(row["prerequisites"], sort_keys=True, ensure_ascii=False) if isinstance(row.get("prerequisites"), dict) else "")])
     return output
