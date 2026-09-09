@@ -55,7 +55,9 @@ def capture_resources(
             max_concurrency=settings["speed"]["concurrency"],
             adaptive=settings["speed"]["adaptive"],
         )
-        throttle.restore_state(snapshot["runtime"]["throttle"])
+        throttle_state = dict(snapshot["runtime"]["throttle"])
+        throttle_state.pop("requests_used", None)
+        throttle.restore_state(throttle_state)
         delay = snapshot["runtime"]["crawl_delay_applied"]
         if delay:
             throttle.min_delay = max(throttle.min_delay, delay)
