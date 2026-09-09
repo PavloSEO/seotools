@@ -30,7 +30,7 @@ _REGISTRY: dict[str, dict[str, Any]] = {
         "operations": ["wordstat", "web_search"], "quota_mode": "provider quota and recorded spend", "privacy_class": "aggregate",
     },
     "gsc": {
-        "credential_components": ["oauth_bearer"], "access": "read_only",
+        "credential_components": ["oauth_bearer", "service_account"], "access": "read_only",
         "operations": ["verify", "properties", "search_analytics", "inspection", "sitemaps"],
         "quota_mode": "Google Search Console row and request limits", "privacy_class": "restricted",
     },
@@ -111,7 +111,10 @@ def _credential_components(provider: str) -> dict[str, bool]:
     }
     if provider not in paths:
         raise ValueError("unknown provider")
-    return {name: credentials.available(*source) for name, source in paths[provider].items()}
+    components = {name: credentials.available(*source) for name, source in paths[provider].items()}
+    if provider == "gsc":
+        components["service_account"] = credentials.gsc_service_account_available()
+    return components
 
 
 def sources_doctor() -> dict[str, Any]:
@@ -119,10 +122,11 @@ def sources_doctor() -> dict[str, Any]:
     providers = {}
     for name in _REGISTRY:
         components = _credential_components(name)
+        available = any(components.values()) if name == "gsc" else all(components.values())
         providers[name] = {
             "state": (
                 "credential_present"
-                if components and all(components.values())
+                if components and available
                 else "not_configured"
                 if components
                 else "not_required"
@@ -209,7 +213,8 @@ def provider_verify(provider: str, request: dict[str, Any] | None = None, *, tra
             "credential_components": components,
             "note": "this public source has no authenticated-access contract to verify",
         }
-    if not all(components.values()):
+    ready = any(components.values()) if provider == "gsc" else all(components.values())
+    if not ready:
         return {"ok": False, "provider": provider, "state": "not_configured", "verified": False, "credential_components": components}
     if provider == "gsc":
         from seohead.data_sources.gsc import discover_properties
