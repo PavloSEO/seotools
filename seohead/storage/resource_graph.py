@@ -131,6 +131,9 @@ def extract(
     if not isinstance(html, str):
         return [], 0
     soup = BeautifulSoup(html, features="lxml")
+    from seohead.tools.parser import document_base_url
+
+    base_url = document_base_url(soup, base_url)
     values: list[dict[str, Any]] = []
     attributes = {
         "img": (("src", "image"), ("srcset", "image")),
@@ -472,21 +475,51 @@ def capture(
         before = clock() if clock is not None else 0.0
         try:
             current = url
+            record = None
             redirects = 0
+            resource_bytes = 0
             redirect_scope_reason = ""
+            graph_budget_reason = ""
             while True:
+                elapsed = (clock() - started) if clock is not None else 0.0
+                current_host = (urlsplit(current).hostname or "").lower()
+                if used_count >= graph["max_requests"]:
+                    graph_budget_reason = "resource graph request budget exhausted"
+                    break
+                if used_bytes >= graph["max_bytes"]:
+                    graph_budget_reason = "resource graph byte budget exhausted"
+                    break
+                if graph["max_seconds"] and elapsed >= graph["max_seconds"]:
+                    graph_budget_reason = "resource graph wall-clock budget exhausted"
+                    break
+                if current_host not in seen_origins and len(seen_origins) >= graph["max_origins"]:
+                    graph_budget_reason = "resource graph origin budget exhausted"
+                    break
+                response_limit = min(
+                    graph["max_bytes_per_resource"] - resource_bytes,
+                    graph["max_bytes"] - used_bytes,
+                )
+                if response_limit < 1:
+                    graph_budget_reason = "resource graph byte budget exhausted"
+                    break
+                prior_events = len(events)
                 record, _parsed = fetch_one(
                     current,
                     client=client,
                     fetcher=fetcher,
                     extra_headers=_headers(settings, current),
                     user_agent=settings["http"]["user_agent"],
-                    max_response_bytes=graph["max_bytes_per_resource"],
+                    max_response_bytes=response_limit,
                     retry_on_timeout=0,
                     wait=wait,
                     capture_observer=events.append,
-                    capture_max_bytes=graph["max_bytes_per_resource"],
+                    capture_max_bytes=response_limit,
                 )
+                used_count += 1
+                hop_bytes = sum(len(event.entity_bytes or b"") for event in events[prior_events:])
+                resource_bytes += hop_bytes
+                used_bytes += hop_bytes
+                seen_origins.add(current_host)
                 if not record.redirect_url or not 300 <= (record.status_code or 0) < 400:
                     break
                 if redirects >= graph["max_redirects"]:
@@ -500,22 +533,21 @@ def capture(
                 current = next_url
             event = events[-1] if events else None
             body = event.entity_bytes if event is not None else None
-            content_type = record.content_type or ""
-            status = record.status_code
-            if redirect_scope_reason:
+            content_type = record.content_type if record is not None else ""
+            status = record.status_code if record is not None else None
+            if graph_budget_reason:
+                state, reason = "budget", graph_budget_reason
+            elif redirect_scope_reason:
                 state, reason = "excluded", redirect_scope_reason
-            elif record.redirect_url and 300 <= (record.status_code or 0) < 400:
+            elif record is not None and record.redirect_url and 300 <= (record.status_code or 0) < 400:
                 state, reason = "failed", "resource redirect budget exhausted"
             elif status is None or not 200 <= status < 300:
-                state, reason = "failed", record.error or "resource response was not successful"
+                state, reason = "failed", (record.error if record is not None else "") or "resource response was not successful"
             elif body is None:
                 state, reason = "partial", "resource response body was not retained completely"
             else:
                 state, reason = "complete", ""
-            received = len(body or b"")
-            used_count += 1
-            used_bytes += received
-            seen_origins.add(host)
+            received = resource_bytes
             scan.con.execute(
                 "INSERT INTO resource_graph_fetches(resolved_url,state,reason,status_code,content_type,bytes_received,elapsed_seconds,origin_host,redirects,nesting_depth,final_url,compression,cache_state,integrity_state,width,height,body_state) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
@@ -531,7 +563,7 @@ def capture(
                     row["nesting_depth"],
                     current,
                     (event.content_encoding if event is not None else "unknown") or "identity",
-                    record.cache_status or "unknown",
+                    (record.cache_status if record is not None else "") or "unknown",
                     _fetch_integrity_state(scan.con, url),
                     *_image_dimensions(body),
                     "complete" if body is not None else "partial",
@@ -542,6 +574,8 @@ def capture(
                 totals["fetched"] += 1
             elif state == "excluded":
                 totals["excluded"] += 1
+            elif state == "budget":
+                totals["budget"] += 1
             else:
                 totals["failed"] += 1
             if state == "complete" and content_type.partition(";")[0].strip().lower() == "text/css":
@@ -587,6 +621,68 @@ def _set_occurrence_state(con: sqlite3.Connection, url: str, state: str, reason:
         "UPDATE resource_graph_occurrences SET state=?,reason=? WHERE resolved_url=? AND state='disabled'",
         (state, reason, url),
     )
+
+
+def invalidate_pages(con: sqlite3.Connection, page_url_ids: Iterable[int]) -> None:
+    """Discard graph facts for requeued pages while retaining their captured corpus history."""
+    page_ids = sorted({value for value in page_url_ids if type(value) is int and value > 0})
+    if not page_ids:
+        return
+    tables = {
+        row[0]
+        for row in con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name IN ('resource_graph_occurrences','resource_graph_fetches')"
+        )
+    }
+    if "resource_graph_occurrences" not in tables:
+        return
+    document_ids: set[int] = set()
+    urls: set[str] = set()
+    for chunk in _chunks(page_ids):
+        placeholders = ",".join("?" for _ in chunk)
+        document_ids.update(
+            row[0]
+            for row in con.execute(
+                f"SELECT document_id FROM documents WHERE url_id IN ({placeholders})", chunk
+            )
+        )
+        urls.update(
+            row[0]
+            for row in con.execute(
+                f"SELECT DISTINCT resolved_url FROM resource_graph_occurrences "
+                f"WHERE page_url_id IN ({placeholders})",
+                chunk,
+            )
+        )
+        con.execute(
+            f"DELETE FROM resource_graph_occurrences WHERE page_url_id IN ({placeholders})", chunk
+        )
+    for chunk in _chunks(sorted(document_ids)):
+        keys = [f"document:{document_id}" for document_id in chunk]
+        placeholders = ",".join("?" for _ in keys)
+        con.execute(
+            f"DELETE FROM context_items WHERE kind=? AND item_key IN ({placeholders})",
+            (KIND, *keys),
+        )
+    if "resource_graph_fetches" not in tables:
+        return
+    for chunk in _chunks(sorted(urls)):
+        placeholders = ",".join("?" for _ in chunk)
+        con.execute(
+            f"DELETE FROM resource_graph_fetches WHERE resolved_url IN ({placeholders})", chunk
+        )
+        con.execute(
+            f"UPDATE resource_graph_occurrences SET state='disabled',"
+            "reason='resource fetch invalidated by requeue' "
+            f"WHERE resolved_url IN ({placeholders})",
+            chunk,
+        )
+
+
+def _chunks(values: list[Any], size: int = 500) -> Iterable[list[Any]]:
+    for offset in range(0, len(values), size):
+        yield values[offset : offset + size]
 
 
 def _fetch_integrity_state(con: sqlite3.Connection, url: str) -> str:

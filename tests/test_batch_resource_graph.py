@@ -8,7 +8,14 @@ import struct
 
 from seohead.crawl.settings import load
 from seohead.storage.native_scan import NativeScan
-from seohead.storage.resource_graph import _image_dimensions, capture, read, store_document
+from seohead.storage.resource_graph import (
+    _image_dimensions,
+    capture,
+    extract,
+    invalidate_pages,
+    read,
+    store_document,
+)
 from tests.test_native_capture import _claim, _event
 from tests.test_scan_native import _metadata, _record, _runtime
 
@@ -32,7 +39,7 @@ def _v2_metadata(**overrides):
     )
 
 
-def _store_html(scan: NativeScan, html: str) -> None:
+def _store_html(scan: NativeScan, html: str) -> int:
     lease = _claim(scan)
     scan.commit_page(
         lease,
@@ -51,6 +58,7 @@ def _store_html(scan: NativeScan, html: str) -> None:
         representation="static",
         html=html,
     )
+    return lease.url_id
 
 
 def test_integrity_is_per_declaration_not_collapsed_by_resource_url(tmp_path):
@@ -73,6 +81,20 @@ def test_integrity_is_per_declaration_not_collapsed_by_resource_url(tmp_path):
         ("/shared.js", "sha384-first", "declared"),
         ("/shared.js", None, "absent"),
         ("/site.css", "", "declared"),
+    ]
+
+
+def test_resource_graph_uses_the_document_base_for_direct_and_inline_css_urls():
+    rows, omitted = extract(
+        '<base href="https://cdn.example.test/assets/">'
+        '<script src="app.js"></script><style>.hero{background:url(hero.png)}</style>',
+        "https://example.test/current/page",
+    )
+
+    assert omitted == 0
+    assert [row["resolved_url"] for row in rows] == [
+        "https://cdn.example.test/assets/app.js",
+        "https://cdn.example.test/assets/hero.png",
     ]
 
 
@@ -128,6 +150,109 @@ def test_redirect_outside_scope_is_stored_as_excluded_without_following_target(t
     assert calls == ["https://example.test/image.png"]
     assert totals == {"stored": 0, "fetched": 0, "excluded": 1, "failed": 0, "budget": 0}
     assert tuple(row) == ("excluded", "outside_host", "https://example.test/image.png")
+
+
+def test_graph_request_budget_counts_a_redirect_hop_before_following_it(tmp_path):
+    path = tmp_path / "scan.sqlite"
+    calls: list[str] = []
+    settings = load(
+        overrides={
+            "storage.format_version": "scan.v2",
+            "resources.fetch": True,
+            "resources.graph.max_requests": 1,
+            "resources.graph.max_redirects": 2,
+        }
+    )
+
+    def fetcher(url: str):
+        calls.append(url)
+        return _Response(302, b"hop", {"location": "/final.js"})
+
+    with NativeScan.create(path, format_version="scan.v2", **_v2_metadata()) as scan:
+        _store_html(scan, '<script src="/redirect.js"></script>')
+        totals = capture(scan, settings, fetcher=fetcher, wait=lambda: None, clock=lambda: 0.0)
+        row = scan.con.execute(
+            "SELECT state,reason,bytes_received FROM resource_graph_fetches"
+        ).fetchone()
+
+    assert calls == ["https://example.test/redirect.js"]
+    assert totals == {"stored": 0, "fetched": 0, "excluded": 0, "failed": 0, "budget": 1}
+    assert tuple(row) == ("budget", "resource graph request budget exhausted", 3)
+
+
+def test_graph_byte_budget_counts_redirect_entity_before_following_it(tmp_path):
+    path = tmp_path / "scan.sqlite"
+    calls: list[str] = []
+    settings = load(
+        overrides={
+            "storage.format_version": "scan.v2",
+            "resources.fetch": True,
+            "resources.graph.max_requests": 10,
+            "resources.graph.max_bytes": 1,
+            "resources.graph.max_bytes_per_resource": 8,
+            "resources.graph.max_redirects": 2,
+        }
+    )
+
+    def fetcher(url: str):
+        calls.append(url)
+        return _Response(302, b"x", {"location": "/final.js"})
+
+    with NativeScan.create(path, format_version="scan.v2", **_v2_metadata()) as scan:
+        _store_html(scan, '<script src="/redirect.js"></script>')
+        totals = capture(scan, settings, fetcher=fetcher, wait=lambda: None, clock=lambda: 0.0)
+
+    assert calls == ["https://example.test/redirect.js"]
+    assert totals == {"stored": 0, "fetched": 0, "excluded": 0, "failed": 0, "budget": 1}
+
+
+def test_requeue_invalidation_discards_old_page_graph_and_refetches_shared_resource(tmp_path):
+    path = tmp_path / "scan.sqlite"
+    settings = load(overrides={"storage.format_version": "scan.v2", "resources.fetch": True})
+    with NativeScan.create(path, format_version="scan.v2", **_v2_metadata()) as scan:
+        first_id = _store_html(scan, '<img src="/shared.png">')
+        first_document = scan.con.execute(
+            "SELECT document_id FROM documents WHERE url_id=?", (first_id,)
+        ).fetchone()[0]
+        scan.enqueue([("https://example.test/other", 1)])
+        lease = scan.claim(1)[0]
+        html = '<img src="/shared.png">'
+        scan.commit_page(
+            lease,
+            _record(lease.url),
+            captures=[_event(lease.url, html.encode())],
+            runtime=_runtime(),
+        )
+        second_document = scan.con.execute(
+            "SELECT document_id FROM documents WHERE url_id=?", (lease.url_id,)
+        ).fetchone()[0]
+        store_document(
+            scan.con,
+            page_url_id=lease.url_id,
+            source_document_id=second_document,
+            representation="static",
+            html=html,
+        )
+        capture(
+            scan,
+            settings,
+            fetcher=lambda _url: _Response(200, b"image", {"content-type": "image/png"}),
+            wait=lambda: None,
+            clock=lambda: 0.0,
+        )
+        invalidate_pages(scan.con, [first_id])
+        remaining = scan.con.execute(
+            "SELECT state,reason FROM resource_graph_occurrences WHERE page_url_id=?", (lease.url_id,)
+        ).fetchone()
+        fetch_count = scan.con.execute("SELECT COUNT(*) FROM resource_graph_fetches").fetchone()[0]
+        old_context = scan.con.execute(
+            "SELECT 1 FROM context_items WHERE kind='resource_graph_coverage' AND item_key=?",
+            (f"document:{first_document}",),
+        ).fetchone()
+
+    assert tuple(remaining) == ("disabled", "resource fetch invalidated by requeue")
+    assert fetch_count == 0
+    assert old_context is None
 
 
 def test_v1_and_read_only_v2_access_do_not_create_or_upgrade_resource_graph(tmp_path):
