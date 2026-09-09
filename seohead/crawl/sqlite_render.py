@@ -458,6 +458,17 @@ def run_render_escalation(
                 if fetched.get("dom_state") == "truncated"
                 else "fetch_failed",
                 captures=fetched.get("captures", ()) if label == "legacy_fragment" else (),
+                route_coverage=(
+                    {
+                        "representation": label,
+                        "observed": 0,
+                        "omitted": 0,
+                        "completeness": "unavailable",
+                        "reason": str(fetched.get("error") or "render failed"),
+                    }
+                    if settings["rendering"]["rendered_links"]["store"]
+                    else None
+                ),
             )
             return {
                 "accepted": False,
@@ -487,6 +498,19 @@ def run_render_escalation(
                 captured_at=str(fetched.get("captured_at") or _now()),
                 representation=label,
                 captures=fetched.get("captures", ()) if label == "legacy_fragment" else (),
+                route_coverage=(
+                    {
+                        "representation": label,
+                        "observed": 0,
+                        "omitted": 0,
+                        "completeness": "unavailable",
+                        "reason": "rendered body is degenerate"
+                        if degenerate
+                        else "rendered body is not parseable",
+                    }
+                    if settings["rendering"]["rendered_links"]["store"]
+                    else None
+                ),
             )
             return {
                 "accepted": False,

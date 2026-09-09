@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from seohead.crawl.settings import load
+import pytest
+
 from seohead.crawl.sqlite_adapter import _document_batch
+from seohead.crawl.settings import load
 from seohead.storage.native_scan import NativeScan
 from seohead.storage.rendered_routes import read
 from tests.test_native_capture import _claim, _renderer
@@ -94,3 +96,63 @@ def test_complete_counterpart_derives_shared_by_resolved_url_not_raw_spelling(tm
             "/foo",
             "https://example.test/foo",
         }
+
+
+def test_unavailable_render_coverage_keeps_static_relation_unknown_and_rolls_back(tmp_path):
+    path = tmp_path / "scan.sqlite"
+    static, static_coverage = _batch('<a href="/foo">raw</a>')
+    with NativeScan.create(path, **_metadata()) as scan:
+        lease = _claim(scan)
+        scan.commit_page(
+            lease,
+            _record(lease.url),
+            runtime={
+                "max_depth_reached": 0,
+                "elapsed_seconds": 0.0,
+                "circuit_timeout_streak": 0,
+                "circuit_server_error_streak": 0,
+                "crawl_delay_applied": None,
+                "throttle": {"delay_seconds": 0.0, "concurrency": 1, "consecutive_ok": 0},
+            },
+            route_observations=static,
+            route_coverage=static_coverage,
+        )
+        scan.commit_render(
+            lease.url,
+            None,
+            html=None,
+            renderer=_renderer(lease.url),
+            captured_at="2026-09-09T00:00:00Z",
+            body_state="unavailable",
+            body_reason="fetch_failed",
+            route_coverage={
+                "representation": "rendered",
+                "observed": 0,
+                "omitted": 0,
+                "completeness": "unavailable",
+                "reason": "render failed",
+            },
+        )
+        assert read(scan.con)["routes"][0]["relation"] == "unknown"
+        before = scan.con.execute("SELECT COUNT(*) FROM context_items").fetchone()[0]
+        scan.failpoint = lambda point: (
+            (_ for _ in ()).throw(RuntimeError(point)) if point == "after_render_page" else None
+        )
+        with pytest.raises(RuntimeError):
+            scan.commit_render(
+                lease.url,
+                None,
+                html=None,
+                renderer=_renderer(lease.url),
+                captured_at="2026-09-09T00:00:01Z",
+                body_state="unavailable",
+                body_reason="fetch_failed",
+                route_coverage={
+                    "representation": "legacy_fragment",
+                    "observed": 0,
+                    "omitted": 0,
+                    "completeness": "unavailable",
+                    "reason": "render failed",
+                },
+            )
+        assert scan.con.execute("SELECT COUNT(*) FROM context_items").fetchone()[0] == before

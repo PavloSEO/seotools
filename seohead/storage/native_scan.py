@@ -2071,15 +2071,6 @@ class NativeScan:
                     (page["url_id"], representation),
                 )
                 self._write_observations(lease, document_id, representation, links, forms)
-                if route_coverage is not None:
-                    from .rendered_routes import context_items
-
-                    for item in context_items(
-                        lease.url_id, document_id, route_coverage, route_observations
-                    ):
-                        from .native_context import put_context
-
-                        put_context(self.con, item)
                 if resource_inventory_state is not None:
                     from .resources import put_declarations
 
@@ -2097,6 +2088,14 @@ class NativeScan:
                     )
             elif links or forms:
                 raise ScanError("unaccepted render cannot replace graph observations")
+            if route_coverage is not None:
+                from .native_context import put_context
+                from .rendered_routes import context_items
+
+                for item in context_items(
+                    page["url_id"], document_id, route_coverage, route_observations
+                ):
+                    put_context(self.con, item)
             self._hit("after_render_page")
             if elapsed_seconds is not None:
                 runtime = self.resume_snapshot()["runtime"]
