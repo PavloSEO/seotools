@@ -48,6 +48,11 @@ NEEDS_LIVE_INFRASTRUCTURE = {
     # gap as domain-profile and mirror-check above, just surfaced only once ok:false reached the
     # exit code (#155) instead of being silently swallowed by an exit-0 success.
     "backlinks-check",
+    # Same gap, from the other side: a project records the site it is about, and the
+    # fixture server is 127.0.0.1 with no name to record. Creating a project is otherwise
+    # entirely offline -- every other project command below runs against the seeded
+    # workspace, so only the one that needs a real hostname is skipped here.
+    "project-new",
     "keywords-expand",
     "keywords-seasonality",
     "keywords-exact",

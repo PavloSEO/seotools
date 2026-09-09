@@ -13,6 +13,28 @@ SEOHEAD turns crawl and live-check evidence into reviewable audit documents, tas
 
 It does not replace specialist judgement. It records what was measured, what failed, and what could not be measured so a specialist can assess scope, business context, and implementation risk.
 
+## Start with a project
+
+A project is the control point: a local directory that holds a site's scans over time, its
+competitors, its crawl policy, and a coverage checklist that says which of the checks, skills and
+scenarios were actually run — and, for every one that was not, why. "We ran everything" is a
+number a reader can check, not a feeling.
+
+```bash
+seohead project new --directory ./shop --target https://example.com/
+seohead project checklist-init --directory ./shop
+seohead project status --directory ./shop
+```
+
+`project start` enters a policy-bounded preparation path from there. Preparation records its
+crawl scope, operator-supplied competitor candidates and each unavailable step; it does not
+invent competitors and does not turn a partial crawl into a completed audit. A crawl that would
+exceed the project's own page, request or time thresholds stops and names the flag that
+authorizes it, rather than spending hours unasked.
+
+[The project-control scenario](docs/scenarios/project-control.md) shows the review points, and
+[PROJECTS.md](docs/PROJECTS.md) describes the workspace files.
+
 ## Start with the task
 
 | If you have… | Run | You get |
@@ -24,7 +46,7 @@ It does not replace specialist judgement. It records what was measured, what fai
 | Two compatible audit documents | `seohead compare-crawls --before before.json --after after.json` | Findings that entered, changed, or disappeared between runs |
 | An agent client | `seohead mcp` | The local stdio MCP server, with the same public behavior as the CLI |
 
-`crawl-site` is SEOHEAD's bounded native collector. It needs no Screaming Frog licence, but it does not claim Screaming Frog parity. Screaming Frog export mode reads CSV/XLSX exports you already have; live SF mode requires your separately installed, active licence. The two inputs produce related audit artifacts, but comparisons require compatible scope, configuration, and provenance.
+`crawl-site` is SEOHEAD's primary collector and needs no Screaming Frog licence. Screaming Frog is the second pass: two engines with different parsers and different discovery reach different sets of URLs, and the disagreement is itself evidence. On one production site the SF export held 14 054 HTML pages and the native crawl 35 785 — neither engine was wrong, and the gap was the finding. Export mode reads CSV/XLSX exports you already have; live SF mode requires your separately installed, active licence. Both inputs produce related audit artifacts, but comparing them requires compatible scope, configuration and provenance.
 
 ## What makes an audit honest
 
@@ -94,15 +116,6 @@ seohead images-optimize \
 `report-build` formats evidence already collected as XLSX, DOCX, CSV, Markdown, or JSON. It does not run new checks or invent findings. [Report fixtures and the field contract](examples/reports/README.md) show the resulting artifacts.
 
 For a retained native scan, `scan reanalyze` creates a new derived SQLite artifact without a network request. [Storage documentation](docs/STORAGE.md) describes retention, provenance, and the limits of offline reanalysis.
-
-## Start a controlled project
-
-Use `project-start` with a local directory and public target URL to create a
-workspace and enter its policy-bounded preparation path. Preparation records its crawl scope, operator-supplied competitor candidates,
-and each unavailable step. It does not invent competitors or turn a partial
-crawl into a completed audit. [The project-control scenario](docs/scenarios/project-control.md)
-shows the review points and [PROJECTS.md](docs/PROJECTS.md) describes the local
-workspace files.
 
 ## Focused investigations
 

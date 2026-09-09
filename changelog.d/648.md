@@ -1,0 +1,1 @@
+- Lead the README with the project controller, and frame Screaming Frog as the cross-check second pass rather than a parity standard.
