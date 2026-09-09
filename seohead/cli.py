@@ -104,6 +104,7 @@ COMMANDS = (
     "skill-list",
     "skill-show",
     "scenario-show",
+    "provider-replay",
     "provider-auth",
     "provider-registry",
     "provider-verify",
@@ -365,6 +366,12 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
     elif cmd in {"skill-show", "scenario-show"}:
         if getattr(args, "name", None) or getattr(args, "playbook_name", None):
             kw["name"] = getattr(args, "name", None) or args.playbook_name
+    elif cmd == "provider-replay":
+        for name in ("input_path", "evidence_file", "out_dir", "url_column"):
+            if getattr(args, name, None) is not None:
+                kw[name] = getattr(args, name)
+        if getattr(args, "review_external_only", False):
+            kw["review_external_only"] = True
     elif cmd == "provider-auth":
         for name in ("provider", "action", "grant_file"):
             if getattr(args, name, None) is not None:
@@ -1236,6 +1243,12 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
         _source_flag(sub, "--target", help="site URL for the new project")
     if cmd in {"skill-show", "scenario-show"}:
         _source_flag(sub, "--name", help="full playbook identifier or unambiguous name")
+    if cmd == "provider-replay":
+        _source_flag(sub, "--scan", dest="input_path", help="saved scan")
+        _source_flag(sub, "--evidence-file", help="private saved provider collection")
+        _source_flag(sub, "--out-dir", help="private local join output directory")
+        sub.add_argument("--url-column")
+        sub.add_argument("--review-external-only", action="store_true")
     if cmd == "provider-auth":
         _source_flag(sub, "--provider", help="OAuth provider (gsc)")
         sub.add_argument("--action", choices=("status", "connect", "refresh", "disconnect", "revoke"))

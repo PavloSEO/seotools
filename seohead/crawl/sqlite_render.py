@@ -363,10 +363,23 @@ def run_render_escalation(
         else None
     )
 
+    pending_artifacts: dict[str, dict[str, Any]] = {}
+
     def commit_render(*args, **kwargs):
         if elapsed_before is not None:
             kwargs["elapsed_seconds"] = elapsed_before + time.monotonic() - render_started
-        return scan.commit_render(*args, **kwargs)
+        document_id = scan.commit_render(*args, **kwargs)
+        if getattr(scan, "con", None) is not None and hasattr(scan, "path"):
+            from seohead.storage import browser_artifacts
+            page_url_id = scan.con.execute("SELECT url_id FROM documents WHERE document_id=?", (document_id,)).fetchone()[0]
+            fetched = pending_artifacts.pop(args[0], {"ok": False})
+            artifact_config = settings["rendering"]["artifacts"]
+            item = browser_artifacts.save(
+                scan.path, page_url_id, document_id, fetched,
+                screenshots=artifact_config["screenshots"], console_errors=artifact_config["console_errors"],
+            )
+            scan.write_context([item])
+        return document_id
 
     rendering_config = copy.deepcopy(settings["rendering"])
     saved_render = scan.read_context("render_elapsed") if hasattr(scan, "read_context") else None
@@ -404,6 +417,19 @@ def run_render_escalation(
     max_retained_bytes = settings["storage"]["max_body_bytes"]
     gate_kwargs = {"request_gate": request_gate} if request_gate is not None else {}
 
+    def fetch_browser(target: str) -> dict[str, Any]:
+        from seohead.storage import browser_artifacts
+        artifact_kwargs = {}
+        if hasattr(scan, "path") and rendering_config["artifacts"]["screenshots"]:
+            artifact_kwargs["artifacts_dir"] = str(browser_artifacts.staging_dir(scan.path))
+        fetched = render_tool.render_document(
+            target, rendering_config, user_agent=settings["http"]["user_agent"],
+            max_html_bytes=max_parse_bytes, policy_facts=_policy_facts(settings, target),
+            **gate_kwargs, **artifact_kwargs,
+        )
+        pending_artifacts[target] = fetched
+        return fetched
+
     if mode == "js":
 
         def probe(target: str) -> dict[str, Any]:
@@ -433,14 +459,7 @@ def run_render_escalation(
                     "needs_escalation": False,
                     "reason": "retained static body is unavailable",
                 }
-            fetched = render_tool.render_document(
-                target,
-                rendering_config,
-                user_agent=settings["http"]["user_agent"],
-                max_html_bytes=max_parse_bytes,
-                policy_facts=_policy_facts(settings, target),
-                **gate_kwargs,
-            )
+            fetched = fetch_browser(target)
             renderer = fetched.get("renderer")
             if not isinstance(renderer, dict):
                 renderer = _unknown_renderer(target, settings)
@@ -495,14 +514,7 @@ def run_render_escalation(
 
         def render_fetch(target: str) -> dict[str, Any]:
             scan.preflight_capture()
-            return render_tool.render_document(
-                target,
-                rendering_config,
-                user_agent=settings["http"]["user_agent"],
-                max_html_bytes=max_parse_bytes,
-                policy_facts=_policy_facts(settings, target),
-                **gate_kwargs,
-            )
+            return fetch_browser(target)
 
         representation = "rendered"
     else:

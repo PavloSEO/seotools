@@ -1093,6 +1093,11 @@ def build_server(profile: str = "full", progress_notifications: bool = False):  
         """Return a packaged workflow scenario's text without running its commands."""
         return _checked(handlers.scenario_show(name))
 
+    @mcp.tool(annotations=create_files, structured_output=True)
+    def seo_provider_replay(input_path: str, evidence_file: str, out_dir: str, url_column: str = "url", review_external_only: bool = False) -> dict[str, Any]:
+        """Join a saved private provider collection to a saved scan with no network; retain raw rows locally and return counts."""
+        return _checked(handlers.provider_replay(input_path, evidence_file, out_dir, url_column=url_column, review_external_only=review_external_only))
+
     @mcp.tool(annotations=submit, structured_output=True)
     def seo_provider_auth(provider: str, action: Literal["status", "connect", "refresh", "disconnect", "revoke"] = "status", grant_file: str | None = None, confirm: bool = False) -> dict[str, Any]:
         """Manage GSC read-only OAuth grants: import private file, refresh, or explicitly revoke. Never returns secrets."""

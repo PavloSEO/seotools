@@ -160,6 +160,8 @@ def _now() -> str:
 
 def _save_local_artifact(directory: str | Path, value: dict[str, Any]) -> str:
     root = Path(directory)
+    if root.is_symlink():
+        raise ValueError("provider artifact directory must not be a symlink")
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
     digest = hashlib.sha256(json.dumps(value, sort_keys=True, default=str).encode()).hexdigest()
     destination = root / f"provider-{digest[:16]}.json"
@@ -359,7 +361,9 @@ def provider_collect(
             result = {"ok": False, "state": "failed", "error": exc.message, "status": exc.status}
     else:  # pragma: no cover - registry and dispatch stay synchronized above.
         raise ValueError("unsupported provider operation")
-    artifact = _save_local_artifact(artifact_dir, result) if artifact_dir else None
+    evidence = _evidence(provider, operation, request, result, None)
+    artifact = _save_local_artifact(artifact_dir, {"evidence": evidence, "result": result}) if artifact_dir else None
+    evidence["artifact_reference"] = artifact
     if event_sink is not None:
         rows = result.get("rows") or result.get("samples") or result.get("summary") or []
         event_sink.emit(
@@ -371,7 +375,7 @@ def provider_collect(
                 "rows": int(result.get("returned", len(rows))),
             },
         )
-    return {"evidence": _evidence(provider, operation, request, result, artifact), "result": result if artifact else None}
+    return {"evidence": evidence, "result": None}
 
 
 def provider_join(
@@ -422,3 +426,42 @@ def provider_join(
         "list_crawl_candidates": candidates, "frontier_mutated": False,
         "priority_adjustments": applied,
     }
+
+
+def provider_replay(input_path: str, evidence_file: str, out_dir: str, *, url_column: str = "url", review_external_only: bool = False) -> dict[str, Any]:
+    """Join one restricted saved provider result to a saved scan, without network.
+
+    Raw joins remain in a private local file. Returned counts identify unmatched
+    populations without exposing URLs, queries, or property identifiers.
+    """
+    from seohead.storage import open_scan
+    source = Path(evidence_file)
+    if source.is_symlink() or not source.is_file() or source.stat().st_mode & 0o077 or source.stat().st_size > 16 * 1024 * 1024:
+        raise ValueError("evidence_file must be a private bounded regular JSON file")
+    stored_bytes = source.read_bytes()
+    stored = json.loads(stored_bytes)
+    if not isinstance(stored, dict) or set(stored) != {"evidence", "result"}:
+        raise ValueError("expected a saved provider collection envelope")
+    evidence, result = stored["evidence"], stored["result"]
+    if not isinstance(evidence, dict) or evidence.get("format") != EVIDENCE_FORMAT or not isinstance(result, dict):
+        raise ValueError("invalid saved provider evidence")
+    rows = result.get("rows")
+    if not isinstance(rows, list) or len(rows) > 100_000 or any(not isinstance(row, dict) for row in rows):
+        raise ValueError("saved provider operation does not contain bounded joinable rows")
+    dimensions = result.get("dimensions", [])
+    if evidence.get("provider") == "gsc" and "page" in dimensions:
+        index = dimensions.index("page")
+        rows = [{**row, "url": row["keys"][index] if isinstance(row.get("keys"), list) and len(row["keys"]) > index else None} for row in rows]
+        url_column = "url"
+    con = open_scan(input_path, require_audit=False)
+    try:
+        if con.execute("SELECT COUNT(*) FROM pages").fetchone()[0] > 100_000:
+            raise ValueError("saved provider join exceeds the page bound")
+        pages = [dict(row) for row in con.execute("SELECT u.url,p.status_code FROM pages p JOIN urls u USING(url_id) ORDER BY p.url_id")]
+        scan_uuid = con.execute("SELECT scan_uuid FROM scan").fetchone()[0]
+    finally:
+        con.close()
+    joined = provider_join(pages, rows, url_column=url_column, review_external_only=review_external_only)
+    joined["source"] = {"scan_uuid": scan_uuid, "provider_evidence_sha256": hashlib.sha256(stored_bytes).hexdigest(), "provider": evidence.get("provider"), "period": evidence.get("period"), "status": evidence.get("status"), "sampling": evidence.get("sampling")}
+    reference = _save_local_artifact(out_dir, joined)
+    return {"ok": True, "format": "seohead.provider-replay.v1", "counts": joined["join"]["summary"], "artifact_reference": reference, "provider_status": evidence.get("status"), "frontier_mutated": False, "priority_applied": False}

@@ -81,3 +81,49 @@ configured, a target was not granted, or a result was truncated.
   evidence.
 - **Whether a URL is orphaned.** External-only means only that the current crawl did not match it.
 - **Whether IndexNow caused indexing.** A receipt records a submission, not an indexing outcome.
+
+## Durable GSC grant lifecycle
+
+Obtain a grant with only `webmasters.readonly` through Google's OAuth consent
+flow, then store the JSON outside the repository with mode `0600`. Its fields
+are `refresh_token`, `client_id`, `client_secret`, and `scopes` (a one-element
+list containing `https://www.googleapis.com/auth/webmasters.readonly`). Do not
+paste these values into command-line arguments, reports, or agent messages.
+
+```bash
+seohead provider-auth --provider gsc --action connect --grant-file ./private-gsc-grant.json
+seohead provider-auth --provider gsc --action status
+seohead provider-auth --provider gsc --action refresh
+```
+
+Connect imports an already-consented grant; it does not verify property access.
+The explicit refresh command returns only expiry/scope metadata. Subsequent GSC
+reads refresh the saved grant when no explicit bearer is configured. A rejected
+or expired grant requires renewed consent. Existing grants are never overwritten
+by connect. To remove only the local grant, use `--action disconnect --confirm`.
+To revoke it at Google and then remove it locally, use `--action revoke --confirm`;
+a failed remote revocation preserves the local grant. These actions do not change
+environment bearer tokens or service-account keys.
+
+Google documents consent, refresh and revocation in its
+[OAuth web-server flow](https://developers.google.com/identity/protocols/oauth2/web-server).
+
+## Replay an enrichment without another API call
+
+Collection with `--artifact-dir` writes a private envelope containing provider
+provenance and raw rows. The normal response contains redacted evidence only.
+Keep the envelope private; do not put it in a client report.
+
+```bash
+seohead provider-replay --scan ./scans/audit.sqlite \
+  --evidence-file ./private/provider-collection.json --out-dir ./private/joins
+```
+
+Use the actual saved filename from the artifact directory. GSC page dimensions
+are mapped to their recorded URL; other providers use `url` unless an explicit
+`--url-column` names the URL field. Relative or absent keys remain unkeyable.
+The saved join records scan UUID, source-file checksum, period and provider
+coverage. Its response gives matched and unmatched population counts, never a
+new crawl or an automatic priority change. `--review-external-only` writes
+separate candidate URLs in the private join; admitting them requires a later
+explicit list crawl.
