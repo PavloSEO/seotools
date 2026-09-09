@@ -31,9 +31,10 @@ def assert_saved_contract(document: dict[str, Any], con: Any) -> None:
     envelope = summary["evidence_contract"]
     assert envelope["scan_identity_state"] == "measured"
     assert envelope["scan_uuid"] == scan_uuid
-    assert envelope["population"]["urls_crawled"] == con.execute(
-        "SELECT COUNT(*) FROM pages"
-    ).fetchone()[0]
+    assert (
+        envelope["population"]["urls_crawled"]
+        == con.execute("SELECT COUNT(*) FROM pages").fetchone()[0]
+    )
     for issue in document["issues"]:
         contract = issue["evidence"]["contract"]
         finding = contract["finding"]
@@ -47,13 +48,17 @@ def assert_saved_contract(document: dict[str, Any], con: Any) -> None:
         target = declaration["target_observation"]
         if target["state"] != "observed":
             continue
-        row = con.execute("SELECT document_id FROM pages WHERE url_id=?", (target["page_url_id"],)).fetchone()
+        row = con.execute(
+            "SELECT document_id FROM pages WHERE url_id=?", (target["page_url_id"],)
+        ).fetchone()
         assert row is not None
         if target["document_id"] is not None:
             assert row[0] == target["document_id"]
 
 
-def _assert_reference(reference: dict[str, Any], scan_uuid: str, con: Any, *, issue_id: str | None = None) -> None:
+def _assert_reference(
+    reference: dict[str, Any], scan_uuid: str, con: Any, *, issue_id: str | None = None
+) -> None:
     assert reference["state"] == "measured"
     assert reference["scan_uuid"] == scan_uuid
     assert reference["id"] == stable_evidence_id(
