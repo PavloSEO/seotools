@@ -85,6 +85,10 @@ _TEMPLATE_DOC_FREQ_RATIO = 0.9
 _MIN_DOCS_FOR_TEMPLATE_FILTER = 20
 
 
+class DuplicateBudgetExceeded(ValueError):
+    """A caller-selected finite duplicate-analysis work budget was exhausted."""
+
+
 def _tokenize(text: str) -> list[str]:
     """Return lowercase alphanumeric tokens with at least two characters.
 
@@ -242,6 +246,8 @@ def find_duplicates(
     k: int = 3,
     with_fingerprints: bool = False,
     only_indexable: bool = True,
+    max_shingles: int | None = None,
+    max_candidate_comparisons: int | None = None,
 ) -> dict[str, Any]:
     """Find exact and near-duplicate groups in a list of documents.
 
@@ -285,6 +291,7 @@ def find_duplicates(
 
     texts: dict[str, str] = {}
     doc_shingles: dict[str, list[tuple[str, ...]]] = {}
+    shingle_count = 0
     excluded_no_id = 0
     excluded_no_text = 0
     excluded_duplicate_id = 0
@@ -301,7 +308,11 @@ def find_duplicates(
                 excluded_duplicate_id += 1
                 continue
             texts[doc_id] = text
-            doc_shingles[doc_id] = shingles(_tokenize(text), k)
+            pieces = shingles(_tokenize(text), k)
+            shingle_count += len(pieces)
+            if max_shingles is not None and shingle_count > max_shingles:
+                raise DuplicateBudgetExceeded("duplicate shingle budget exceeded")
+            doc_shingles[doc_id] = pieces
 
     # A shingle in nearly every document is the site's template, not distinguishing
     # content; damping it before hashing is what keeps a templated corpus's
@@ -349,11 +360,18 @@ def find_duplicates(
             parent[rb] = ra
 
     candidate_pairs: set[tuple[str, str]] = set()
+    candidate_comparisons = 0
     for members in buckets.values():
         if len(members) < 2:
             continue
         for i in range(len(members)):
             for j in range(i + 1, len(members)):
+                candidate_comparisons += 1
+                if (
+                    max_candidate_comparisons is not None
+                    and candidate_comparisons > max_candidate_comparisons
+                ):
+                    raise DuplicateBudgetExceeded("duplicate candidate-comparison budget exceeded")
                 a, b = members[i], members[j]
                 if similarity(fingerprints[a], fingerprints[b]) >= threshold:
                     candidate_pairs.add(tuple(sorted((a, b))))

@@ -74,17 +74,20 @@ def test_declared_arguments_exist_in_the_handler_or_cli_parser():
             assert not unknown, f"{contract.command} names unknown input arguments: {unknown}"
 
 
-def test_generated_reference_matches_metadata_and_does_not_claim_scan_adapters():
+def test_generated_reference_matches_metadata_and_names_scan_adapters():
     rendered = render_markdown()
 
     assert (ROOT / "docs" / "INPUTS.md").read_text(encoding="utf-8") == rendered
     assert (
-        "`duplicate-check` and\n`boilerplate-report` currently accept inline corpora only"
+        "`duplicate-check` and\n`boilerplate-report` may instead read one retained scan corpus"
         in rendered
     )
     by_command = {contract.command: contract for contract in COMMAND_CONTRACTS}
     for command in ("duplicate-check", "boilerplate-report"):
-        assert {form.kind for form in by_command[command].forms} == {"inline_corpus"}
+        assert {form.kind for form in by_command[command].forms} == {
+            "inline_corpus",
+            "scan_artifact",
+        }
     assert [form.kind for form in by_command["scan-body-diff"].forms] == [
         "scan_artifact",
         "selector",

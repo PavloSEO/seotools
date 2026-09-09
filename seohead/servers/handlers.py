@@ -1748,13 +1748,16 @@ def segment_diff(
 
 
 def render_check(
-    url: str | None = None, viewport: str = "desktop", wait: str = "load"
+    url: str | None = None,
+    viewport: str = "desktop",
+    wait: str = "load",
+    user_agent: str | None = None,
 ) -> dict[str, Any]:
     if not url:
         raise ValueError("url required")
     from seohead.tools import render as render_core
 
-    return render_core.render_check(url, viewport=viewport, wait=wait)
+    return render_core.render_check(url, viewport=viewport, wait=wait, user_agent=user_agent)
 
 
 def backlinks_check(
@@ -1774,11 +1777,38 @@ def duplicate_check(
     threshold: float = 0.92,
     with_fingerprints: bool = False,
     only_indexable: bool = True,
+    scan: str | None = None,
 ) -> dict[str, Any]:
-    if not items:
-        raise ValueError("items[] required (list of {id, text})")
+    if items is not None and scan is not None:
+        raise ValueError("items[] and scan are mutually exclusive")
     from seohead.tools import duplicate as dup_core
 
+    if scan is not None:
+        from seohead.storage.corpus_inputs import (
+            MAX_DUPLICATE_CANDIDATE_COMPARISONS,
+            MAX_DUPLICATE_SHINGLES,
+            corpus_public,
+            scan_corpus,
+        )
+        from seohead.tools.duplicate import DuplicateBudgetExceeded
+
+        corpus = scan_corpus(scan, kind="duplicate")
+        if corpus["coverage"]["state"] == "unavailable":
+            return {"ok": False, **corpus_public(corpus)}
+        try:
+            result = dup_core.find_duplicates(
+                corpus["items"],
+                threshold=threshold,
+                with_fingerprints=with_fingerprints,
+                only_indexable=only_indexable,
+                max_shingles=MAX_DUPLICATE_SHINGLES,
+                max_candidate_comparisons=MAX_DUPLICATE_CANDIDATE_COMPARISONS,
+            )
+        except DuplicateBudgetExceeded as exc:
+            return {"ok": False, "reason": str(exc), **corpus_public(corpus, unavailable=str(exc))}
+        return {**result, **corpus_public(corpus, analyzed=result["count"])}
+    if not items:
+        raise ValueError("items[] required (list of {id, text})")
     return dup_core.find_duplicates(
         items,
         threshold=threshold,
@@ -1954,13 +1984,25 @@ def log_scan(
     return logscan.scan(artifacts, max_per_rule=max_per_rule)
 
 
-def boilerplate_report(pages: list[dict] | None = None) -> dict[str, Any]:
+def boilerplate_report(pages: list[dict] | None = None, scan: str | None = None) -> dict[str, Any]:
     """Group a crawled corpus by header/nav/footer hash and report minority template groups.
 
     Each page is ``{"url": str, "html": str}`` or, when the hash was already
     computed upstream (``boilerplate_report.boilerplate_hash``), ``{"url": str,
     "hash": str}``.
     """
+    if pages is not None and scan is not None:
+        raise ValueError("pages[] and scan are mutually exclusive")
+    if scan is not None:
+        from seohead.storage.corpus_inputs import corpus_public, scan_corpus
+
+        corpus = scan_corpus(scan, kind="boilerplate")
+        if corpus["coverage"]["state"] == "unavailable":
+            return {"ok": False, **corpus_public(corpus)}
+        from seohead.tools import boilerplate_report as bp_core
+
+        result = bp_core.boilerplate_consistency_report(corpus["items"])
+        return {**result, **corpus_public(corpus, analyzed=result["count"])}
     if not pages:
         raise ValueError("pages[] required (list of {url, html} or {url, hash})")
     from seohead.tools import boilerplate_report as bp_core
