@@ -69,8 +69,10 @@ seohead crawl-site --url https://example.com/ --max-urls 200
 Follows links from the start URL on the same host, respects `robots.txt`, and audits the result
 through the same checks used for Screaming Frog exports. `--min-delay` is the floor beneath an
 adaptive back-off: latency widens the delay, a timeout widens it hard, and repeated timeouts stop
-the run rather than pushing a failing origin. Rows land in `pages.jsonl` as they are collected, so
-an interrupted crawl still leaves evidence behind.
+the run rather than pushing a failing origin. A URL crawl commits evidence to a native SQLite
+artifact under `./scans/` by default, returning its path as `scan`. Use `--scan-out` for a chosen
+filename, or explicit `--out-dir` for the legacy `pages.jsonl`/`audit.json` workflow. Interrupted
+native scans keep committed evidence and resume with `crawl-site --resume FILE`.
 
 While it runs, a progress line on stderr is refreshed in place:
 

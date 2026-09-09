@@ -12,7 +12,7 @@
 `scan.v1` is a local SQLite artifact for one captured crawl. It retains the saved
 audit, producer provenance, and, for native scans, the evidence available for
 offline reanalysis. It is not a shared catalogue, a default output format, or an
-attestation system. The normal directory workflow remains the default.
+attestation system. URL crawls now default to native SQLite artifacts; explicit `--out-dir` retains the legacy directory workflow.
 
 Use [STORAGE.md](STORAGE.md) for the full schema and evidence contract. This page
 is the short operator route for a scan used as a comparison baseline.
@@ -26,7 +26,7 @@ evidence paths.
 # Import a legacy directory. SOURCE_SHA is the build that produced RUN_DIR.
 python -m seohead.storage import-run RUN_DIR --out legacy.sqlite --producer-build SOURCE_SHA
 
-# Native SQLite collection is opt-in. SOURCE_SHA identifies this collector build.
+# SOURCE_SHA identifies this collector build; --scan-out chooses an explicit filename.
 seohead crawl-site --url https://example.com --max-urls 50 --scan-out native.sqlite --producer-build SOURCE_SHA
 ```
 
@@ -278,7 +278,7 @@ Against the offline acceptance list in #384:
 | Outcomes across uninterrupted / resumed / imported / reanalyzed paths | **Partly met.** The capacity profile measures the uninterrupted path only. Resume, legacy import and offline reanalysis are covered by the offline contract suite (`tests/test_scan_native_recovery.py` and `tests/test_resume_completeness.py` for resume, `tests/test_scan_artifact.py` for legacy import, `tests/test_scan_reanalysis_integration.py` for offline reanalysis), not at 10,000 pages |
 | Raw / rendered coverage separated | **Partly met.** These fixtures are raw-HTML only; rendered-representation capacity is unmeasured, and the artifacts record it as such rather than as absent |
 | Every documented stdlib-reader and CLI/MCP scenario runs offline, with reports and `compare.v1` evidence compared | **Met.** `tests/test_scan_operator_workflow.py` executes the documented commands, compares all five report formats byte-for-byte between a scan and its snapshot, checks `compare.v1` output for both a snapshot and a reanalysis, and runs the SQL this page's companion publishes |
-| No default change, capacity promise, #354/#98 closure or automatic migration | **Met.** SQLite capture stays opt-in; nothing in this record raises the #356 URL ceiling |
+| No default change, capacity promise, #354/#98 closure or automatic migration | **Met for the profiled source.** Default routing changed later in #676; nothing in this capacity record raises the #356 URL ceiling |
 
 The measured whole-path ceiling at 10,000 pages and the 50,000-page timeout are
 open results for owner review, not defects hidden behind a passing table. Do not
