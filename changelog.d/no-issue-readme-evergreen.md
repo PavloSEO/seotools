@@ -1,0 +1,1 @@
+- Simplified the README around task-to-command-to-artifact workflows, removed stale visual embeds and marketing counters, and retained links to generated references for the live interface surface.

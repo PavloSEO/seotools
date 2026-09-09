@@ -782,7 +782,7 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
         _source_flag(
             sub,
             "--project",
-            help="portable project directory; defaults the target and scan location",
+            help="project directory: default target and scan location",
         )
         _source_flag(
             sub,
@@ -801,8 +801,7 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
             sub,
             "--resume",
             metavar="FILE",
-            help="continue an interrupted SQLite scan; its start URL and settings "
-            "come from the file, so no other crawl flag applies",
+            help="resume stored URL/settings; no crawl overrides",
         )
         sub.add_argument(
             "--producer-build", metavar="SHA", help="original source build for SQLite capture"

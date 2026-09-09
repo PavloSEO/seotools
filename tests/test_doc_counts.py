@@ -154,14 +154,3 @@ def test_the_scanner_finds_claims_at_all():
     # A regex that stops matching would make every assertion above vacuous.
     found = sum(len(_claims_in(p.read_text(encoding="utf-8"))) for p in DOCS)
     assert found > 15, f"only {found} count claims found; the patterns have gone stale"
-
-
-def test_readme_category_table_sums_to_its_own_heading():
-    # The table lists tools per layer under a heading that states the total.
-    # They drifted apart over several additions, each correct on its own.
-    text = (ROOT / "README.md").read_text(encoding="utf-8")
-    heading = re.search(r"###\s+(\d+)\s+core CLI commands and MCP tools", text)
-    assert heading, "README no longer states a core tool count"
-    rows = re.findall(r"^\|\s*[^|]+\|\s*(\d+)\s*\|", text, flags=re.M)
-    assert rows, "README category table not found"
-    assert sum(int(n) for n in rows) == int(heading.group(1)) == len(COMMANDS)
