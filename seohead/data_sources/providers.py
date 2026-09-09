@@ -135,9 +135,17 @@ def sources_doctor() -> dict[str, Any]:
 
 
 def _reference(value: Any) -> str | None:
-    if value is None:
-        return None
-    return "sha256:" + hashlib.sha256(str(value).encode()).hexdigest()
+    """Public envelopes never carry a reversible or guessable target identifier."""
+    return None
+
+
+def _redacted_filters(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict) or not value:
+        return {"state": "not_supplied", "keys": []}
+    return {
+        "state": "values_redacted",
+        "keys": sorted(str(key) for key in value),
+    }
 
 
 def _now() -> str:
@@ -174,17 +182,17 @@ def _evidence(provider: str, operation: str, request: dict[str, Any], result: di
         "retrieved_at": _now(),
         "period": request.get("period") or result.get("period"),
         "dimensions": request.get("dimensions") or result.get("dimensions") or [],
-        "filters": request.get("filters") or {},
+        "filters": _redacted_filters(request.get("filters")),
         "target_reference": _reference(request.get("site_url") or request.get("url") or request.get("property_id") or request.get("host_id")),
         "pagination": {"returned": result.get("returned", len(rows)), "truncated": bool(result.get("truncated"))},
         "row_counts": {"returned": result.get("returned", len(rows))},
-        "sampling": result.get("sampling_or_thresholding") or result.get("sampling") or False,
-        "privacy_thresholds": result.get("privacy_thresholds") or "not_reported",
+        "sampling": result.get("sampling_or_thresholding") or result.get("sampling") or "unknown",
+        "privacy_thresholds": result.get("privacy_thresholds") or "unknown",
         "quota_state": result.get("quota_mode") or _REGISTRY[provider]["quota_mode"],
         "status": state,
         "complete": state == "complete",
         "artifact_reference": artifact,
-        "redaction": "raw provider rows and identifiers are restricted local artifacts by default",
+        "redaction": "target identifiers, filter values, and raw provider rows are restricted local artifacts by default",
         "error": result.get("error"),
     }
 
@@ -224,13 +232,35 @@ def provider_verify(provider: str, request: dict[str, Any] | None = None, *, tra
             "credential_components": components,
             "note": "this provider needs a declared collection target for a bounded live verification",
         }
+    authenticated = bool(result.get("ok"))
+    target = request.get("site_url") or request.get("host_id")
+    target_access = "not_requested"
+    if target:
+        candidates: list[Any] = []
+        if provider == "gsc":
+            candidates = [entry.get("site_url") for entry in result.get("properties", [])]
+        elif provider == "yandex_webmaster":
+            data = result.get("data")
+            candidates = [
+                entry.get("host_id")
+                for entry in (data.get("hosts", []) if isinstance(data, dict) else [])
+                if isinstance(entry, dict)
+            ]
+        elif provider == "bing_webmaster":
+            data = result.get("data")
+            candidates = [entry.get("Url") for entry in data] if isinstance(data, list) else []
+        target_access = "verified" if target in candidates else "not_granted" if candidates else "unknown"
     return {
-        "ok": bool(result.get("ok")), "provider": provider,
-        "state": "verified" if result.get("ok") else result.get("state", "verification_failed"),
-        "verified": bool(result.get("ok")), "credential_components": components,
-        "selected_reference": _reference(request.get("site_url") or request.get("host_id")),
-        "scopes": result.get("scopes", []), "quota_mode": _REGISTRY[provider]["quota_mode"],
-        "contract_compatible": bool(result.get("ok")), "error": result.get("error"),
+        "ok": authenticated, "provider": provider,
+        "state": "authenticated" if authenticated else result.get("state", "verification_failed"),
+        "authenticated_account": authenticated, "target_access": target_access,
+        "verified": target_access == "verified",
+        "credential_components": components,
+        "selected_reference": _reference(target),
+        "granted_scopes": result.get("scopes") or "unknown",
+        "quota_mode": _REGISTRY[provider]["quota_mode"], "quota_state": "unknown",
+        "contract_compatible": authenticated and target_access in {"verified", "not_requested"},
+        "error": result.get("error"),
     }
 
 

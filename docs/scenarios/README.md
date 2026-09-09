@@ -176,6 +176,7 @@ does rather than by what somebody thought of.
 | 54 | [AI visibility](ai-visibility.md) | will an assistant cite this site |
 | 55 | [Comparing two crawls](comparison.md) | what changed since the release |
 | 56 | [From audit to deliverable](deliverable.md) | the last mile |
+| 57 | [Provider evidence](provider-evidence.md) | connect, verify, collect, join, refresh, and revoke external evidence |
 
 
 ## The rule underneath all of them
