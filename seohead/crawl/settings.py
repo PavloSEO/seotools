@@ -246,6 +246,15 @@ DEFAULTS: dict[str, Any] = {
         "fetch": False,
         "max_requests": 20_000,
         "max_response_bytes": 5 * 1024 * 1024,
+        "graph": {
+            "max_requests": 2_000,
+            "max_bytes": 100 * 1024 * 1024,
+            "max_bytes_per_resource": 5 * 1024 * 1024,
+            "max_seconds": 0,
+            "max_origins": 1,
+            "max_redirects": 0,
+            "max_nesting": 2,
+        },
     },
     "storage": {
         "body_mode": "captured_entity_bytes",
@@ -398,6 +407,13 @@ RESULTS_AFFECTING: frozenset[str] = frozenset(
         "resources.fetch",
         "resources.max_requests",
         "resources.max_response_bytes",
+        "resources.graph.max_requests",
+        "resources.graph.max_bytes",
+        "resources.graph.max_bytes_per_resource",
+        "resources.graph.max_seconds",
+        "resources.graph.max_origins",
+        "resources.graph.max_redirects",
+        "resources.graph.max_nesting",
         "storage.max_body_bytes",
         "storage.max_body_store_bytes",
         "storage.min_free_bytes",
@@ -437,6 +453,13 @@ DESCRIPTIONS: dict[str, str] = {
     "resources.fetch": "SQLite only: opt in to fetching directly declared same-origin scripts and stylesheets; never follows CSS imports or JavaScript modules.",
     "resources.max_requests": "SQLite only: maximum resource HTTP attempts, including redirects and retries; independent of the page URL limit.",
     "resources.max_response_bytes": "SQLite only: maximum content-decoded bytes per resource response; total crawl time and body-store limits still apply.",
+    "resources.graph.max_requests": "scan.v2 only: bounded deduplicated declared-resource fetch count.",
+    "resources.graph.max_bytes": "scan.v2 only: total bytes accepted by the declared-resource graph.",
+    "resources.graph.max_bytes_per_resource": "scan.v2 only: maximum bytes accepted from one declared resource.",
+    "resources.graph.max_seconds": "scan.v2 only: resource graph wall-clock budget; 0 means no graph-specific limit.",
+    "resources.graph.max_origins": "scan.v2 only: maximum admitted resource origins.",
+    "resources.graph.max_redirects": "scan.v2 only: maximum redirects per declared resource.",
+    "resources.graph.max_nesting": "scan.v2 only: CSS import/url nesting depth.",
     "storage.body_mode": "SQLite only: captured_entity_bytes retains fetched HTML/DOM; off retains metadata only.",
     "storage.max_body_bytes": "SQLite only: maximum decoded bytes retained for one complete body.",
     "storage.max_body_store_bytes": "SQLite only: total unique encoded body bytes retained per scan.",
@@ -793,6 +816,16 @@ def validate(config: dict[str, Any]) -> None:
             value = resources[name]
             if type(value) is not int or not 0 <= value <= 2**63 - 1:
                 raise ConfigError(f"resources.{name} must be a nonnegative SQLite-sized integer")
+        graph = resources["graph"]
+        if not isinstance(graph, dict):
+            raise ConfigError("resources.graph must be an object")
+        for name, value in graph.items():
+            if type(value) is not int or value < 0:
+                raise ConfigError(f"resources.graph.{name} must be a nonnegative integer")
+        if graph["max_requests"] < 1 or graph["max_bytes_per_resource"] < 1:
+            raise ConfigError("resources.graph request and per-resource byte limits must be positive")
+        if graph["max_origins"] < 1:
+            raise ConfigError("resources.graph.max_origins must be positive")
     if "storage" in config:
         storage = config["storage"]
         if storage["body_mode"] not in {"off", "captured_entity_bytes"}:

@@ -909,6 +909,7 @@ def crawl_to_scan(
 
         if finish_reason not in {"errors", "storage_backpressure"}:
             from .sqlite_resources import capture_resources
+            from seohead.storage.resource_graph import capture as capture_resource_graph
 
             capture_resources(
                 scan,
@@ -919,6 +920,14 @@ def crawl_to_scan(
                 sleeper=sleeper,
                 throttle=throttle,
                 dispatch_gate=dispatch_gate,
+            )
+            capture_resource_graph(
+                scan,
+                settings,
+                client=client,
+                fetcher=fetcher,
+                wait=dispatch_gate.wait_turn,
+                clock=clock,
             )
         scan.record_request_count(dispatch_gate.requests_used)
         if start_page_gate is None:

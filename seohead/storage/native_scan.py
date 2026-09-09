@@ -147,6 +147,8 @@ def _native_config(value: Any, *, recorded: bool = False) -> dict[str, Any]:
         for name in ("storage", "resources"):
             if name not in config:
                 expected.pop(name)
+        if "resources" in config and "graph" not in config["resources"]:
+            expected["resources"].pop("graph")
         if "rendering" in config and "rendered_links" not in config["rendering"]:
             expected["rendering"].pop("rendered_links")
         if "limits" in config and "max_requests" not in config["limits"]:
@@ -156,6 +158,9 @@ def _native_config(value: Any, *, recorded: bool = False) -> dict[str, Any]:
     if recorded:
         for name in ("storage", "resources"):
             validation_config.setdefault(name, copy.deepcopy(DEFAULTS[name]))
+        validation_config["resources"].setdefault(
+            "graph", copy.deepcopy(DEFAULTS["resources"]["graph"])
+        )
         validation_config.setdefault("rendering", {})
         validation_config["rendering"].setdefault(
             "rendered_links", copy.deepcopy(DEFAULTS["rendering"]["rendered_links"])
@@ -180,6 +185,12 @@ def _resume_fingerprint(expected_config: Any, recorded_config: Any) -> str:
     for name in ("storage", "resources"):
         if name not in recorded and expected.get(name) == DEFAULTS[name]:
             expected.pop(name)
+    if (
+        "resources" in recorded
+        and "graph" not in recorded["resources"]
+        and expected["resources"].get("graph") == DEFAULTS["resources"]["graph"]
+    ):
+        expected["resources"].pop("graph")
     if (
         "rendering" in recorded
         and "rendered_links" not in recorded["rendering"]
@@ -250,6 +261,28 @@ def _put_content_evidence(
         **content_capture,
     ):
         put_context(con, item)
+
+
+def _put_resource_graph(
+    con: sqlite3.Connection,
+    *,
+    page_url_id: int,
+    source_document_id: int | None,
+    representation: str,
+    content_capture: dict[str, Any] | None,
+) -> None:
+    """Store v2 resource declarations alongside the document that emitted them."""
+    if content_capture is None or source_document_id is None:
+        return
+    from .resource_graph import store_document
+
+    store_document(
+        con,
+        page_url_id=page_url_id,
+        source_document_id=source_document_id,
+        representation=representation,
+        html=content_capture["html"],
+    )
 
 
 @dataclass(frozen=True)
@@ -1899,6 +1932,13 @@ class NativeScan:
                 representation="static",
                 content_capture=content_capture,
             )
+            _put_resource_graph(
+                self.con,
+                page_url_id=lease.url_id,
+                source_document_id=document_id,
+                representation="static",
+                content_capture=content_capture,
+            )
             if route_coverage is not None:
                 from .rendered_routes import context_items
 
@@ -2238,6 +2278,13 @@ class NativeScan:
             elif links or forms:
                 raise ScanError("unaccepted render cannot replace graph observations")
             _put_content_evidence(
+                self.con,
+                page_url_id=page["url_id"],
+                source_document_id=document_id,
+                representation=representation,
+                content_capture=content_capture,
+            )
+            _put_resource_graph(
                 self.con,
                 page_url_id=page["url_id"],
                 source_document_id=document_id,

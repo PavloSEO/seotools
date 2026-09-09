@@ -29,3 +29,34 @@ CREATE TABLE retry_transitions (
 );
 
 CREATE INDEX retry_transitions_url_id ON retry_transitions(url_id, attempt_id);
+
+CREATE TABLE resource_graph_occurrences (
+  occurrence_id INTEGER PRIMARY KEY,
+  page_url_id INTEGER NOT NULL,
+  source_document_id INTEGER NOT NULL,
+  representation TEXT NOT NULL,
+  ordinal INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  carrier TEXT NOT NULL,
+  raw_url TEXT NOT NULL,
+  resolved_url TEXT NOT NULL,
+  nesting_depth INTEGER NOT NULL,
+  state TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  UNIQUE(page_url_id, source_document_id, representation, ordinal)
+);
+
+CREATE TABLE resource_graph_fetches (
+  resolved_url TEXT PRIMARY KEY,
+  state TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  status_code INTEGER,
+  content_type TEXT NOT NULL,
+  bytes_received INTEGER NOT NULL,
+  elapsed_seconds REAL,
+  origin_host TEXT NOT NULL,
+  redirects INTEGER NOT NULL,
+  nesting_depth INTEGER NOT NULL
+);
+
+CREATE INDEX resource_graph_occurrences_url ON resource_graph_occurrences(resolved_url);

@@ -99,6 +99,9 @@ def validate_v2(con: sqlite3.Connection, *, require_audit: bool = False) -> None
         "WHERE (f.state='done') != (p.url_id IS NOT NULL) LIMIT 1"
     ).fetchone():
         raise ScanError("scan.v2 active frontier and page population disagree")
+    from .resource_graph import validate as validate_resource_graph
+
+    validate_resource_graph(con)
     if require_audit and con.execute("SELECT 1 FROM audit WHERE singleton=1").fetchone() is None:
         raise ScanError("scan.v2 has no current audit")
     for row in con.execute("SELECT * FROM retry_attempts"):
