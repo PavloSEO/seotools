@@ -360,7 +360,6 @@ def test_documented_command_executes_or_at_least_still_parses(
     spellings = {argv[0]}
     if len(argv) > 1 and not argv[1].startswith("-"):
         spellings.add(f"{argv[0]}-{argv[1]}")
-    tool = argv[0]
     if spellings & NEEDS_LIVE_INFRASTRUCTURE or _is_licensed_sf_mode(argv):
         from seohead.cli import build_parser
         from seohead.sf.cli import build_parser as build_sf_parser
