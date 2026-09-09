@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import copy
-import json
 
 import pytest
 
@@ -12,6 +11,7 @@ from seohead.crawl.sqlite_adapter import crawl_to_scan
 from seohead.servers.handlers import _audit_crawl_result
 from seohead.servers.scan_handlers import _rebuild_page_result
 from seohead.storage.native_scan import NativeScan
+from tests.evidence_contract_assertions import assert_saved_contract, semantic_audit
 from tests.test_scan_artifact_office import frozen_office_clock as frozen_office_clock
 from tests.test_scan_crawl_parity import _fetcher, _legacy, _Response, _runtime_versions
 
@@ -116,7 +116,7 @@ def _outcome(audit):
             return [normalize(item) for item in value]
         return value
 
-    result = copy.deepcopy(audit)
+    result = semantic_audit(audit)
     result["run"].pop("generated_at")
     return normalize(result)
 
@@ -143,18 +143,6 @@ def _different_paths(left, right, path="$"):
                 paths.extend(_different_paths(left[index], right[index], child))
         return paths
     return [] if left == right else [path]
-
-
-def _at_path(value, path):
-    for part in path.removeprefix("$").split("."):
-        if not part:
-            continue
-        if "[" in part:
-            name, index = part[:-1].split("[")
-            value = value[name][int(index)] if name else value[int(index)]
-        else:
-            value = value[part]
-    return value
 
 
 def test_outcome_normalizes_measured_durations_but_keeps_issues_strict():
@@ -260,20 +248,22 @@ def test_sql_graph_audit_matches_legacy_without_building_all_inlinks(
                 stored_scan=scan,
                 stored_sitemap=sitemap,
             )
+            assert_saved_contract(sql_audit, scan.con)
 
     sql_outcome, legacy_outcome = _outcome(sql_audit), _outcome(legacy_audit)
     paths = _different_paths(sql_outcome, legacy_outcome)
     (tmp_path / "scan-analysis-parity-diff.txt").write_text("\n".join(paths) + "\n")
     assert sql_outcome == legacy_outcome, "\n".join(paths)
-    assert build_tasks(sql_audit, None) == build_tasks(legacy_audit, None)
+    assert build_tasks(sql_outcome, None) == build_tasks(legacy_outcome, None)
     if mode == "complete":
         assert {issue["check"] for issue in sql_audit["issues"]} >= {
             "ONLY_NOFOLLOW_INLINKS",
             "ONLY_NONINDEXABLE_SOURCE_INLINKS",
             "DEEP_DISCOVERY_PATH",
         }
-    # Renderers receive comparable copies: their byte-level parity should not
-    # depend on either audit's independently measured response durations.
+    # Report writers receive the same semantic audit input. The saved-reference
+    # contracts were independently validated above, and are deliberately local
+    # to the scan rather than a renderer-parity dimension.
     legacy_render_audit, sql_render_audit = _outcome(legacy_audit), _outcome(sql_audit)
     for audit in (legacy_render_audit, sql_render_audit):
         audit["run"]["generated_at"] = legacy_audit["run"]["generated_at"]
@@ -281,26 +271,11 @@ def test_sql_graph_audit_matches_legacy_without_building_all_inlinks(
 
     for fmt in ("json", "md", "csv", "xlsx", "docx"):
         left, right = tmp_path / f"legacy.{fmt}", tmp_path / f"sql.{fmt}"
-        assert build_report(legacy_render_audit, fmt, str(left))["ok"]
-        assert build_report(sql_render_audit, fmt, str(right))["ok"]
-        if fmt == "json":
-            legacy_report, sql_report = json.loads(left.read_text()), json.loads(right.read_text())
-            report_paths = _different_paths(legacy_report, sql_report)
-            if report_paths:
-                first = report_paths[0]
-                legacy_value, sql_value = (
-                    _at_path(legacy_report, first),
-                    _at_path(sql_report, first),
-                )
-                pytest.fail(
-                    f"report JSON first difference {first}: "
-                    f"{type(legacy_value).__name__}={legacy_value!r} vs "
-                    f"{type(sql_value).__name__}={sql_value!r}"
-                )
+        legacy_rendered = build_report(legacy_render_audit, fmt, str(left))
+        sql_rendered = build_report(sql_render_audit, fmt, str(right))
+        assert legacy_rendered["ok"], legacy_rendered
+        assert sql_rendered["ok"], sql_rendered
         assert left.read_bytes() == right.read_bytes()
         if fmt == "csv":
             for suffix in (".pages.csv", ".scope.csv"):
-                left_sidecar, right_sidecar = left.with_suffix(suffix), right.with_suffix(suffix)
-                assert left_sidecar.exists() == right_sidecar.exists()
-                if left_sidecar.exists():
-                    assert left_sidecar.read_bytes() == right_sidecar.read_bytes()
+                assert left.with_suffix(suffix).read_bytes() == right.with_suffix(suffix).read_bytes()
