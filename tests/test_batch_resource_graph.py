@@ -9,6 +9,7 @@ import sqlite3
 import struct
 
 import pytest
+
 from seohead.crawl.settings import load
 from seohead.crawl.sqlite_adapter import crawl_to_scan
 from seohead.storage import open_scan
@@ -323,7 +324,9 @@ def _v2_crawl(path, fetcher):
 
 def _v2_site(url: str):
     if url.endswith("/robots.txt"):
-        return _Response(200, b"User-agent: SEOHEAD-Tools\nAllow: /\n", {"content-type": "text/plain"})
+        return _Response(
+            200, b"User-agent: SEOHEAD-Tools\nAllow: /\n", {"content-type": "text/plain"}
+        )
     if url.endswith("/site.css"):
         return _Response(200, b".hero{background:url('/asset.png')}", {"content-type": "text/css"})
     if url.endswith("/asset.png"):
@@ -355,10 +358,16 @@ def test_v2_crawl_reopens_with_closed_resource_graph_coverage_and_css_children(t
     assert tuple(coverage[1:]) == ("complete", "")
 
 
-def test_v2_requeue_then_resume_replaces_active_graph_and_reanalysis_stays_offline(tmp_path, monkeypatch):
+def test_v2_requeue_then_resume_replaces_active_graph_and_reanalysis_stays_offline(
+    tmp_path, monkeypatch
+):
     from seohead.servers.reanalysis_handlers import reanalyze_scan
 
-    path, backup, derived = tmp_path / "v2.sqlite", tmp_path / "before.sqlite", tmp_path / "derived.sqlite"
+    path, backup, derived = (
+        tmp_path / "v2.sqlite",
+        tmp_path / "before.sqlite",
+        tmp_path / "derived.sqlite",
+    )
     calls: list[str] = []
 
     def fetcher(url: str):

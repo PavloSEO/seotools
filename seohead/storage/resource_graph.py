@@ -360,16 +360,30 @@ def validate_coverage_context(con: sqlite3.Connection, item: dict[str, str], pay
         payload["omitted"],
         payload["reason"],
     )
-    expected_completeness = "unavailable" if state == "unavailable" else "partial" if state == "partial" else "complete"
+    expected_completeness = (
+        "unavailable" if state == "unavailable" else "partial" if state == "partial" else "complete"
+    )
     if (
         invalid_nested
         or observed != direct
         or item["completeness"] != expected_completeness
         or item["reason"] != reason
-        or (state == "unavailable" and (observed or omitted or direct or nested or reason != "document body was not available"))
+        or (
+            state == "unavailable"
+            and (
+                observed
+                or omitted
+                or direct
+                or nested
+                or reason != "document body was not available"
+            )
+        )
         or (state == "empty" and (observed or omitted or direct or nested or reason))
         or (state == "complete" and (not observed or omitted or reason))
-        or (state == "partial" and (not omitted or reason != "resource declaration cap omitted occurrences"))
+        or (
+            state == "partial"
+            and (not omitted or reason != "resource declaration cap omitted occurrences")
+        )
     ):
         raise ScanError("resource graph coverage context disagrees with stored declarations")
 
