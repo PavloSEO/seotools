@@ -1,0 +1,1 @@
+- Expand the README with practical input-to-result workflows, matching CLI/MCP calls and accurate retained-corpus and browser/provider boundaries.
