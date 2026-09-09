@@ -337,6 +337,7 @@ Tool behaviour:
 | `SEOHEAD_RUN_LOG` | where the run journal is written (default `~/.config/seohead/runs.jsonl`); `off` disables it |
 | `SEOHEAD_SPEND_LOG` | override for the paid-call journal (default `~/.config/seohead/spend.jsonl`) |
 | `DATAFORSEO_ENV` | `sandbox` (default) or `prod` for the DataForSEO tools |
+| `GSC_SERVICE_ACCOUNT_FILE` | private service-account JSON path for the optional GSC service-account path |
 
 Credentials (each wins over its file under `~/.config/`; see
 `seohead/data_sources/credentials.py`):
@@ -349,9 +350,27 @@ Credentials (each wins over its file under `~/.config/`; see
 | `YANDEX_METRIKA_TOKEN` | `~/.config/yandex-metrika/token` | `metrika-*` |
 | `DATAFORSEO_LOGIN` | `~/.config/dataforseo/login` | `google-keywords`, `google-serp` |
 | `DATAFORSEO_PASSWORD` | `~/.config/dataforseo/password` | same |
+| `GSC_ACCESS_TOKEN` | `~/.config/gsc/access_token` | GSC OAuth bearer path |
+| `GSC_SERVICE_ACCOUNT_FILE` | `~/.config/gsc/service-account.json` | optional `.[gsc]` service-account path |
 
 `seohead sources-doctor` reports which of these are present and where they
 are read from — run it before planning any paid collection.
+
+### Search Console service account
+
+Install the optional dependency with `python -m pip install -e ".[gsc]"`. Keep the service
+account JSON outside the repository at a private regular file such as
+`~/.config/gsc/service-account.json` (mode `0600`), or set
+`GSC_SERVICE_ACCOUNT_FILE=/private/path/gsc-service-account.json`. The JSON must be a Google
+`service_account` document whose token URI is exactly `https://oauth2.googleapis.com/token`.
+SEOHEAD uses `google-auth` to obtain a short-lived token with only
+`https://www.googleapis.com/auth/webmasters.readonly`; it does not create or sign JWTs itself.
+
+Add the service account email as an owner or permitted user of each required Search Console
+property. A valid service account only authenticates an account: `provider_verify` still reports
+property access separately as `verified`, `not_granted`, or `unknown`. Do not put the JSON file,
+private key, service-account email, a token, or a property name in a report, fixture, or Git.
+Remove the local file and its property permission to revoke this path.
 
 ## Docker alternative
 

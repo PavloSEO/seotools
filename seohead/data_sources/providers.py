@@ -30,7 +30,7 @@ _REGISTRY: dict[str, dict[str, Any]] = {
         "operations": ["wordstat", "web_search"], "quota_mode": "provider quota and recorded spend", "privacy_class": "aggregate",
     },
     "gsc": {
-        "credential_components": ["oauth_bearer"], "access": "read_only",
+        "credential_components": ["oauth_bearer", "service_account"], "access": "read_only",
         "operations": ["verify", "properties", "search_analytics", "inspection", "sitemaps"],
         "quota_mode": "Google Search Console row and request limits", "privacy_class": "restricted",
     },
@@ -111,7 +111,10 @@ def _credential_components(provider: str) -> dict[str, bool]:
     }
     if provider not in paths:
         raise ValueError("unknown provider")
-    return {name: credentials.available(*source) for name, source in paths[provider].items()}
+    components = {name: credentials.available(*source) for name, source in paths[provider].items()}
+    if provider == "gsc":
+        components["service_account"] = credentials.gsc_service_account_available()
+    return components
 
 
 def sources_doctor() -> dict[str, Any]:
@@ -119,10 +122,11 @@ def sources_doctor() -> dict[str, Any]:
     providers = {}
     for name in _REGISTRY:
         components = _credential_components(name)
+        available = any(components.values()) if name == "gsc" else all(components.values())
         providers[name] = {
             "state": (
                 "credential_present"
-                if components and all(components.values())
+                if components and available
                 else "not_configured"
                 if components
                 else "not_required"
@@ -209,7 +213,8 @@ def provider_verify(provider: str, request: dict[str, Any] | None = None, *, tra
             "credential_components": components,
             "note": "this public source has no authenticated-access contract to verify",
         }
-    if not all(components.values()):
+    ready = any(components.values()) if provider == "gsc" else all(components.values())
+    if not ready:
         return {"ok": False, "provider": provider, "state": "not_configured", "verified": False, "credential_components": components}
     if provider == "gsc":
         from seohead.data_sources.gsc import discover_properties
@@ -271,13 +276,18 @@ def provider_verify(provider: str, request: dict[str, Any] | None = None, *, tra
 
 def provider_collect(
     provider: str, operation: str, request: dict[str, Any], *, transport: Any = None,
-    artifact_dir: str | Path | None = None
+    artifact_dir: str | Path | None = None, event_sink: Any = None
 ) -> dict[str, Any]:
     """Explicit provider collection; each dispatch is read-only and may return skipped evidence."""
     if provider not in _REGISTRY or operation not in _REGISTRY[provider]["operations"]:
         raise ValueError("unsupported provider operation")
     if not isinstance(request, dict):
         raise ValueError("request must be an object")
+    if event_sink is not None:
+        event_sink.emit(
+            "provider_enrichment",
+            {"provider": provider, "operation": operation, "state": "started", "rows": 0},
+        )
     if provider == "gsc":
         from seohead.data_sources import gsc
         if operation == "properties": result = gsc.discover_properties(transport=transport)
@@ -348,6 +358,17 @@ def provider_collect(
     else:  # pragma: no cover - registry and dispatch stay synchronized above.
         raise ValueError("unsupported provider operation")
     artifact = _save_local_artifact(artifact_dir, result) if artifact_dir else None
+    if event_sink is not None:
+        rows = result.get("rows") or result.get("samples") or result.get("summary") or []
+        event_sink.emit(
+            "provider_enrichment",
+            {
+                "provider": provider,
+                "operation": operation,
+                "state": str(result.get("state") or "unknown"),
+                "rows": int(result.get("returned", len(rows))),
+            },
+        )
     return {"evidence": _evidence(provider, operation, request, result, artifact), "result": result if artifact else None}
 
 

@@ -20,9 +20,12 @@ that credentials have been verified.
 
 **2. Connect a read-only grant deliberately.**
 
-Store secrets outside the repository in the configured local credential location. GSC's durable
-grant accepts only `webmasters.readonly`; the refresh token, client secret, and raw property names
-remain in a local `0600` file. DataForSEO backlinks remain disabled until account eligibility, a
+Store secrets outside the repository in the configured local credential location. GSC accepts
+either a durable OAuth grant or the optional `.[gsc]` service-account path. A service-account JSON
+is a private `0600` file such as `~/.config/gsc/service-account.json` (or a synthetic private path
+named by `GSC_SERVICE_ACCOUNT_FILE`); its service-account email must separately be granted access
+to each required property. Both paths request only `webmasters.readonly`; OAuth refresh tokens,
+client secrets, service-account private keys, and raw property names remain local. DataForSEO backlinks remain disabled until account eligibility, a
 cache key, a spend ceiling, production approval, and cost approval are all declared. IndexNow is a
 separately confirmed write action and is not part of provider collection.
 

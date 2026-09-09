@@ -13,6 +13,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from seohead.data_sources.http import open_no_redirect
+
 HOST = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
 MAX_URLS = 25
 TIMEOUT = 90
@@ -22,7 +24,7 @@ Fetcher = Callable[[str, str | None], str]
 def _default_fetcher(url: str, api_key: str | None) -> str:
     headers = {"X-goog-api-key": api_key} if api_key else {}
     request = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(request, timeout=TIMEOUT) as response:  # nosec B310
+    with open_no_redirect(request, timeout=TIMEOUT) as response:
         return response.read().decode("utf-8")
 
 

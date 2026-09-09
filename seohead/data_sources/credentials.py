@@ -125,6 +125,27 @@ def gsc_access_token() -> str:
     )
 
 
+def gsc_service_account_path() -> Path:
+    """Return a restricted local service-account JSON path without reading or printing its key."""
+    configured = os.environ.get("GSC_SERVICE_ACCOUNT_FILE")
+    path = Path(configured).expanduser() if configured else CONFIG_ROOT / "gsc/service-account.json"
+    try:
+        info = path.stat()
+    except OSError as exc:
+        raise MissingCredential("GSC service-account JSON file is not configured or readable") from exc
+    if path.is_symlink() or not path.is_file() or info.st_mode & 0o077:
+        raise MissingCredential("GSC service-account JSON must be a private regular file (mode 0600)")
+    return path
+
+
+def gsc_service_account_available() -> bool:
+    try:
+        gsc_service_account_path()
+    except MissingCredential:
+        return False
+    return True
+
+
 def ga4_access_token() -> str:
     """Read a read-only Google Analytics Data API bearer token."""
     return read(

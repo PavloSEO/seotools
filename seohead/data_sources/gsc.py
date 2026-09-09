@@ -37,11 +37,15 @@ from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from seohead.data_sources.http import open_no_redirect
+
 SEARCH_ANALYTICS_HOST = "https://www.googleapis.com/webmasters/v3"
 INSPECTION_HOST = "https://searchconsole.googleapis.com/v1"
 TIMEOUT = 30
 PACIFIC = ZoneInfo("America/Los_Angeles")
 DEFAULT_WINDOW_DAYS = 28
+READONLY_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly"
+GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token"
 _LEGACY_START_LABEL = "28daysAgo"
 _LEGACY_END_LABEL = "today"
 _ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -111,7 +115,7 @@ def _default_fetcher(url: str) -> Fetcher:
         )
         # The request URL is the fixed HTTPS Search Console endpoint; the token travels in a
         # header, never in the URL, so it cannot end up echoed into a log line or a stack trace.
-        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:  # nosec B310
+        with open_no_redirect(request, timeout=TIMEOUT) as response:
             return response.read().decode("utf-8")
 
     return fetch
@@ -150,18 +154,15 @@ def search_analytics(
     must already be a valid ``YYYY-MM-DD`` date with ``start_date <= end_date``; an invalid or
     reversed range is rejected here, before Search Console is ever contacted.
     """
-    from seohead.data_sources.credentials import MissingCredential, gsc_access_token
-
     if not site_url:
         raise ValueError("site_url required")
     start_date, end_date = _resolve_date_range(start_date, end_date)
     date_error = _validate_date_range(start_date, end_date)
     if date_error:
         return {"ok": False, "error": date_error}
-    try:
-        bearer = token or gsc_access_token()
-    except MissingCredential as exc:
-        return {"ok": False, "error": str(exc)}
+    bearer, token_error = _acquire_token(token)
+    if bearer is None:
+        return {"ok": False, "state": "not_configured", "error": token_error}
 
     url = f"{SEARCH_ANALYTICS_HOST}/sites/{urllib.parse.quote(site_url, safe='')}/searchAnalytics/query"
     payload = {
@@ -213,14 +214,11 @@ def inspect_url(
     fetcher: Fetcher | None = None,
 ) -> dict[str, Any]:
     """Google's own indexing verdict for one URL: indexed or not, and why."""
-    from seohead.data_sources.credentials import MissingCredential, gsc_access_token
-
     if not site_url or not inspection_url:
         raise ValueError("site_url and inspection_url required")
-    try:
-        bearer = token or gsc_access_token()
-    except MissingCredential as exc:
-        return {"ok": False, "error": str(exc)}
+    bearer, token_error = _acquire_token(token)
+    if bearer is None:
+        return {"ok": False, "state": "not_configured", "error": token_error}
 
     url = f"{INSPECTION_HOST}/urlInspection/index:inspect"
     payload = {"inspectionUrl": inspection_url, "siteUrl": site_url}
@@ -264,17 +262,58 @@ def _request(method: str, url: str, payload: dict[str, Any] | None, token: str) 
         method=method,
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(request, timeout=TIMEOUT) as response:  # nosec B310
+    with open_no_redirect(request, timeout=TIMEOUT) as response:
         return response.read().decode("utf-8")
 
 
-def _token(value: str | None) -> str | None:
+def _acquire_token(value: str | None) -> tuple[str | None, str | None]:
+    """Choose an explicit bearer first, then a library-managed service-account token."""
     from seohead.data_sources.credentials import MissingCredential, gsc_access_token
 
     try:
-        return value or gsc_access_token()
+        return value or gsc_access_token(), None
     except MissingCredential:
-        return None
+        try:
+            return service_account_access_token(), None
+        except MissingCredential as service_error:
+            return None, f"OAuth bearer unavailable; service account unavailable: {service_error}"
+
+
+def service_account_access_token() -> str:
+    """Refresh one scoped GSC token through google-auth; this module never handles JWT keys."""
+    from seohead.data_sources.credentials import MissingCredential, gsc_service_account_path
+
+    try:
+        import requests
+        from google.auth.transport.requests import Request
+        from google.oauth2 import service_account
+    except ImportError as exc:
+        raise MissingCredential(
+            "GSC service-account authentication requires the optional gsc extra (google-auth)"
+        ) from exc
+    path = gsc_service_account_path()
+    try:
+        info = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise MissingCredential("GSC service-account JSON is unreadable or malformed") from exc
+    if (
+        not isinstance(info, dict)
+        or info.get("type") != "service_account"
+        or info.get("token_uri") != GOOGLE_TOKEN_URI
+    ):
+        raise MissingCredential("GSC service-account JSON has an unsupported type or token URI")
+    try:
+        credentials = service_account.Credentials.from_service_account_info(
+            info, scopes=[READONLY_SCOPE]
+        )
+        session = requests.Session()
+        session.max_redirects = 0
+        credentials.refresh(Request(session=session))
+    except Exception as exc:
+        raise MissingCredential("GSC service-account token refresh failed; check file permissions and Google grants") from exc
+    if not isinstance(credentials.token, str) or not credentials.token:
+        raise MissingCredential("GSC service-account token refresh returned no access token")
+    return credentials.token
 
 
 def durable_oauth_token(*, refresh_transport: Callable[[dict[str, str]], dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -288,9 +327,9 @@ def discover_properties(
     *, token: str | None = None, transport: RequestTransport | None = None
 ) -> dict[str, Any]:
     """List properties the authenticated principal can access; never treats a token as verified."""
-    bearer = _token(token)
+    bearer, token_error = _acquire_token(token)
     if bearer is None:
-        return {"ok": False, "state": "not_configured", "verified": False}
+        return {"ok": False, "state": "not_configured", "verified": False, "error": token_error}
     try:
         body = _response_object((transport or _request)("GET", f"{SEARCH_ANALYTICS_HOST}/sites", None, bearer))
     except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
@@ -326,9 +365,9 @@ def search_analytics_pages(
     start_date, end_date = _resolve_date_range(start_date, end_date)
     if error := _validate_date_range(start_date, end_date):
         return {"ok": False, "error": error}
-    bearer = _token(token)
+    bearer, token_error = _acquire_token(token)
     if bearer is None:
-        return {"ok": False, "state": "not_configured", "verified": False}
+        return {"ok": False, "state": "not_configured", "verified": False, "error": token_error}
     endpoint = f"{SEARCH_ANALYTICS_HOST}/sites/{urllib.parse.quote(site_url, safe='')}/searchAnalytics/query"
     request = transport or _request
     rows: list[dict[str, Any]] = []
@@ -374,9 +413,9 @@ def inspect_urls(
     """Inspect a declared bounded sample; this is never an index census."""
     if not site_url or not urls or len(urls) > MAX_INSPECTION_URLS:
         raise ValueError(f"site_url and 1..{MAX_INSPECTION_URLS} inspection URLs are required")
-    bearer = _token(token)
+    bearer, token_error = _acquire_token(token)
     if bearer is None:
-        return {"ok": False, "state": "not_configured", "verified": False}
+        return {"ok": False, "state": "not_configured", "verified": False, "error": token_error}
     request = transport or _request
     outcomes = []
     for url in urls:
@@ -408,9 +447,9 @@ def sitemap_status(
     """Read the selected property's submitted sitemap status."""
     if not site_url:
         raise ValueError("site_url required")
-    bearer = _token(token)
+    bearer, token_error = _acquire_token(token)
     if bearer is None:
-        return {"ok": False, "state": "not_configured", "verified": False}
+        return {"ok": False, "state": "not_configured", "verified": False, "error": token_error}
     endpoint = f"{SEARCH_ANALYTICS_HOST}/sites/{urllib.parse.quote(site_url, safe='')}/sitemaps"
     try:
         body = _response_object((transport or _request)("GET", endpoint, None, bearer))
