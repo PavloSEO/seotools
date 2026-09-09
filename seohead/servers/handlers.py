@@ -1599,12 +1599,17 @@ def site_audit(
     )
 
 
-def report_build(audit: Any = None, fmt: str = "xlsx", out: str | None = None) -> dict[str, Any]:
+def report_build(
+    audit: Any = None,
+    fmt: str = "xlsx",
+    out: str | None = None,
+    project: str | None = None,
+) -> dict[str, Any]:
     if audit is None:
         raise ValueError("audit required: audit document or path to its JSON representation")
     from seohead.reports import build_report
 
-    return build_report(audit, fmt=fmt, path=out)
+    return build_report(audit, fmt=fmt, path=out, project=project)
 
 
 def facts_export(sites: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -2701,6 +2706,28 @@ def project_status(directory: str) -> dict[str, Any]:
     return project_basic_status(directory)
 
 
+def project_checklist_init(
+    directory: str, template: dict | None = None, expected_revision: int | None = None
+) -> dict[str, Any]:
+    from seohead.servers.project_handlers import project_checklist_init as core
+
+    return core(directory, template=template, expected_revision=expected_revision)
+
+
+def project_checklist_update(directory: str, item: dict, expected_revision: int) -> dict[str, Any]:
+    from seohead.servers.project_handlers import project_checklist_update as core
+
+    return core(directory, item=item, expected_revision=expected_revision)
+
+
+def project_checklist_record(
+    directory: str, item_id: str, record: dict, expected_revision: int
+) -> dict[str, Any]:
+    from seohead.servers.project_handlers import project_checklist_record as core
+
+    return core(directory, item_id=item_id, record=record, expected_revision=expected_revision)
+
+
 _RAW_HANDLERS = {
     "parse": parse,
     "redirects_generate": redirects_generate,
@@ -2769,6 +2796,9 @@ _RAW_HANDLERS = {
     "project_new": project_new,
     "project_open": project_open,
     "project_status": project_status,
+    "project_checklist_init": project_checklist_init,
+    "project_checklist_update": project_checklist_update,
+    "project_checklist_record": project_checklist_record,
 }
 
 # Journaling sits here rather than in each interface: the CLI and the MCP server

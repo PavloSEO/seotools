@@ -35,10 +35,38 @@ parameters to pass `facts`, `template_references` and `profile_references`:
 ```
 
 References are portable identifiers; creation records them without loading or
-executing template text. Custom checklist definitions, manual review/signoff,
-client deliverable review and automatic project preparation are subsequent
-controller stages. Until those stages exist, status says `not_initialized` and
-`pending`; it never reports 0/0 or a completed audit.
+executing template text. Checklist definitions, manual review/signoff and client
+deliverable review are explicit local coverage operations described below; creating
+or opening a project never runs them. Before checklist initialization, status says
+`not_initialized`. Automatic project preparation remains `pending`; neither state
+is a 0/0 result or a completed audit.
+
+## Checklist coverage
+
+Checklist initialization records the built-in catalogue as local definitions; it
+does not run a check, skill or scenario, and makes no network request.
+
+```bash
+seohead project checklist-init --directory ./example-project
+```
+
+The returned status includes `revision`, `counts`, `views` and `items`. Pass that
+revision to every update or evidence record so a concurrent writer cannot replace
+newer local history. Structured definitions and records use the normal `--input`
+JSON convention:
+
+```bash
+seohead project checklist-update \
+  --directory ./example-project \
+  --expected-revision 1 \
+  --input '{"item":{"id":"custom:client-copy-review","title":"Review client copy","scope":{"site":"https://example.test/","template":null,"urls":[]},"dependencies":[],"execution_kind":"manual","priority":"P1","enabled":true,"order":900,"operation":null,"source_hash":null}}'
+```
+
+Use `project-checklist-record --directory DIRECTORY --item-id ITEM_ID
+--expected-revision N --input '{"record": ...}'` to store supplied evidence or an
+explicit applicability review. It validates the record and dependencies, then
+returns the same completion views. Recording never executes an item or turns a
+missing measurement into a clean result.
 
 `crawl-site --project DIRECTORY` defaults an absent start URL to the project's
 target and a new artifact to `DIRECTORY/scans/`. Explicit URLs and scan paths win,
@@ -52,4 +80,10 @@ history directory to the validated project's `scans/`; an explicit directory win
 Prune previews by default and still requires an explicit reviewed plan and apply.
 Individual-file inspect/snapshot/pin/reanalysis commands continue to take explicit
 scan paths. The CLI and MCP share these rules. Merely opening or listing a project
-does not fetch pages, run a checklist, or contact a provider.
+does not fetch pages, run a checklist, or contact a provider. The MCP equivalents
+are `seo_project_checklist_init`, `seo_project_checklist_update` and
+`seo_project_checklist_record`.
+
+`report-build --project DIRECTORY` includes the validated checklist coverage, reasons,
+scope and measurement in a human report without fetching or rerunning the audit. The
+original JSON audit remains unchanged, and `--out` still controls the destination.

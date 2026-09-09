@@ -61,7 +61,7 @@ and this decision makes no backend migration.
 | `regions-check` | Live URL (`url`) | — |
 | `render-check` | Live URL (`url`) | — |
 | `site-audit` | Live URL (`url`)<br>URL list (`urls`) | — |
-| `report-build` | Audit document (`audit`) | Audit JSON or a retained scan.v1 artifact. |
+| `report-build` | Audit document (`audit`)<br>Project directory (`project`) | Audit JSON or a retained scan.v1 artifact.; Includes validated checklist coverage in human reports; JSON audit is unchanged. |
 | `facts-export` | Inline JSON (`sites`) | — |
 | `keywords-expand` | Provider query (`phrase`) | — |
 | `keywords-seasonality` | Provider query (`phrase`) | — |
@@ -84,6 +84,9 @@ and this decision makes no backend migration.
 | `project-new` | Project directory (`directory`)<br>Live URL (`target`) | — |
 | `project-open` | Project directory (`directory`) | — |
 | `project-status` | Project directory (`directory`) | — |
+| `project-checklist-init` | Project directory (`directory`)<br>Inline JSON (`template`) | Optional reusable data-only checklist template. |
+| `project-checklist-update` | Project directory (`directory`)<br>Inline JSON (`item`) | Requires expected_revision for optimistic concurrency. |
+| `project-checklist-record` | Project directory (`directory`)<br>Selector (`item_id`)<br>Inline JSON (`record`) | Requires expected_revision; records supplied evidence only. |
 | `scan-inspect` | Scan artifact (`input_path`) | — |
 | `scan-snapshot` | Scan artifact (`input_path`) | — |
 | `scan-pin` | Scan artifact (`input_path`) | — |

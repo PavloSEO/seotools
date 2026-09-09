@@ -47,7 +47,7 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
     from openpyxl.styles import Font
     from openpyxl.utils import get_column_letter
 
-    from seohead.reports import checks_completed_display
+    from seohead.reports import checks_completed_display, neutralize_formula
     from seohead.reports.client_findings import check_title
 
     wb = Workbook()
@@ -156,7 +156,7 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
         ]
     )
     _style_header(ws)
-    from seohead.reports import SEVERITY_TITLES, neutralize_formula
+    from seohead.reports import SEVERITY_TITLES
 
     for finding in document.get("findings") or []:
         ws.append(
@@ -244,5 +244,57 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
         ws.append(["domain", "expires", neutralize_formula(registration.get("expires", ""))])
         ws.append(["domain", "age in years", registration.get("age_years", "")])
     _autofit(ws, {3: 70})
+
+    # -- Project coverage ----------------------------------------------------
+    coverage = summary.get("project_coverage")
+    if isinstance(coverage, dict):
+        from seohead.reports.project_coverage import value_text
+
+        project = coverage.get("project") or {}
+        checklist = coverage.get("status") or {}
+        ws = wb.create_sheet("Project Coverage")
+        ws.append(["Project", neutralize_formula(project.get("site", ""))])
+        ws.append(["Project UUID", neutralize_formula(project.get("uuid", ""))])
+        ws.append(["Checklist state", neutralize_formula(checklist.get("state", ""))])
+        ws.append(["Revision", checklist.get("revision", "")])
+        ws.append(["Counts", neutralize_formula(value_text(checklist.get("counts")))])
+        ws.append([])
+        ws.append(
+            [
+                "Item ID",
+                "Item",
+                "Kind",
+                "Execution",
+                "State",
+                "Attempt",
+                "Enabled",
+                "Stale",
+                "Scope",
+                "Measurement",
+                "Reason",
+            ]
+        )
+        _style_header(ws, 7)
+        for item in checklist.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            ws.append(
+                [
+                    neutralize_formula(item.get("id", "")),
+                    neutralize_formula(item.get("title", "")),
+                    neutralize_formula(item.get("kind", "")),
+                    neutralize_formula(item.get("execution_kind", "")),
+                    neutralize_formula(item.get("state", "")),
+                    neutralize_formula(item.get("attempt_status", "")),
+                    item.get("enabled", ""),
+                    item.get("stale", ""),
+                    neutralize_formula(value_text(item.get("scope"))),
+                    neutralize_formula(value_text(item.get("measurement"))),
+                    neutralize_formula(item.get("reason", checklist.get("reason", ""))),
+                ]
+            )
+        if ws.max_row > 7:
+            ws.auto_filter.ref = f"A7:K{ws.max_row}"
+        _autofit(ws, {2: 45, 9: 70, 10: 70, 11: 70})
 
     wb.save(path)

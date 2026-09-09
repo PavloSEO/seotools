@@ -46,6 +46,63 @@ def _scope_rows(summary: dict[str, Any]) -> list[list[Any]]:
     return rows
 
 
+def _write_project_coverage(summary: dict[str, Any], path: pathlib.Path) -> None:
+    coverage = summary.get("project_coverage")
+    if not isinstance(coverage, dict):
+        return
+    from seohead.reports import neutralize_formula
+    from seohead.reports.project_coverage import value_text
+
+    project = coverage.get("project") or {}
+    status = coverage.get("status") or {}
+    destination = path.with_suffix(".coverage.csv")
+    with destination.open("w", encoding="utf-8-sig", newline="") as fh:
+        writer = csv.writer(fh, delimiter=";")
+        writer.writerow(
+            [
+                "Project UUID",
+                "Project site",
+                "Checklist revision",
+                "Checklist state",
+                "Counts",
+                "Item ID",
+                "Item",
+                "Kind",
+                "Execution",
+                "State",
+                "Attempt",
+                "Enabled",
+                "Stale",
+                "Scope",
+                "Measurement",
+                "Reason",
+            ]
+        )
+        items = status.get("items") or [None]
+        for item in items:
+            item = item if isinstance(item, dict) else {}
+            writer.writerow(
+                [
+                    neutralize_formula(project.get("uuid", "")),
+                    neutralize_formula(project.get("site", "")),
+                    status.get("revision", ""),
+                    neutralize_formula(status.get("state", "")),
+                    neutralize_formula(value_text(status.get("counts"))),
+                    neutralize_formula(item.get("id", "")),
+                    neutralize_formula(item.get("title", "")),
+                    neutralize_formula(item.get("kind", "")),
+                    neutralize_formula(item.get("execution_kind", "")),
+                    neutralize_formula(item.get("state", "")),
+                    neutralize_formula(item.get("attempt_status", "")),
+                    item.get("enabled", ""),
+                    item.get("stale", ""),
+                    neutralize_formula(value_text(item.get("scope"))),
+                    neutralize_formula(value_text(item.get("measurement"))),
+                    neutralize_formula(item.get("reason", status.get("reason", ""))),
+                ]
+            )
+
+
 def write(document: dict[str, Any], path: pathlib.Path) -> None:
     from seohead.reports import SEVERITY_TITLES, neutralize_formula
 
@@ -114,3 +171,5 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
         writer.writerow(columns)
         for page in document.get("pages") or []:
             writer.writerow([neutralize_formula(page.get(c, "")) for c in columns])
+
+    _write_project_coverage(document.get("summary") or {}, path)

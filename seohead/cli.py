@@ -92,6 +92,9 @@ COMMANDS = (
     "project-new",
     "project-open",
     "project-status",
+    "project-checklist-init",
+    "project-checklist-update",
+    "project-checklist-record",
 )
 
 # Tools whose complete direct CLI input can be supplied by one --url flag.
@@ -291,11 +294,22 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
         if getattr(args, "all_pages", False):
             kw["only_indexable"] = False
         # items[] is intentionally accepted through --input JSON.
-    elif cmd in {"project-new", "project-open", "project-status"}:
+    elif cmd in {
+        "project-new",
+        "project-open",
+        "project-status",
+        "project-checklist-init",
+        "project-checklist-update",
+        "project-checklist-record",
+    }:
         for name in ("directory", "target", "label", "expected_site"):
             value = getattr(args, name, None)
             if value is not None:
                 kw[name] = value
+        if getattr(args, "expected_revision", None) is not None:
+            kw["expected_revision"] = args.expected_revision
+        if getattr(args, "item_id", None) is not None:
+            kw["item_id"] = args.item_id
     elif cmd == "boilerplate-report":
         if getattr(args, "scan", None):
             kw["scan"] = args.scan
@@ -327,6 +341,8 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
             kw["fmt"] = args.format
         if getattr(args, "out", None):
             kw["out"] = args.out
+        if getattr(args, "project", None):
+            kw["project"] = args.project
     elif cmd == "log-scan":
         if getattr(args, "run", None):
             kw["run"] = args.run
@@ -1019,6 +1035,7 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
             help="report format (default xlsx)",
         )
         sub.add_argument("--out", help="output file path")
+        _source_flag(sub, "--project", help="validated local project workspace")
     if cmd == "log-scan":
         # Not `required=True`: that would reject a JSON-only `--input '{"run": ...}'` call before
         # _build_kwargs ever runs, since argparse enforces required flags ahead of dispatch. The
@@ -1082,6 +1099,16 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
         _source_flag(sub, "--directory", help="project directory")
     if cmd == "project-open":
         sub.add_argument("--expected-site", help="expected target host")
+    if cmd in {"project-checklist-init", "project-checklist-update", "project-checklist-record"}:
+        _source_flag(sub, "--directory", help="project directory")
+        sub.add_argument(
+            "--expected-revision",
+            dest="expected_revision",
+            type=int,
+            help="current checklist revision required before a write",
+        )
+    if cmd == "project-checklist-record":
+        _source_flag(sub, "--item-id", help="checklist item identifier to record")
     if cmd == "scan-body-diff":
         _source_flag(sub, "--left", help="earlier scan SQLite file")
         _source_flag(sub, "--right", help="later scan SQLite file")
@@ -1210,7 +1237,14 @@ def build_parser() -> argparse.ArgumentParser:
         _add_flags(sp, cmd)
     project = subs.add_parser("project", help="local project workspace")
     project_subs = project.add_subparsers(dest="project_command", metavar="<action>", required=True)
-    for action in ("new", "open", "status"):
+    for action in (
+        "new",
+        "open",
+        "status",
+        "checklist-init",
+        "checklist-update",
+        "checklist-record",
+    ):
         cmd = "project-" + action
         sp = project_subs.add_parser(action, help=f"run {cmd}")
         _add_flags(sp, cmd)

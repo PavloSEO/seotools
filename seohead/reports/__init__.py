@@ -345,12 +345,15 @@ def _normalize_sf_audit(document: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_report(data: Any, fmt: str = "xlsx", path: str | None = None) -> dict[str, Any]:
+def build_report(
+    data: Any, fmt: str = "xlsx", path: str | None = None, project: str | None = None
+) -> dict[str, Any]:
     """Render an audit document in the requested report format.
 
     ``data`` is either the audit mapping itself or the path to its JSON file.
     ``path`` selects the output location; when omitted, the name is derived from
-    the audited domain and the format.
+    the audited domain and the format.  A project binds human reports to its
+    exact checklist snapshot without executing work or changing the audit.
     """
     fmt = (fmt or "xlsx").lower().lstrip(".")
     if fmt not in FORMATS:
@@ -393,6 +396,19 @@ def build_report(data: Any, fmt: str = "xlsx", path: str | None = None) -> dict[
         if fmt == "csv"
         else [target]
     )
+    project_snapshot = None
+    project_root = None
+    if project is not None:
+        try:
+            from seohead.reports.project_coverage import load_snapshot, protected_destination
+
+            project_root, project_snapshot = load_snapshot(project, document, kind)
+            if fmt == "csv":
+                targets.append(target.with_suffix(".coverage.csv"))
+            if error := protected_destination(project_root, targets):
+                return {"ok": False, "error": error}
+        except (OSError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
     if protects_scan_input(data, targets):
         return {"ok": False, "error": "report output must not overwrite its source scan"}
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -400,26 +416,31 @@ def build_report(data: Any, fmt: str = "xlsx", path: str | None = None) -> dict[
     try:
         if fmt == "json":
             target.write_text(json.dumps(document, ensure_ascii=False, indent=2), encoding="utf-8")
-        elif fmt == "xlsx":
-            from seohead.reports import xlsx
-            from seohead.reports.client_findings import project_document
-
-            xlsx.write(project_document(rendered), target)
-        elif fmt == "docx":
-            from seohead.reports import docx
-            from seohead.reports.client_findings import project_document
-
-            docx.write(project_document(rendered), target)
-        elif fmt == "csv":
-            from seohead.reports import csvfile
-            from seohead.reports.client_findings import project_document
-
-            csvfile.write(project_document(rendered), target)
         else:
-            from seohead.reports import md
-            from seohead.reports.client_findings import project_document
+            if project_snapshot is not None:
+                from seohead.reports.project_coverage import attach_snapshot
 
-            md.write(project_document(rendered), target)
+                rendered = attach_snapshot(rendered, project_snapshot)
+            if fmt == "xlsx":
+                from seohead.reports import xlsx
+                from seohead.reports.client_findings import project_document
+
+                xlsx.write(project_document(rendered), target)
+            elif fmt == "docx":
+                from seohead.reports import docx
+                from seohead.reports.client_findings import project_document
+
+                docx.write(project_document(rendered), target)
+            elif fmt == "csv":
+                from seohead.reports import csvfile
+                from seohead.reports.client_findings import project_document
+
+                csvfile.write(project_document(rendered), target)
+            else:
+                from seohead.reports import md
+                from seohead.reports.client_findings import project_document
+
+                md.write(project_document(rendered), target)
     except ImportError as exc:
         return {
             "ok": False,

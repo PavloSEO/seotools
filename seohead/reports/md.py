@@ -37,6 +37,60 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
         detail = f" {'; '.join(bits)}" if bits else ""
         out += [f"> **Partial crawl — scope is limited.**{detail}", ""]
 
+    coverage = summary.get("project_coverage")
+    if isinstance(coverage, dict):
+        from seohead.reports.project_coverage import value_text
+
+        project = coverage.get("project") or {}
+        status = coverage.get("status") or {}
+        out += [
+            "## Project checklist coverage",
+            "",
+            f"Project: {project.get('site', '')} · UUID: {project.get('uuid', '')}",
+            f"Checklist state: {status.get('state', '')} · Revision: {status.get('revision', '')}",
+            "",
+        ]
+        counts = status.get("counts")
+        if isinstance(counts, dict):
+            out += [
+                "| Total | Complete | Remaining | Run | Not applicable | Not run | Stale | Disabled |",
+                "|---|---|---|---|---|---|---|---|",
+                "| {} | {} | {} | {} | {} | {} | {} | {} |".format(
+                    _field(counts.get("total")),
+                    _field(counts.get("complete")),
+                    _field(counts.get("remaining")),
+                    _field(counts.get("run")),
+                    _field(counts.get("not_applicable")),
+                    _field(counts.get("not_run")),
+                    _field(counts.get("stale")),
+                    _field(counts.get("disabled")),
+                ),
+                "",
+            ]
+        elif status.get("reason"):
+            out += [f"Reason: {_field(status['reason'])}", ""]
+        items = status.get("items") or []
+        if items:
+            out += [
+                "| Item | Kind | Execution | State | Attempt | Enabled | Scope | Measurement | Reason |",
+                "|---|---|---|---|---|---|---|---|---|",
+            ]
+            for item in items:
+                out.append(
+                    "| {} | {} | {} | {} | {} | {} | {} | {} | {} |".format(
+                        _field(item.get("title") or item.get("id")),
+                        _field(item.get("kind")),
+                        _field(item.get("execution_kind")),
+                        _field(item.get("state")),
+                        _field(item.get("attempt_status")),
+                        _field(item.get("enabled")),
+                        _field(value_text(item.get("scope"))),
+                        _field(value_text(item.get("measurement"))),
+                        _field(item.get("reason")),
+                    )
+                )
+            out.append("")
+
     out += [
         "| Metric | Value |",
         "|---|---|",
