@@ -50,7 +50,8 @@ def save_grant(provider: str, grant: dict[str, Any]) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         os.chmod(staged, 0o600)
-        os.replace(staged, path)
+        # Publish without replacing a grant created by another writer.
+        os.link(staged, path)
     finally:
         Path(staged).unlink(missing_ok=True)
 
