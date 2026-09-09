@@ -379,6 +379,9 @@ def requeue_scan(
             backup_sha256=backup_sha256,
             source_scan_uuid=source_scan_uuid,
         )
+        from .resource_graph import invalidate_pages as invalidate_resource_graph_pages
+
+        invalidate_resource_graph_pages(con, [row["url_id"] for row in rows])
         for row in rows:
             page = dict(row)
             digest, counts = _evidence_digest(con, row["url_id"], row["queue_ordinal"])
