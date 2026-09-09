@@ -41,6 +41,49 @@ or opening a project never runs them. Before checklist initialization, status sa
 `not_initialized`. Automatic project preparation remains `pending`; neither state
 is a 0/0 result or a completed audit.
 
+## Recording stack facts
+
+Facts entered at creation are not the only way in. `project-facts` records them
+afterwards, and can read the site's stack instead of asking the operator to retype it:
+
+```bash
+seohead project facts --directory ./example-project \
+  --input '{"facts":[{"name":"site_type","value":"publisher","provenance":"client brief","observed_at":null}]}' --apply
+seohead project facts --directory ./example-project --detect
+seohead project facts --directory ./example-project --detect --apply
+```
+
+Preview is the default; `--apply` is what writes `project.json`. An empty call —
+neither supplied facts nor `--detect` — is refused; reading facts is `project-open`.
+
+**Operator decisions outrank detected evidence.** A supplied fact is a decision and
+always wins, including over a detection in the same call. A detection never
+overwrites an operator-entered fact: it reports the value it saw as `detected_value`
+with the action `kept_operator`, and the saved fact stays untouched. The record says
+which is which through the fields it already has — a detected fact's `provenance`
+starts with `detected by tech-detect` and carries the marker that matched and the URL
+it was seen on, and its `observed_at` is the time of that observation. A supplied
+fact that claims that provenance is rejected. Re-detection refreshes its own earlier
+evidence and its observation time; nothing else is touched.
+
+**`--detect` is the only thing that makes a request, and it is never implicit.**
+It reads `robots.txt` first and fetches the project's own target once — two requests
+at most, through the same guarded single-page tools `tech-detect` and `robots-check`
+use. A disallowed path is not fetched at all, and rules that could not be read are a
+refusal to fetch rather than permission. `project-prepare` does not run detection.
+
+**An unavailable detection is not a clean result.** The `detection` block always
+names its `state` (`run`, `partial`, `not_run` or `unavailable`) and a reason. A
+failed fetch, a disallowed target, a category with no matching signature, and a
+category where two candidates matched all leave the fact absent, each with its own
+reason under `unavailable`. Nothing is guessed. Detection covers the `cms` and
+`framework` facts the packaged priority policy consults; `site_type` and anything
+else remain operator-entered.
+
+Recording a fact does not reorder work by itself: apply the priority policy below
+to act on it. The MCP equivalent is `seo_project_facts`, with the same `facts`,
+`detect` and `apply` arguments.
+
 ## Checklist coverage
 
 Checklist initialization records the built-in catalogue as local definitions; it

@@ -98,7 +98,7 @@ Then by the layer of the task.
 
 ## Tools without a skill of their own
 
-63 of the 92 commands are not named in any skill's own body (a mention inside
+64 of the 93 commands are not named in any skill's own body (a mention inside
 another tool's Markdown table above does not count) — used inline as plumbing
 inside a workflow's write-up, or not yet needed by one at all — and have no
 skill of their own, deliberately: a skill per single command is noise.
@@ -112,8 +112,9 @@ Commands without their own skill: `asset-weight-check` · `audit-workflow` ·
 `images-optimize` · `indexnow-submit` · `inspect-url` · `keywords-cluster` ·
 `keywords-exact` · `keywords-expand` · `keywords-seasonality` · `log-analyze` ·
 `mirror-check` · `project-checklist-init` · `project-checklist-record` ·
-`project-checklist-update` · `project-new` · `project-open` · `project-policy` ·
-`project-prepare` · `project-priorities` · `project-start` · `project-status` ·
+`project-checklist-update` · `project-facts` · `project-new` · `project-open` ·
+`project-policy` · `project-prepare` · `project-priorities` · `project-start` ·
+`project-status` ·
 `provider-auth` · `provider-collect` · `provider-join` · `provider-registry` ·
 `provider-replay` · `provider-verify` · `redirects-check` · `redirects-generate` ·
 `regions-tree` · `scan-body-diff` · `scan-evidence` · `scan-extract` ·

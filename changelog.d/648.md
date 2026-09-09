@@ -1,0 +1,1 @@
+- Add `project-facts` to record project stack facts after creation, optionally from one explicit robots-respecting `tech-detect` pass, keeping operator-entered decisions above detected evidence and leaving an unavailable or ambiguous detection absent with its reason.

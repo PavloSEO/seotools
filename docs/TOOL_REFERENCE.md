@@ -6,7 +6,7 @@ Generated from the MCP tool definitions in `seohead/servers/mcp_server.py` and `
 python scripts/generate_tool_reference.py
 ```
 
-**92 core tools** (`seohead <command>` / `seo_<command>` on the MCP server) plus **5 crawl-audit tools** (`sf_<command>`, driven by `seohead sf ...`) — 97 in total.
+**93 core tools** (`seohead <command>` / `seo_<command>` on the MCP server) plus **5 crawl-audit tools** (`sf_<command>`, driven by `seohead sf ...`) — 98 in total.
 
 Every tool shares one contract: JSON in, JSON out. A target that could not be reached comes back as `{"ok": false, "error": "..."}` instead of raising, so an unreachable site is data, not a crash.
 
@@ -961,6 +961,29 @@ Show project scan history and named pending checklist/preparation states.
 | `directory` | `str` | `required` |
 
 **Cost** — network: no · writes files: no · idempotent: yes · spends money: no
+
+### `project-facts`
+
+MCP name: `seo_project_facts`
+
+Preview or record project stack facts that stack-aware priorities then read.
+
+| Argument | Type | Default |
+|---|---|---|
+| `directory` | `str` | `required` |
+| `facts` | `list[dict[str, Any]] | None` | `None` |
+| `detect` | `bool` | `False` |
+| `apply` | `bool` | `False` |
+
+**Cost** — network: yes · writes files: yes · idempotent: no · spends money: no
+
+**Behavior and failure modes**
+
+Supplied facts are operator decisions and always win. detect=true is the only
+thing that makes a request: it reads robots.txt and then fetches the project
+target once, and an unavailable or ambiguous detection leaves the fact absent
+with its reason instead of guessing. The default is a read-only preview;
+apply=true records the result in project.json.
 
 ### `project-checklist-init`
 

@@ -94,6 +94,7 @@ COMMANDS = (
     "project-new",
     "project-open",
     "project-status",
+    "project-facts",
     "project-checklist-init",
     "project-checklist-update",
     "project-checklist-record",
@@ -352,6 +353,7 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
         "project-new",
         "project-open",
         "project-status",
+        "project-facts",
         "project-checklist-init",
         "project-checklist-update",
         "project-checklist-record",
@@ -368,8 +370,12 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
             kw["expected_revision"] = args.expected_revision
         if getattr(args, "item_id", None) is not None:
             kw["item_id"] = args.item_id
-        if cmd in {"project-priorities", "project-policy"} and getattr(args, "apply", False):
+        if cmd in {"project-priorities", "project-policy", "project-facts"} and getattr(
+            args, "apply", False
+        ):
             kw["apply"] = True
+        if getattr(args, "detect", False):
+            kw["detect"] = True
         if getattr(args, "approve_large_crawl", False):
             kw["approve_large_crawl"] = True
         if getattr(args, "producer_build", None):
@@ -1260,6 +1266,16 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
             type=int,
             help="current checklist revision required before a write",
         )
+    if cmd == "project-facts":
+        _source_flag(sub, "--directory", help="project directory")
+        sub.add_argument(
+            "--detect",
+            action="store_true",
+            help="fetch the project target once to detect its stack (robots.txt first)",
+        )
+        sub.add_argument(
+            "--apply", action="store_true", help="record the previewed facts in project.json"
+        )
     if cmd in {"project-priorities", "project-policy"}:
         sub.add_argument(
             "--apply",
@@ -1448,6 +1464,7 @@ def build_parser() -> argparse.ArgumentParser:
         "new",
         "open",
         "status",
+        "facts",
         "checklist-init",
         "checklist-update",
         "checklist-record",

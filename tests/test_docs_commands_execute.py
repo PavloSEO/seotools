@@ -331,6 +331,28 @@ def _seed_project_prepare(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setitem(handlers.HANDLERS, "crawl_site", crawl_site)
 
 
+def _seed_project_detection(monkeypatch) -> None:
+    """Inject the detection a documented `project facts --detect` shows.
+
+    A project target must be a public host, so it can never be the loopback fixture
+    site; injecting the two single-page tools keeps the documented line executable
+    without letting the gate reach for a real one.
+    """
+    from seohead.servers import handlers
+
+    monkeypatch.setitem(
+        handlers.HANDLERS, "robots_check", lambda **_kwargs: {"ok": True, "path_checks": []}
+    )
+    monkeypatch.setitem(
+        handlers.HANDLERS,
+        "tech_detect",
+        lambda **_kwargs: {
+            "ok": True,
+            "by_category": {"cms": [{"name": "WordPress", "evidence": "html: /wp-content/"}]},
+        },
+    )
+
+
 @pytest.fixture(scope="module")
 def fixture_site():
     with run_fixture_site() as base_url:
@@ -371,6 +393,7 @@ def test_documented_command_executes_or_at_least_still_parses(
     if argv[:1] == ["project"] and argv[1] in {
         "open",
         "status",
+        "facts",
         "checklist-init",
         "checklist-update",
         "checklist-record",
@@ -386,6 +409,8 @@ def test_documented_command_executes_or_at_least_still_parses(
             from seohead.projects.coverage import initialize_coverage
 
             initialize_coverage(tmp_path / directory)
+    if argv[:2] == ["project", "facts"] and "--detect" in argv:
+        _seed_project_detection(monkeypatch)
     if argv[:2] == ["project", "prepare"]:
         from seohead.projects.workspace import create_project
 

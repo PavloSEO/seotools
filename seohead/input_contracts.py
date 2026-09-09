@@ -240,6 +240,17 @@ COMMAND_CONTRACTS: tuple[CommandContract, ...] = (
     _command("project-open", "project_open", _form("project_directory", "directory")),
     _command("project-status", "project_status", _form("project_directory", "directory")),
     _command(
+        "project-facts",
+        "project_facts",
+        _form("project_directory", "directory"),
+        _form(
+            "inline_json",
+            "facts",
+            note="Operator-entered facts; preview by default, recorded with apply.",
+        ),
+        note="detect fetches the project's own target once after robots.txt; it is never implicit.",
+    ),
+    _command(
         "project-checklist-init",
         "project_checklist_init",
         _form("project_directory", "directory"),
