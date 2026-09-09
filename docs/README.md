@@ -27,6 +27,7 @@ core through two interfaces — CLI and local MCP. It is not a general-purpose c
 | Running or writing tests | [TESTING.md](TESTING.md) — how to run, what they cover |
 | Trying to avoid known traps | [GOTCHAS.md](GOTCHAS.md) — money, quotas, footguns |
 | Arguing with a past decision | [DECISIONS.md](DECISIONS.md) — why it was done that way |
+| Checking what our guidance was aligned against | [GOOGLE_GUIDANCE_REVIEW.md](GOOGLE_GUIDANCE_REVIEW.md) — the 175 Google Search Central guides read on 2026-09-09, their labels, and the three repairs |
 | Understanding the product and its role beside Screaming Frog | [COMPARISON.md](COMPARISON.md) — canonical positioning, workflow, and boundaries |
 
 ## What lives here
