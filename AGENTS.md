@@ -91,7 +91,8 @@ notice in `THIRD_PARTY_NOTICES.md`.
 3. Add the CLI command and argument mapping.
 4. Add the MCP tool with accurate side-effect annotations.
 5. Add offline tests for success, failure, limits, and missing dependencies.
-6. Update `docs/TOOLS.md`, the README capability count, and any provider cost or safety notes.
+6. Update `docs/TOOLS.md`, the generated tool reference, and any provider cost or safety notes.
+   Keep the README focused on workflows rather than fixed inventory counts.
 7. Add the changelog entry as `changelog.d/<issue>.md`, never by editing `CHANGELOG.md`.
 
 ## Changelog entries

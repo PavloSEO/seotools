@@ -2,7 +2,7 @@
 
 **Local, evidence-first SEO audit automation for specialists and tool-calling agents.**
 
-[Website](https://seohead.tech) · [Documentation](docs/README.md) · [Examples](examples/README.md) · [Scope and trade-offs](docs/COMPARISON.md)
+[Website](https://seohead.tech/seotools) · [Documentation](docs/README.md) · [Examples](examples/README.md) · [Scope and trade-offs](docs/COMPARISON.md)
 
 [![CI](https://github.com/PavloSEO/seotools/actions/workflows/ci.yml/badge.svg)](https://github.com/PavloSEO/seotools/actions/workflows/ci.yml)
 ![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-1565C0)
