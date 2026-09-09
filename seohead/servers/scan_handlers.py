@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from seohead import __version__
+from seohead.build_provenance import BuildProvenanceError, packaged_provenance
 
 MAX_AUDIT_PAGES = 10_000
 MAX_AUDIT_FORMS = 20_000
@@ -46,7 +47,7 @@ def _installed_version(name: str) -> str:
 
 
 def _producer_provenance(producer_build: str | None) -> tuple[str, str, dict[str, str]]:
-    """Return actual source provenance; an explicit fixture build never runs Git."""
+    """Return explicit, clean-checkout, or validated packaged provenance."""
     if producer_build is not None:
         if not isinstance(producer_build, str) or not _SHA.fullmatch(producer_build):
             raise ValueError("producer_build must be a full lowercase Git commit SHA")
@@ -61,38 +62,44 @@ def _producer_provenance(producer_build: str | None) -> tuple[str, str, dict[str
                 text=True,
                 timeout=5,
             )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            raise ValueError(
-                "source revision is unavailable; pass producer_build explicitly"
-            ) from exc
-        if top.returncode or Path(top.stdout.strip()).resolve() != root:
-            raise ValueError(
-                "installed package has no verified source checkout; pass producer_build explicitly"
+        except (OSError, subprocess.TimeoutExpired):
+            top = None
+        if top is not None and not top.returncode and Path(top.stdout.strip()).resolve() == root:
+            status = subprocess.run(
+                ["git", "-C", str(root), "status", "--porcelain"],
+                capture_output=True,
+                check=False,
+                text=True,
+                timeout=5,
             )
-        status = subprocess.run(
-            ["git", "-C", str(root), "status", "--porcelain"],
-            capture_output=True,
-            check=False,
-            text=True,
-            timeout=5,
-        )
-        revision_result = subprocess.run(
-            ["git", "-C", str(root), "rev-parse", "HEAD"],
-            capture_output=True,
-            check=False,
-            text=True,
-            timeout=5,
-        )
-        revision = revision_result.stdout.strip()
-        if (
-            status.returncode
-            or revision_result.returncode
-            or status.stdout
-            or not _SHA.fullmatch(revision)
-        ):
-            raise ValueError(
-                "native scan provenance requires a clean source checkout; pass producer_build explicitly"
+            revision_result = subprocess.run(
+                ["git", "-C", str(root), "rev-parse", "HEAD"],
+                capture_output=True,
+                check=False,
+                text=True,
+                timeout=5,
             )
+            revision = revision_result.stdout.strip()
+            if (
+                status.returncode
+                or revision_result.returncode
+                or status.stdout
+                or not _SHA.fullmatch(revision)
+            ):
+                raise ValueError(
+                    "native scan provenance requires a clean source checkout; pass producer_build explicitly"
+                )
+        else:
+            try:
+                packaged = packaged_provenance()
+            except BuildProvenanceError as exc:
+                raise ValueError(
+                    "no verified source checkout or packaged producer metadata; "
+                    "pass producer_build explicitly"
+                ) from exc
+            if packaged.version != __version__:
+                raise ValueError("packaged producer metadata version disagrees with this package")
+            revision = packaged.revision
     return (
         __version__,
         revision,
