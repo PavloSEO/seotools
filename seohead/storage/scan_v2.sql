@@ -70,6 +70,25 @@ CREATE TABLE resource_graph_fetches (
 
 CREATE INDEX resource_graph_occurrences_url ON resource_graph_occurrences(resolved_url);
 
+CREATE TABLE discovery_occurrences (
+  occurrence_key TEXT PRIMARY KEY,
+  source_kind TEXT NOT NULL,
+  relation TEXT NOT NULL,
+  source_url_id INTEGER,
+  source_document_id INTEGER,
+  representation TEXT NOT NULL,
+  carrier TEXT NOT NULL,
+  raw_value TEXT NOT NULL,
+  resolved_value TEXT NOT NULL,
+  target_url_id INTEGER,
+  depth INTEGER,
+  outcome TEXT NOT NULL,
+  reason TEXT NOT NULL
+);
+
+CREATE INDEX discovery_occurrences_target
+  ON discovery_occurrences(target_url_id, outcome);
+
 CREATE TABLE response_transport_meta (
   response_id INTEGER PRIMARY KEY,
   protocol TEXT,

@@ -304,6 +304,53 @@ def _put_resource_graph(
     )
 
 
+def _put_discovery_ledger(
+    con: sqlite3.Connection,
+    *,
+    page_url_id: int,
+    source_document_id: int | None,
+    representation: str,
+    source_url: str,
+    depth: int,
+    content_capture: dict[str, Any] | None,
+    links: list[dict[str, Any]],
+    candidates: list[dict[str, Any]],
+    decisions: list[dict[str, Any]],
+    forms: list[dict[str, Any]],
+) -> None:
+    """Persist v2-only discovery relations after their frontier outcomes settle."""
+    if source_document_id is None:
+        return
+    version = con.execute("SELECT format_version FROM scan WHERE singleton=1").fetchone()[0]
+    if version != "scan.v2":
+        return
+    header = con.execute(
+        "SELECT r.effective_headers_redacted_json FROM documents d "
+        "LEFT JOIN responses r ON r.response_id=d.source_response_id WHERE d.document_id=?",
+        (source_document_id,),
+    ).fetchone()
+    try:
+        headers = json.loads(header[0]) if header is not None and header[0] else {}
+    except ValueError:
+        headers = {}
+    from .discovery_ledger import store_document_relations
+
+    store_document_relations(
+        con,
+        source_url_id=page_url_id,
+        source_document_id=source_document_id,
+        representation=representation,
+        source_url=source_url,
+        depth=depth,
+        html=content_capture["html"] if content_capture is not None else None,
+        headers=headers,
+        links=links,
+        candidates=candidates,
+        decisions=decisions,
+        forms=forms,
+    )
+
+
 @dataclass(frozen=True)
 class Lease:
     url_id: int
@@ -641,11 +688,13 @@ class NativeScan:
                 from .resource_graph import ensure_schema as ensure_resource_graph
                 from .events import ensure_schema as ensure_events
                 from .transport import ensure_schema as ensure_transport
+                from .discovery_ledger import ensure_schema as ensure_discovery_ledger
 
                 upgrade_to_v2(con)
                 ensure_resource_graph(con)
                 ensure_events(con)
                 ensure_transport(con)
+                ensure_discovery_ledger(con)
             from .sitemaps import declare
 
             for ordinal, (sitemap_url, source) in enumerate(initial_sitemaps):
@@ -1554,6 +1603,10 @@ class NativeScan:
             counts = apply_seeds(
                 self.con, entries, limit=self._stored_query_limit(), start_url=start
             )
+            if self.con.execute("SELECT format_version FROM scan WHERE singleton=1").fetchone()[0] == "scan.v2":
+                from .discovery_ledger import store_seeds
+
+                store_seeds(self.con, entries)
             self.con.commit()
             return counts
         except BaseException:
@@ -2191,6 +2244,19 @@ class NativeScan:
             )
             self._partial_reasons(partial_reasons)
             self.con.execute("UPDATE frontier SET state='done' WHERE url_id=?", (lease.url_id,))
+            _put_discovery_ledger(
+                self.con,
+                page_url_id=lease.url_id,
+                source_document_id=document_id,
+                representation="static",
+                source_url=lease.url,
+                depth=lease.depth,
+                content_capture=content_capture,
+                links=links,
+                candidates=candidates,
+                decisions=decisions,
+                forms=forms,
+            )
             self._hit("after_frontier")
             self._hit("before_runtime")
             self._write_runtime(runtime or {}, lease.depth)
@@ -2444,6 +2510,19 @@ class NativeScan:
                 source_document_id=document_id,
                 representation=representation,
                 content_capture=content_capture,
+            )
+            _put_discovery_ledger(
+                self.con,
+                page_url_id=page["url_id"],
+                source_document_id=document_id,
+                representation=representation,
+                source_url=url,
+                depth=lease.depth,
+                content_capture=content_capture,
+                links=links,
+                candidates=candidates,
+                decisions=decisions,
+                forms=forms,
             )
             if route_coverage is not None:
                 from .native_context import put_context
