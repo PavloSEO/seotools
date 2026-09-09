@@ -23,3 +23,12 @@ What this example demonstrates:
 
 See [the JSON schema reference](../.claude/skills/sf-analyzer/reference/json_schema.md) for the
 complete `audit.json` contract.
+
+## Project skeleton
+
+`project-skeleton/` is a portable project workspace for the same synthetic site, shipped
+with its checklist already initialized: `coverage.json` holds one definition per catalogue
+item, every one of them `not_run` with no execution record, so `project status` on it
+reports coverage counts rather than an uninitialized state. Regenerate that file with
+`python scripts/generate_project_skeleton_coverage.py` when the catalogue changes. See
+[the projects guide](../docs/PROJECTS.md) for the commands that read and extend it.

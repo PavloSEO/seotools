@@ -1,0 +1,5539 @@
+{
+ "record": "google-search-central-guidance-review",
+ "matrix_version": 1,
+ "source_root": "https://developers.google.com/search/docs?hl=en",
+ "snapshot_date": "2026-09-09",
+ "statement": "This records published Google Search Central documentation as read on 2026-09-09. It is not a Google certification, it confers no Google endorsement, and it implies no ranking or indexing guarantee. Documentation changes after the snapshot date are not covered by this record.",
+ "scope": {
+  "included": "Canonical English guide pages reachable from the official documentation navigation and section indexes, plus migrated crawler/robots documentation and two Search Central help pages read as a separate supplement.",
+  "excluded": [
+   "Translations of English guides.",
+   "Query-string and fragment duplicates of a canonical guide URL.",
+   "Global product and footer links to unrelated Google product documentation.",
+   "An unbounded crawl of external Help Center links.",
+   "Updates/changelog pages and external support destinations, which are not documentation guides.",
+   "Two of 44 resolved alias spellings, which return 404."
+  ],
+  "consolidation": "Actual source-review records consolidated from original reviews, all google-guides artifacts, supplemental review, and root reconciliation."
+ },
+ "coverage": {
+  "inventory_canonical_guides": 161,
+  "expected_total": 175,
+  "matrix_rows": 175,
+  "actual_read_rows": 175,
+  "unexplained_or_unread_rows": [],
+  "aliases_deduplicated": "Legacy Search URLs are represented only by their canonical crawler/help destination; no alias row is counted twice.",
+  "supplemental_reviewed_canonical_guides": 15,
+  "supplemental_outside_original_inventory": 14,
+  "coverage_note": "The supplemental review has 15 rows because it includes get-on-google; that guide is now in the 161-guide original inventory, leaving 14 canonical crawler/help supplements outside it."
+ },
+ "label_vocabulary": {
+  "requirement": "Google states the behaviour as required.",
+  "eligibility": "Google states a condition for a feature to be eligible; eligibility is not a guarantee of display.",
+  "recommendation": "Google recommends the behaviour without requiring it.",
+  "heuristic": "An observation about crawler behaviour, not a rule.",
+  "explanation": "Descriptive statement carrying no obligation.",
+  "note": "These labels describe Google's own guidance. They are separate from this toolkit's configurable specialist heuristics, which are never presented as Google requirements."
+ },
+ "repairs": [
+  {
+   "issue": "#670",
+   "pull_request": "#680",
+   "state": "closed",
+   "summary": "Mobile render identity: the mobile representation now carries the mobile user agent and viewport."
+  },
+  {
+   "issue": "#671",
+   "pull_request": "#673",
+   "state": "closed",
+   "summary": "Redirect guidance corrected; a 302 alone is not a defect and a status code alone does not measure ranking-signal loss."
+  },
+  {
+   "issue": "#692",
+   "pull_request": "#695",
+   "state": "closed",
+   "summary": "JavaScript rendering, canonical, notranslate and encoded-URL-space guidance qualified without changing runtime severities."
+  }
+ ],
+ "backfills": [
+  {
+   "what": "read_dates",
+   "rows": 5,
+   "reason": "The matrix omitted the review date its source artifact recorded; restored from javascript-mobile-review.json (reviewed_on 2026-09-09)."
+  },
+  {
+   "what": "key_applicable_rules",
+   "rows": 9,
+   "reason": "The matrix omitted labelled rules its source artifacts held. Four rows were copied verbatim from itemized requirement/recommendation/heuristic lists; five were labelled sentence by sentence from a narrative summary and each entry says which, in derived_from."
+  }
+ ],
+ "encoded_space_candidate": {
+  "status": "repair",
+  "issues": [
+   {
+    "id": "#692",
+    "state": "closed",
+    "note": "Qualify the blanket fix for valid percent-encoded query values; retain the hygiene heuristic, detection, and severity.",
+    "merged_in": "PR #695"
+   }
+  ],
+  "note": "Root disposition: guidance-only repair. Landed in PR #695."
+ },
+ "unexplained_rows": [],
+ "rows": [
+  {
+   "canonical_url": "https://developers.google.com/crawling/docs/crawl-budget",
+   "source_url": "https://developers.google.com/crawling/docs/crawl-budget?hl=en",
+   "title": null,
+   "category": "supplemental official documentation",
+   "review_artifacts": [
+    "implementation-20260909/google-supplemental-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Crawl budget guidance targets very large or rapidly changing sites."
+    },
+    {
+     "label": "explanation",
+     "text": "Capacity reacts to latency, 5xx, and 429; demand reacts to inventory, popularity, staleness, and moves."
+    },
+    {
+     "label": "explanation",
+     "text": "Robots blocking is for URLs not wanted at all, not temporary budget reallocation."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/crawling/docs/crawlers-fetchers/google-common-crawlers",
+   "source_url": "https://developers.google.com/crawling/docs/crawlers-fetchers/google-common-crawlers?hl=en",
+   "title": null,
+   "category": "supplemental official documentation",
+   "review_artifacts": [
+    "implementation-20260909/google-supplemental-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Automatic common crawlers obey robots.txt; user-agent strings alone are spoofable."
+    },
+    {
+     "label": "explanation",
+     "text": "Googlebot, Image, Video, News, InspectionTool, and GoogleOther have different effects."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/crawling/docs/crawlers-fetchers/google-special-case-crawlers",
+   "source_url": "https://developers.google.com/crawling/docs/crawlers-fetchers/google-special-case-crawlers?hl=en",
+   "title": null,
+   "category": "supplemental official documentation",
+   "review_artifacts": [
+    "implementation-20260909/google-supplemental-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Special-case fetchers can have product-specific robots behavior."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/crawling/docs/crawlers-fetchers/overview-google-crawlers",
+   "source_url": "https://developers.google.com/crawling/docs/crawlers-fetchers/overview-google-crawlers?hl=en",
+   "title": null,
+   "category": "supplemental official documentation",
+   "review_artifacts": [
+    "implementation-20260909/google-supplemental-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Crawler/fetcher classes have different product purposes and robots behavior."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/crawling/docs/crawlers-fetchers/read-aloud-user-agent",
+   "source_url": "https://developers.google.com/crawling/docs/crawlers-fetchers/read-aloud-user-agent?hl=en",
+   "title": null,
+   "category": "supplemental official documentation",
+   "review_artifacts": [
+    "implementation-20260909/google-supplemental-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Google Read Aloud has its own user-agent and product purpose."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/crawling/docs/crawlers-fetchers/reduce-crawl-rate",
+   "source_url": "https://developers.google.com/crawling/docs/crawlers-fetchers/reduce-crawl-rate?hl=en",
+   "title": null,
+   "category": "supplemental official documentation",
+   "review_artifacts": [
+    "implementation-20260909/google-supplemental-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "First diagnose URL inefficiency and logs."
+    },
+    {
+     "label": "explanation",
+     "text": "For only 1-2 day emergencies, 500/503/429 can reduce crawl rate but have broad effects; increases cannot be requested."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/crawling/docs/crawlers-fetchers/verify-google-requests",
+   "source_url": "https://developers.google.com/crawling/docs/crawlers-fetchers/verify-google-requests?hl=en",
+   "title": null,
+   "category": "supplemental official documentation",
+   "review_artifacts": [
+    "implementation-20260909/google-supplemental-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Verify a claimed Google request with reverse DNS then forward DNS, or published IP ranges."
+    },
+    {
+     "label": "explanation",
+     "text": "Common, special-case, and user-triggered fetchers differ in robots behavior."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/crawling/docs/faceted-navigation",
+   "source_url": "https://developers.google.com/crawling/docs/faceted-navigation?hl=en",
+   "title": null,
+   "category": "supplemental official documentation",
+   "review_artifacts": [
+    "implementation-20260909/google-supplemental-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Unneeded faceted URLs may be blocked from crawling; needed ones need stable conventional parameter/path forms."
+    },
+    {
+     "label": "recommendation",
+     "text": "Empty or nonsense combinations should return 404, not redirect to a generic error."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/crawling/docs/robots-txt/create-robots-txt",
+   "source_url": "https://developers.google.com/crawling/docs/robots-txt/create-robots-txt?hl=en",
+   "title": null,
+   "category": "supplemental official documentation",
+   "review_artifacts": [
+    "implementation-20260909/google-supplemental-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "robots.txt is root-scoped and applies only to its protocol, host, and port."
+    },
+    {
+     "label": "requirement",
+     "text": "Default crawling is allowed; sitemap URLs must be fully qualified."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec",
+   "source_url": "https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec?hl=en",
+   "title": null,
+   "category": "supplemental official documentation",
+   "review_artifacts": [
+    "implementation-20260909/google-supplemental-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Google combines same-user-agent groups and applies the most specific matching rule."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/crawling/docs/robots-txt/submit-updated-robots-txt",
+   "source_url": "https://developers.google.com/crawling/docs/robots-txt/submit-updated-robots-txt?hl=en",
+   "title": null,
+   "category": "supplemental official documentation",
+   "review_artifacts": [
+    "implementation-20260909/google-supplemental-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Google normally refreshes robots automatically; emergency refresh is a Search Console action."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/crawling/docs/troubleshooting/http-status-codes",
+   "source_url": "https://developers.google.com/crawling/docs/troubleshooting/http-status-codes?hl=en",
+   "title": null,
+   "category": "supplemental official documentation",
+   "review_artifacts": [
+    "implementation-20260909/google-supplemental-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "eligibility",
+     "text": "2xx content may be considered but is not guaranteed indexed."
+    },
+    {
+     "label": "explanation",
+     "text": "4xx content is ignored; 429/5xx reduce crawling and can eventually remove persistently failing URLs."
+    },
+    {
+     "label": "explanation",
+     "text": "Google generally follows up to 10 redirects, with product-specific exceptions."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs",
+   "source_url": "https://developers.google.com/search/docs",
+   "title": "Documentation to Improve SEO",
+   "category": "Introduction",
+   "review_artifacts": [
+    "implementation-20260909/google-overview-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "SEO documentation is organized around crawl/index control, search appearance, structured data, JavaScript, and Search Console monitoring."
+    },
+    {
+     "label": "explanation",
+     "text": "Search Console is the Google product for performance monitoring."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Product routing aligns with the CLI/MCP tool and scenario split; no feature outcome is guaranteed."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance",
+   "source_url": "https://developers.google.com/search/docs/appearance",
+   "title": "Overview of Search appearance topics",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-overview-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Search appearance topics describe ways to influence presentation, including structured data and Search features."
+    },
+    {
+     "label": "explanation",
+     "text": "Structured data can help richer appearance but each feature has its own requirements and availability."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Aligned with schema scenarios that report eligibility and never promise display."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/ad-network-and-translation",
+   "source_url": "https://developers.google.com/search/docs/appearance/ad-network-and-translation",
+   "title": "Ad networks and translation-related Google Search features",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final2.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Applies to ad networks whose rendering/attribution depends on publisher source URL."
+    },
+    {
+     "label": "explanation",
+     "text": "Decode translate.goog hostname, remove _x_tr_* parameters, and preserve original path/fragment/parameters."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Out of scope for an SEO audit toolkit: it does not claim ad-network URL reconstruction."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/aggregator-features",
+   "source_url": "https://developers.google.com/search/docs/appearance/aggregator-features",
+   "title": "Overview",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final1.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "eligibility",
+     "text": "Regional Search experiences are availability-limited product features, not normal organic-result guarantees."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/aggregator-unit",
+   "source_url": "https://developers.google.com/search/docs/appearance/aggregator-unit",
+   "title": "Aggregator unit",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final1.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Aggregator units are EEA vertical-search features requiring approved services, relevant content, feeds or APIs, and policy compliance."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/ai-features",
+   "source_url": "https://developers.google.com/search/docs/appearance/ai-features?hl=en",
+   "title": "AI features",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next25.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "AI features use the same foundational SEO requirements as Google Search."
+    },
+    {
+     "label": "eligibility",
+     "text": "No special markup or AI-only requirement guarantees appearance."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "The toolkit's GEO checks remain diagnostic; no confirmed contradictory guarantee identified in this batch."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/avoid-intrusive-interstitials",
+   "source_url": "https://developers.google.com/search/docs/appearance/avoid-intrusive-interstitials?hl=en",
+   "title": "Interstitials and dialogs",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final1.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Intrusive interstitials can make content less accessible; evaluate page experience as a whole."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/core-updates",
+   "source_url": "https://developers.google.com/search/docs/appearance/core-updates?hl=en",
+   "title": "Core updates",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final1.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "eligibility",
+     "text": "Core updates change broad ranking systems; recovery is not guaranteed and can take time."
+    },
+    {
+     "label": "explanation",
+     "text": "Assess helpful, reliable, people-first content rather than hunt for a single technical fix."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/core-web-vitals",
+   "source_url": "https://developers.google.com/search/docs/appearance/core-web-vitals?hl=en",
+   "title": "Core Web Vitals",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final1.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "CWV measures real-user loading, responsiveness, and stability."
+    },
+    {
+     "label": "explanation",
+     "text": "Targets are LCP 2.5s, INP 200ms, CLS 0.1; Search Console provides monitoring."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/ecosystem-carousel",
+   "source_url": "https://developers.google.com/search/docs/appearance/ecosystem-carousel",
+   "title": "Ecosystem carousel",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final1.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "EEA ecosystem carousels require relevant authoritative providers and interest expression; no special markup/feed is required."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/enable-web-stories",
+   "source_url": "https://developers.google.com/search/docs/appearance/enable-web-stories",
+   "title": "Enable Web Stories on Google",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final3.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "requirement",
+     "text": "A story needs valid AMP, required preview metadata, discoverability, self-canonical and no robots/noindex block."
+    },
+    {
+     "label": "explanation",
+     "text": "URL Inspection and Search Console are the stated indexing checks."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "General technical evidence covers the measurable web-page conditions; dedicated Web Story eligibility is outside advertised scope."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/enriched-search-results",
+   "source_url": "https://developers.google.com/search/docs/appearance/enriched-search-results?hl=en",
+   "title": "Enriched search results",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final1.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "eligibility",
+     "text": "Enriched results require structured data plus quality policies; they are limited to eligible leaf pages."
+    },
+    {
+     "label": "requirement",
+     "text": "Missing required fields or policy violations remove feature eligibility without necessarily changing web ranking."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/establish-business-details",
+   "source_url": "https://developers.google.com/search/docs/appearance/establish-business-details?hl=en",
+   "title": "Business details",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final1.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Business Profile and Search Console verification are separate authoritative sources."
+    },
+    {
+     "label": "requirement",
+     "text": "Organization and Breadcrumb markup help Google understand facts but do not guarantee a Knowledge Panel."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/favicon-in-search",
+   "source_url": "https://developers.google.com/search/docs/appearance/favicon-in-search?hl=en",
+   "title": "Favicons",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next25.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "requirement",
+     "text": "A favicon is declared from the home page and must remain crawlable by Googlebot and Googlebot-Image."
+    },
+    {
+     "label": "eligibility",
+     "text": "Eligibility does not guarantee its display; one favicon applies per hostname."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No favicon presence check is presented as a display guarantee."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/featured-snippets",
+   "source_url": "https://developers.google.com/search/docs/appearance/featured-snippets?hl=en",
+   "title": "Featured snippets",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next25.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Site owners cannot mark a page for a featured snippet."
+    },
+    {
+     "label": "eligibility",
+     "text": "nosnippet blocks snippets; low max-snippet is not a guaranteed featured-snippet opt-out."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No shipped skill asserts a featured-snippet guarantee from schema or content formatting."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/flexible-sampling",
+   "source_url": "https://developers.google.com/search/docs/appearance/flexible-sampling?hl=en",
+   "title": "Flexible Sampling",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next25.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "requirement",
+     "text": "Paywalled content requires the documented structured-data and sampling implementation; eligibility is not a display guarantee."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No conflicting paywall implementation promise found."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/google-discover",
+   "source_url": "https://developers.google.com/search/docs/appearance/google-discover?hl=en",
+   "title": "Google Discover",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next25.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "eligibility",
+     "text": "Indexed policy-compliant content is automatically eligible, but appearance is not guaranteed."
+    },
+    {
+     "label": "explanation",
+     "text": "Discover traffic is supplemental and can vary independently of publishing quality or frequency."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No local score is described as a Discover-placement prediction."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/google-images",
+   "source_url": "https://developers.google.com/search/docs/appearance/google-images",
+   "title": "Images",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "google-search-alignment-20260909/javascript-mobile-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Google recommends crawlable image URLs, supported formats, descriptive nearby text, alt text, and stable URLs.",
+     "derived_from": "source review (narrative summary)"
+    },
+    {
+     "label": "recommendation",
+     "text": "Images should be discoverable in HTML or image sitemaps; lazy loading must expose image URLs without requiring user interaction.",
+     "derived_from": "source review (narrative summary)"
+    },
+    {
+     "label": "explanation",
+     "text": "Image metadata and high-quality, relevant images improve eligibility and understanding.",
+     "derived_from": "source review (narrative summary)"
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/job-sites",
+   "source_url": "https://developers.google.com/search/docs/appearance/job-sites",
+   "title": "Job sites features",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final1.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "EEA job-site carousel and chips need no publisher markup and are region-specific."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/package-tracking",
+   "source_url": "https://developers.google.com/search/docs/appearance/package-tracking?hl=en",
+   "title": "Package tracking",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next25.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "The early-adopters program no longer accepts new partners."
+    },
+    {
+     "label": "requirement",
+     "text": "Existing participants need a highly available API and must not return sender or recipient personal data."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No package-tracking integration is shipped or claimed."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/page-experience",
+   "source_url": "https://developers.google.com/search/docs/appearance/page-experience?hl=en",
+   "title": "Understanding page experience",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final1.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "There is no single page-experience ranking signal."
+    },
+    {
+     "label": "eligibility",
+     "text": "Good CWV alone does not guarantee top rankings; relevance remains primary."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/places-sites",
+   "source_url": "https://developers.google.com/search/docs/appearance/places-sites",
+   "title": "Places sites features",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final1.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Türkiye Places-site carousel/chips need no markup and are limited to local-business and hotel queries."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/preferred-sources",
+   "source_url": "https://developers.google.com/search/docs/appearance/preferred-sources?hl=en",
+   "title": "Preferred sources",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next25.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Readers select preferred sources; publisher integration is optional."
+    },
+    {
+     "label": "eligibility",
+     "text": "Only domain and subdomain sites are eligible, not subdirectories."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No conflicting implementation or outcome claim found."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/publication-dates",
+   "source_url": "https://developers.google.com/search/docs/appearance/publication-dates?hl=en",
+   "title": "Byline dates",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next25.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "eligibility",
+     "text": "Google estimates dates from several signals and does not guarantee display."
+    },
+    {
+     "label": "recommendation",
+     "text": "Use consistent visible and structured dates that describe publication or update, not a future event."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No shipped date field is described as guaranteed SERP output."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/ranking-systems-guide",
+   "source_url": "https://developers.google.com/search/docs/appearance/ranking-systems-guide?hl=en",
+   "title": "A guide to Google Search ranking systems",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final1.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Ranking uses many page and site signals; one good or bad site-wide signal does not dictate all page outcomes."
+    },
+    {
+     "label": "explanation",
+     "text": "Helpful Content, Panda, and Penguin are listed as retired standalone systems integrated into broader core systems."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/reviews-system",
+   "source_url": "https://developers.google.com/search/docs/appearance/reviews-system?hl=en",
+   "title": "Reviews system",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final1.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "The reviews system rewards insightful original reviews by knowledgeable authors and is not a one-check quality score."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/site-names",
+   "source_url": "https://developers.google.com/search/docs/appearance/site-names?hl=en",
+   "title": "Site names",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next25.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Google selects site names automatically from multiple signals; structured data is a preference signal."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No local markup generation claims it fixes Google's displayed site name."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/sitelinks",
+   "source_url": "https://developers.google.com/search/docs/appearance/sitelinks?hl=en",
+   "title": "Sitelinks",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next25.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "requirement",
+     "text": "Google systems create sitelinks automatically; site owners do not directly configure them."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No local navigation or sitemap output claims to guarantee sitelinks."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/snippet",
+   "source_url": "https://developers.google.com/search/docs/appearance/snippet?hl=en",
+   "title": "Snippets",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next25.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Google primarily creates snippets from page content and may use meta description when better."
+    },
+    {
+     "label": "explanation",
+     "text": "Meta descriptions have no fixed maximum; display is device-width truncated."
+    },
+    {
+     "label": "explanation",
+     "text": "nosnippet, max-snippet, and data-nosnippet control snippet availability and scope."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Aligned: scenarios state that a local meta-description measurement cannot tell which snippet Google displays."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/south-africa-features",
+   "source_url": "https://developers.google.com/search/docs/appearance/south-africa-features",
+   "title": "South Africa features",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final1.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "South African badge does not alter ranking; relevant chips need no markup and are regional."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/spam-updates",
+   "source_url": "https://developers.google.com/search/docs/appearance/spam-updates?hl=en",
+   "title": "Spam updates",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final1.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Spam updates enforce spam policies; improvements may take months."
+    },
+    {
+     "label": "explanation",
+     "text": "Removing effects of spammy links does not restore prior artificial benefit."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/article",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/article?hl=en",
+   "title": "Article",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final1.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "requirement",
+     "text": "Article markup can help Google understand title, image, and date information but is not required for Google News features."
+    },
+    {
+     "label": "recommendation",
+     "text": "Article fields are recommended as applicable; deploy, inspect, allow crawling, and wait for recrawl."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/book",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/book?hl=en",
+   "title": "Book actions",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final1.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Book actions use feature-specific structured-data requirements and normal quality guidelines."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/breadcrumb",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/breadcrumb?hl=en",
+   "title": "Breadcrumb",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final1.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Breadcrumb markup represents the visible site hierarchy; Google can choose among valid breadcrumb trails."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/carousel",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/carousel?hl=en",
+   "title": "Carousel",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final1.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Host carousels need ItemList plus supported Course, Movie, Recipe, or Restaurant markup."
+    },
+    {
+     "label": "explanation",
+     "text": "Top-stories-like multi-site carousels cannot be controlled by carousel markup."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/carousels-beta",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/carousels-beta",
+   "title": "Structured data carousels (beta)",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final1.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Beta carousel eligibility needs ItemList plus supported entity markup and is restricted to named markets."
+    },
+    {
+     "label": "explanation",
+     "text": "Requirements can change during beta; eligibility is not display."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/course",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/course?hl=en",
+   "title": "Course list",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final1.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "requirement",
+     "text": "Course-list eligibility requires the documented CourseList/Course structure and feature policy compliance."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/dataset",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/dataset?hl=en",
+   "title": "Dataset",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final1.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Dataset markup is type-specific discovery metadata and remains subject to general structured-data quality guidelines."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/discussion-forum",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/discussion-forum?hl=en",
+   "title": "Discussion forum",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final1.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "requirement",
+     "text": "DiscussionForumPosting and SocialMediaPosting markup must reflect visible discussion content and feature requirements."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/education-qa",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/education-qa",
+   "title": "Education Q&A",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final2.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "requirement",
+     "text": "Use Quiz/Question/Answer for educational flashcards, with Flashcard eduQuestionType and required answer/question fields."
+    },
+    {
+     "label": "recommendation",
+     "text": "Use QAPage instead for a single question with user-submitted answers."
+    },
+    {
+     "label": "requirement",
+     "text": "Eligibility also requires crawlability and content that is visible to users."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "schema-check can parse and validate JSON-LD vocabulary/declared rich-result eligibility; crawl/site tools expose robots and noindex evidence. No feature-specific education-Q&A promise is made."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/employer-rating",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/employer-rating",
+   "title": "Employer aggregate rating",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final2.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Use EmployerAggregateRating only for ratings compiled from many users about hiring organizations."
+    },
+    {
+     "label": "requirement",
+     "text": "Use its required rating and itemReviewed properties; do not treat review-snippet eligibility as interchangeable."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Generic schema vocabulary/eligibility checks can inspect supplied markup; no tool claims to certify employer-rating policy or Search display."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/event",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/event",
+   "title": "Event",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final2.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "requirement",
+     "text": "Mark up actual event pages with required Event properties such as name, startDate and location or attendance mode."
+    },
+    {
+     "label": "explanation",
+     "text": "Keep event status, dates and offers accurate; follow general structured-data and content policies."
+    },
+    {
+     "label": "eligibility",
+     "text": "Rich-result eligibility does not guarantee display."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "schema-check validates supplied JSON-LD and schema-build does not claim Event-specific publication verification; no page-level mismatch was provided."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/factcheck",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/factcheck",
+   "title": "Fact check",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final2.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "ClaimReview markup is for pages that analyze a specific claim, identify the claim and claimant, and state the fact-check rating."
+    },
+    {
+     "label": "explanation",
+     "text": "Follow Fact Check Explorer/content policies and avoid marking up material that is not a fact check."
+    },
+    {
+     "label": "eligibility",
+     "text": "Google may show eligible results at its discretion."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "The shipped tool has generic JSON-LD validation only and makes no FactCheck display claim."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/generate-structured-data-with-javascript",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/generate-structured-data-with-javascript",
+   "title": "Generate structured data with JavaScript",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "google-search-alignment-20260909/javascript-mobile-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "JavaScript may generate structured data if Google can render it.",
+     "derived_from": "source review (narrative summary)"
+    },
+    {
+     "label": "explanation",
+     "text": "Use supported markup, test with Rich Results Test and URL Inspection, keep markup representative of visible content, and avoid injecting markup only after interactions.",
+     "derived_from": "source review (narrative summary)"
+    },
+    {
+     "label": "explanation",
+     "text": "Dynamic rendering may delay discovery and processing.",
+     "derived_from": "source review (narrative summary)"
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/image-license-metadata",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/image-license-metadata",
+   "title": "Image metadata",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final2.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "requirement",
+     "text": "Images and containing pages must be accessible and indexable."
+    },
+    {
+     "label": "explanation",
+     "text": "Provide license and acquireLicensePage via structured data per page instance, or IPTC once per image."
+    },
+    {
+     "label": "explanation",
+     "text": "Structured data wins when IPTC and markup conflict."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Image/robots checks can observe crawlability and schema-check can inspect markup; there is no claim that tool output validates IPTC bytes or grants a Licensable badge."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/intro-structured-data",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/intro-structured-data?hl=en",
+   "title": "Understand how structured data works",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final1.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "requirement",
+     "text": "Structured data helps Google understand a page but feature documentation determines eligibility and required properties."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/job-posting",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/job-posting",
+   "title": "Job posting",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final2.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "requirement",
+     "text": "Use JobPosting on actual job pages with required job details and current validity."
+    },
+    {
+     "label": "explanation",
+     "text": "Canonicalize duplicate job URLs and keep pages crawlable/indexable."
+    },
+    {
+     "label": "explanation",
+     "text": "Notify changes with Indexing API where applicable and retain sitemap coverage."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Crawler can inspect canonical, directives and JSON-LD; it neither submits Indexing API for this guide nor claims Job Search eligibility."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/local-business",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/local-business",
+   "title": "Local business",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final2.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Use an appropriate LocalBusiness subtype and accurate business facts such as name/address/hours."
+    },
+    {
+     "label": "requirement",
+     "text": "Do not use self-serving review markup; follow visibility and general structured-data rules."
+    },
+    {
+     "label": "requirement",
+     "text": "No required property exists for Organization, but relevant properties are recommended."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "schema-build can suggest LocalBusiness from visible facts and schema-check validates declarations; no claim of Maps/knowledge-panel inclusion is made."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/loyalty-program",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/loyalty-program",
+   "title": "Loyalty program",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final2.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Use MemberProgram under Organization/OnlineStore with valid tiers/benefits."
+    },
+    {
+     "label": "recommendation",
+     "text": "Use UnitPriceSpecification under Offer for product-level loyalty benefits."
+    },
+    {
+     "label": "explanation",
+     "text": "Feature availability is limited to named countries."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "schema-check can inspect supplied vocabulary but no tool promises merchant-panel availability or country eligibility."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/math-solvers",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/math-solvers",
+   "title": "Math solver",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final2.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "requirement",
+     "text": "Use MathSolver markup for a real solver and include the required action/target and supported educational question types."
+    },
+    {
+     "label": "explanation",
+     "text": "Follow general structured-data, crawlability and rollout validation guidance."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No tool claims to test an external solver endpoint or Math Solver feature availability; generic markup validation remains appropriately narrower."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/merchant-listing",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/merchant-listing",
+   "title": "Merchant listing",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final2.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "requirement",
+     "text": "Use merchant listings for purchasable products and satisfy their required Product/Offer fields."
+    },
+    {
+     "label": "explanation",
+     "text": "Keep offer facts current and follow product structured-data policies."
+    },
+    {
+     "label": "explanation",
+     "text": "Validate/crawl/index conditions still apply."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "schema-build may suggest Product from visible facts and schema-check claims per-type eligibility validation; no concrete markup output was supplied that contradicts Google requirements."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/movie",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/movie",
+   "title": "Movie carousel",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final2.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Use ItemList/ListItem and Movie properties on actual movie lists/details."
+    },
+    {
+     "label": "requirement",
+     "text": "Follow required properties and general guidelines; mobile rich appearance is discretionary."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "schema-check can inspect the graph and vocabulary; no product statement promises movie-carousel output."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/organization",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/organization",
+   "title": "Organization",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final2.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Place Organization facts on the home page and provide relevant identity fields such as name, URL, logo and sameAs."
+    },
+    {
+     "label": "requirement",
+     "text": "Do not infer rich-result display from valid markup."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "schema-build explicitly constructs an Organization-WebSite-WebPage graph from visible facts and schema-check validates it; this aligns with the guide's non-guaranteed framing."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/paywalled-content",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/paywalled-content",
+   "title": "Subscription and paywalled content",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final2.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "eligibility",
+     "text": "Use isAccessibleForFree and hasPart/WebPageElement for indexed paywalled sections."
+    },
+    {
+     "label": "requirement",
+     "text": "Use only class selectors for cssSelector and do not nest protected sections."
+    },
+    {
+     "label": "recommendation",
+     "text": "If content should not be indexable, this markup is not the solution."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Crawler can observe JSON-LD, directives and rendered/static differences, but does not claim to validate paywall delivery or anti-cloaking policy; no page evidence supports a defect."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/product",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/product",
+   "title": "Overview",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final2.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Choose markup based on whether customers can purchase the product."
+    },
+    {
+     "label": "requirement",
+     "text": "Merchant listing required information may also support product snippets, but features remain separate."
+    },
+    {
+     "label": "recommendation",
+     "text": "Use ProductGroup variants and Organization policies where applicable."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "schema-build's Product suggestion is explicitly confidence-based, not a purchasing-model determination; no defect follows without a page/context."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/product-snippet",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/product-snippet",
+   "title": "Product snippet",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final2.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Use product snippets for product information/review pages, not as a substitute for merchant listing requirements."
+    },
+    {
+     "label": "requirement",
+     "text": "Provide required Product data and policy-compliant reviews/offers where used."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No product statement claims all Product markup earns snippets; generic eligibility checking does not create a contradiction."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/product-variants",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/product-variants",
+   "title": "Variants",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final2.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Use ProductGroup plus Product entities to express real variant relationships."
+    },
+    {
+     "label": "explanation",
+     "text": "Preserve shared versus variant-specific facts and follow the design-specific URL/markup model."
+    },
+    {
+     "label": "explanation",
+     "text": "Valid markup is only eligibility, not display."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No type-specific ProductGroup claim is made by schema-build/check beyond generic vocabulary and rich-result validation; no concrete mismatch found."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/profile-page",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/profile-page",
+   "title": "Profile page",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final2.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Use ProfilePage only for a creator profile, not arbitrary pages."
+    },
+    {
+     "label": "requirement",
+     "text": "Supply required profile/mainEntity details and follow general visibility/crawlability rules."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No shipped claim offers ProfilePage-specific certification; generic graph/type validation is not misrepresented as one."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/qapage",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/qapage",
+   "title": "Q&A",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final2.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Use QAPage, Question and Answer for a page whose primary content is one question and its answers."
+    },
+    {
+     "label": "requirement",
+     "text": "Markup must reflect visible content and relevant required properties."
+    },
+    {
+     "label": "explanation",
+     "text": "Rich appearance remains discretionary."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Generic schema validation and page-type heuristics can inspect QAPage markup, but the product does not claim forum/Q&A policy validation."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/recipe",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/recipe",
+   "title": "Recipe",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final2.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "requirement",
+     "text": "Use Recipe properties that describe a real recipe, including required fields and visible recipe content."
+    },
+    {
+     "label": "recommendation",
+     "text": "Use ItemList for gallery/carousel pages where applicable."
+    },
+    {
+     "label": "explanation",
+     "text": "Validate and keep page crawlable; appearance can vary."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "schema-build can suggest Recipe only from visible facts and schema-check validates JSON-LD; no concrete recipe page was supplied for a mismatch."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/return-policy",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/return-policy",
+   "title": "Merchant return policy",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final2.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Use hasMerchantReturnPolicy for business-wide policy."
+    },
+    {
+     "label": "recommendation",
+     "text": "Use Offer-level MerchantReturnPolicy only for a product-specific override."
+    },
+    {
+     "label": "explanation",
+     "text": "Keep return countries, methods, fees and windows accurate."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No shipped output claims return-policy eligibility; generic schema validation alone is not a policy audit."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/review-snippet",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/review-snippet",
+   "title": "Review snippet",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final2.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Use Review/AggregateRating only for supported reviewed items and accurate ratings."
+    },
+    {
+     "label": "requirement",
+     "text": "Do not mark up self-serving reviews for a business/organization; employer ratings use their separate type."
+    },
+    {
+     "label": "explanation",
+     "text": "Aggregate ratings need the relevant average/count information."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "schema-check can validate structural markup but no tool claims to establish provenance of reviews; a site-specific policy breach needs evidence, so none is filed here."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/sd-policies",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/sd-policies?hl=en",
+   "title": "Structured data general guidelines",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final1.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "requirement",
+     "text": "Correct markup and a passing Rich Results Test do not guarantee display."
+    },
+    {
+     "label": "requirement",
+     "text": "Data must be visible, representative, crawlable, policy-compliant, and complete for the feature."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/search-gallery",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/search-gallery?hl=en",
+   "title": "All structured data features",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final1.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Only listed Google-supported features have rich-result documentation; type-specific requirements control eligibility."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/shipping-policy",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/shipping-policy",
+   "title": "Merchant shipping policy",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final2.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Use hasShippingService for standard business policy."
+    },
+    {
+     "label": "recommendation",
+     "text": "Use Offer.shippingDetails for product-specific shipping and keep rates/delivery times accurate."
+    },
+    {
+     "label": "requirement",
+     "text": "Do not conflate the two property sets."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No tool claims to verify merchant shipping data against fulfilment reality; no evidence-backed mismatch is available."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/software-app",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/software-app",
+   "title": "Software app",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final2.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "requirement",
+     "text": "Use SoftwareApplication with applicable required properties such as name, operatingSystem and offers or aggregate rating when present."
+    },
+    {
+     "label": "explanation",
+     "text": "Follow standard validation, visibility and crawlability guidance."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "The generic type/vocabulary checker is relevant; no shipped promise asserts Software App rich-result eligibility for arbitrary pages."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/speakable",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/speakable",
+   "title": "Speakable",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final2.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Treat Speakable as beta and availability-limited."
+    },
+    {
+     "label": "explanation",
+     "text": "Mark only concise, comprehensible key points, not whole articles, captions or datelines."
+    },
+    {
+     "label": "recommendation",
+     "text": "Use valid selector/XPath markup and follow content policies."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No tool promises Speakable eligibility or voice suitability; generic JSON-LD validation is correctly narrower."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/vacation-rental",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/vacation-rental",
+   "title": "Vacation rental",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final2.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Use VacationRental markup only for qualifying listing pages."
+    },
+    {
+     "label": "requirement",
+     "text": "Do not promise feature inclusion without the required Google integration/eligibility process."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No product documentation claims it can certify vacation-rental integration or availability; generic schema checking is not a mismatch."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/structured-data/video",
+   "source_url": "https://developers.google.com/search/docs/appearance/structured-data/video",
+   "title": "Video",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final2.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "requirement",
+     "text": "Use VideoObject on watch pages with required video facts."
+    },
+    {
+     "label": "recommendation",
+     "text": "Use Clip or SeekToAction only for accurate key moments; use BroadcastEvent and timely indexing for live video."
+    },
+    {
+     "label": "requirement",
+     "text": "Do not infer display from valid markup."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "The product can parse video JSON-LD and inspect directives, but makes no claim to verify live/video feature eligibility or Indexing API timing."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/supplier-unit",
+   "source_url": "https://developers.google.com/search/docs/appearance/supplier-unit",
+   "title": "Supplier unit",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final1.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "eligibility",
+     "text": "EEA direct suppliers may be eligible from crawlable web content; feeds can enhance results."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/title-link",
+   "source_url": "https://developers.google.com/search/docs/appearance/title-link?hl=en",
+   "title": "Title links",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next25.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Google generates title links from several on-page and off-page sources, not title alone."
+    },
+    {
+     "label": "recommendation",
+     "text": "Titles should be descriptive, concise, distinct, and not keyword stuffed; no fixed character limit is imposed."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Aligned: js-metadata explicitly says the toolkit cannot determine which title Google displays."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/top-places-list",
+   "source_url": "https://developers.google.com/search/docs/appearance/top-places-list?hl=en",
+   "title": "Top Places List",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final1.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "requirement",
+     "text": "Eligible lists must be genuine, independent, non-sponsored, and not templated from data."
+    },
+    {
+     "label": "explanation",
+     "text": "Feature appearance can differ from the illustrated result."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/translated-results",
+   "source_url": "https://developers.google.com/search/docs/appearance/translated-results",
+   "title": "Translated results",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final2.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "No publisher action is needed to opt in to translated results."
+    },
+    {
+     "label": "recommendation",
+     "text": "Use robots notranslate as a meta directive or X-Robots-Tag to opt out of Google Search translation features."
+    },
+    {
+     "label": "explanation",
+     "text": "JavaScript and embedded features are usually supported on translated result pages."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "The SF-derived NOTRANSLATE check is intentionally a notice and correctly detects the directive. Its fix text currently describes a browser offer-to-translate prompt, while Google's guide scopes the directive to translation-related Google Search features."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/video",
+   "source_url": "https://developers.google.com/search/docs/appearance/video?hl=en",
+   "title": "Videos",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next25.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "eligibility",
+     "text": "Video indexing and video-result eligibility depend on crawlable watch pages, video availability, and supported metadata; no result format is guaranteed."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No local video diagnostic claims Google video-result eligibility."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/visual-elements-gallery",
+   "source_url": "https://developers.google.com/search/docs/appearance/visual-elements-gallery?hl=en",
+   "title": "Visual Elements gallery",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next25.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "eligibility",
+     "text": "The gallery maps visible Search elements to supporting Google documentation; it is not an eligibility guarantee."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No conflicting output claim found."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/web-stories-content-policy",
+   "source_url": "https://developers.google.com/search/docs/appearance/web-stories-content-policy",
+   "title": "Web Story content policy",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final3.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "eligibility",
+     "text": "Web Story appearance is conditional on policy compliance; policy is not a generic ranking guarantee."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No Web Story policy classifier is claimed or required by the current product contract."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/appearance/web-stories-creation-best-practices",
+   "source_url": "https://developers.google.com/search/docs/appearance/web-stories-creation-best-practices",
+   "title": "Best practices for creating Web Stories",
+   "category": "Ranking and search appearance",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final3.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Web Stories are web pages: keep useful content, noindex-free discoverability, self-canonical URLs, sitemap inclusion, metadata and valid AMP."
+    },
+    {
+     "label": "explanation",
+     "text": "Story-specific poster/logo/AMP requirements are feature eligibility guidance."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Canonical, noindex, sitemap, metadata, image-alt and structured-data evidence are covered generally. The toolkit does not claim Web Story AMP/publisher metadata validation."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing",
+   "title": "Overview of crawling and indexing topics",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "implementation-20260909/google-overview-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Crawling/indexing controls concern discoverability, robots, canonicals, metadata, removals, and site changes."
+    },
+    {
+     "label": "explanation",
+     "text": "The page routes crawler management, robots, canonicalization, mobile, AMP, JavaScript, and sitemap questions to their specific guides."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Aligned with separate bounded tool/scenario surfaces; no generic crawler result is presented as Google indexation."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/301-redirects",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/301-redirects",
+   "title": "Redirects and Google Search",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "google-search-alignment-20260909/canonical-redirect-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Use temporary redirects for temporary moves and permanent redirects only for moves not expected to revert."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "repair",
+    "issues": [
+     {
+      "id": "#671",
+      "state": "closed",
+      "note": "redirect guidance correction"
+     }
+    ]
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/amp",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/amp?hl=en",
+   "title": "About AMP on Google Search",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next12.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "eligibility",
+     "text": "AMP is indexed under the same standard as other web pages."
+    },
+    {
+     "label": "recommendation",
+     "text": "Equivalent AMP and canonical pages should offer the same content and actions where possible, use a sensible related URL scheme, and validate AMP HTML."
+    },
+    {
+     "label": "eligibility",
+     "text": "Structured data does not guarantee a rich result."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "The shipped AMP declaration is informational and asks for validation; no claim reviewed here says AMP is mobile-only, mandatory, or guarantees a rich result."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/amp/enhance-amp",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/amp/enhance-amp?hl=en",
+   "title": "Enhance AMP content",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next12.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "An AMP page needs a canonical page, which may be the AMP page itself or a non-AMP version."
+    },
+    {
+     "label": "recommendation",
+     "text": "The AMP and canonical versions should keep equivalent content/actions and matching structured data."
+    },
+    {
+     "label": "eligibility",
+     "text": "AMP Test and Rich Results Test validate different aspects; status reports monitor implementation problems."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No shipped AMP recommendation examined here contradicts the canonical, parity, or validation guidance."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/amp/remove-amp",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/amp/remove-amp?hl=en",
+   "title": "Remove AMP content",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next12.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "To remove only an AMP alternate, remove amphtml from the canonical page and redirect the AMP URL to the canonical non-AMP URL."
+    },
+    {
+     "label": "requirement",
+     "text": "Do not empty an AMP document as a removal method; Google can continue serving the last valid version."
+    },
+    {
+     "label": "explanation",
+     "text": "A 404 is appropriate when the AMP URL is actually removed; a permanent redirect preserves the permalink to the canonical page."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Existing redirect guidance is intent-based and does not prescribe deleting content from an AMP document. No mismatch found."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/amp/validate-amp",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/amp/validate-amp?hl=en",
+   "title": "Validate AMP content",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next12.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "eligibility",
+     "text": "AMP Test validates AMP, Rich Results Test checks applicable structured data, and AMP status reports monitor a site-wide population."
+    },
+    {
+     "label": "recommendation",
+     "text": "An AMP alternate should be discoverable via amphtml from the canonical page and canonical from the AMP page."
+    },
+    {
+     "label": "explanation",
+     "text": "Robots access and indexing directives on both versions can prevent discovery."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No shipped claim examined here equates a local parser result with AMP Test or Rich Results Test validation."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/ask-google-to-recrawl",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/ask-google-to-recrawl",
+   "title": "Ask Google to recrawl your URLs",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "google-search-alignment-20260909/robots-crawl-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Use URL Inspection for important individual URLs.",
+     "derived_from": "source review (itemized)"
+    },
+    {
+     "label": "recommendation",
+     "text": "Use a sitemap for many URLs or site moves.",
+     "derived_from": "source review (itemized)"
+    },
+    {
+     "label": "heuristic",
+     "text": "Crawling can take days to weeks; high-quality useful content is prioritized.",
+     "derived_from": "source review (itemized)"
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/block-indexing",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/block-indexing?hl=en",
+   "title": "noindex",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next20.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "A noindex meta tag or X-Robots-Tag prevents Google indexing only after Googlebot can crawl and see it."
+    },
+    {
+     "label": "requirement",
+     "text": "Robots.txt must not block a URL that relies on noindex; noindex in robots.txt is unsupported."
+    },
+    {
+     "label": "explanation",
+     "text": "X-Robots-Tag also applies to non-HTML resources."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Aligned: robots-audit and native evidence distinguish crawling from indexing, and noindex scenarios state that local observation does not prove deindexation."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/canonicalization",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/canonicalization",
+   "title": "What is URL canonicalization",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "google-search-alignment-20260909/canonical-redirect-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "eligibility",
+     "text": "Treat canonical selection as Google’s decision, not a guaranteed directive."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "repair",
+    "issues": [
+     {
+      "id": "#692",
+      "state": "closed",
+      "note": "root reconciliation lists conditional JS canonical severity and NOTRANSLATE guidance; this row is retained for owner disposition",
+      "merged_in": "PR #695"
+     }
+    ]
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/canonicalization-troubleshooting",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/canonicalization-troubleshooting",
+   "title": "Fix canonicalization issues",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "google-search-alignment-20260909/canonical-redirect-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Inspect Google-selected canonical before diagnosing a disagreement."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/consolidate-duplicate-urls",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/consolidate-duplicate-urls",
+   "title": "How to specify a canonical URL with rel=\"canonical\" and other methods",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "google-search-alignment-20260909/canonical-redirect-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "requirement",
+     "text": "Do not send conflicting canonical signals."
+    },
+    {
+     "label": "requirement",
+     "text": "Do not use robots.txt or URL removals to canonicalize."
+    },
+    {
+     "label": "requirement",
+     "text": "Do not use fragments as canonicals."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "repair",
+    "issues": [
+     {
+      "id": "#692",
+      "state": "closed",
+      "note": "root reconciliation lists conditional JS canonical severity and NOTRANSLATE guidance; this row is retained for owner disposition",
+      "merged_in": "PR #695"
+     }
+    ]
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/control-what-you-share",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/control-what-you-share?hl=en",
+   "title": "Control what you share with Google",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next20.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Removing or password-protecting content is the strongest way to keep it out of Search."
+    },
+    {
+     "label": "explanation",
+     "text": "Noindex controls Google Search visibility but does not remove access to the URL."
+    },
+    {
+     "label": "explanation",
+     "text": "Robots.txt is specifically described here for media crawling, not as a general web-page removal mechanism."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Aligned: repository guidance does not present robots.txt as generic page deindexation and preserves the difference between crawling and indexing."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/googlebot",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/googlebot",
+   "title": "Googlebot",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "google-search-alignment-20260909/robots-crawl-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Do not target Smartphone versus Desktop Googlebot separately in robots.txt.",
+     "derived_from": "source review (itemized)"
+    },
+    {
+     "label": "recommendation",
+     "text": "Verify user-agent claims before blocking.",
+     "derived_from": "source review (itemized)"
+    },
+    {
+     "label": "heuristic",
+     "text": "Typical Googlebot access is no more than once every few seconds on average.",
+     "derived_from": "source review (itemized)"
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/indexable-file-types",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/indexable-file-types?hl=en",
+   "title": "File types Google can index",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next12.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Google determines file type primarily from the crawl response Content-Type, but may use an extension or another parser when that header is absent or wrong."
+    },
+    {
+     "label": "explanation",
+     "text": "Google lists supported text, encoded-document, image, and video formats; a file extension alone is not the rule."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No shipped statement reviewed here claims that a file extension alone determines indexability or promises every listed file type is analyzed by SEOHEAD."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/javascript/dynamic-rendering",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/javascript/dynamic-rendering?hl=en",
+   "title": "Dynamic rendering as a workaround",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next12.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Dynamic rendering is a workaround, not a recommended long-term solution; Google recommends server-side rendering, static rendering, or hydration instead."
+    },
+    {
+     "label": "explanation",
+     "text": "Google Search can see JavaScript-generated content, subject to JavaScript limitations and rendered-HTML failures."
+    },
+    {
+     "label": "explanation",
+     "text": "Serving similar rendered content to crawlers is generally not cloaking; materially different crawler-only content can be cloaking."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "The rendering scenario presents raw-versus-rendered diagnosis and selective rendering, rather than recommending dynamic rendering as a solution. No new mismatch found."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/javascript/fix-search-javascript",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/javascript/fix-search-javascript",
+   "title": "Fix search-related JavaScript problems",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "google-search-alignment-20260909/javascript-mobile-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Google recommends diagnosing JavaScript indexing with URL Inspection and rendered HTML, ensuring important content is available after rendering, and resolving blocked resources, errors, and rendering differences.",
+     "derived_from": "source review (narrative summary)"
+    },
+    {
+     "label": "explanation",
+     "text": "Dynamic rendering is a workaround, not a default architecture.",
+     "derived_from": "source review (narrative summary)"
+    },
+    {
+     "label": "recommendation",
+     "text": "Debugging should distinguish crawl, render, and indexing evidence.",
+     "derived_from": "source review (narrative summary)"
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/javascript/javascript-seo-basics",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/javascript/javascript-seo-basics",
+   "title": "Understand the JavaScript SEO basics",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "google-search-alignment-20260909/javascript-mobile-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Googlebot renders JavaScript but recommends server-side or pre-rendering where practical.",
+     "derived_from": "source review (narrative summary)"
+    },
+    {
+     "label": "explanation",
+     "text": "Use crawlable URLs, avoid fragment-only routing, handle errors meaningfully, and do not rely on user interaction for primary content.",
+     "derived_from": "source review (narrative summary)"
+    },
+    {
+     "label": "requirement",
+     "text": "Rendering has resource, timeout, and processing limits, so critical content must remain discoverable.",
+     "derived_from": "source review (narrative summary)"
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/javascript/lazy-loading",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/javascript/lazy-loading?hl=en",
+   "title": "Fix lazy-loaded content",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next12.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "requirement",
+     "text": "Relevant lazy-loaded content must load when visible in the viewport, without requiring click or scroll interaction from Google."
+    },
+    {
+     "label": "explanation",
+     "text": "Indexable infinite scroll needs persistent unique chunk URLs, stable content at each URL, and ordinary sequential links between chunks."
+    },
+    {
+     "label": "recommendation",
+     "text": "Rendered HTML should be checked to confirm that deferred content and media source URLs are present."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "SEOHEAD documents its render milestone and its inability to prove delayed-after-load content. It does not claim that one load-milestone render proves scroll-triggered lazy content is indexable."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/keep-redacted-information-out",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/keep-redacted-information-out?hl=en",
+   "title": "Redacted information",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next20.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Visual hiding is not redaction; document history, cropped originals, metadata, and OCR-visible image text can remain searchable."
+    },
+    {
+     "label": "recommendation",
+     "text": "Remove sensitive information before a file is public, use proper redaction, and consider authentication for protected content."
+    },
+    {
+     "label": "explanation",
+     "text": "A robots-blocked URL may still appear without content, and URL or filename text can itself expose information."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No conflicting shipped statement found. This is primarily an operator/document-publication constraint rather than a current tool verdict."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/links-crawlable",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/links-crawlable?hl=en",
+   "title": "Links",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next12.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "A crawlable link is generally an a element with an href that resolves to a web address; JavaScript may insert that same markup dynamically."
+    },
+    {
+     "label": "recommendation",
+     "text": "Anchor text should be descriptive and concise; image links use image alt text as anchor text."
+    },
+    {
+     "label": "recommendation",
+     "text": "Paid links should use sponsored or nofollow, and user-generated links should use ugc or nofollow."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "seohead.tools.parser collects a href links, retains rel tokens and image-link naming evidence; rendered-link differences are explicitly routed to render-check. No contradiction found."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/mobile/mobile-sites-mobile-first-indexing",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/mobile/mobile-sites-mobile-first-indexing",
+   "title": "Mobile site and mobile-first indexing",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "google-search-alignment-20260909/javascript-mobile-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Google indexes with the smartphone crawler.",
+     "derived_from": "source review (narrative summary)"
+    },
+    {
+     "label": "recommendation",
+     "text": "Responsive design is recommended; dynamic serving and separate URLs require device-aware handling.",
+     "derived_from": "source review (narrative summary)"
+    },
+    {
+     "label": "recommendation",
+     "text": "Mobile content, headings, robots directives, metadata, structured data, images and resources should be equivalent and crawlable.",
+     "derived_from": "source review (narrative summary)"
+    },
+    {
+     "label": "explanation",
+     "text": "Interaction-gated primary content is not loaded.",
+     "derived_from": "source review (narrative summary)"
+    },
+    {
+     "label": "requirement",
+     "text": "Separate mobile URLs need correct canonical, alternate and hreflang relationships.",
+     "derived_from": "source review (narrative summary)"
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "repair",
+    "issues": [
+     {
+      "id": "#670",
+      "state": "closed",
+      "note": "mobile representation identity fix"
+     }
+    ]
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/pause-online-business",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/pause-online-business?hl=en",
+   "title": "Temporarily pause or disable a website",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next20.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "For a temporary pause, Google recommends keeping the site online and limiting commerce functionality rather than removing the site from Search."
+    },
+    {
+     "label": "recommendation",
+     "text": "Availability and structured data should reflect the temporary state; data-nosnippet can keep an operational banner out of snippets."
+    },
+    {
+     "label": "explanation",
+     "text": "Complete removal has no fixed recovery time."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No shipped tool or skill claim reviewed here recommends site-wide deindexation for a temporary availability pause."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/prevent-images-on-your-page",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/prevent-images-on-your-page?hl=en",
+   "title": "Image removals",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next20.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Emergency Removals requests are temporary unless the image is removed or otherwise blocked."
+    },
+    {
+     "label": "explanation",
+     "text": "For images, robots.txt and noindex X-Robots-Tag are alternative methods; combining them prevents Googlebot from seeing the header."
+    },
+    {
+     "label": "requirement",
+     "text": "Image-host robots rules must live on the image-hosting domain."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Aligned with existing explicit robots/X-Robots-Tag boundaries. The toolkit does not claim to submit removals or validate third-party image-host configuration."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/qualify-outbound-links",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/qualify-outbound-links?hl=en",
+   "title": "rel attributes",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next12.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "requirement",
+     "text": "Use sponsored for paid placements, ugc for user-generated links, and nofollow when the other relationship values do not apply."
+    },
+    {
+     "label": "eligibility",
+     "text": "Qualified links may still be found through sitemaps or other links; nofollow is not a way to guarantee that a URL is undiscoverable."
+    },
+    {
+     "label": "recommendation",
+     "text": "Use robots.txt to prevent fetching an internal URL and allow crawling plus noindex to prevent indexing."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "The crawler's discovery.follow_nofollow option is explicitly its own collection policy, not a claim about Google guarantee behavior; rel tokens are retained as evidence. No mismatch found."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/remove-information",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/remove-information?hl=en",
+   "title": "Page removals",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next20.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Removals requests are temporary, roughly six months."
+    },
+    {
+     "label": "requirement",
+     "text": "Permanent removal requires content removal or update, password protection, or noindex; robots.txt is not the page-removal method."
+    },
+    {
+     "label": "explanation",
+     "text": "All URL variations for the content need protection or removal."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Aligned: the repository treats removal as an external/Search Console operation and does not infer a permanent removal from a robots rule."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag",
+   "title": "Robots meta tag, data-nosnippet, and X-Robots-Tag",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "google-search-alignment-20260909/robots-crawl-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "requirement",
+     "text": "URLs carrying indexing directives must remain crawlable for Google to see them."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "repair",
+    "issues": [
+     {
+      "id": "#692",
+      "state": "closed",
+      "note": "root reconciliation lists conditional JS canonical severity and NOTRANSLATE guidance; this row is retained for owner disposition",
+      "merged_in": "PR #695"
+     }
+    ]
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/robots/intro",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/robots/intro",
+   "title": "Introduction to robots.txt",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "google-search-alignment-20260909/robots-crawl-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Use robots.txt for unimportant/similar URLs or traffic protection.",
+     "derived_from": "source review (itemized)"
+    },
+    {
+     "label": "recommendation",
+     "text": "Do not block scripts or styles needed to understand a page.",
+     "derived_from": "source review (itemized)"
+    },
+    {
+     "label": "recommendation",
+     "text": "Use password protection for security.",
+     "derived_from": "source review (itemized)"
+    },
+    {
+     "label": "heuristic",
+     "text": "Robots behavior varies across crawlers; Googlebot generally obeys it.",
+     "derived_from": "source review (itemized)"
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/site-move-no-url-changes",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/site-move-no-url-changes?hl=en",
+   "title": "Changing your hosting",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next20.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "A hosting or CDN move without visible URL changes is a separate migration type from a URL move."
+    },
+    {
+     "label": "explanation",
+     "text": "Prepare and test the new infrastructure, cut over DNS, monitor both old and new traffic, and retain old hosting until users and Googlebot receive the new content correctly."
+    },
+    {
+     "label": "recommendation",
+     "text": "A temporary test hostname needs noindex and should be checked for Googlebot access."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Aligned with the toolkit's explicit staging/private-network and runtime-smoke boundaries; no deployment guarantee is inferred from a build or local test."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/site-move-with-url-changes",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/site-move-with-url-changes?hl=en",
+   "title": "Move a site with URL changes",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next20.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Prepare an old-to-new URL mapping, update annotations and internal links, then use server-side permanent redirects to relevant destinations."
+    },
+    {
+     "label": "explanation",
+     "text": "Avoid redirect chains and irrelevant many-to-one redirects; a homepage redirect can be a soft 404 when it is not a relevant replacement."
+    },
+    {
+     "label": "explanation",
+     "text": "Keep redirects for at least a year, submit the new sitemap, and monitor old/new Search Console and server data."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Aligned with the merged intent-based redirect guidance and reporting boundary. No fixed timeline or guaranteed ranking outcome is claimed by the toolkit."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/sitemaps/build-sitemap",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/sitemaps/build-sitemap?hl=en",
+   "title": "Build and submit a sitemap",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next20.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Google accepts protocol sitemap formats without preferring one format over another."
+    },
+    {
+     "label": "recommendation",
+     "text": "A sitemap is limited to 50 MB uncompressed or 50,000 URLs; use an index or multiple files beyond that limit."
+    },
+    {
+     "label": "recommendation",
+     "text": "Use UTF-8, fully-qualified absolute URLs, and URLs intended for Google Search results."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Aligned: sitemap scenarios treat declarations as recommendations, retain declared versus reached evidence, and do not claim submission proves a fetch or indexation."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/sitemaps/combine-sitemap-extensions",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/sitemaps/combine-sitemap-extensions?hl=en",
+   "title": "Combining sitemap extensions",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next20.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Each used extension needs its namespace declaration."
+    },
+    {
+     "label": "explanation",
+     "text": "Extensions can be combined under the relevant URL element; their order after loc is irrelevant."
+    },
+    {
+     "label": "explanation",
+     "text": "Combined extensions increase file size and remain subject to general sitemap limits."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No shipped extension-order claim or sitemap writer was found that conflicts with this guide."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/sitemaps/image-sitemaps",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/sitemaps/image-sitemaps?hl=en",
+   "title": "Image sitemaps",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next20.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "An image sitemap may be separate or combined with a normal sitemap."
+    },
+    {
+     "label": "explanation",
+     "text": "Image URLs may be on another domain when both relevant properties are verified and crawling is allowed."
+    },
+    {
+     "label": "explanation",
+     "text": "Older caption, geo_location, title, and license image-sitemap fields are deprecated."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No current image-sitemap generator or contrary support claim was identified. Image crawling limitations stay explicit."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/sitemaps/large-sitemaps",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/sitemaps/large-sitemaps?hl=en",
+   "title": "Manage sitemaps with sitemap index file",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next20.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Use sitemap index files to organize multiple sitemap files, including when one sitemap exceeds limits."
+    },
+    {
+     "label": "explanation",
+     "text": "A sitemap index follows the same UTF-8 and absolute-URL requirements as other sitemaps."
+    },
+    {
+     "label": "explanation",
+     "text": "Segmenting sitemaps can make monitoring categories in Search Console easier."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No conflicting sitemap-size or submission claim found in the shipped scripts and scenarios examined for this batch."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/sitemaps/news-sitemap",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/sitemaps/news-sitemap?hl=en",
+   "title": "News sitemaps",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next20.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "A news sitemap may be separate or use news tags in a regular sitemap."
+    },
+    {
+     "label": "explanation",
+     "text": "Keep it updated with fresh articles and retain only URLs from articles created within two days."
+    },
+    {
+     "label": "explanation",
+     "text": "An empty news sitemap can be intentional and does not by itself harm Google Search."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No shipped news-sitemap publication feature or contradictory claim was found in the reviewed surface."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/sitemaps/overview",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/sitemaps/overview?hl=en",
+   "title": "Learn about sitemaps",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next20.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "A sitemap is a file that tells Google about pages and files, especially where discovery may be incomplete."
+    },
+    {
+     "label": "requirement",
+     "text": "A sitemap is not required for small, well-linked sites and does not guarantee crawling or indexing."
+    },
+    {
+     "label": "explanation",
+     "text": "Sitemaps can be discovered through robots.txt, Search Console, or explicit submission."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Aligned: native sitemap reconciliation calls a declaration a signal and makes indexation/Search Console a separate question."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/sitemaps/video-sitemaps",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/sitemaps/video-sitemaps?hl=en",
+   "title": "Video sitemaps and alternatives",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next20.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Video metadata can be supplied through a video sitemap or structured data, depending on the site's implementation."
+    },
+    {
+     "label": "requirement",
+     "text": "A video sitemap is based on general sitemap requirements and must use the video namespace and required per-video data."
+    },
+    {
+     "label": "eligibility",
+     "text": "Video discovery and eligibility remain separate from a guarantee of a Search feature."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No video-sitemap generator or unsupported feature guarantee is present in the reviewed repository surface."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/special-tags",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/special-tags?hl=en",
+   "title": "Meta tags and HTML attributes that Google supports",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next12.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Supported meta tags are placed in head; robots defaults are index, follow, and the more restrictive conflicting robots rule applies."
+    },
+    {
+     "label": "explanation",
+     "text": "X-Robots-Tag is especially useful for non-HTML resources."
+    },
+    {
+     "label": "eligibility",
+     "text": "A description can be used for a result snippet but does not guarantee a displayed snippet."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Robots and metadata checks distinguish observed directives from outcome guarantees, and the repository does not claim that a description is always the displayed snippet. No mismatch found."
+   ],
+   "disposition": {
+    "status": "repair",
+    "issues": [
+     {
+      "id": "#692",
+      "state": "closed",
+      "note": "root reconciliation lists conditional JS canonical severity and NOTRANSLATE guidance; this row is retained for owner disposition",
+      "merged_in": "PR #695"
+     }
+    ]
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/troubleshoot-crawling-errors",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/troubleshoot-crawling-errors",
+   "title": "Troubleshoot crawl errors",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "google-search-alignment-20260909/canonical-redirect-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Return 404 or 410 when removed content has no similar replacement."
+    },
+    {
+     "label": "explanation",
+     "text": "Return a true HTTP error status for custom error pages rather than a 200 error page."
+    },
+    {
+     "label": "explanation",
+     "text": "Stop emergency 503/429 responses when overload ends."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/url-structure",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/url-structure?hl=en",
+   "title": "URL structure",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next12.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "requirement",
+     "text": "URLs should conform to the URL standard; reserved characters must be percent encoded."
+    },
+    {
+     "label": "recommendation",
+     "text": "Fragments should not select alternate page content; JavaScript applications should use the History API for content-changing navigation."
+    },
+    {
+     "label": "recommendation",
+     "text": "Google recommends conventional parameter encoding and descriptive, audience-language URL paths, with percent encoding where necessary."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Most URL checks are explicitly presented as hygiene notices or measured properties. One encoded-space check and its prescribed fix conflict with the percent-encoding guidance; it is recorded in concrete_mismatches.",
+    "Root disposition for URL_CONTAINS_SPACE guidance: retain heuristic/detection/severity; qualify only the blanket fix for valid %20 query values."
+   ],
+   "disposition": {
+    "status": "repair",
+    "issues": [
+     {
+      "id": "#692",
+      "state": "closed",
+      "note": "Guidance-only encoded-space fix; retain detection/severity and qualify the blanket replacement advice for valid percent-encoded query values.",
+      "merged_in": "PR #695"
+     }
+    ]
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/valid-page-metadata",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/valid-page-metadata?hl=en",
+   "title": "Page metadata",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next12.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Metadata belongs in head; an invalid head element can make Google stop reading later head elements."
+    },
+    {
+     "label": "explanation",
+     "text": "Only title, meta, link, script, style, base, noscript, and template belong in head under the cited HTML model."
+    },
+    {
+     "label": "requirement",
+     "text": "If invalid elements must exist, Google recommends placing them after required metadata."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Native parser evidence and TITLE_OUTSIDE_HEAD, CANONICAL_OUTSIDE_HEAD, DIRECTIVES_OUTSIDE_HEAD, and INVALID_HEAD_ELEMENT checks directly model this guidance. No mismatch found."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/crawling-indexing/website-testing",
+   "source_url": "https://developers.google.com/search/docs/crawling-indexing/website-testing?hl=en",
+   "title": "A/B testing",
+   "category": "Crawling and indexing",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next20.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "requirement",
+     "text": "Do not cloak test variations from Googlebot."
+    },
+    {
+     "label": "recommendation",
+     "text": "Multi-URL tests should use canonical to the original; Google recommends 302 rather than 301 for temporary redirects."
+    },
+    {
+     "label": "explanation",
+     "text": "Run a test only as long as needed and remove its alternate URLs, scripts, and markup when complete."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Aligned: redirect guidance is intention-based and explicitly distinguishes temporary from permanent moves; canonical guidance does not promise a selected canonical outcome."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/essentials",
+   "source_url": "https://developers.google.com/search/docs/essentials",
+   "title": "Google Search Essentials",
+   "category": "Search Essentials",
+   "review_artifacts": [
+    "implementation-20260909/google-overview-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Technical requirements, spam policies, and best practices are distinct baseline layers for Google Search presence."
+    },
+    {
+     "label": "eligibility",
+     "text": "Meeting requirements is an eligibility baseline and does not guarantee rank or indexation."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Aligned with coverage semantics that keep eligibility distinct from clean or indexed conclusions."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/essentials/spam-policies",
+   "source_url": "https://developers.google.com/search/docs/essentials/spam-policies",
+   "title": "Spam policies",
+   "category": "Search Essentials",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final3.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Cloaking, doorway abuse, hidden text/link abuse, scaled abuse and other manipulation can lead to lower visibility or removal."
+    },
+    {
+     "label": "explanation",
+     "text": "Not every dynamic/hidden UI element is spam; intent and user deception matter."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "The toolkit does not claim to determine spam-policy compliance. Existing raw/render and hidden-content evidence are observations, not a spam verdict."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/essentials/technical",
+   "source_url": "https://developers.google.com/search/docs/essentials/technical?hl=en",
+   "title": "Technical requirements",
+   "category": "Search Essentials",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final3.json",
+    "implementation-20260909/google-root-reconciliation.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "eligibility",
+     "text": "Working public crawlable content is eligible, not guaranteed to be indexed."
+    },
+    {
+     "label": "requirement",
+     "text": "Robots blocks crawling; a blocked URL can still appear. Noindex requires crawl access."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Existing source/coverage semantics keep eligibility distinct from guaranteed indexing; no new confirmed mismatch."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/fundamentals/ai-optimization-guide",
+   "source_url": "https://developers.google.com/search/docs/fundamentals/ai-optimization-guide",
+   "title": "Optimizing for generative AI",
+   "category": "SEO fundamentals",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final3.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "eligibility",
+     "text": "Google frames AEO/GEO for its Search features as foundational SEO, not a separate guaranteed channel."
+    },
+    {
+     "label": "requirement",
+     "text": "Unique, useful first-hand content is emphasized; third-party AI-SEO advice requires scrutiny."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "GEO-related tools and skills are presented as bounded evidence, not visibility guarantees."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/fundamentals/creating-helpful-content",
+   "source_url": "https://developers.google.com/search/docs/fundamentals/creating-helpful-content",
+   "title": "Creating helpful, reliable, people-first content",
+   "category": "SEO fundamentals",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final3.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Prioritize people-first, original, reliable content and clear authorship/purpose over search-engine-first manipulation."
+    },
+    {
+     "label": "explanation",
+     "text": "The guidance is evaluative, not a deterministic content-score specification."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Content and thin/duplicate checks report bounded observations; no automated helpful-content verdict is claimed."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/fundamentals/do-i-need-seo",
+   "source_url": "https://developers.google.com/search/docs/fundamentals/do-i-need-seo",
+   "title": "Do you need an SEO?",
+   "category": "SEO fundamentals",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final3.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "eligibility",
+     "text": "Third-party advice should be checked against official guidance; no one can guarantee rankings."
+    },
+    {
+     "label": "recommendation",
+     "text": "Clients should understand recommendations and retain control of changes."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "The toolkit is evidence-first and does not promise rankings or Google approval."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/fundamentals/get-on-google",
+   "source_url": "https://developers.google.com/search/docs/fundamentals/get-on-google?hl=en",
+   "title": "How to get information on Google",
+   "category": "SEO fundamentals",
+   "review_artifacts": [
+    "implementation-20260909/google-supplemental-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Google commonly discovers sites automatically; a site: query is not exhaustive."
+    },
+    {
+     "label": "requirement",
+     "text": "Search Console and URL submission can aid diagnosis/discovery but do not guarantee indexing."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/fundamentals/get-started",
+   "source_url": "https://developers.google.com/search/docs/fundamentals/get-started",
+   "title": "Maintaining your site's SEO",
+   "category": "SEO fundamentals",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final3.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Keep intended resources crawlable; use robots for crawling and noindex/login for indexing exclusion."
+    },
+    {
+     "label": "recommendation",
+     "text": "Use 301 for permanent moves, 302 for temporary moves, true 404 for removed content, and hreflang for locales."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Registry and skills distinguish robots/noindex, redirect type, soft 404, resource blocking and hreflang. No contradictory severity claim was found."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/fundamentals/get-started-developers",
+   "source_url": "https://developers.google.com/search/docs/fundamentals/get-started-developers",
+   "title": "Developer's guide to Search",
+   "category": "SEO fundamentals",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final3.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Use crawlable anchor links, sitemaps, stable URLs and text visible to Google."
+    },
+    {
+     "label": "explanation",
+     "text": "robots blocks crawling, while noindex prevents indexing; JavaScript/rendering differences need verification."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Internal-link, sitemap, robots/noindex, native-crawl and raw/render evidence match these measurable requirements. The known JavaScript-only canonical defect is already recorded and is not duplicated here."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/fundamentals/how-search-works",
+   "source_url": "https://developers.google.com/search/docs/fundamentals/how-search-works",
+   "title": "How Google Search works",
+   "category": "SEO fundamentals",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final3.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "eligibility",
+     "text": "Discovery, crawling, indexing and serving are separate stages; discovery and indexing are not guaranteed."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Run coverage and skipped/unavailable states are preserved; no page-count or scan result is represented as an indexing guarantee."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/fundamentals/seo-starter-guide",
+   "source_url": "https://developers.google.com/search/docs/fundamentals/seo-starter-guide",
+   "title": "SEO Starter Guide",
+   "category": "SEO fundamentals",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final3.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "requirement",
+     "text": "Search Essentials improve eligibility but do not guarantee indexing or rank."
+    },
+    {
+     "label": "recommendation",
+     "text": "Use crawlable links and accessible resources; sitemaps can help discovery but are not required."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "README and reports avoid a ranking guarantee and record coverage limits; crawler/link/resource checks are aligned."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/fundamentals/third-party-seo",
+   "source_url": "https://developers.google.com/search/docs/fundamentals/third-party-seo",
+   "title": "Guidance on third-party SEO tools and advice",
+   "category": "SEO fundamentals",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final3.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Google does not endorse third-party SEO tools or give them internal ranking data."
+    },
+    {
+     "label": "eligibility",
+     "text": "Treat tool output as input for informed decisions, not as a ranking guarantee."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Product documentation presents evidence, skipped checks and specialist judgment rather than Google endorsement or guaranteed outcomes."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/fundamentals/using-gen-ai-content",
+   "source_url": "https://developers.google.com/search/docs/fundamentals/using-gen-ai-content",
+   "title": "Guidance on using generative AI",
+   "category": "SEO fundamentals",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final3.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Scaled AI generation without user value may violate scaled-content-abuse policy."
+    },
+    {
+     "label": "explanation",
+     "text": "Accuracy and quality matter for content and metadata; ecommerce AI media/data has Merchant Center-specific requirements."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No automatic compliance/ranking claim is made. Generic metadata and structured-data checks do not claim Merchant Center policy validation."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/monitor-debug/analyze-social-video-content",
+   "source_url": "https://developers.google.com/search/docs/monitor-debug/analyze-social-video-content",
+   "title": "Analyze social and video platform content",
+   "category": "Monitoring and debugging",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next25.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Platform properties in Search Console expose Google Search performance for verified social/video accounts."
+    },
+    {
+     "label": "recommendation",
+     "text": "Use Search Console query, country, date, and device data for analysis."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No local tool claims platform-property data without an authorized Search Console context."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/monitor-debug/bubble-chart-analysis",
+   "source_url": "https://developers.google.com/search/docs/monitor-debug/bubble-chart-analysis?hl=en",
+   "title": "Improve SEO with a bubble chart",
+   "category": "Monitoring and debugging",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next25.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "A bubble chart combines Search Console query CTR, average position, clicks, and device dimensions."
+    },
+    {
+     "label": "explanation",
+     "text": "It surfaces opportunities but does not by itself prove a causal SEO change."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No shipped output is presented as a Search Console bubble-chart conclusion without the supplied data."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/monitor-debug/debugging-search-traffic-drops",
+   "source_url": "https://developers.google.com/search/docs/monitor-debug/debugging-search-traffic-drops?hl=en",
+   "title": "Debug drops in Search traffic",
+   "category": "Monitoring and debugging",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next20.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Diagnose traffic drops with Search Console data, data-anomaly checks, technical reports, update context, and demand or seasonality context."
+    },
+    {
+     "label": "explanation",
+     "text": "Small ranking changes can reverse without action; radical changes are discouraged when a page already performs well."
+    },
+    {
+     "label": "explanation",
+     "text": "A local crawl cannot establish Google's selected index, traffic, or ranking outcome."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Aligned: local audit scenarios explicitly defer traffic, indexation, and Google-selected outcomes to Search Console or authorized provider data."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/monitor-debug/google-analytics-search-console",
+   "source_url": "https://developers.google.com/search/docs/monitor-debug/google-analytics-search-console?hl=en",
+   "title": "Using Search Console and Google Analytics data for SEO",
+   "category": "Monitoring and debugging",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next25.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Search Console clicks and Analytics sessions are different metrics and normally differ."
+    },
+    {
+     "label": "explanation",
+     "text": "Search Console is the source for Search performance; Analytics is the source for on-site behavior."
+    },
+    {
+     "label": "explanation",
+     "text": "Search Console reports Google canonical URLs while Analytics may report any tracked URL."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Aligned: external joins preserve source provenance and do not claim clicks equal sessions."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/monitor-debug/prevent-abuse",
+   "source_url": "https://developers.google.com/search/docs/monitor-debug/prevent-abuse?hl=en",
+   "title": "Prevent user-generated spam",
+   "category": "Monitoring and debugging",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next25.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Untrusted user content can initially use noindex and nofollow or ugc links."
+    },
+    {
+     "label": "explanation",
+     "text": "Moderation, rate controls, reputation, and monitoring are complementary controls."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Aligned: rel tokens are evidence and noindex is not claimed to remove access."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/monitor-debug/search-console-start",
+   "source_url": "https://developers.google.com/search/docs/monitor-debug/search-console-start?hl=en",
+   "title": "Get started with Search Console",
+   "category": "Monitoring and debugging",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next25.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Search Console supplies Google crawl, indexing, and serving evidence."
+    },
+    {
+     "label": "eligibility",
+     "text": "Sitemap submission can aid discovery but is optional and not a guarantee of indexing."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Aligned with the repository's authenticated-provider and local-evidence boundaries."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/monitor-debug/search-operators",
+   "source_url": "https://developers.google.com/search/docs/monitor-debug/search-operators?hl=en",
+   "title": "Overview",
+   "category": "Monitoring and debugging",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next20.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Search operators can support manual debugging but results are not exhaustive indexing reports."
+    },
+    {
+     "label": "explanation",
+     "text": "Operator syntax and availability can change, so Search Console is the stronger property-level diagnostic source."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Aligned: the toolkit treats operator use as manual evidence and does not turn a search result absence into a clean indexing verdict."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/monitor-debug/search-operators/all-search-site",
+   "source_url": "https://developers.google.com/search/docs/monitor-debug/search-operators/all-search-site?hl=en",
+   "title": "site: search operator",
+   "category": "Monitoring and debugging",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next25.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "site: results are not an exhaustive index report."
+    },
+    {
+     "label": "recommendation",
+     "text": "Use URL Inspection for a missing URL rather than treating a site: absence as a verdict."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Aligned: local audit guidance does not equate a search-operator result with indexation."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/monitor-debug/search-operators/image-search",
+   "source_url": "https://developers.google.com/search/docs/monitor-debug/search-operators/image-search?hl=en",
+   "title": "Google Images search operators",
+   "category": "Monitoring and debugging",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next20.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Google Images operators are diagnostic search features and are not a replacement for Search Console indexing evidence."
+    },
+    {
+     "label": "explanation",
+     "text": "Search result availability can vary by operator, region, and query."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No local tool claims to reproduce Google Images operator results or infer image indexation from a crawl alone."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/monitor-debug/security",
+   "source_url": "https://developers.google.com/search/docs/monitor-debug/security?hl=en",
+   "title": "Overview",
+   "category": "Monitoring and debugging",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next25.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Security, malware, phishing, and user-generated spam require monitoring and remediation beyond crawl findings."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No contradictory all-clear claim found."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/monitor-debug/security/malware",
+   "source_url": "https://developers.google.com/search/docs/monitor-debug/security/malware?hl=en",
+   "title": "Malware and unwanted software",
+   "category": "Monitoring and debugging",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next25.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Security Issues reports are Google's product-level evidence for malware findings."
+    },
+    {
+     "label": "explanation",
+     "text": "Cleanup and review require removing the actual compromise, not only changing surface SEO signals."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Aligned: security-check is a bounded HTTP diagnostic, not malware certification."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/monitor-debug/security/prevent-malware",
+   "source_url": "https://developers.google.com/search/docs/monitor-debug/security/prevent-malware?hl=en",
+   "title": "Prevent a malware infection",
+   "category": "Monitoring and debugging",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next25.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "eligibility",
+     "text": "Monitor Security Issues, unexpected indexed pages, server logs, software updates, and third-party code."
+    },
+    {
+     "label": "recommendation",
+     "text": "Use secure transfer protocols and protect logs and access controls."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No local scan result is presented as comprehensive malware prevention or compromise proof."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/monitor-debug/security/safe-browsing-repeat-offenders",
+   "source_url": "https://developers.google.com/search/docs/monitor-debug/security/safe-browsing-repeat-offenders?hl=en",
+   "title": "Google Safe Browsing Repeat Offenders Policy",
+   "category": "Monitoring and debugging",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next25.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Repeatedly switching between compliant and noncompliant behavior can create Repeat Offender status."
+    },
+    {
+     "label": "explanation",
+     "text": "The status blocks further Search Console review requests for 30 days."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No local security check claims to determine Safe Browsing or review eligibility."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/monitor-debug/security/social-engineering",
+   "source_url": "https://developers.google.com/search/docs/monitor-debug/security/social-engineering?hl=en",
+   "title": "Social engineering (phishing and deceptive sites)",
+   "category": "Monitoring and debugging",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next25.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Embedded ads and third-party content can make the host page violate social-engineering policy."
+    },
+    {
+     "label": "explanation",
+     "text": "Security Issues is the appropriate Google evidence source."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No local security-header or crawl check claims to rule out this class of abuse."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/monitor-debug/trends-start",
+   "source_url": "https://developers.google.com/search/docs/monitor-debug/trends-start?hl=en",
+   "title": "Get started with Google Trends",
+   "category": "Monitoring and debugging",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-next20.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Google Trends is aggregated, anonymized sampled interest data, suitable for strategy and context rather than a site-specific verdict."
+    },
+    {
+     "label": "recommendation",
+     "text": "Trend ideas should remain relevant to the business, audience, and first-hand expertise."
+    },
+    {
+     "label": "recommendation",
+     "text": "Analyze markets separately because demand differs by location and language."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No shipped provider result is described as exact Google Trends demand or as proof of a traffic cause; no contradiction found."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/specialty/ecommerce",
+   "source_url": "https://developers.google.com/search/docs/specialty/ecommerce",
+   "title": "Overview",
+   "category": "Site-specific guides",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final3.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Ecommerce visibility depends on sharing product data and crawler-readable site structure; this overview delegates to focused guides."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No distinct implementable rule beyond the assigned ecommerce guides."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/specialty/ecommerce/designing-a-url-structure-for-ecommerce-sites",
+   "source_url": "https://developers.google.com/search/docs/specialty/ecommerce/designing-a-url-structure-for-ecommerce-sites",
+   "title": "Design a URL structure",
+   "category": "Site-specific guides",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final3.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Avoid fragments for distinct content, redundant alternatives, unstable parameters and repeated parameters."
+    },
+    {
+     "label": "recommendation",
+     "text": "Use persistent unique pagination/variant URLs, consistent internal/sitemap/canonical URLs and crawlable anchors."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "URL, parameter, duplicate/canonical, pagination and anchor checks cover these observable conditions; the unconfirmed percent-encoding issue remains unreported as a defect."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/specialty/ecommerce/help-google-understand-your-ecommerce-site-structure",
+   "source_url": "https://developers.google.com/search/docs/specialty/ecommerce/help-google-understand-your-ecommerce-site-structure",
+   "title": "Ecommerce site structure",
+   "category": "Site-specific guides",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final3.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Google infers structure and relative importance from links, not URL shape."
+    },
+    {
+     "label": "explanation",
+     "text": "Products intended for indexing need crawlable navigation links; search-box-only discovery is insufficient."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Internal-link, depth, orphan and navigation evidence support this; the tool does not claim search-box crawling."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/specialty/ecommerce/how-to-launch-an-ecommerce-website",
+   "source_url": "https://developers.google.com/search/docs/specialty/ecommerce/how-to-launch-an-ecommerce-website",
+   "title": "Launch a new website",
+   "category": "Site-specific guides",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final3.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Verify ownership, use URL Inspection for small launches or sitemap for large ones, and monitor indexing."
+    },
+    {
+     "label": "requirement",
+     "text": "Merchant Center is required for some surfaces, not ordinary Google Search appearance."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Search Console and Merchant Center workflow steps are external operator actions; the toolkit does not claim to perform them."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/specialty/ecommerce/include-structured-data-relevant-to-ecommerce",
+   "source_url": "https://developers.google.com/search/docs/specialty/ecommerce/include-structured-data-relevant-to-ecommerce",
+   "title": "Include structured data",
+   "category": "Site-specific guides",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final3.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Structured data helps understanding; Google supports only some schema.org types."
+    },
+    {
+     "label": "explanation",
+     "text": "Breadcrumb, Organization, Product/ProductGroup, Review and VideoObject are relevant according to page purpose."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Schema parsing/validation and Product-oriented tooling are bounded and do not claim rich-result eligibility."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/specialty/ecommerce/pagination-and-incremental-page-loading",
+   "source_url": "https://developers.google.com/search/docs/specialty/ecommerce/pagination-and-incremental-page-loading",
+   "title": "Pagination, incremental page loading, and Search",
+   "category": "Site-specific guides",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final3.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "requirement",
+     "text": "Crawlers discover href links and do not generally click buttons or trigger action-dependent JavaScript."
+    },
+    {
+     "label": "explanation",
+     "text": "Pagination/load-more/infinite-scroll needs crawlable URL access plus sitemap or Merchant feed where needed."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Pagination declarations, ordinary-anchor and native/render evidence align. No new severity defect is established from the guide."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/specialty/ecommerce/share-your-product-data-with-google",
+   "source_url": "https://developers.google.com/search/docs/specialty/ecommerce/share-your-product-data-with-google",
+   "title": "Share product data",
+   "category": "Site-specific guides",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final3.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Product structured data is optional for Search but improves understanding/rich-result eligibility."
+    },
+    {
+     "label": "requirement",
+     "text": "Merchant Center feeds are optional for Search and required for some surfaces; feeds can provide faster/full product updates."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "The product does not claim Merchant Center feed submission or Shopping-surface validation; structured-data output remains an on-page measurement."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/specialty/ecommerce/where-ecommerce-data-can-appear-on-google",
+   "source_url": "https://developers.google.com/search/docs/specialty/ecommerce/where-ecommerce-data-can-appear-on-google",
+   "title": "Where content can appear",
+   "category": "Site-specific guides",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final3.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Different Google surfaces have separate prerequisites; actual appearance may differ."
+    },
+    {
+     "label": "explanation",
+     "text": "Useful catalog, review, policy and support content can help shoppers."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No guaranteed-surface claim appears in the toolkit."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/specialty/ecommerce/write-high-quality-reviews",
+   "source_url": "https://developers.google.com/search/docs/specialty/ecommerce/write-high-quality-reviews",
+   "title": "Write high quality reviews",
+   "category": "Site-specific guides",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final3.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Reviews should demonstrate expertise, first-hand evidence, original research, comparison, benefits/drawbacks and decision support."
+    },
+    {
+     "label": "explanation",
+     "text": "Quality and originality matter more than length."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "This is editorial guidance; existing content metrics do not claim to certify review quality."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/specialty/explicit/guidelines",
+   "source_url": "https://developers.google.com/search/docs/specialty/explicit/guidelines",
+   "title": "Guidelines for sites with explicit content",
+   "category": "Site-specific guides",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final3.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Explicit sites should let Google fetch video files, avoid age-gating Googlebot, group explicit pages where appropriate and use explicit metadata."
+    },
+    {
+     "label": "explanation",
+     "text": "SafeSearch classification uses page and linked text/image/video signals."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No explicit-content classifier or age-gate policy validator is claimed; generic crawl/metadata evidence is not presented as SafeSearch verdict."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/specialty/explicit/troubleshooting",
+   "source_url": "https://developers.google.com/search/docs/specialty/explicit/troubleshooting",
+   "title": "What to do if your site is incorrectly flagged as explicit",
+   "category": "Site-specific guides",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final3.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "explanation",
+     "text": "Diagnose SafeSearch filtering with query/site checks, fix only applicable common mistakes, then request review on Google's timeline."
+    },
+    {
+     "label": "requirement",
+     "text": "Do not apply adult-rating or non-family-friendly labels to non-explicit content; avoid age-gate blocking of Googlebot."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Search Console/SafeSearch diagnosis and review are operator workflows outside the toolkit; no contradictory claim found."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/specialty/international",
+   "source_url": "https://developers.google.com/search/docs/specialty/international",
+   "title": "Overview",
+   "category": "Site-specific guides",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final3.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "eligibility",
+     "text": "Localized versions and locale-adaptive pages need separate consideration because not all variants may be crawled/indexed."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "The product retains scope and missing-data evidence; no universal locale-adaptive crawl claim is made."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/specialty/international/locale-adaptive-pages",
+   "source_url": "https://developers.google.com/search/docs/specialty/international/locale-adaptive-pages",
+   "title": "How Google crawls locale-adaptive pages",
+   "category": "Site-specific guides",
+   "review_artifacts": [
+    "google-search-alignment-20260909/robots-crawl-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Use separate locale URLs and rel=alternate hreflang.",
+     "derived_from": "source review (itemized)"
+    },
+    {
+     "label": "recommendation",
+     "text": "Apply robots rules consistently across locales.",
+     "derived_from": "source review (itemized)"
+    },
+    {
+     "label": "recommendation",
+     "text": "Verify geo-distributed Googlebot with reverse DNS.",
+     "derived_from": "source review (itemized)"
+    },
+    {
+     "label": "heuristic",
+     "text": "US-based Googlebot traffic remains a major baseline but non-US crawling also occurs.",
+     "derived_from": "source review (itemized)"
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/specialty/international/localized-versions",
+   "source_url": "https://developers.google.com/search/docs/specialty/international/localized-versions",
+   "title": "Tell Google about localized versions of your page",
+   "category": "Site-specific guides",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final3.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Use one of HTML, HTTP headers or sitemap for hreflang; methods are equivalent and multiples add no Search benefit."
+    },
+    {
+     "label": "recommendation",
+     "text": "Use fully-qualified alternate URLs, self and reciprocal references, and x-default where suitable; hreflang does not determine language."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Hreflang errors, return-link checks and absolute URL evidence are represented. No new concrete inconsistency was found."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/docs/specialty/international/managing-multi-regional-sites",
+   "source_url": "https://developers.google.com/search/docs/specialty/international/managing-multi-regional-sites",
+   "title": "Managing multi-regional and multilingual sites",
+   "category": "Site-specific guides",
+   "review_artifacts": [
+    "implementation-20260909/google-guides-final3.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "recommendation",
+     "text": "Use separate URLs and hreflang for language/region versions; avoid automatic language redirects."
+    },
+    {
+     "label": "explanation",
+     "text": "Visible content determines language, not lang attribute or URL alone; Googlebot normally has no Accept-Language header."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "Hreflang, regional and raw/render tools support measurable parts; they do not claim to determine a page language solely from lang/URL."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/help/debug",
+   "source_url": "https://developers.google.com/search/help/debug?hl=en",
+   "title": null,
+   "category": "supplemental official documentation",
+   "review_artifacts": [
+    "implementation-20260909/google-supplemental-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "eligibility",
+     "text": "Search Console tools require verified ownership; Rich Results Test and AMP Test are anonymous tools."
+    },
+    {
+     "label": "explanation",
+     "text": "Published fixes need recrawl time; local/firewalled pages need public reachability for Google testing."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  },
+  {
+   "canonical_url": "https://developers.google.com/search/help/report-quality-issues",
+   "source_url": "https://developers.google.com/search/help/report-quality-issues?hl=en",
+   "title": null,
+   "category": "supplemental official documentation",
+   "review_artifacts": [
+    "implementation-20260909/google-supplemental-review.json"
+   ],
+   "actual_read": true,
+   "read_dates": [
+    "2026-09-09"
+   ],
+   "key_applicable_rules": [
+    {
+     "label": "requirement",
+     "text": "Spam reports must not include personal information and may inform manual action."
+    }
+   ],
+   "repo_surface_or_reason": [
+    "No concrete repository comparison was recorded in a source review; no product claim is inferred."
+   ],
+   "disposition": {
+    "status": "no_change",
+    "issues": []
+   }
+  }
+ ]
+}

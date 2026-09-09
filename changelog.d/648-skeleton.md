@@ -1,0 +1,1 @@
+- Ship `examples/project-skeleton` with an initialized, result-free checklist, so `project status` on it reports coverage counts instead of `not_initialized`, and gate that file against the live catalogue.
