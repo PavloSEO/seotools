@@ -2817,6 +2817,11 @@ def scenario_show(name: str) -> dict[str, Any]:
     return playbook_show(name, "scenario")
 
 
+def provider_auth(provider: str, action: str = "status", grant_file: str | None = None, confirm: bool = False) -> dict[str, Any]:
+    from seohead.data_sources.oauth import manage_grant
+    return manage_grant(provider, action, grant_file, confirm)
+
+
 def provider_registry() -> dict[str, Any]:
     from seohead.servers.provider_handlers import provider_registry as core
     return core()
@@ -2997,6 +3002,7 @@ _RAW_HANDLERS = {
     "skill_list": skill_list,
     "skill_show": skill_show,
     "scenario_show": scenario_show,
+    "provider_auth": provider_auth,
     "provider_registry": provider_registry,
     "provider_verify": provider_verify,
     "provider_collect": provider_collect,

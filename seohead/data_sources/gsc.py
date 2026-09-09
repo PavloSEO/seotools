@@ -273,6 +273,12 @@ def _acquire_token(value: str | None) -> tuple[str | None, str | None]:
     try:
         return value or gsc_access_token(), None
     except MissingCredential:
+        from seohead.data_sources.oauth import grant_available
+        if grant_available("gsc"):
+            try:
+                return durable_oauth_token()["access_token"], None
+            except (MissingCredential, OSError, ValueError):
+                return None, "stored OAuth grant refresh failed; reconnect or check the grant"
         try:
             return service_account_access_token(), None
         except MissingCredential as service_error:
