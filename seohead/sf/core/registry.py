@@ -548,7 +548,9 @@ CHECKS: dict[str, dict[str, Any]] = {
         "severity": "warning",
         "source": "SF:URL:Contains Space",
         "message": "URL contains a space",
-        "fix": "Remove literal spaces and %20 sequences from the canonical URL structure.",
+        "fix": "Encode literal spaces in links; do not mechanically remove percent-encoded values "
+        "such as q=red%20shoes. Change a canonical path only after verifying equivalent content "
+        "and planning redirects or canonicals.",
     },
     "URL_REPETITIVE_PATH": {
         "severity": "notice",
@@ -624,7 +626,7 @@ CHECKS: dict[str, dict[str, Any]] = {
         "severity": "notice",
         "source": "SF-derived",
         "message": "Page contains a notranslate directive",
-        "fix": "Confirm that blocking the browser's offer-to-translate prompt is intentional.",
+        "fix": "Confirm that opting out of translation-related Google Search features is intentional.",
     },
     "UNAVAILABLE_AFTER": {
         "severity": "warning",
