@@ -145,6 +145,7 @@ def build_server():  # -> FastMCP
         producer_build: str | None = None,
         overrides: dict[str, Any] | None = None,
         resume: str | None = None,
+        project: str | None = None,
     ) -> dict[str, Any]:
         """Crawl a site from a start URL by following links, or fetch an explicit
         ``urls`` list instead of following links at all, then audit the result
@@ -215,6 +216,7 @@ def build_server():  # -> FastMCP
                 producer_build=producer_build,
                 overrides=overrides,
                 resume=resume,
+                project=project,
             )
         )
 
@@ -947,9 +949,44 @@ def build_server():  # -> FastMCP
         return _checked(handlers.indexnow_submit(urls=urls, host=host, key_location=key_location))
 
     @mcp.tool(annotations=read_files, structured_output=True)
-    def seo_scan_list(directory: str, offset: int = 0, limit: int = 100) -> dict[str, Any]:
+    def seo_project_open(directory: str, expected_site: str | None = None) -> dict[str, Any]:
+        """Open a local project workspace without executing template references."""
+        return _checked(handlers.project_open(directory=directory, expected_site=expected_site))
+
+    @mcp.tool(annotations=create_files, structured_output=True)
+    def seo_project_new(
+        directory: str,
+        target: str,
+        label: str | None = None,
+        facts: list[dict[str, Any]] | None = None,
+        template_references: list[str] | None = None,
+        profile_references: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Create a local project workspace; no crawl, checklist execution, or network work starts."""
+        return _checked(
+            handlers.project_new(
+                directory=directory,
+                target=target,
+                label=label,
+                facts=facts,
+                template_references=template_references,
+                profile_references=profile_references,
+            )
+        )
+
+    @mcp.tool(annotations=read_files, structured_output=True)
+    def seo_project_status(directory: str) -> dict[str, Any]:
+        """Show project scan history and named pending checklist/preparation states."""
+        return _checked(handlers.project_status(directory=directory))
+
+    @mcp.tool(annotations=read_files, structured_output=True)
+    def seo_scan_list(
+        directory: str | None = None, offset: int = 0, limit: int = 100, project: str | None = None
+    ) -> dict[str, Any]:
         """List saved SQLite scan metadata without loading retained bodies."""
-        return _checked(handlers.scan_list(directory=directory, offset=offset, limit=limit))
+        return _checked(
+            handlers.scan_list(directory=directory, offset=offset, limit=limit, project=project)
+        )
 
     @mcp.tool(annotations=read_files, structured_output=True)
     def seo_scan_inspect(
@@ -982,11 +1019,12 @@ def build_server():  # -> FastMCP
 
     @mcp.tool(annotations=rewrite_files, structured_output=True)
     def seo_scan_prune(
-        directory: str,
+        directory: str | None = None,
         older_than_days: int = 30,
         keep_newest: int = 5,
         plan: dict[str, Any] | None = None,
         apply: bool = False,
+        project: str | None = None,
     ) -> dict[str, Any]:
         """Preview candidates by default; deletion requires apply plus the reviewed plan."""
         return _checked(
@@ -996,6 +1034,7 @@ def build_server():  # -> FastMCP
                 keep_newest=keep_newest,
                 plan=plan,
                 apply=apply,
+                project=project,
             )
         )
 

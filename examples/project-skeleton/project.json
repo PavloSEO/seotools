@@ -1,0 +1,26 @@
+{
+  "artifact_directories": {
+    "log": "log.md",
+    "reports": "reports",
+    "scans": "scans"
+  },
+  "created_at": "2026-09-09T00:00:00Z",
+  "facts": [
+    {
+      "name": "cms",
+      "observed_at": null,
+      "provenance": "synthetic example",
+      "value": "example-cms"
+    }
+  ],
+  "format": "seohead.project.v1",
+  "profile_references": ["ecommerce/basic"],
+  "project_uuid": "00000000-0000-4000-8000-000000000001",
+  "site": {
+    "host": "example.test",
+    "label": "Synthetic ecommerce project",
+    "target": "https://example.test/"
+  },
+  "template_references": ["ecommerce/product-card"],
+  "version": 1
+}

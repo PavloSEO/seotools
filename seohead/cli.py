@@ -89,6 +89,9 @@ COMMANDS = (
     "scan-pin",
     "scan-prune",
     "scan-body-diff",
+    "project-new",
+    "project-open",
+    "project-status",
 )
 
 # Tools whose complete direct CLI input can be supplied by one --url flag.
@@ -223,6 +226,8 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
             kw["urls"] = _split_list(args.urls)
         if getattr(args, "urls_file", None):
             kw["urls_file"] = args.urls_file
+        if getattr(args, "project", None):
+            kw["project"] = args.project
         for flag in (
             "config",
             "max_urls",
@@ -286,6 +291,11 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
         if getattr(args, "all_pages", False):
             kw["only_indexable"] = False
         # items[] is intentionally accepted through --input JSON.
+    elif cmd in {"project-new", "project-open", "project-status"}:
+        for name in ("directory", "target", "label", "expected_site"):
+            value = getattr(args, name, None)
+            if value is not None:
+                kw[name] = value
     elif cmd == "boilerplate-report":
         if getattr(args, "scan", None):
             kw["scan"] = args.scan
@@ -457,6 +467,8 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
         if getattr(args, "key_location", None):
             kw["key_location"] = args.key_location
     if cmd == "scan-list":
+        if getattr(args, "project", None):
+            kw["project"] = args.project
         if getattr(args, "directory", None):
             kw["directory"] = args.directory
         for name in ("offset", "limit"):
@@ -481,6 +493,8 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
         if getattr(args, "unpin", False):
             kw["pinned"] = False
     if cmd == "scan-prune":
+        if getattr(args, "project", None):
+            kw["project"] = args.project
         if getattr(args, "directory", None):
             kw["directory"] = args.directory
         for name in ("older_than_days", "keep_newest", "plan"):
@@ -767,6 +781,11 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
     if cmd == "crawl-site":
         _source_flag(
             sub,
+            "--project",
+            help="project directory: default target and scan location",
+        )
+        _source_flag(
+            sub,
             "--urls",
             help="comma-separated URL list: list mode, no discovery",
         )
@@ -789,8 +808,7 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
             sub,
             "--resume",
             metavar="FILE",
-            help="continue an interrupted SQLite scan; its start URL and settings "
-            "come from the file, so no other crawl flag applies",
+            help="resume stored URL/settings; no crawl overrides",
         )
         sub.add_argument(
             "--producer-build", metavar="SHA", help="original source build for SQLite capture"
@@ -1035,6 +1053,7 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
         )
         sub.add_argument("--offset", type=int)
         sub.add_argument("--limit", type=int)
+        _source_flag(sub, "--project", help="project directory whose scans/ directory is listed")
     if cmd in {"scan-inspect", "scan-snapshot", "scan-pin"}:
         _source_flag(sub, "--input", dest="input_path", required=False, help="scan SQLite file")
     if cmd == "scan-inspect":
@@ -1054,6 +1073,15 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
         sub.add_argument("--keep-newest", dest="keep_newest", type=int)
         _source_flag(sub, "--plan", help="reviewed prune-plan JSON file")
         sub.add_argument("--apply", action="store_true")
+        _source_flag(sub, "--project", help="project directory whose scans/ directory is pruned")
+    if cmd == "project-new":
+        _source_flag(sub, "--directory", help="new project directory")
+        _source_flag(sub, "--target", help="primary site URL")
+        sub.add_argument("--label", help="human project label")
+    if cmd in {"project-open", "project-status"}:
+        _source_flag(sub, "--directory", help="project directory")
+    if cmd == "project-open":
+        sub.add_argument("--expected-site", help="expected target host")
     if cmd == "scan-body-diff":
         _source_flag(sub, "--left", help="earlier scan SQLite file")
         _source_flag(sub, "--right", help="later scan SQLite file")
@@ -1180,6 +1208,12 @@ def build_parser() -> argparse.ArgumentParser:
         cmd = "scan-" + action
         sp = scan_subs.add_parser(action, help=f"run {cmd}")
         _add_flags(sp, cmd)
+    project = subs.add_parser("project", help="local project workspace")
+    project_subs = project.add_subparsers(dest="project_command", metavar="<action>", required=True)
+    for action in ("new", "open", "status"):
+        cmd = "project-" + action
+        sp = project_subs.add_parser(action, help=f"run {cmd}")
+        _add_flags(sp, cmd)
     sf = subs.add_parser("sf", help="Screaming Frog crawl audit (run | tasks | doctor)")
     sf.add_argument(
         "sf_args", nargs=argparse.REMAINDER, help="arguments forwarded to the sf-analyzer CLI"
@@ -1198,6 +1232,8 @@ def main(argv: list[str] | None = None) -> int:
     cmd = args.command
     if cmd == "scan":
         cmd = "scan-" + args.scan_command
+    if cmd == "project":
+        cmd = "project-" + args.project_command
     if not cmd:
         build_parser().print_help()
         return 0

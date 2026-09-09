@@ -52,7 +52,7 @@ PUBLIC_PYTHON = sorted((ROOT / "seohead").glob("**/*.py")) + sorted(
     (ROOT / "tests").glob("**/*.py")
 )
 
-EXTRA_COMMANDS = {"sf", "mcp", "scan"}
+EXTRA_COMMANDS = {"sf", "mcp", "scan", "project"}
 # This literal Cyrillic range intentionally detects non-English public prose.
 CYRILLIC = re.compile(r"[А-Яа-яЁё]")  # noqa: RUF001
 ALLOWED_LOCALIZED_MARKDOWN = {
@@ -194,12 +194,16 @@ def test_skills_map_command_coverage_is_current():
 
 def test_documented_product_counts_match_the_registries():
     provenance = (ROOT / "PROVENANCE.md").read_text(encoding="utf-8")
-    assert len(COMMANDS) == len(HANDLERS) == 64
+    assert len(COMMANDS) == len(HANDLERS)
     assert len(_sf_tool_names()) == 5
     assert len(CHECKS) == 161
     assert len(TECHNICAL_SKILLS) == 23
     assert len(PACKAGED_SKILLS) == 7
-    assert "64" in provenance and "161" in provenance and "five" in provenance.lower()
+    assert (
+        str(len(COMMANDS)) in provenance
+        and str(len(CHECKS)) in provenance
+        and "five" in provenance.lower()
+    )
     assert (ROOT / "CITATION.cff").is_file()
 
 
@@ -305,7 +309,7 @@ def test_tool_reference_is_generated_and_current():
     sf_tools = load_sf_tools()
     expected = {tool.command or tool.name for tool in (*seo_tools, *sf_tools)}
     assert documented == expected, "every seo_*/sf_* tool must appear in the generated reference"
-    assert len(seo_tools) == len(COMMANDS) == 64
+    assert len(seo_tools) == len(COMMANDS)
     assert len(sf_tools) == 5
 
 

@@ -43,7 +43,7 @@ def _command(
     return CommandContract(command, handler, forms, note)
 
 
-# The 64 direct CLI commands.  This module is intentionally data-only: tests at
+# Direct CLI commands.  This module is intentionally data-only: tests at
 # the CLI/handler boundary prove the entries stay synchronized without making
 # package runtime import either interface layer.
 COMMAND_CONTRACTS: tuple[CommandContract, ...] = (
@@ -60,6 +60,11 @@ COMMAND_CONTRACTS: tuple[CommandContract, ...] = (
             note="Resumes retained crawl evidence and continues network collection.",
         ),
         _form("local_config", "config"),
+        _form(
+            "project_directory",
+            "project",
+            note="Defaults the target and scans/ path; explicit paths, legacy output and resume keep their route.",
+        ),
     ),
     _command("crawl-describe-settings", "crawl_describe_settings", _form("no_input")),
     _command("scan-reanalyze", "scan_reanalyze", _form("scan_artifact", "input_path")),
@@ -193,7 +198,20 @@ COMMAND_CONTRACTS: tuple[CommandContract, ...] = (
         _form("provider_query", "origin"),
     ),
     _command("indexnow-submit", "indexnow_submit", _form("url_list", "urls")),
-    _command("scan-list", "scan_list", _form("legacy_directory", "directory")),
+    _command(
+        "scan-list",
+        "scan_list",
+        _form("legacy_directory", "directory"),
+        _form("project_directory", "project"),
+    ),
+    _command(
+        "project-new",
+        "project_new",
+        _form("project_directory", "directory"),
+        _form("live_url", "target"),
+    ),
+    _command("project-open", "project_open", _form("project_directory", "directory")),
+    _command("project-status", "project_status", _form("project_directory", "directory")),
     _command("scan-inspect", "scan_inspect", _form("scan_artifact", "input_path")),
     _command("scan-snapshot", "scan_snapshot", _form("scan_artifact", "input_path")),
     _command("scan-pin", "scan_pin", _form("scan_artifact", "input_path")),
@@ -202,6 +220,11 @@ COMMAND_CONTRACTS: tuple[CommandContract, ...] = (
         "scan_prune",
         _form("legacy_directory", "directory"),
         _form("local_file", "plan"),
+        _form(
+            "project_directory",
+            "project",
+            note="Defaults the directory to project scans/; apply remains explicit.",
+        ),
     ),
     _command(
         "scan-body-diff",
@@ -249,6 +272,7 @@ _KIND_LABELS = {
     "selector": "Selector",
     "provider_query": "Provider query",
     "local_config": "Local configuration",
+    "project_directory": "Project directory",
     "no_input": "No direct input",
 }
 
