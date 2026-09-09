@@ -199,21 +199,48 @@ def store_document(
     return payload
 
 
-def read(con: sqlite3.Connection) -> dict[str, Any]:
+def read(con: sqlite3.Connection, *, limit: int = 1_000, offset: int = 0) -> dict[str, Any]:
     """Read typed resource declarations/fetches without re-extracting or fetching."""
     if con.execute("PRAGMA user_version").fetchone()[0] != 2:
         return {"state": "unavailable", "reason": "resource graph was not stored in this scan"}
     names = {row[0] for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     if "resource_graph_occurrences" not in names:
         return {"state": "unavailable", "reason": "resource graph extension is absent"}
+    if type(limit) is not int or type(offset) is not int or not 1 <= limit <= 10_000 or offset < 0:
+        raise ValueError("resource graph limit must be 1..10000 and offset nonnegative")
+    total = con.execute("SELECT COUNT(*) FROM resource_graph_occurrences").fetchone()[0]
+    states = {
+        row[0]: row[1]
+        for row in con.execute(
+            "SELECT state,COUNT(*) FROM resource_graph_occurrences GROUP BY state"
+        )
+    }
     occurrences = [
         dict(row)
         for row in con.execute(
-            "SELECT * FROM resource_graph_occurrences ORDER BY page_url_id,source_document_id,ordinal"
+            "SELECT * FROM resource_graph_occurrences ORDER BY page_url_id,source_document_id,ordinal LIMIT ? OFFSET ?",
+            (limit, offset),
         )
     ]
-    fetches = [dict(row) for row in con.execute("SELECT * FROM resource_graph_fetches ORDER BY resolved_url")]
-    return {"state": "complete", "occurrences": occurrences, "fetches": fetches}
+    fetches = [
+        dict(row)
+        for row in con.execute("SELECT * FROM resource_graph_fetches ORDER BY resolved_url LIMIT ? OFFSET ?", (limit, offset))
+    ]
+    coverage = (
+        {"state": "unavailable", "reason": "resource declarations were not captured"}
+        if not total
+        else {"state": "partial" if any(states.get(name) for name in ("disabled", "budget", "failed", "excluded")) else "complete", "counts": states}
+    )
+    return {
+        "state": coverage["state"],
+        "coverage": coverage,
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + len(occurrences) < total,
+        "occurrences": occurrences,
+        "fetches": fetches,
+    }
 
 
 def validate(con: sqlite3.Connection) -> None:
