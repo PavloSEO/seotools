@@ -37,6 +37,8 @@ from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from seohead.data_sources.http import open_no_redirect
+
 SEARCH_ANALYTICS_HOST = "https://www.googleapis.com/webmasters/v3"
 INSPECTION_HOST = "https://searchconsole.googleapis.com/v1"
 TIMEOUT = 30
@@ -111,7 +113,7 @@ def _default_fetcher(url: str) -> Fetcher:
         )
         # The request URL is the fixed HTTPS Search Console endpoint; the token travels in a
         # header, never in the URL, so it cannot end up echoed into a log line or a stack trace.
-        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:  # nosec B310
+        with open_no_redirect(request, timeout=TIMEOUT) as response:
             return response.read().decode("utf-8")
 
     return fetch
@@ -264,7 +266,7 @@ def _request(method: str, url: str, payload: dict[str, Any] | None, token: str) 
         method=method,
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(request, timeout=TIMEOUT) as response:  # nosec B310
+    with open_no_redirect(request, timeout=TIMEOUT) as response:
         return response.read().decode("utf-8")
 
 

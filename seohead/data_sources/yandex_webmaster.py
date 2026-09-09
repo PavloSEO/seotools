@@ -8,6 +8,8 @@ import urllib.request
 from collections.abc import Callable
 from typing import Any
 
+from seohead.data_sources.http import open_no_redirect
+
 HOST = "https://api.webmaster.yandex.net/v4"
 TIMEOUT = 30
 Transport = Callable[[str, str, dict[str, Any] | None, str], str]
@@ -20,7 +22,7 @@ def _default_transport(method: str, url: str, payload: dict[str, Any] | None, to
         method=method,
         headers={"Authorization": f"OAuth {token}", "Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(request, timeout=TIMEOUT) as response:  # nosec B310
+    with open_no_redirect(request, timeout=TIMEOUT) as response:
         return response.read().decode("utf-8")
 
 

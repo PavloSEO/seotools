@@ -15,6 +15,8 @@ import urllib.request
 from collections.abc import Callable
 from typing import Any
 
+from seohead.data_sources.http import open_no_redirect
+
 HOST = "https://ssl.bing.com/webmaster/api.svc/json"
 TIMEOUT = 30
 Transport = Callable[[str], str]
@@ -28,7 +30,8 @@ _METHODS = {
 
 
 def _default_transport(url: str) -> str:
-    with urllib.request.urlopen(url, timeout=TIMEOUT) as response:  # nosec B310
+    request = urllib.request.Request(url)
+    with open_no_redirect(request, timeout=TIMEOUT) as response:
         return response.read().decode("utf-8")
 
 

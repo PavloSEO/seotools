@@ -8,6 +8,8 @@ import urllib.request
 from collections.abc import Callable
 from typing import Any
 
+from seohead.data_sources.http import open_no_redirect
+
 HOST = "https://analyticsdata.googleapis.com/v1beta"
 TIMEOUT = 30
 MAX_ROWS = 25_000
@@ -21,7 +23,7 @@ def _default_transport(url: str, payload: dict[str, Any], token: str) -> str:
         method="POST",
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(request, timeout=TIMEOUT) as response:  # nosec B310
+    with open_no_redirect(request, timeout=TIMEOUT) as response:
         return response.read().decode("utf-8")
 
 

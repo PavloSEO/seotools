@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from seohead.data_sources.credentials import CONFIG_ROOT, MissingCredential
+from seohead.data_sources.http import open_no_redirect
 
 TOKEN_HOST = "https://oauth2.googleapis.com/token"
 RefreshTransport = Callable[[dict[str, str]], dict[str, Any]]
@@ -64,7 +65,7 @@ def _default_refresh(payload: dict[str, str]) -> dict[str, Any]:
         method="POST",
         headers={"Content-Type": "application/x-www-form-urlencoded"},
     )
-    with urllib.request.urlopen(request, timeout=30) as response:  # nosec B310
+    with open_no_redirect(request, timeout=30) as response:
         return json.loads(response.read().decode("utf-8"))
 
 

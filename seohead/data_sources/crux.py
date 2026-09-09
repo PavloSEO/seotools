@@ -20,6 +20,8 @@ import urllib.request
 from collections.abc import Callable
 from typing import Any
 
+from seohead.data_sources.http import open_no_redirect
+
 HOST = "https://chromeuxreport.googleapis.com/v1/records:queryRecord"
 HISTORY_HOST = "https://chromeuxreport.googleapis.com/v1/records:queryHistoryRecord"
 TIMEOUT = 30
@@ -38,7 +40,7 @@ def _default_fetcher(payload: dict[str, Any], api_key: str) -> str:
         # echoed into a URL that lands in a log line or an exception message.
         headers={"Content-Type": "application/json", "X-goog-api-key": api_key},
     )
-    with urllib.request.urlopen(request, timeout=TIMEOUT) as response:  # nosec B310
+    with open_no_redirect(request, timeout=TIMEOUT) as response:
         return response.read().decode("utf-8")
 
 
@@ -50,7 +52,7 @@ def _history_fetcher(payload: dict[str, Any], api_key: str) -> str:
         method="POST",
         headers={"Content-Type": "application/json", "X-goog-api-key": api_key},
     )
-    with urllib.request.urlopen(request, timeout=TIMEOUT) as response:  # nosec B310
+    with open_no_redirect(request, timeout=TIMEOUT) as response:
         return response.read().decode("utf-8")
 
 
