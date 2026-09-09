@@ -87,3 +87,48 @@ are `seo_project_checklist_init`, `seo_project_checklist_update` and
 `report-build --project DIRECTORY` includes the validated checklist coverage, reasons,
 scope and measurement in a human report without fetching or rerunning the audit. The
 original JSON audit remains unchanged, and `--out` still controls the destination.
+
+### Definitions, evidence, and reusable templates
+
+The [synthetic ecommerce template](../examples/ecommerce-checklist.json) is a
+reusable data-only input for the `template` argument of checklist initialization.
+Pass its parsed object through CLI `--input` or the MCP `template` argument; a JSON
+filename is not an inline JSON argument. Replace its synthetic site and sample
+URLs with the agreed scope. Template text never runs code.
+
+Items have stable IDs, a site/template/URL scope, dependencies, execution kind,
+priority, order, and an enabled flag. Updates append definition history; they do
+not erase attempts. Explicit priority choices are preserved separately from
+defaults. Reconciliation picks up new or changed catalogue definitions. New
+entries remain pending; changed definitions or evidence remain visibly stale.
+Disabling an item keeps its history and appears in the disabled count, separately
+from a reasoned `not_applicable` decision.
+
+Execution records use `running`, `failed`, `unavailable`, `succeeded`, or
+`not_applicable`. The checklist states remain `run`, `not_run`, and
+`not_applicable`: failed or unavailable attempts are unfinished. Every record
+requires a reason. Applicability decisions also require a reviewer; missing data
+alone is not an exclusion.
+
+Automatic completion binds a registered check to a validated SQLite artifact
+under `scans/` or `reports/`, verifies the saved check outcome and site identity,
+and records its digest, producer/configuration, time, and measured population.
+A template requires explicit sample URLs matching that artifact's population.
+Partial measurements remain limited even when the step completed. This metadata
+records provenance and detects changed local bytes; it is not independent
+attestation of how an artifact was produced.
+
+Manual completion requires a named reviewer and either `signoff: true` or an
+artifact with `review: "approved"`. Deliverables always require an artifact and
+approved review. A file's existence, opening a skill, or discovering a finding
+does not establish completed work or an implemented client-site fix. Current
+status lists running, blocked, waiting-for-manual-review, deliverable-ready, and
+remaining items from the same records. A previously run step can become blocked
+when its dependency becomes stale; human reports show that distinction.
+
+Writes use an exclusive `.coverage.lock`, optimistic revisions and atomic file
+replacement. A concurrent writer refuses without discarding earlier work. After
+an interrupted process leaves a lock, confirm that no writer is active before
+removing that lock and retrying with the freshly read revision. Unknown coverage
+schemas, unsafe paths and malformed history refuse rather than being migrated
+on read.

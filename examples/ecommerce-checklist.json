@@ -1,0 +1,31 @@
+{
+  "format": "seohead.checklist-template.v1",
+  "items": [
+    {
+      "id": "custom:product-response",
+      "title": "Check the representative product response",
+      "execution_kind": "automatic",
+      "operation": "check:BROKEN_PAGE_4XX",
+      "scope": {
+        "site": "https://example.test/",
+        "template": "product-card",
+        "urls": ["https://example.test/product"]
+      },
+      "priority": "P0",
+      "order": 0
+    },
+    {
+      "id": "custom:product-review",
+      "title": "Review product specifications and purchase flow",
+      "execution_kind": "manual",
+      "scope": {
+        "site": "https://example.test/",
+        "template": "product-card",
+        "urls": ["https://example.test/product"]
+      },
+      "dependencies": ["custom:product-response"],
+      "priority": "P1",
+      "order": 1
+    }
+  ]
+}

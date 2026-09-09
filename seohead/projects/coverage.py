@@ -33,6 +33,17 @@ def _hash(value: Any) -> str:
     ).hexdigest()
 
 
+def _completion_hash(definition: dict) -> str:
+    """Hash evidence-bearing definition fields, excluding scheduling choices."""
+    return _hash(
+        {
+            key: value
+            for key, value in definition.items()
+            if key not in {"priority", "priority_origin", "order", "enabled"}
+        }
+    )
+
+
 def _text(value: Any, name: str, limit: int = 2048) -> str:
     if not isinstance(value, str) or not value.strip() or len(value) > limit:
         raise ValueError(f"{name} must be nonempty text of at most {limit} characters")
@@ -78,6 +89,7 @@ def _definition(value: Any, catalogue: dict, *, historical: bool = False) -> dic
         "dependencies",
         "execution_kind",
         "priority",
+        "priority_origin",
         "enabled",
         "order",
         "operation",
@@ -105,6 +117,8 @@ def _definition(value: Any, catalogue: dict, *, historical: bool = False) -> dic
         raise ValueError("invalid execution kind")
     if not isinstance(value["priority"], str) or value["priority"] not in {"P0", "P1", "P2"}:
         raise ValueError("invalid priority")
+    if value["priority_origin"] not in {"default", "operator"}:
+        raise ValueError("invalid priority origin")
     if (
         type(value["enabled"]) is not bool
         or type(value["order"]) is not int
@@ -217,7 +231,7 @@ def _read(root: Path, project: dict) -> dict | None:
             _definition(version["definition"], {}, historical=True)
             if version["definition"]["id"] != item_id:
                 raise ValueError("historical item identity mismatch")
-            hashes[_hash(version["definition"])] = version["definition"]
+            hashes[_completion_hash(version["definition"])] = version["definition"]
         for record in item["records"]:
             _record_shape(record, hashes)
     _dependencies(document["items"])
@@ -370,6 +384,8 @@ def _custom(value: Any, site: str, catalogue: dict, previous: dict | None = None
     item_id = _identifier(value.get("id"))
     if not item_id.startswith("custom:") and previous is None:
         raise ValueError("new operator items require the custom namespace")
+    if "priority_origin" in value:
+        raise ValueError("priority origin is assigned by the checklist, not input")
     base = previous or {
         "id": item_id,
         "title": item_id,
@@ -378,6 +394,7 @@ def _custom(value: Any, site: str, catalogue: dict, previous: dict | None = None
         "dependencies": [],
         "execution_kind": "manual",
         "priority": "P1",
+        "priority_origin": "default",
         "enabled": True,
         "order": 0,
         "operation": None,
@@ -392,7 +409,10 @@ def _custom(value: Any, site: str, catalogue: dict, previous: dict | None = None
     removed = previous is not None and previous["kind"] != "custom" and item_id not in catalogue
     if removed and set(value) - {"id", "enabled", "order", "priority", "title"}:
         raise ValueError("removed built-ins can only be disabled or relabeled")
-    return _definition({**base, **value}, catalogue, historical=removed)
+    definition = {**base, **value}
+    if "priority" in value:
+        definition["priority_origin"] = "operator"
+    return _definition(definition, catalogue, historical=removed)
 
 
 def _builtin(item_id: str, entry: dict, order: int, site: str) -> dict:
@@ -404,6 +424,7 @@ def _builtin(item_id: str, entry: dict, order: int, site: str) -> dict:
         "dependencies": [],
         "execution_kind": "automatic" if entry["kind"] == "check" else "manual",
         "priority": "P1",
+        "priority_origin": "default",
         "enabled": True,
         "order": order,
         "operation": item_id if entry["kind"] == "check" else None,
@@ -499,7 +520,11 @@ def record_execution(
                 raise ValueError("source definition changed; reconcile checklist first")
         validated = validate_record(root, item["definition"], record)
         item["records"].append(
-            {**validated, "definition_hash": _hash(item["definition"]), "recorded_at": _now()}
+            {
+                **validated,
+                "definition_hash": _completion_hash(item["definition"]),
+                "recorded_at": _now(),
+            }
         )
     return coverage_status(directory)
 
@@ -522,7 +547,7 @@ def _status(root: Path, document: dict, catalogue: dict) -> dict:
             or definition["source_hash"] != catalogue[item_id]["definition_hash"]
         )
         stale_reason = "source definition changed or was removed" if source_stale else ""
-        if record and record["definition_hash"] != _hash(definition):
+        if record and record["definition_hash"] != _completion_hash(definition):
             stale_reason = "item definition changed"
         if record and not stale_reason:
             stale_reason = evidence_stale(root, record, catalogue, digests)
@@ -538,6 +563,7 @@ def _status(root: Path, document: dict, catalogue: dict) -> dict:
             "kind": definition["kind"],
             "scope": definition["scope"],
             "priority": definition["priority"],
+            "priority_origin": definition["priority_origin"],
             "order": definition["order"],
             "enabled": definition["enabled"],
             "execution_kind": definition["execution_kind"],
