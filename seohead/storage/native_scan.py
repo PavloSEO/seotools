@@ -321,12 +321,12 @@ def _put_discovery_ledger(
     if version != "scan.v2":
         return
     header = con.execute(
-        "SELECT r.effective_headers_redacted_json FROM documents d "
+        "SELECT d.source_response_id,r.effective_headers_redacted_json FROM documents d "
         "LEFT JOIN responses r ON r.response_id=d.source_response_id WHERE d.document_id=?",
         (source_document_id,),
     ).fetchone()
     try:
-        headers = json.loads(header[0]) if header is not None and header[0] else {}
+        headers = json.loads(header[1]) if header is not None and header[1] else {}
     except ValueError:
         headers = {}
     from .discovery_ledger import store_document_relations
@@ -335,6 +335,7 @@ def _put_discovery_ledger(
         con,
         source_url_id=page_url_id,
         source_document_id=source_document_id,
+        source_response_id=int(header[0]) if header is not None and header[0] is not None else None,
         representation=representation,
         source_url=source_url,
         depth=depth,
