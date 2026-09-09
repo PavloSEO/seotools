@@ -377,6 +377,39 @@ def crawl_site_scan(
         seed_loader=seed_loader,
         progress=progress,
     )
+    if settings["rendering"]["rendered_links"]["crawl"] and settings["rendering"]["mode"] != "raw":
+        from dataclasses import replace
+
+        from seohead.crawl.sqlite_render import run_render_escalation
+
+        initial_start_page_gate = run.start_page_gate
+        render_cycles = 0
+        while True:
+            with NativeScan.open(run.path) as rendered_scan:
+                rendered_result = _rebuild_page_result(rendered_scan)
+                run_render_escalation(
+                    rendered_scan,
+                    rendered_result,
+                    settings,
+                    request_gate=run.dispatch_gate.wait_turn if run.dispatch_gate is not None else None,
+                )
+                queued_before = rendered_scan.resume_snapshot()["counts"]["queued"]
+            if not queued_before or run.partial:
+                break
+            prior_pages = run.pages
+            run = crawl_to_scan(
+                url,
+                scan_out=scan_out,
+                settings=settings,
+                producer_version=producer_version,
+                producer_revision=producer_revision,
+                runtime_versions=runtime_versions,
+                progress=progress,
+            )
+            render_cycles += 1
+            run = replace(run, start_page_gate=initial_start_page_gate)
+            if run.partial or run.pages <= prior_pages or render_cycles >= settings["rendering"]["escalation"]["max_render_urls"]:
+                break
     with NativeScan.open(run.path) as scan:
         snapshot = scan.resume_snapshot(include_edges=True)
         roots = scan.sitemap_roots()

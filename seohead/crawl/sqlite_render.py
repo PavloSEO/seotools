@@ -318,9 +318,11 @@ def run_render_escalation(
     serialized HTML is released as soon as its transaction has committed.
     """
     mode = settings["rendering"]["mode"]
-    from seohead.storage.rendered_routes import run_context
+    from seohead.storage.rendered_routes import RUN_KIND, run_context
 
-    if hasattr(scan, "write_context"):
+    if hasattr(scan, "write_context") and (
+        not hasattr(scan, "read_context") or scan.read_context(RUN_KIND) is None
+    ):
         enabled = settings["rendering"]["rendered_links"]["store"]
         if not enabled:
             scan.write_context(
@@ -648,15 +650,36 @@ def run_render_escalation(
             result._rendered_start_html = fetched.get("html")
         return {"accepted": True, "state": state, "reason": reason}
 
+    render_pages = result.pages
+    if settings["rendering"]["rendered_links"]["crawl"] and getattr(scan, "con", None) is not None:
+        attempted = {
+            row[0]
+            for row in scan.con.execute(
+                "SELECT u.url FROM documents d JOIN urls u ON u.url_id=d.url_id "
+                "WHERE d.representation=?",
+                (representation,),
+            )
+        }
+        render_pages = [page for page in result.pages if page.url not in attempted]
+        import copy
+
+        rendering_config = copy.deepcopy(rendering_config)
+        rendering_config["escalation"]["max_render_urls"] = max(
+            0, rendering_config["escalation"]["max_render_urls"] - len(attempted)
+        )
     outcome = render_escalation.escalate(
-        result.pages,
+        render_pages,
         rendering_config,
         probe=probe,
         render_fetch=render_fetch,
         representation_label=representation,
         render_consumer=consume,
     )
-    if hasattr(scan, "write_context") and settings["rendering"]["rendered_links"]["store"]:
+    if (
+        hasattr(scan, "write_context")
+        and settings["rendering"]["rendered_links"]["store"]
+        and (not hasattr(scan, "read_context") or scan.read_context(RUN_KIND) is None)
+    ):
         partial = (
             outcome.render_budget_exhausted
             or outcome.time_budget_exhausted
