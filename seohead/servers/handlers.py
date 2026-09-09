@@ -9,6 +9,7 @@ from __future__ import annotations
 import sys
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -517,6 +518,7 @@ def crawl_site(
     overrides: dict[str, Any] | None = None,
     resume: str | None = None,
     progress: Callable[[int, int], None] | None = None,
+    project: str | None = None,
 ) -> dict[str, Any]:
     """Crawl a site from a start URL, or fetch an explicit list, then audit it.
 
@@ -552,6 +554,14 @@ def crawl_site(
     the first request, and the honest report of a known total is a different
     line than this one (see ``seohead.crawl.progress``).
     """
+    project_root = None
+    if project is not None:
+        from seohead.projects.workspace import open_project
+
+        opened = open_project(project)
+        project_root = Path(opened["path"])
+        if resume is None and url is None and urls is None and urls_file is None:
+            url = opened["project"]["site"]["target"]
     if resume is not None:
         # ``is not None`` rather than truthiness: --min-delay 0 and --max-urls 0 are
         # settings the caller stated, and silently accepting them here would let a
@@ -619,6 +629,18 @@ def crawl_site(
         if value is not None:
             resolved_overrides[path] = value
     settings = crawl_config.load(config, overrides=resolved_overrides)
+    if (
+        project_root is not None
+        and not scan_out
+        and url
+        and not urls
+        and not settings["output"]["dir"]
+    ):
+        import uuid
+
+        from seohead.storage.history import new_scan_path
+
+        scan_out = str(new_scan_path(project_root / "scans", url, str(uuid.uuid4())))
     analysis_segments = settings["analysis"]["segments"]
     if analysis_segments:
         from seohead.sf.core.segments import SegmentError, resolve_order
@@ -2558,9 +2580,18 @@ def scan_reanalyze(input_path: str, out: str, producer_build: str | None = None)
     return reanalyze_scan(input_path=input_path, out=out, producer_build=producer_build)
 
 
-def scan_list(directory: str, offset: int = 0, limit: int = 100) -> dict[str, Any]:
+def scan_list(
+    directory: str | None = None, offset: int = 0, limit: int = 100, project: str | None = None
+) -> dict[str, Any]:
     from seohead.servers.history_handlers import scan_list as core
 
+    if project is not None:
+        from seohead.projects.workspace import open_project
+
+        opened = open_project(project)
+        directory = directory or str(Path(opened["path"]) / "scans")
+    if directory is None:
+        raise ValueError("directory or project is required")
     return core(directory, offset=offset, limit=limit)
 
 
@@ -2589,14 +2620,22 @@ def scan_pin(input_path: str, pinned: bool = True) -> dict[str, Any]:
 
 
 def scan_prune(
-    directory: str,
+    directory: str | None = None,
     older_than_days: int = 30,
     keep_newest: int = 5,
     plan: dict[str, Any] | str | None = None,
     apply: bool = False,
+    project: str | None = None,
 ) -> dict[str, Any]:
     from seohead.servers.history_handlers import scan_prune as core
 
+    if project is not None:
+        from seohead.projects.workspace import open_project
+
+        opened = open_project(project)
+        directory = directory or str(Path(opened["path"]) / "scans")
+    if directory is None:
+        raise ValueError("directory or project is required")
     return core(
         directory,
         older_than_days=older_than_days,
@@ -2628,6 +2667,38 @@ def scan_body_diff(
         max_bytes=max_bytes,
         max_lines=max_lines,
     )
+
+
+def project_new(
+    directory: str,
+    target: str,
+    label: str | None = None,
+    facts: list[dict[str, Any]] | None = None,
+    template_references: list[str] | None = None,
+    profile_references: list[str] | None = None,
+) -> dict[str, Any]:
+    from seohead.servers.project_handlers import project_new as core
+
+    return core(
+        directory,
+        target,
+        label=label,
+        facts=facts,
+        template_references=template_references,
+        profile_references=profile_references,
+    )
+
+
+def project_open(directory: str, expected_site: str | None = None) -> dict[str, Any]:
+    from seohead.servers.project_handlers import project_open as core
+
+    return core(directory, expected_site=expected_site)
+
+
+def project_status(directory: str) -> dict[str, Any]:
+    from seohead.servers.project_handlers import project_basic_status
+
+    return project_basic_status(directory)
 
 
 _RAW_HANDLERS = {
@@ -2695,6 +2766,9 @@ _RAW_HANDLERS = {
     "scan_pin": scan_pin,
     "scan_prune": scan_prune,
     "scan_body_diff": scan_body_diff,
+    "project_new": project_new,
+    "project_open": project_open,
+    "project_status": project_status,
 }
 
 # Journaling sits here rather than in each interface: the CLI and the MCP server

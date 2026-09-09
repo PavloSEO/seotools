@@ -1,6 +1,6 @@
 # Tool reference
 
-64 + 5 tools, reachable identically from the CLI and from MCP. One
+67 + 5 tools, reachable identically from the CLI and from MCP. One
 implementation, two faces: `seohead <command>` in the terminal and
 `seo_<command>` on the MCP server (`seohead mcp`). Five more `sf_*` tools cover
 the Screaming Frog crawl audit workflow specifically — see that section below
@@ -15,6 +15,18 @@ docstring's failure-mode notes — read straight from the MCP tool definitions.
 The shared contract: JSON out; when a source is unreachable the tool returns
 `{"ok": false, "error": "..."}` instead of raising. An unreachable site is
 data, not an accident.
+
+## Project workspace
+
+| Command | What it does | Network |
+|---|---|---|
+| `project-new` | Create a portable local project with site facts and custom template/profile references; does not execute a checklist | no |
+| `project-open` | Validate and open a saved project without rewriting it | no |
+| `project-status` | Show scan history and explicit pending checklist/preparation states | no |
+
+The nested aliases are `seohead project new`, `seohead project open` and
+`seohead project status`. See [PROJECTS.md](PROJECTS.md) for the format, custom
+references and shared CLI/MCP scan-routing rules.
 
 ## How to read the tables
 

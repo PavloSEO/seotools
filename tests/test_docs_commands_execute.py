@@ -288,6 +288,13 @@ def test_documented_command_executes_or_at_least_still_parses(
     from seohead.cli import main as cli_main
 
     _seed_workdir(tmp_path, fixture_site)
+    if argv[:2] in (["project", "open"], ["project", "status"]):
+        # Each documentation case runs independently; opening/status require the
+        # project that the preceding creation command would have published.
+        from seohead.projects.workspace import create_project
+
+        directory = argv[argv.index("--directory") + 1]
+        create_project(tmp_path / directory, "https://example.test/")
     if argv[:1] in (["duplicate-check"], ["boilerplate-report"]) and "--scan" in argv:
         # Body consumers need a native retained corpus, including when they use
         # the same filename that report examples use for a saved audit.

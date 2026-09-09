@@ -28,7 +28,10 @@ def test_all_mcp_tools_have_structured_schemas_and_safety_annotations():
     """Keep MCP clients informed about output shape, side effects, and network use."""
     tools = {tool.name: tool for tool in build_server()._tool_manager.list_tools()}
 
-    assert len(tools) == 69
+    from seohead.cli import COMMANDS
+    from seohead.servers.tool_reference import load_sf_tools
+
+    assert len(tools) == len(COMMANDS) + len(load_sf_tools())
     assert all(tool.fn_metadata.output_schema for tool in tools.values())
     assert all(tool.annotations is not None for tool in tools.values())
 
