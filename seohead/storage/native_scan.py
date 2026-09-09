@@ -2526,7 +2526,7 @@ class NativeScan:
                 source_document_id=document_id,
                 representation=representation,
                 source_url=url,
-                depth=lease.depth,
+                depth=page["crawl_depth"],
                 content_capture=content_capture,
                 links=links,
                 candidates=candidates,
