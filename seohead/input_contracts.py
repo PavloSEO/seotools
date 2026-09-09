@@ -110,7 +110,12 @@ COMMAND_CONTRACTS: tuple[CommandContract, ...] = (
         _form("live_url", "url"),
         _form("inline_html", "html"),
     ),
-    _command("duplicate-check", "duplicate_check", _form("inline_corpus", "items")),
+    _command(
+        "duplicate-check",
+        "duplicate_check",
+        _form("inline_corpus", "items"),
+        _form("scan_artifact", "scan"),
+    ),
     _command(
         "ai-bots-check",
         "ai_bots_check",
@@ -131,7 +136,12 @@ COMMAND_CONTRACTS: tuple[CommandContract, ...] = (
         _form("live_url", "url"),
         _form("inline_html", "html"),
     ),
-    _command("boilerplate-report", "boilerplate_report", _form("inline_corpus", "pages")),
+    _command(
+        "boilerplate-report",
+        "boilerplate_report",
+        _form("inline_corpus", "pages"),
+        _form("scan_artifact", "scan"),
+    ),
     _command(
         "social-meta-check",
         "social_meta_check",
@@ -268,7 +278,7 @@ def render_markdown() -> str:
         "A **scan artifact** is a retained local `scan.v1` SQLite file. Read-only analysis and",
         "history operations do not replay a crawl or promise retained page bodies. `crawl-site --resume`",
         "is the explicit exception: it continues network collection. `duplicate-check` and",
-        "`boilerplate-report` currently accept inline corpora only; they do not accept `--scan`.",
+        "`boilerplate-report` may instead read one retained scan corpus with `--scan`.",
         "",
         "## Operational-store decision",
         "",

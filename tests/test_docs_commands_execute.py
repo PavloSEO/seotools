@@ -171,6 +171,23 @@ def _seed_scan_inputs(tmp_path: Path) -> None:
         shutil.copyfile(scan, tmp_path / name)
 
 
+def _seed_documented_body_scan(tmp_path: Path, target: str) -> None:
+    """Create the retained native corpus that documented ``--scan`` commands require."""
+    from seohead.storage import open_scan
+    from tests.test_scan_reanalysis_integration import _source
+
+    path = tmp_path / target
+    _source(path)
+    with open_scan(path) as con:
+        header = con.execute("SELECT source_kind FROM scan WHERE singleton=1").fetchone()
+        counts = con.execute(
+            "SELECT COUNT(*),COALESCE(SUM(d.body_state='complete'),0) FROM pages p "
+            "JOIN documents d ON d.document_id=p.document_id"
+        ).fetchone()
+    assert header[0] == "native"
+    assert tuple(counts) == (1, 1)
+
+
 def _seed_prune_plan(tmp_path: Path) -> None:
     """`scan prune --apply` is the second half of a documented two-step review: preview
     to a file, read it, apply exactly that envelope. Seed the file the second step reads
@@ -271,6 +288,8 @@ def test_documented_command_executes_or_at_least_still_parses(
     _seed_workdir(tmp_path, fixture_site)
     if any(".sqlite" in value for value in argv) and not {"--scan-out", "--resume"} & set(argv):
         _seed_scan_inputs(tmp_path)
+    if argv[:1] in (["duplicate-check"], ["boilerplate-report"]) and "--scan" in argv:
+        _seed_documented_body_scan(tmp_path, argv[argv.index("--scan") + 1])
     if argv[:2] == ["scan", "reanalyze"] or argv[:1] == ["scan-reanalyze"]:
         _seed_reanalysis_input(tmp_path)
     if "--plan" in argv:
