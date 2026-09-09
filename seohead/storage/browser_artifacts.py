@@ -33,10 +33,25 @@ def _root(scan_path: str | Path) -> Path:
 
 
 def _restricted_directory(scan_path: str | Path, path: Path) -> None:
+    scan = Path(scan_path)
+    if scan.parent.is_symlink() or not scan.parent.is_dir():
+        raise ScanError("scan parent is unsafe for browser artifacts")
     root = _root(scan_path)
-    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if root.is_symlink():
+        raise ScanError("browser artifact root must not be a symlink")
+    root.mkdir(mode=0o700, exist_ok=True)
+    if root.is_symlink() or not root.is_dir():
+        raise ScanError("browser artifact root is unsafe")
     os.chmod(root, 0o700)
-    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    try:
+        path.relative_to(root)
+    except ValueError as exc:
+        raise ScanError("browser artifact directory is outside the scan sidecar") from exc
+    if path.is_symlink():
+        raise ScanError("browser artifact child must not be a symlink")
+    path.mkdir(mode=0o700, exist_ok=True)
+    if path.is_symlink() or not path.is_dir():
+        raise ScanError("browser artifact child is unsafe")
     os.chmod(path, 0o700)
 
 
@@ -50,7 +65,10 @@ def _png_dimensions(path: Path) -> tuple[int, int]:
         header = stream.read(24)
     if header[:8] != b"\x89PNG\r\n\x1a\n" or header[12:16] != b"IHDR":
         raise ScanError("browser screenshot is not a PNG")
-    width, height = struct.unpack(">II", header[16:24])
+    try:
+        width, height = struct.unpack(">II", header[16:24])
+    except struct.error as exc:
+        raise ScanError("browser screenshot PNG header is truncated") from exc
     if (
         not width
         or not height
@@ -65,7 +83,10 @@ def _png_dimensions(path: Path) -> tuple[int, int]:
 def _move_screenshot(scan_path: str | Path, source: str | None) -> dict[str, Any]:
     if not source:
         return {"state": "unavailable", "reason": "renderer produced no screenshot", "ref": None}
-    staged = staging_dir(scan_path).resolve()
+    staging = staging_dir(scan_path)
+    if staging.is_symlink() or staging.parent.is_symlink():
+        return {"state": "unavailable", "reason": "browser screenshot staging directory is unsafe", "ref": None}
+    staged = staging.resolve()
     path = Path(source)
     try:
         resolved = path.resolve(strict=True)
@@ -124,13 +145,20 @@ def _save_console(scan_path: str | Path, errors: Any, omitted: Any) -> dict[str,
 def save(
     scan_path: str | Path,
     page_url_id: int,
+    document_id: int,
     rendered: dict[str, Any],
     *,
     screenshots: bool,
     console_errors: bool,
 ) -> dict[str, Any]:
     """Persist opt-in browser sidecars and return one portable native context item."""
-    if type(page_url_id) is not int or page_url_id < 1 or not isinstance(rendered, dict):
+    if (
+        type(page_url_id) is not int
+        or page_url_id < 1
+        or type(document_id) is not int
+        or document_id < 1
+        or not isinstance(rendered, dict)
+    ):
         raise ScanError("browser artifact input is invalid")
     screenshot = (
         _move_screenshot(scan_path, rendered.get("screenshot_path"))
@@ -139,16 +167,24 @@ def save(
     )
     console = (
         _save_console(scan_path, rendered.get("console_errors"), rendered.get("console_errors_omitted"))
+        if console_errors and rendered.get("ok") is not False
+        else {"state": "unavailable", "reason": "render did not complete; console evidence is unavailable", "ref": None}
         if console_errors
         else {"state": "disabled", "reason": "console retention disabled", "ref": None}
     )
     states = {screenshot["state"], console["state"]}
     completeness = "complete" if states <= {"stored", "disabled"} else "partial" if states & {"stored", "partial"} else "unavailable"
     reasons = "; ".join(item["reason"] for item in (screenshot, console) if item["reason"])
-    payload = {"schema_version": VERSION, "page_url_id": page_url_id, "screenshot": screenshot, "console": console}
+    payload = {
+        "schema_version": VERSION,
+        "page_url_id": page_url_id,
+        "document_id": document_id,
+        "screenshot": screenshot,
+        "console": console,
+    }
     return {
         "kind": KIND,
-        "item_key": f"page:{page_url_id}",
+        "item_key": f"page:{page_url_id}:document:{document_id}",
         "payload_version": "scan_context.v1",
         "payload_json": json.dumps(payload, sort_keys=True, separators=(",", ":")),
         "completeness": completeness,
@@ -159,12 +195,17 @@ def save(
 def validate_context(con: Any, item: dict[str, Any], payload: Any) -> None:
     if (
         not isinstance(payload, dict)
-        or set(payload) != {"schema_version", "page_url_id", "screenshot", "console"}
+        or set(payload) != {"schema_version", "page_url_id", "document_id", "screenshot", "console"}
         or payload["schema_version"] != VERSION
         or type(payload["page_url_id"]) is not int
         or payload["page_url_id"] < 1
-        or item["item_key"] != f"page:{payload['page_url_id']}"
-        or not con.execute("SELECT 1 FROM pages WHERE url_id=?", (payload["page_url_id"],)).fetchone()
+        or type(payload["document_id"]) is not int
+        or payload["document_id"] < 1
+        or item["item_key"] != f"page:{payload['page_url_id']}:document:{payload['document_id']}"
+        or not con.execute(
+            "SELECT 1 FROM documents WHERE document_id=? AND url_id=?",
+            (payload["document_id"], payload["page_url_id"]),
+        ).fetchone()
     ):
         raise ScanError("browser artifact context is invalid")
     for value in (payload["screenshot"], payload["console"]):
@@ -184,10 +225,17 @@ def validate_context(con: Any, item: dict[str, Any], payload: Any) -> None:
             or not isinstance(ref["sha256"], str)
             or len(ref["sha256"]) != 64
             or any(char not in "0123456789abcdef" for char in ref["sha256"])
-            or any(type(ref[key]) is not int or ref[key] < 1 for key in ("bytes", "width", "height"))
+            or type(ref["bytes"]) is not int
+            or not 1 <= ref["bytes"] <= MAX_SCREENSHOT_BYTES
+            or type(ref["width"]) is not int
+            or type(ref["height"]) is not int
+            or not 1 <= ref["width"] <= MAX_SCREENSHOT_WIDTH
+            or not 1 <= ref["height"] <= MAX_SCREENSHOT_HEIGHT
+            or ref["width"] * ref["height"] > MAX_SCREENSHOT_PIXELS
+            or screenshot["reason"]
         ):
             raise ScanError("browser screenshot reference is invalid")
-    elif screenshot["ref"] is not None:
+    elif screenshot["ref"] is not None or not screenshot["reason"]:
         raise ScanError("unavailable browser screenshot must not carry a reference")
     console = payload["console"]
     if console["state"] in {"stored", "partial"}:
@@ -199,7 +247,15 @@ def validate_context(con: Any, item: dict[str, Any], payload: Any) -> None:
             or len(ref["sha256"]) != 64
             or any(char not in "0123456789abcdef" for char in ref["sha256"])
             or any(type(ref[key]) is not int or ref[key] < 0 for key in ("captured", "omitted"))
+            or ref["captured"] > MAX_CONSOLE_ERRORS
+            or (console["state"] == "stored" and (ref["omitted"] != 0 or console["reason"]))
+            or (console["state"] == "partial" and (ref["omitted"] < 1 or not console["reason"]))
         ):
             raise ScanError("browser console reference is invalid")
-    elif console["ref"] is not None:
+    elif console["ref"] is not None or not console["reason"]:
         raise ScanError("unavailable browser console must not carry a reference")
+    states = {screenshot["state"], console["state"]}
+    expected = "complete" if states <= {"stored", "disabled"} else "partial" if states & {"stored", "partial"} else "unavailable"
+    expected_reason = "; ".join(value["reason"] for value in (screenshot, console) if value["reason"])
+    if item["completeness"] != expected or item["reason"] != expected_reason:
+        raise ScanError("browser artifact context completeness disagrees with its evidence")
