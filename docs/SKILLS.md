@@ -98,7 +98,7 @@ Then by the layer of the task.
 
 ## Tools without a skill of their own
 
-40 of the 69 commands are not named in any skill's own body (a mention inside
+43 of the 72 commands are not named in any skill's own body (a mention inside
 another tool's Markdown table above does not count) — used inline as plumbing
 inside a workflow's write-up, or not yet needed by one at all — and have no
 skill of their own, deliberately: a skill per single command is noise.
@@ -111,7 +111,8 @@ Page-level utilities: `asset-weight-check` · `boilerplate-report` ·
 `crawl-enrich` · `redirects-check` · `redirects-generate` · `scan-reanalyze` · `segment-diff` ·
 `soft404-check`
 
-Project workspace: `project-new` · `project-open` · `project-status`
+Project workspace: `project-checklist-init` · `project-checklist-record` ·
+`project-checklist-update` · `project-new` · `project-open` · `project-status`
 
 Saved scan history: `scan-body-diff` · `scan-inspect` · `scan-list` · `scan-pin` ·
 `scan-prune` · `scan-rendered-routes` · `scan-snapshot` · `scan-status`

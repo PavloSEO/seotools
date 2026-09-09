@@ -63,6 +63,65 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
         row = table.add_row().cells
         row[0].text, row[1].text = name, str(value)
 
+    coverage = summary.get("project_coverage")
+    if isinstance(coverage, dict):
+        from seohead.reports.project_coverage import value_text
+
+        project = coverage.get("project") or {}
+        checklist = coverage.get("status") or {}
+        doc.add_heading("Project Checklist Coverage", level=1)
+        doc.add_paragraph(
+            f"Project: {project.get('site', '')}\n"
+            f"Project UUID: {project.get('uuid', '')}\n"
+            f"Checklist state: {checklist.get('state', '')}\n"
+            f"Revision: {checklist.get('revision', '')}"
+        )
+        counts = checklist.get("counts")
+        if isinstance(counts, dict):
+            table = doc.add_table(rows=0, cols=2)
+            table.style = "Light Grid Accent 1"
+            for name in (
+                "total",
+                "complete",
+                "remaining",
+                "run",
+                "not_applicable",
+                "not_run",
+                "stale",
+                "disabled",
+            ):
+                row = table.add_row().cells
+                row[0].text, row[1].text = (
+                    name.replace("_", " ").capitalize(),
+                    str(counts.get(name, "")),
+                )
+        elif checklist.get("reason"):
+            doc.add_paragraph(f"Reason: {checklist['reason']}")
+        for item in checklist.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            para = doc.add_paragraph(style="List Bullet")
+            para.add_run(item.get("title") or item.get("id", "")).bold = True
+            doc.add_paragraph(
+                " · ".join(
+                    (
+                        f"ID: {item.get('id', '')}",
+                        f"Kind: {item.get('kind', '')}",
+                        f"Execution: {item.get('execution_kind', '')}",
+                        f"State: {item.get('state', '')}",
+                        f"Attempt: {item.get('attempt_status', '')}",
+                        f"Complete: {item.get('complete', '')}",
+                        f"Blocked by: {value_text(item.get('blocked_by'))}",
+                        f"Enabled: {item.get('enabled', '')}",
+                        f"Stale: {item.get('stale', '')}",
+                        f"Scope: {value_text(item.get('scope'))}",
+                        f"Measurement: {value_text(item.get('measurement'))}",
+                        f"Reason: {item.get('reason', checklist.get('reason', ''))}",
+                    )
+                ),
+                style="List Bullet 2",
+            )
+
     disabled = summary.get("checks_disabled") or []
     if disabled:
         doc.add_heading("Disabled Checks", level=1)

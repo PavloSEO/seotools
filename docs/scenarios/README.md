@@ -1,6 +1,6 @@
 # Usage scenarios
 
-The rest of the documentation lists what this toolkit *has*: 69 commands, 74 callable tools,
+The rest of the documentation lists what this toolkit *has*: 72 commands, 77 callable tools,
 161 checks, 30 workflow skills, each described on its own. This directory describes what it
 **does** — the chains that run several of them in order and end in something a person can act on.
 

@@ -35,10 +35,38 @@ parameters to pass `facts`, `template_references` and `profile_references`:
 ```
 
 References are portable identifiers; creation records them without loading or
-executing template text. Custom checklist definitions, manual review/signoff,
-client deliverable review and automatic project preparation are subsequent
-controller stages. Until those stages exist, status says `not_initialized` and
-`pending`; it never reports 0/0 or a completed audit.
+executing template text. Checklist definitions, manual review/signoff and client
+deliverable review are explicit local coverage operations described below; creating
+or opening a project never runs them. Before checklist initialization, status says
+`not_initialized`. Automatic project preparation remains `pending`; neither state
+is a 0/0 result or a completed audit.
+
+## Checklist coverage
+
+Checklist initialization records the built-in catalogue as local definitions; it
+does not run a check, skill or scenario, and makes no network request.
+
+```bash
+seohead project checklist-init --directory ./example-project
+```
+
+The returned status includes `revision`, `counts`, `views` and `items`. Pass that
+revision to every update or evidence record so a concurrent writer cannot replace
+newer local history. Structured definitions and records use the normal `--input`
+JSON convention:
+
+```bash
+seohead project checklist-update \
+  --directory ./example-project \
+  --expected-revision 1 \
+  --input '{"item":{"id":"custom:client-copy-review","title":"Review client copy","scope":{"site":"https://example.test/","template":null,"urls":[]},"dependencies":[],"execution_kind":"manual","priority":"P1","enabled":true,"order":900,"operation":null,"source_hash":null}}'
+```
+
+Use `project-checklist-record --directory DIRECTORY --item-id ITEM_ID
+--expected-revision N --input '{"record": ...}'` to store supplied evidence or an
+explicit applicability review. It validates the record and dependencies, then
+returns the same completion views. Recording never executes an item or turns a
+missing measurement into a clean result.
 
 `crawl-site --project DIRECTORY` defaults an absent start URL to the project's
 target and a new artifact to `DIRECTORY/scans/`. Explicit URLs and scan paths win,
@@ -52,4 +80,55 @@ history directory to the validated project's `scans/`; an explicit directory win
 Prune previews by default and still requires an explicit reviewed plan and apply.
 Individual-file inspect/snapshot/pin/reanalysis commands continue to take explicit
 scan paths. The CLI and MCP share these rules. Merely opening or listing a project
-does not fetch pages, run a checklist, or contact a provider.
+does not fetch pages, run a checklist, or contact a provider. The MCP equivalents
+are `seo_project_checklist_init`, `seo_project_checklist_update` and
+`seo_project_checklist_record`.
+
+`report-build --project DIRECTORY` includes the validated checklist coverage, reasons,
+scope and measurement in a human report without fetching or rerunning the audit. The
+original JSON audit remains unchanged, and `--out` still controls the destination.
+
+### Definitions, evidence, and reusable templates
+
+The [synthetic ecommerce template](../examples/ecommerce-checklist.json) is a
+reusable data-only input for the `template` argument of checklist initialization.
+Pass its parsed object through CLI `--input` or the MCP `template` argument; a JSON
+filename is not an inline JSON argument. Replace its synthetic site and sample
+URLs with the agreed scope. Template text never runs code.
+
+Items have stable IDs, a site/template/URL scope, dependencies, execution kind,
+priority, order, and an enabled flag. Updates append definition history; they do
+not erase attempts. Explicit priority choices are preserved separately from
+defaults. Reconciliation picks up new or changed catalogue definitions. New
+entries remain pending; changed definitions or evidence remain visibly stale.
+Disabling an item keeps its history and appears in the disabled count, separately
+from a reasoned `not_applicable` decision.
+
+Execution records use `running`, `failed`, `unavailable`, `succeeded`, or
+`not_applicable`. The checklist states remain `run`, `not_run`, and
+`not_applicable`: failed or unavailable attempts are unfinished. Every record
+requires a reason. Applicability decisions also require a reviewer; missing data
+alone is not an exclusion.
+
+Automatic completion binds a registered check to a validated SQLite artifact
+under `scans/` or `reports/`, verifies the saved check outcome and site identity,
+and records its digest, producer/configuration, time, and measured population.
+A template requires explicit sample URLs matching that artifact's population.
+Partial measurements remain limited even when the step completed. This metadata
+records provenance and detects changed local bytes; it is not independent
+attestation of how an artifact was produced.
+
+Manual completion requires a named reviewer and either `signoff: true` or an
+artifact with `review: "approved"`. Deliverables always require an artifact and
+approved review. A file's existence, opening a skill, or discovering a finding
+does not establish completed work or an implemented client-site fix. Current
+status lists running, blocked, waiting-for-manual-review, deliverable-ready, and
+remaining items from the same records. A previously run step can become blocked
+when its dependency becomes stale; human reports show that distinction.
+
+Writes use an exclusive `.coverage.lock`, optimistic revisions and atomic file
+replacement. A concurrent writer refuses without discarding earlier work. After
+an interrupted process leaves a lock, confirm that no writer is active before
+removing that lock and retrying with the freshly read revision. Unknown coverage
+schemas, unsafe paths and malformed history refuse rather than being migrated
+on read.
