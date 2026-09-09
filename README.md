@@ -297,7 +297,7 @@ seohead site-audit \
   --out report.xlsx
 
 # Crawl a site with the crawler built into this toolkit — no Screaming Frog licence needed.
-# Writes a collision-safe native SQLite scan under ./scans/
+# Choose a stable native SQLite filename for the following report commands
 seohead crawl-site \
   --url https://example.com \
   --max-urls 500 \
