@@ -250,8 +250,12 @@ def derive(con: Any, *, duplicate_threshold: float = 0.92) -> dict[str, Any]:
 
     content = read_content(con)
     structured = read_structured(con)
-    duplicates = derive_duplicates(content["items"], threshold=duplicate_threshold)
     by_id, by_normalized = _page_index(con)
+    duplicates = derive_duplicates(
+        content["items"],
+        threshold=duplicate_threshold,
+        page_urls={page_id: page["url"] for page_id, page in by_id.items()},
+    )
     declarations = _language_derivations(structured["language"], by_id, by_normalized)
     structured_states = dict(Counter(item.get("state") for item in structured["structured"]))
     return {
