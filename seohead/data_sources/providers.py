@@ -238,7 +238,10 @@ def provider_verify(provider: str, request: dict[str, Any] | None = None, *, tra
     if target:
         candidates: list[Any] = []
         if provider == "gsc":
-            candidates = [entry.get("site_url") for entry in result.get("properties", [])]
+            properties = result.get("properties")
+            candidates = [
+                entry.get("site_url") for entry in properties if isinstance(entry, dict)
+            ] if isinstance(properties, list) else []
         elif provider == "yandex_webmaster":
             data = result.get("data")
             candidates = [
@@ -248,7 +251,9 @@ def provider_verify(provider: str, request: dict[str, Any] | None = None, *, tra
             ]
         elif provider == "bing_webmaster":
             data = result.get("data")
-            candidates = [entry.get("Url") for entry in data] if isinstance(data, list) else []
+            candidates = [
+                entry.get("Url") for entry in data if isinstance(entry, dict)
+            ] if isinstance(data, list) else []
         target_access = "verified" if target in candidates else "not_granted" if candidates else "unknown"
     return {
         "ok": authenticated, "provider": provider,
