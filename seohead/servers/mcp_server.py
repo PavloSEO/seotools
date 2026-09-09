@@ -988,6 +988,25 @@ def build_server(profile: str = "full", progress_notifications: bool = False):  
         """Show project scan history and named pending checklist/preparation states."""
         return _checked(handlers.project_status(directory=directory))
 
+    @mcp.tool(annotations=create_files_from_web, structured_output=True)
+    def seo_project_facts(
+        directory: str,
+        facts: list[dict[str, Any]] | None = None,
+        detect: bool = False,
+        apply: bool = False,
+    ) -> dict[str, Any]:
+        """Preview or record project stack facts that stack-aware priorities then read.
+
+        Supplied facts are operator decisions and always win. detect=true is the only
+        thing that makes a request: it reads robots.txt and then fetches the project
+        target once, and an unavailable or ambiguous detection leaves the fact absent
+        with its reason instead of guessing. The default is a read-only preview;
+        apply=true records the result in project.json.
+        """
+        return _checked(
+            handlers.project_facts(directory=directory, facts=facts, detect=detect, apply=apply)
+        )
+
     @mcp.tool(annotations=create_files, structured_output=True)
     def seo_project_checklist_init(
         directory: str, template: dict | None = None, expected_revision: int | None = None

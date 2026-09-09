@@ -23,6 +23,7 @@ data, not an accident.
 | `project-new` | Create a portable local project with site facts and custom template/profile references; does not execute a checklist | no |
 | `project-open` | Validate and open a saved project without rewriting it | no |
 | `project-status` | Show scan history and explicit pending checklist/preparation states | no |
+| `project-facts` | Preview or record the project's stack facts; `--detect` fetches the target once after robots.txt, and an unavailable or ambiguous detection leaves the fact absent with its reason | only with `--detect` |
 | `project-checklist-init` | Initialize or reconcile a local checklist from the built-in catalogue and an optional data-only template; does not execute items | no |
 | `project-checklist-update` | Add or edit one checklist definition with an expected revision; does not execute it | no |
 | `project-checklist-record` | Validate and record supplied evidence for one item with an expected revision; does not execute it | no |
@@ -32,7 +33,7 @@ data, not an accident.
 | `project-start` | Creates a new local project then enters the same bounded preparation path | yes |
 
 The nested aliases are `seohead project new`, `seohead project open`,
-`seohead project status`, `seohead project checklist-init`,
+`seohead project status`, `seohead project facts`, `seohead project checklist-init`,
 `seohead project checklist-update`, `seohead project checklist-record`,
 `seohead project priorities`, `seohead project policy`, `seohead project prepare`,
 and `seohead project start`.
@@ -414,7 +415,7 @@ echo '{"url":"https://example.com"}' | seohead parse
 tool must not knock where it was not asked to.
 
 **MCP.** The same set under the `seo_*` names plus the `sf_*` audit tools
-(92 + 5):
+(93 + 5):
 
 ```bash
 seohead mcp        # stdio
@@ -430,3 +431,5 @@ seohead mcp        # stdio
 ### Project priority policy
 
 `project-priorities` / `seo_project_priorities` previews data-only work priorities from saved project facts. Explicit `--apply` requires the current checklist revision and saves policy provenance. It preserves operator choices and completion evidence; it does not run detection or change finding severity. See [project workspaces](PROJECTS.md).
+
+`project-facts` / `seo_project_facts` is what puts those facts on the record after creation. Supplied facts are operator decisions and always win; `--detect` runs one `tech-detect` pass over the project's own target, reading robots.txt first, and records what it found as evidence under its own provenance. A detection that fails, is disallowed, or cannot tell two candidates apart leaves the fact absent with its reason. Nothing here runs implicitly: without `--detect` the command is offline, and without `--apply` it only previews.

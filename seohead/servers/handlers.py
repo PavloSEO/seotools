@@ -2765,6 +2765,19 @@ def project_status(directory: str) -> dict[str, Any]:
     return project_basic_status(directory)
 
 
+def project_facts(
+    directory: str,
+    facts: list[dict[str, Any]] | None = None,
+    detect: bool = False,
+    apply: bool = False,
+) -> dict[str, Any]:
+    from seohead.servers.project_handlers import project_facts as core
+
+    # Detection reuses the shared single-page tools rather than a second HTTP path,
+    # so it inherits their pinning transport and their failure reporting.
+    return core(directory, facts=facts, detect=detect, apply=apply, tools=HANDLERS)
+
+
 def project_checklist_init(
     directory: str, template: dict | None = None, expected_revision: int | None = None
 ) -> dict[str, Any]:
@@ -3150,6 +3163,7 @@ _RAW_HANDLERS = {
     "project_new": project_new,
     "project_open": project_open,
     "project_status": project_status,
+    "project_facts": project_facts,
     "project_checklist_init": project_checklist_init,
     "project_checklist_update": project_checklist_update,
     "project_checklist_record": project_checklist_record,

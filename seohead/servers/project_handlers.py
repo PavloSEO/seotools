@@ -34,6 +34,19 @@ def project_basic_status(directory: str) -> dict[str, Any]:
     return project_status(directory)
 
 
+def project_facts(
+    directory: str,
+    facts: list[dict[str, Any]] | None = None,
+    detect: bool = False,
+    apply: bool = False,
+    tools: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Preview or record project facts; a detection runs only when explicitly requested."""
+    from seohead.projects.facts import project_facts as core
+
+    return core(directory, facts=facts, detect=detect, apply=apply, tools=tools)
+
+
 def project_checklist_init(
     directory: str, template: dict | None = None, expected_revision: int | None = None
 ) -> dict[str, Any]:
