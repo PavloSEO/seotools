@@ -584,7 +584,7 @@ def run_render_escalation(
             result._rendered_start_html = fetched.get("html")
         return {"accepted": True, "state": state, "reason": reason}
 
-    return render_escalation.escalate(
+    outcome = render_escalation.escalate(
         result.pages,
         rendering_config,
         probe=probe,
@@ -592,6 +592,34 @@ def run_render_escalation(
         representation_label=representation,
         render_consumer=consume,
     )
+    if hasattr(scan, "write_context") and settings["rendering"]["rendered_links"]["store"]:
+        partial = (
+            outcome.render_budget_exhausted
+            or outcome.time_budget_exhausted
+            or bool(outcome.patterns_unprobed)
+        )
+        reason = (
+            "render URL budget exhausted"
+            if outcome.render_budget_exhausted
+            else "render time budget exhausted"
+            if outcome.time_budget_exhausted
+            else "one or more patterns were not probed"
+            if outcome.patterns_unprobed
+            else ""
+        )
+        scan.write_context(
+            [
+                run_context(
+                    "partial" if partial else "complete",
+                    reason,
+                    True,
+                    mode,
+                    len(result.pages),
+                    sum(outcome.render_counts.values()),
+                )
+            ]
+        )
+    return outcome
 
 
 __all__ = ["run_render_escalation"]

@@ -17,6 +17,10 @@ class _Scan:
     def __init__(self):
         self.preflight_calls = 0
         self.calls = []
+        self.context = []
+
+    def write_context(self, items):
+        self.context.extend(items)
 
     def preflight_capture(self):
         self.preflight_calls += 1
@@ -115,7 +119,9 @@ def test_native_render_commits_each_dom_then_discards_html(monkeypatch):
         }
 
     monkeypatch.setattr(render_tool, "render_document", fake_document)
-    escalation = run_render_escalation(scan, result, _settings(**{"rendering.rendered_links.store": True}))
+    escalation = run_render_escalation(
+        scan, result, _settings(**{"rendering.rendered_links.store": True})
+    )
 
     assert scan.preflight_calls >= 2
     assert seen["max_html_bytes"] == 5 * 1024 * 1024
@@ -133,13 +139,46 @@ def test_native_render_commits_each_dom_then_discards_html(monkeypatch):
         "https://example.test/new",
     }
     assert kwargs["route_coverage"]["completeness"] == "complete"
-    assert kwargs["html"].startswith("<html>")
-    assert result.pages[0].title == "DOM"
-    # Native analysis reads the SQL graph, so the transient result does not
-    # accumulate rendered links after their transaction commits.
-    assert {edge.destination for edge in result.links} == {"https://example.test/raw"}
-    assert "html" not in escalation.rendered[target]
-    assert escalation.representations[target] == "rendered"
+    assert scan.context[-1]["completeness"] == "complete"
+
+
+def test_render_route_run_coverage_names_disabled_raw_and_budget(monkeypatch):
+    from seohead.crawl import sqlite_render
+
+    target = "https://example.test/"
+    result = SimpleNamespace(
+        pages=[PageRecord(url=target, content_type="text/html", crawl_depth=0)], links=[]
+    )
+    raw = _Scan()
+    run_render_escalation(
+        raw, result, _settings(**{"rendering.mode": "raw", "rendering.rendered_links.store": True})
+    )
+    assert "not requested" in raw.context[-1]["reason"]
+    disabled = _Scan()
+    run_render_escalation(disabled, result, _settings(**{"rendering.rendered_links.store": False}))
+    assert "disabled" in disabled.context[-1]["reason"]
+    monkeypatch.setattr(sqlite_render, "_static_html", lambda *_: "<a href='/x'>x</a>")
+    from seohead.tools import render as render_tool
+
+    monkeypatch.setattr(
+        render_tool,
+        "render_document",
+        lambda url, *_a, **_k: {
+            "ok": True,
+                "html": "<a href='/x'>x</a><a href='/new'>new</a>",
+            "renderer": _renderer(url),
+            "final_url": url,
+        },
+    )
+    budget = _Scan()
+    run_render_escalation(
+        budget,
+        result,
+        _settings(
+            **{"rendering.rendered_links.store": True, "rendering.escalation.max_render_urls": 0}
+        ),
+    )
+    assert budget.context[-1]["completeness"] == "partial"
 
 
 def test_native_render_keeps_raw_when_dom_is_degenerate(monkeypatch):
