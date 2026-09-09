@@ -24,10 +24,12 @@ recording happens).
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
 import re
+import tempfile
 from collections.abc import Callable
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunsplit
@@ -107,6 +109,8 @@ _SCRIPT_STYLE_RE = re.compile(
 )
 _TAG_RE = re.compile(r"<[^>]+>")
 _BROWSER_RESPONSE_BYTES = 5 * 1024 * 1024
+MAX_CONSOLE_ERRORS = 100
+MAX_CONSOLE_ERROR_CHARS = 1_000
 _BROWSER_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 _BLOCKED_WEBSOCKET_LIMITATION = "browser WebSocket requests are unsupported by pinned rendering"
 _HOP_BY_HOP_HEADERS = frozenset(
@@ -298,6 +302,24 @@ def _refuse_if_root() -> None:
 def _artifact_filename(url: str) -> str:
     """A filesystem-safe, collision-resistant name for one URL's artifacts."""
     return hashlib.sha256(url.encode("utf-8")).hexdigest()[:24]
+
+
+def _redact_console(value: Any) -> str:
+    text = str(value or "")[:MAX_CONSOLE_ERROR_CHARS]
+    text = re.sub(r"(?i)(?:authorization|token|secret|password|cookie)\s*[:=]\s*[^\s,;]+", "[redacted]", text)
+    return re.sub(r"https?://[^\s'\"]+", "[url]", text)
+
+
+def _staged_screenshot_path(artifacts_dir: str, url: str) -> str:
+    directory = os.path.abspath(artifacts_dir)
+    os.makedirs(directory, mode=0o700, exist_ok=True)
+    if os.path.islink(directory) or not os.path.isdir(directory):
+        raise ValueError("browser artifact staging directory is unsafe")
+    descriptor, path = tempfile.mkstemp(
+        prefix=_artifact_filename(url) + "-", suffix=".png", dir=directory
+    )
+    os.close(descriptor)
+    return path
 
 
 _FRAGMENT_META_RE = re.compile(
@@ -1126,7 +1148,10 @@ def render_document(
     )
     viewport = dict(preset)
     console_errors: list[str] = []
+    console_errors_omitted = 0
     screenshot_path: str | None = None
+    screenshot_state = "disabled"
+    screenshot_error = ""
     shadow_flattened = 0
     iframe_flattened = 0
     observed_policy = _safe_policy_facts(policy_facts)
@@ -1156,8 +1181,12 @@ def render_document(
             observed_policy["cache_control_no_store"] = True
 
     def _on_console(msg: Any) -> None:
+        nonlocal console_errors_omitted
         if artifacts_cfg.get("console_errors") and msg.type == "error":
-            console_errors.append(msg.text)
+            if len(console_errors) < MAX_CONSOLE_ERRORS:
+                console_errors.append(_redact_console(msg.text))
+            else:
+                console_errors_omitted += 1
 
     browser = None
     network_client = None
@@ -1230,11 +1259,19 @@ def render_document(
                     dom = page.evaluate(_bounded_dom_script(max_html_bytes))
                 final_url = page.url
                 if artifacts_cfg.get("screenshots") and artifacts_dir:
-                    os.makedirs(artifacts_dir, exist_ok=True)
-                    screenshot_path = os.path.join(
-                        artifacts_dir, _artifact_filename(target) + ".png"
-                    )
-                    page.screenshot(path=screenshot_path, full_page=True)
+                    staged = _staged_screenshot_path(artifacts_dir, target)
+                    try:
+                        page.screenshot(path=staged, full_page=True)
+                        screenshot_path = staged
+                        screenshot_state = "staged"
+                    except Exception as exc:
+                        screenshot_state = "unavailable"
+                        screenshot_error = _redact_console(f"{type(exc).__name__}: {exc}")
+                        with contextlib.suppress(OSError):
+                            os.unlink(staged)
+                elif artifacts_cfg.get("screenshots"):
+                    screenshot_state = "unavailable"
+                    screenshot_error = "browser artifact staging directory was not supplied"
                 if browser_limitations:
                     raise RuntimeError("; ".join(browser_limitations))
             finally:
@@ -1275,7 +1312,7 @@ def render_document(
             "flatten_iframes_applied": iframe_flattened,
         },
         "policy": observed_policy,
-        "console_error_count": len(console_errors),
+        "console_error_count": len(console_errors) + console_errors_omitted,
     }
     if not isinstance(dom, dict) or not dom.get("complete"):
         return {
@@ -1297,5 +1334,8 @@ def render_document(
         "dom_state": "complete",
         "renderer": renderer,
         "console_errors": console_errors,
+        "console_errors_omitted": console_errors_omitted,
         "screenshot_path": screenshot_path,
+        "screenshot_state": screenshot_state,
+        "screenshot_error": screenshot_error,
     }
