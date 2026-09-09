@@ -17,6 +17,26 @@ def test_js_only_canonical_guidance_is_not_unconditionally_critical():
     assert '| "canonical is injected by a script" | critical |' not in skill
     assert "when source HTML has no canonical and JavaScript adds one" in skill
     assert "do not treat injection alone as critical" in skill
+    assert (
+        "https://developers.google.com/search/docs/crawling-indexing/consolidate-duplicate-urls"
+        in skill
+    )
+
+
+def test_rendering_guidance_keeps_js_links_and_an_all_clear_snapshot_conditional():
+    skill = (ROOT / ".claude" / "skills" / "js-render-check" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert '| "links appear only after JS" | critical | site traversal breaks' not in skill
+    assert "JS insertion alone does not prove Google cannot discover them" in skill
+    assert '| "rendering changes nothing" | okay | SSR works;' not in skill
+    assert "does not prove SSR or whole-site health" in skill
+    assert (
+        "https://developers.google.com/search/docs/crawling-indexing/javascript/javascript-seo-basics"
+        in skill
+    )
+    assert "specialist triage heuristics, not Google\nindexing requirements" in skill
 
 
 def test_notranslate_remains_notice_and_names_search_feature_opt_out():
