@@ -40,7 +40,7 @@ def _fake_spider_result() -> SpiderResult:
     return result
 
 
-def test_handler_reconciles_a_sitemap_seeded_crawl(monkeypatch):
+def test_handler_reconciles_a_sitemap_seeded_crawl(monkeypatch, tmp_path):
     monkeypatch.setattr(
         sitemap_tool,
         "crawl",
@@ -48,7 +48,9 @@ def test_handler_reconciles_a_sitemap_seeded_crawl(monkeypatch):
     )
     monkeypatch.setattr("seohead.crawl.spider.crawl_site", lambda *a, **kw: _fake_spider_result())
 
-    out = handlers.crawl_site(url="https://example.com/", sitemap="https://example.com/sitemap.xml")
+    out = handlers.crawl_site(
+        url="https://example.com/", sitemap="https://example.com/sitemap.xml", out_dir=str(tmp_path)
+    )
 
     sitemap_summary = out["summary"]["sitemap"]
     assert sitemap_summary["sitemap_url"] == "https://example.com/sitemap.xml"
@@ -66,7 +68,7 @@ def test_handler_reconciles_a_sitemap_seeded_crawl(monkeypatch):
     assert by_check["URL_NOT_IN_SITEMAP"] == 1
 
 
-def test_handler_passes_one_gate_from_sitemap_seeding_to_page_collection(monkeypatch):
+def test_handler_passes_one_gate_from_sitemap_seeding_to_page_collection(monkeypatch, tmp_path):
     gates = []
 
     def seeded_sitemap(_url, *, request_gate=None, **_kwargs):
@@ -80,27 +82,29 @@ def test_handler_passes_one_gate_from_sitemap_seeding_to_page_collection(monkeyp
     monkeypatch.setattr(sitemap_tool, "crawl", seeded_sitemap)
     monkeypatch.setattr("seohead.crawl.spider.crawl_site", spider)
 
-    handlers.crawl_site(url="https://example.com/", sitemap="https://example.com/sitemap.xml")
+    handlers.crawl_site(
+        url="https://example.com/", sitemap="https://example.com/sitemap.xml", out_dir=str(tmp_path)
+    )
 
     assert gates[0].__self__ is gates[1].__self__
 
 
 @pytest.mark.parametrize("target", ["https://native.example.test/", "native.example.test"])
-def test_handler_warns_when_native_crawl_ignores_robots(monkeypatch, capsys, target):
+def test_handler_warns_when_native_crawl_ignores_robots(monkeypatch, capsys, target, tmp_path):
     monkeypatch.setattr("seohead.crawl.spider.crawl_site", lambda *_args, **_kwargs: SpiderResult())
 
-    handlers.crawl_site(url=target, robots="ignore")
+    handlers.crawl_site(url=target, robots="ignore", out_dir=str(tmp_path))
 
     assert "robots.txt bypass enabled for native.example.test" in capsys.readouterr().err
 
 
-def test_handler_warns_for_each_list_host_when_robots_are_ignored(monkeypatch, capsys):
+def test_handler_warns_for_each_list_host_when_robots_are_ignored(monkeypatch, capsys, tmp_path):
     monkeypatch.setattr(
         "seohead.crawl.collect.collect_urls", lambda *_args, **_kwargs: CrawlResult()
     )
 
     handlers.crawl_site(
-        urls=["https://first.example.test/", "https://second.example.test/path"], robots="ignore"
+        urls=["https://first.example.test/", "https://second.example.test/path"], robots="ignore", out_dir=str(tmp_path)
     )
 
     warning = capsys.readouterr().err
@@ -151,12 +155,12 @@ def test_render_escalation_threads_the_shared_gate_to_browser_entry_points(monke
     assert seen == [gate, gate]
 
 
-def test_handler_without_sitemap_reports_no_sitemap_summary(monkeypatch):
+def test_handler_without_sitemap_reports_no_sitemap_summary(monkeypatch, tmp_path):
     result = _fake_spider_result()
     result.seed_urls = []
     monkeypatch.setattr("seohead.crawl.spider.crawl_site", lambda *a, **kw: result)
 
-    out = handlers.crawl_site(url="https://example.com/")
+    out = handlers.crawl_site(url="https://example.com/", out_dir=str(tmp_path))
 
     assert "sitemap" not in out["summary"]
     assert out["discovery"]["sitemap_url"] is None
@@ -206,7 +210,7 @@ def _site_with_the_four_wrong_populations() -> SpiderResult:
     return result
 
 
-def test_only_a_missing_page_is_reported_not_files_hosts_or_uncrawled_urls(monkeypatch):
+def test_only_a_missing_page_is_reported_not_files_hosts_or_uncrawled_urls(monkeypatch, tmp_path):
     monkeypatch.setattr(
         sitemap_tool,
         "crawl",
@@ -218,7 +222,9 @@ def test_only_a_missing_page_is_reported_not_files_hosts_or_uncrawled_urls(monke
         "seohead.crawl.spider.crawl_site", lambda *a, **kw: _site_with_the_four_wrong_populations()
     )
 
-    out = handlers.crawl_site(url="https://example.com/", sitemap="https://example.com/sitemap.xml")
+    out = handlers.crawl_site(
+        url="https://example.com/", sitemap="https://example.com/sitemap.xml", out_dir=str(tmp_path)
+    )
     summary = out["summary"]["sitemap"]
 
     assert summary["linked_not_in_sitemap"] == ["https://example.com/undeclared"]
@@ -233,7 +239,7 @@ def test_only_a_missing_page_is_reported_not_files_hosts_or_uncrawled_urls(monke
     assert "https://example.com/gone" in set_aside
 
 
-def test_narrowing_the_comparable_side_does_not_invent_orphans(monkeypatch):
+def test_narrowing_the_comparable_side_does_not_invent_orphans(monkeypatch, tmp_path):
     """A declared URL that is noindex, or not HTML, is still reachable — so it must not
     turn into a SITEMAP_ORPHAN just because it left the URL_NOT_IN_SITEMAP population."""
     declared = ["https://example.com/private", "https://example.com/gallery/photo.jpg"]
@@ -246,7 +252,9 @@ def test_narrowing_the_comparable_side_does_not_invent_orphans(monkeypatch):
         "seohead.crawl.spider.crawl_site", lambda *a, **kw: _site_with_the_four_wrong_populations()
     )
 
-    out = handlers.crawl_site(url="https://example.com/", sitemap="https://example.com/sitemap.xml")
+    out = handlers.crawl_site(
+        url="https://example.com/", sitemap="https://example.com/sitemap.xml", out_dir=str(tmp_path)
+    )
 
     assert out["summary"]["sitemap"]["in_sitemap_not_linked"] == []
     assert "SITEMAP_ORPHAN" not in out["summary"]["by_check"]
@@ -296,7 +304,9 @@ def test_auto_discovery_seeds_from_every_declared_sitemap(monkeypatch, tmp_path)
     config_path = tmp_path / "crawl.json"
     config_path.write_text(json.dumps({"sitemaps": {"auto_discover": True}}))
 
-    out = handlers.crawl_site(url="https://example.com/", config=str(config_path))
+    out = handlers.crawl_site(
+        url="https://example.com/", config=str(config_path), out_dir=str(tmp_path / "legacy")
+    )
 
     assert calls == [first, second]
     assert seeds == ["https://example.com/page-a", "https://example.com/product-b"]
@@ -378,7 +388,7 @@ def test_direct_audit_fetches_every_auto_discovered_root_not_just_the_first(monk
     assert sorted(dup_issues[0]["details"]["sitemaps"]) == sorted([first, second])
 
 
-def test_direct_audit_with_a_single_explicit_sitemap_is_unaffected(monkeypatch):
+def test_direct_audit_with_a_single_explicit_sitemap_is_unaffected(monkeypatch, tmp_path):
     """Negative control for #311: an explicit ``--sitemap`` (single source, no
     auto-discovery) keeps auditing only that one document -- no duplicate finding
     materializes out of thin air."""
@@ -418,7 +428,7 @@ def test_direct_audit_with_a_single_explicit_sitemap_is_unaffected(monkeypatch):
 
     monkeypatch.setattr(sitemap_coverage, "_fetch", fake_fetch)
 
-    out = handlers.crawl_site(url=f"{base}/", sitemap=only)
+    out = handlers.crawl_site(url=f"{base}/", sitemap=only, out_dir=str(tmp_path))
 
     assert fetch_calls.count(only) == 1
     assert "SITEMAP_URL_DUPLICATED" not in out["summary"]["by_check"]
@@ -428,7 +438,7 @@ def test_direct_audit_with_a_single_explicit_sitemap_is_unaffected(monkeypatch):
 #    indexable missing-sitemap page (#316) ──────────────────────────────────
 
 
-def test_report_only_robots_blocked_page_is_not_reported_as_a_missing_sitemap_page(monkeypatch):
+def test_report_only_robots_blocked_page_is_not_reported_as_a_missing_sitemap_page(monkeypatch, tmp_path):
     base = "https://example.com"
     monkeypatch.setattr(
         sitemap_tool,
@@ -451,14 +461,14 @@ def test_report_only_robots_blocked_page_is_not_reported_as_a_missing_sitemap_pa
 
     monkeypatch.setattr("seohead.crawl.spider.crawl_site", fake_spider)
 
-    out = handlers.crawl_site(url=f"{base}/", sitemap=f"{base}/sitemap.xml")
+    out = handlers.crawl_site(url=f"{base}/", sitemap=f"{base}/sitemap.xml", out_dir=str(tmp_path))
     summary = out["summary"]["sitemap"]
 
     assert out["summary"]["by_check"].get("URL_NOT_IN_SITEMAP", 0) == 0
     assert f"{base}/private" in summary.get("linked_not_comparable", [])
 
 
-def test_an_indexable_page_missing_from_the_sitemap_still_fires(monkeypatch):
+def test_an_indexable_page_missing_from_the_sitemap_still_fires(monkeypatch, tmp_path):
     """Positive control for #316: an ordinary indexable page the sitemap forgot must
     still be reported -- the robots-blocked exclusion must not swallow real findings."""
     base = "https://example.com"
@@ -482,7 +492,7 @@ def test_an_indexable_page_missing_from_the_sitemap_still_fires(monkeypatch):
 
     monkeypatch.setattr("seohead.crawl.spider.crawl_site", fake_spider)
 
-    out = handlers.crawl_site(url=f"{base}/", sitemap=f"{base}/sitemap.xml")
+    out = handlers.crawl_site(url=f"{base}/", sitemap=f"{base}/sitemap.xml", out_dir=str(tmp_path))
 
     assert out["summary"]["by_check"].get("URL_NOT_IN_SITEMAP") == 1
 
@@ -548,7 +558,7 @@ def test_complete_crawl_still_fires_sitemap_desync(monkeypatch, tmp_path):
         "seohead.crawl.spider.crawl_site", lambda *a, **kw: _partial_graph(partial=False)
     )
 
-    out = handlers.crawl_site(url=f"{base}/", sitemap=f"{base}/sitemap.xml")
+    out = handlers.crawl_site(url=f"{base}/", sitemap=f"{base}/sitemap.xml", out_dir=str(tmp_path))
 
     assert out["partial"] is False
     assert out["summary"]["by_check"].get("SITEMAP_DESYNC") == 1

@@ -364,7 +364,7 @@ def test_handler_threads_every_newly_wired_setting_into_the_spider(monkeypatch, 
         )
     )
 
-    handlers.crawl_site(url="https://example.com/", config=str(config))
+    handlers.crawl_site(url="https://example.com/", config=str(config), out_dir=str(tmp_path / "legacy"))
 
     assert captured["max_response_bytes"] == 999
     assert captured["max_url_length"] == 123
@@ -400,7 +400,9 @@ def test_handler_threads_every_newly_wired_setting_into_collect_urls(monkeypatch
         )
     )
 
-    handlers.crawl_site(urls=["https://example.com/a"], config=str(config))
+    handlers.crawl_site(
+        urls=["https://example.com/a"], config=str(config), out_dir=str(tmp_path / "legacy")
+    )
 
     assert captured["max_response_bytes"] == 999
     assert captured["max_url_length"] == 123
@@ -442,17 +444,19 @@ def test_sitemaps_auto_discover_configured_seeds_without_an_explicit_sitemap_arg
     config = tmp_path / "crawl.json"
     config.write_text(json.dumps({"sitemaps": {"auto_discover": True}}))
 
-    out = handlers.crawl_site(url="https://example.com/", config=str(config))
+    out = handlers.crawl_site(
+        url="https://example.com/", config=str(config), out_dir=str(tmp_path / "legacy")
+    )
     assert out["discovery"]["sitemap_url"] == "https://example.com/sitemap.xml"
     # The discovered sitemap's declared URLs actually reach the spider as seeds.
     assert captured["seed_urls"] == ["https://example.com/a"]
 
 
-def test_default_sitemaps_auto_discover_does_not_seed(monkeypatch):
+def test_default_sitemaps_auto_discover_does_not_seed(monkeypatch, tmp_path):
     from seohead.servers import handlers
 
     monkeypatch.setattr("seohead.crawl.spider.crawl_site", lambda *a, **kw: SpiderResult())
-    out = handlers.crawl_site(url="https://example.com/")
+    out = handlers.crawl_site(url="https://example.com/", out_dir=str(tmp_path / "legacy"))
     assert out["discovery"]["sitemap_url"] is None
     assert out["discovery"]["sitemap_seeded"] == 0
 
@@ -698,7 +702,7 @@ def test_handler_threads_the_remaining_settings_into_the_spider(monkeypatch, tmp
         )
     )
 
-    handlers.crawl_site(url="https://example.com/", config=str(config))
+    handlers.crawl_site(url="https://example.com/", config=str(config), out_dir=str(tmp_path / "legacy"))
 
     assert captured["extra_request_headers"] == {"X-Audit": "seohead"}
     assert captured["adaptive"] is False
@@ -725,7 +729,9 @@ def test_handler_threads_headers_and_adaptive_into_collect_urls(monkeypatch, tmp
         json.dumps({"http": {"headers": {"X-Audit": "s"}}, "speed": {"adaptive": False}})
     )
 
-    handlers.crawl_site(urls=["https://example.com/"], config=str(config))
+    handlers.crawl_site(
+        urls=["https://example.com/"], config=str(config), out_dir=str(tmp_path / "legacy")
+    )
 
     assert captured["extra_request_headers"] == {"X-Audit": "s"}
     assert captured["adaptive"] is False
@@ -756,7 +762,9 @@ def test_resolve_redirect_destination_reaches_the_list_mode_collector(monkeypatc
         _json.dumps({"discovery": {"resolve_redirect_destination": True}}), encoding="utf-8"
     )
 
-    handlers.crawl_site(urls=["https://example.com/old"], config=str(config))
+    handlers.crawl_site(
+        urls=["https://example.com/old"], config=str(config), out_dir=str(tmp_path / "legacy")
+    )
 
     assert captured["resolve_redirect_destination"] is True
 
