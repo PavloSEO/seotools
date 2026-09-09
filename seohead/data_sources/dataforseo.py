@@ -31,6 +31,7 @@ from seohead.data_sources.credentials import (
     dataforseo_login,
     dataforseo_password,
 )
+from seohead.data_sources.http import open_no_redirect
 
 PROD_BASE = "https://api.dataforseo.com/"
 SANDBOX_BASE = "https://sandbox.dataforseo.com/"
@@ -155,7 +156,7 @@ class DataForSEOClient:
             )
             try:
                 # The request URL is built from the fixed HTTPS provider base.
-                with urllib.request.urlopen(request, timeout=TIMEOUT) as response:  # nosec B310
+                with open_no_redirect(request, timeout=TIMEOUT) as response:
                     raw = response.read().decode("utf-8")
                     try:
                         return json.loads(raw)
@@ -201,7 +202,7 @@ class DataForSEOClient:
         url = self.base + "v3/appendix/user_data"
         request = urllib.request.Request(url, headers={"Authorization": self._auth})
         # The request URL is built from the fixed HTTPS provider base.
-        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:  # nosec B310
+        with open_no_redirect(request, timeout=TIMEOUT) as response:
             body = json.loads(response.read().decode("utf-8"))
         info = ((body.get("tasks") or [{}])[0].get("result") or [{}])[0]
         return {
