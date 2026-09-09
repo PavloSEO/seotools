@@ -9,6 +9,12 @@ from . import ScanError, _insert
 
 def _validate_extraction_rule_evidence(con: Any, item: dict[str, Any], payload: Any) -> None:
     """Validate closed rule results and bind their envelope to one document."""
+    from seohead.tools.extraction_rules import validate_result
+
+    try:
+        validate_result(payload)
+    except ValueError as exc:
+        raise ScanError("native extraction rule evidence is invalid") from exc
     if (
         not isinstance(payload, dict)
         or set(payload) != {"schema_version", "representation", "state", "reason", "rules"}

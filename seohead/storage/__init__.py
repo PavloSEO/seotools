@@ -784,13 +784,18 @@ def open_scan(path: str | Path, *, require_audit: bool = True):
         con.execute("BEGIN")
         version = con.execute("PRAGMA user_version").fetchone()[0]
         app_id = con.execute("PRAGMA application_id").fetchone()[0]
-        if version != USER_VERSION:
+        if version not in {USER_VERSION, 2}:
             raise ScanError(
-                f"unsupported scan user_version {version}; expected {USER_VERSION}; no automatic migration"
+                f"unsupported scan user_version {version}; no automatic migration"
             )
         if app_id != APPLICATION_ID:
             raise ScanError(f"foreign application_id {app_id}; expected {APPLICATION_ID} (SEOH)")
-        _validate(con, require_audit=require_audit)
+        if version == 2:
+            from .retry import validate_v2
+
+            validate_v2(con, require_audit=require_audit)
+        else:
+            _validate(con, require_audit=require_audit)
         return con
     except (OSError, sqlite3.Error, ValueError) as exc:
         if con is not None:

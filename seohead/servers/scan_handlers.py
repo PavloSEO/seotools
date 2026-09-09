@@ -254,6 +254,10 @@ def resume_inputs(scan_path: str) -> dict[str, Any]:
             f"(finish reason: {header['finish_reason']}); there is nothing left to resume"
         )
     settings = json.loads(header["config_json"])
+    if "max_requests" not in settings.get("limits", {}):
+        # Pre-budget artifacts made no total-attempt promise. Keep that recorded
+        # semantics on resume instead of silently applying a later default.
+        settings.setdefault("limits", {})["max_requests"] = 0
     if settings.get("http", {}).get("credential_headers"):
         # The artifact stores credential references redacted, by design, so the
         # settings read back from it are not the settings the interrupted run

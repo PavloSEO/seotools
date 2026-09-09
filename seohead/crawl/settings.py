@@ -1027,13 +1027,27 @@ def redact_sensitive_headers(headers: Any) -> Any:
     }
 
 
-def load(path: str | None = None, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Resolve the configuration: defaults, then file, then environment, then arguments.
+def load(
+    path: str | None = None,
+    overrides: dict[str, Any] | None = None,
+    *,
+    base_overrides: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Resolve defaults, project defaults, file, environment, then explicit overrides.
 
     The order is fixed and tested. Explicit arguments win because they are the
     most local statement of intent.
     """
     config = copy.deepcopy(DEFAULTS)
+
+    for setting, value in (base_overrides or {}).items():
+        if value is None:
+            continue
+        if isinstance(value, dict) and not isinstance(_flatten(DEFAULTS).get(setting), dict):
+            raise ConfigError(
+                f"base override {setting!r} is a mapping; use a dotted setting path instead"
+            )
+        _set_path(config, setting, value)
 
     if path:
         try:

@@ -73,6 +73,35 @@ def scan_pin(input_path: str, *, pinned: bool = True) -> dict[str, Any]:
     return {"input": path, "pinned": pinned}
 
 
+def scan_requeue(
+    input_path: str,
+    *,
+    where: str,
+    backup_path: str,
+    from_scan: str | None = None,
+) -> dict[str, Any]:
+    """Explicitly upgrade one scan for a selected retry, retaining a verified backup."""
+    from seohead.storage.retry import requeue_scan
+
+    return requeue_scan(
+        _path(input_path, "input"),
+        where=_path(where, "where"),
+        backup_path=_path(backup_path, "backup_path"),
+        from_scan=_path(from_scan, "from_scan") if from_scan is not None else None,
+    )
+
+
+def scan_import_urls(input_path: str, *, urls_file: str, backup_path: str) -> dict[str, Any]:
+    """Add an external URL list through a scan's stored admission policy."""
+    from seohead.storage.retry import scan_import_urls as core
+
+    return core(
+        _path(input_path, "input"),
+        urls_file=_path(urls_file, "urls_file"),
+        backup_path=_path(backup_path, "backup_path"),
+    )
+
+
 def _plan(value: dict[str, Any] | str | None) -> dict[str, Any]:
     if isinstance(value, str) and value:
         with open(value, "rb") as handle:
@@ -147,8 +176,10 @@ __all__ = [
     "scan_body_diff",
     "scan_inspect",
     "scan_list",
+    "scan_import_urls",
     "scan_pin",
     "scan_prune",
+    "scan_requeue",
     "scan_rendered_routes",
     "scan_snapshot",
 ]

@@ -162,7 +162,7 @@ def _native_config(value: Any, *, recorded: bool = False) -> dict[str, Any]:
         )
         validation_config.setdefault("limits", {})
         validation_config["limits"].setdefault(
-            "max_requests", DEFAULTS["limits"]["max_requests"]
+            "max_requests", 0
         )
     try:
         validate_crawl_config(
@@ -189,7 +189,7 @@ def _resume_fingerprint(expected_config: Any, recorded_config: Any) -> str:
     if (
         "limits" in recorded
         and "max_requests" not in recorded["limits"]
-        and expected["limits"].get("max_requests") == DEFAULTS["limits"]["max_requests"]
+        and expected["limits"].get("max_requests") == 0
     ):
         expected["limits"].pop("max_requests")
     return crawl_config_fingerprint(expected)
@@ -717,6 +717,11 @@ class NativeScan:
     def _validate_native(con: sqlite3.Connection) -> None:
         if con.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID:
             raise ScanError("foreign application_id")
+        if con.execute("PRAGMA user_version").fetchone()[0] == 2:
+            from .retry import validate_v2
+
+            validate_v2(con, require_audit=False)
+            return
         if con.execute("PRAGMA user_version").fetchone()[0] != USER_VERSION:
             raise ScanError("unsupported scan user_version")
         if _objects(con) != _expected()[0]:
@@ -1606,9 +1611,14 @@ class NativeScan:
             raise ScanError("pages.content_frames_same_origin exceeds content_frames")
         if record.get("body_unavailable") not in {"", "oversized"}:
             raise ScanError("pages.body_unavailable has an unknown marker")
+        page_ordinal = self.con.execute("SELECT COUNT(*) FROM pages").fetchone()[0]
+        if self.con.execute("PRAGMA user_version").fetchone()[0] == 2:
+            page_ordinal = self.con.execute(
+                "SELECT COALESCE(MAX(page_ordinal)+1,0) FROM pages"
+            ).fetchone()[0]
         row: dict[str, Any] = {
             "url_id": lease.url_id,
-            "page_ordinal": self.con.execute("SELECT COUNT(*) FROM pages").fetchone()[0],
+            "page_ordinal": page_ordinal,
         }
         for name, column in columns.items():
             if name in {"url_id", "page_ordinal", "document_id"}:
