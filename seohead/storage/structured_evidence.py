@@ -6,6 +6,8 @@ import hashlib
 import json
 from typing import Any
 
+from bs4 import BeautifulSoup
+
 from . import ScanError
 
 OUTER_VERSION = "scan_context.v1"
@@ -74,7 +76,7 @@ def structured_payload(
 
 
 def language_payload(
-    *, page_url_id: int, source_document_id: int, representation: str, parsed: dict[str, Any] | None
+    *, page_url_id: int, source_document_id: int, representation: str, parsed: dict[str, Any] | None, html: str | None
 ) -> dict[str, Any]:
     """Capture raw/resolved hreflang declarations as directed source evidence."""
     if type(page_url_id) is not int or type(source_document_id) is not int or representation not in REPRESENTATIONS:
@@ -99,7 +101,12 @@ def language_payload(
         "schema_version": LANGUAGE_VERSION, "page_url_id": page_url_id,
         "source_document_id": source_document_id, "representation": representation,
         "state": "declared" if declarations else "absent", "reason": "",
-        "html_lang": parsed.get("html_lang"), "declarations": declarations,
+        "html_lang": (
+            str(BeautifulSoup(html, features="lxml").find("html").get("lang") or "")
+            if isinstance(html, str) and BeautifulSoup(html, features="lxml").find("html") is not None
+            else None
+        ),
+        "declarations": declarations,
     }
 
 
