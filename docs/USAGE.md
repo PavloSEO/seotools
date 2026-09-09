@@ -27,6 +27,7 @@ seohead crawl-site --url https://example.com --max-urls 50
 # Choose a destination explicitly when a stable filename is needed.
 seohead crawl-site --url https://example.com --max-urls 50 --scan-out native.sqlite
 seohead report-build --audit native.sqlite --format md --out native-report.md
+seohead report-build --audit native.sqlite --format md --out native-report.md --project ./example-project
 
 # if the crawl was interrupted, continue it from the artifact -- no other flag
 seohead crawl-site --resume native.sqlite
@@ -88,6 +89,25 @@ For `--format csv`, each successful build returns `outputs` for the requested
 findings CSV plus `<name>.pages.csv` and `<name>.scope.csv`. All three are
 rewritten on every build; an empty findings, pages, or scope collection leaves
 the corresponding file with its header only.
+
+## Project checklist coverage
+
+```bash
+# Creates or reconciles local checklist definitions only; it runs no checks.
+seohead project checklist-init --directory ./example-project
+
+# Use the revision returned by initialization for every local write.
+seohead project checklist-record \
+  --directory ./example-project \
+  --item-id skill:workflow/control \
+  --expected-revision 1 \
+  --input '{"record":{"status":"not_applicable","reason":"The work is a scoped follow-up, not an unscoped audit","reviewer":"Specialist"}}'
+```
+
+`project-checklist-update` and `project-checklist-record` receive their structured
+`item` and `record` values through `--input` JSON. They validate supplied data and
+record local status; neither command executes a checklist operation or contacts a
+site, browser, provider or crawler.
 
 ## Saved scan history
 
@@ -235,7 +255,7 @@ Money rules for this layer: [GOTCHAS.md](GOTCHAS.md).
 ## MCP server
 
 ```bash
-seohead mcp        # stdio server, all 68 seo_* tools + 5 sf_* audit tools
+seohead mcp        # stdio server, all 71 seo_* tools + 5 sf_* audit tools
 ```
 
 Client config (`.mcp.json` in this repo does exactly this):

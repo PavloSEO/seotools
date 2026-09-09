@@ -6,7 +6,7 @@ Generated from the MCP tool definitions in `seohead/servers/mcp_server.py` and `
 python scripts/generate_tool_reference.py
 ```
 
-**68 core tools** (`seohead <command>` / `seo_<command>` on the MCP server) plus **5 crawl-audit tools** (`sf_<command>`, driven by `seohead sf ...`) — 73 in total.
+**71 core tools** (`seohead <command>` / `seo_<command>` on the MCP server) plus **5 crawl-audit tools** (`sf_<command>`, driven by `seohead sf ...`) — 76 in total.
 
 Every tool shares one contract: JSON in, JSON out. A target that could not be reached comes back as `{"ok": false, "error": "..."}` instead of raising, so an unreachable site is data, not a crash.
 
@@ -583,13 +583,14 @@ Run the whole live toolkit over one site and return a single audit document (sch
 
 MCP name: `seo_report_build`
 
-Turn an audit document into a file: xlsx, docx, csv, md or json. Pass the dict returned by seo_site_audit, an SF Analyzer audit.json from sf_audit_run (or a path to either one's JSON, or a validated scan.v1 SQLite artifact) — both audit schemas are recognized and normalized before rendering. xlsx has four sheets with filters and a live Excel chart — for work; docx is prose with headings — for the client; csv writes separate findings, scope-evidence, and page tables for a tracker, listed under outputs; md is for reading and for git. The generators compute nothing and reach no network: what is not in the JSON does not appear in the report. A document matching neither schema is refused with ok: false naming the mismatch, never rendered as an empty report.
+Turn an audit document into a file: xlsx, docx, csv, md or json. Pass the dict returned by seo_site_audit, an SF Analyzer audit.json from sf_audit_run (or a path to either one's JSON, or a validated scan.v1 SQLite artifact) — both audit schemas are recognized and normalized before rendering. xlsx has four sheets with filters and a live Excel chart — for work; docx is prose with headings — for the client; csv writes separate findings, scope-evidence, and page tables for a tracker, listed under outputs; md is for reading and for git. The generators compute nothing and reach no network: what is not in the JSON does not appear in the report. A document matching neither schema is refused with ok: false naming the mismatch, never rendered as an empty report. Pass project to include validated checklist coverage, reasons, scope and measurements in a human report; the original JSON audit remains unchanged. This never makes a network request.
 
 | Argument | Type | Default |
 |---|---|---|
 | `audit` | `dict | str` | `required` |
 | `fmt` | `str` | `'xlsx'` |
 | `out` | `str | None` | `None` |
+| `project` | `str | None` | `None` |
 
 **Cost** — network: no · writes files: yes · idempotent: no · spends money: no
 
@@ -958,6 +959,67 @@ Show project scan history and named pending checklist/preparation states.
 | `directory` | `str` | `required` |
 
 **Cost** — network: no · writes files: no · idempotent: yes · spends money: no
+
+### `project-checklist-init`
+
+MCP name: `seo_project_checklist_init`
+
+Initialize or reconcile a local checklist without executing a check, skill, or scenario.
+
+| Argument | Type | Default |
+|---|---|---|
+| `directory` | `str` | `required` |
+| `template` | `dict | None` | `None` |
+| `expected_revision` | `int | None` | `None` |
+
+**Cost** — network: no · writes files: yes · idempotent: no · spends money: no
+
+**Behavior and failure modes**
+
+template is an optional data-only ``seohead.checklist-template.v1`` document. The result
+returns the current state, revision, counts, views and items; use that revision for a
+later conditional write. This never makes a network request.
+
+### `project-checklist-update`
+
+MCP name: `seo_project_checklist_update`
+
+Add or update one local checklist definition without executing it.
+
+| Argument | Type | Default |
+|---|---|---|
+| `directory` | `str` | `required` |
+| `item` | `dict` | `required` |
+| `expected_revision` | `int` | `required` |
+
+**Cost** — network: no · writes files: yes · idempotent: no · spends money: no
+
+**Behavior and failure modes**
+
+expected_revision prevents a writer from silently replacing a newer checklist. Built-in
+identity and source provenance remain validated by the project core. This never makes a
+network request.
+
+### `project-checklist-record`
+
+MCP name: `seo_project_checklist_record`
+
+Record supplied evidence for one checklist item without executing its operation.
+
+| Argument | Type | Default |
+|---|---|---|
+| `directory` | `str` | `required` |
+| `item_id` | `str` | `required` |
+| `record` | `dict` | `required` |
+| `expected_revision` | `int` | `required` |
+
+**Cost** — network: no · writes files: yes · idempotent: no · spends money: no
+
+**Behavior and failure modes**
+
+expected_revision prevents an overwrite of newer checklist history. The record is
+validated against the item's scope and evidence contract, then the returned status names
+remaining, blocked and manual-review work. This never makes a network request.
 
 ### `scan-list`
 
