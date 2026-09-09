@@ -57,8 +57,6 @@ def landing_pages(
         "limit": str(MAX_ROWS),
         "keepEmptyRows": False,
     }
-    if reporting_identity:
-        payload["comparisons"] = []  # Keep a selected identity as explicit evidence metadata.
     try:
         raw = (transport or _default_transport)(
             f"{HOST}/properties/{property_id}:runReport", payload, bearer

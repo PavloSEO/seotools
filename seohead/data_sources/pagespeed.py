@@ -20,9 +20,9 @@ Fetcher = Callable[[str, str | None], str]
 
 
 def _default_fetcher(url: str, api_key: str | None) -> str:
-    if api_key:
-        url = f"{url}&key={urllib.parse.quote(api_key, safe='')}"
-    with urllib.request.urlopen(url, timeout=TIMEOUT) as response:  # nosec B310
+    headers = {"X-goog-api-key": api_key} if api_key else {}
+    request = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(request, timeout=TIMEOUT) as response:  # nosec B310
         return response.read().decode("utf-8")
 
 
