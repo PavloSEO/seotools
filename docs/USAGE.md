@@ -113,11 +113,15 @@ site, browser, provider or crawler.
 
 These commands are local and offline. `scan list` validates artifact metadata and
 schema without reading body BLOBs; `scan inspect` reads only a whitelisted table
-and returns a bounded page of rows.
+and returns a bounded page of rows. `scan status` separates native frontier work
+from committed page outcomes, so a done 503 or transport failure is never called
+successful and queued/inflight rows remain unfinished work. Imported artifacts
+report their frontier as unavailable because they retain no native queue.
 
 ```bash
 seohead scan-list --directory . --limit 100
 seohead scan-inspect --input native.sqlite --table pages --offset 0 --limit 100 --max-bytes 1048576
+seohead scan-status --input native.sqlite
 
 # --out is either a new filename or an existing directory; neither form overwrites
 seohead scan-snapshot --input native.sqlite --out snapshot.sqlite
@@ -142,7 +146,7 @@ same host/configuration. It never automatically selects `crawl_partial` or
 every candidate and its current retention rank before deleting anything.
 
 Each flat form also has a nested `scan` equivalent: `scan list`, `scan inspect`,
-`scan snapshot`, `scan pin`, `scan prune`, and `scan body-diff`.
+`scan status`, `scan snapshot`, `scan pin`, `scan prune`, and `scan body-diff`.
 
 `scan pin` takes the artifact's writer lock and uses SQLite DELETE journal mode.
 It changes only the pin bit: the SQLite file hash changes, while the saved audit,
@@ -251,7 +255,7 @@ Money rules for this layer: [GOTCHAS.md](GOTCHAS.md).
 ## MCP server
 
 ```bash
-seohead mcp        # stdio server, all 70 seo_* tools + 5 sf_* audit tools
+seohead mcp        # stdio server, all 71 seo_* tools + 5 sf_* audit tools
 ```
 
 Client config (`.mcp.json` in this repo does exactly this):

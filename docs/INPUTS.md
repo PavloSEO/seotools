@@ -88,6 +88,7 @@ and this decision makes no backend migration.
 | `project-checklist-update` | Project directory (`directory`)<br>Inline JSON (`item`) | Requires expected_revision for optimistic concurrency. |
 | `project-checklist-record` | Project directory (`directory`)<br>Selector (`item_id`)<br>Inline JSON (`record`) | Requires expected_revision; records supplied evidence only. |
 | `scan-inspect` | Scan artifact (`input_path`) | — |
+| `scan-status` | Scan artifact (`input_path`) | — |
 | `scan-snapshot` | Scan artifact (`input_path`) | — |
 | `scan-pin` | Scan artifact (`input_path`) | — |
 | `scan-prune` | Local directory (`directory`)<br>Local file (`plan`)<br>Project directory (`project`) | Defaults the directory to project scans/; apply remains explicit. |

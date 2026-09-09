@@ -241,6 +241,7 @@ COMMAND_CONTRACTS: tuple[CommandContract, ...] = (
         ),
     ),
     _command("scan-inspect", "scan_inspect", _form("scan_artifact", "input_path")),
+    _command("scan-status", "scan_status", _form("scan_artifact", "input_path")),
     _command("scan-snapshot", "scan_snapshot", _form("scan_artifact", "input_path")),
     _command("scan-pin", "scan_pin", _form("scan_artifact", "input_path")),
     _command(

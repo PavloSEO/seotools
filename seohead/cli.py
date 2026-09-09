@@ -85,6 +85,7 @@ COMMANDS = (
     "indexnow-submit",
     "scan-list",
     "scan-inspect",
+    "scan-status",
     "scan-snapshot",
     "scan-pin",
     "scan-prune",
@@ -498,6 +499,8 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
             value = getattr(args, name, None)
             if value is not None:
                 kw[name] = value
+    if cmd == "scan-status" and getattr(args, "input_path", None):
+        kw["input_path"] = args.input_path
     if cmd == "scan-snapshot":
         if getattr(args, "input_path", None):
             kw["input_path"] = args.input_path
@@ -1071,7 +1074,7 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
         sub.add_argument("--offset", type=int)
         sub.add_argument("--limit", type=int)
         _source_flag(sub, "--project", help="project directory whose scans/ directory is listed")
-    if cmd in {"scan-inspect", "scan-snapshot", "scan-pin"}:
+    if cmd in {"scan-inspect", "scan-status", "scan-snapshot", "scan-pin"}:
         _source_flag(sub, "--input", dest="input_path", required=False, help="scan SQLite file")
     if cmd == "scan-inspect":
         sub.add_argument("--table")
@@ -1231,7 +1234,7 @@ def build_parser() -> argparse.ArgumentParser:
         _add_flags(sp, cmd)
     scan = subs.add_parser("scan", help="saved SQLite scan history")
     scan_subs = scan.add_subparsers(dest="scan_command", metavar="<action>", required=True)
-    for action in ("list", "inspect", "snapshot", "pin", "prune", "body-diff"):
+    for action in ("list", "inspect", "status", "snapshot", "pin", "prune", "body-diff"):
         cmd = "scan-" + action
         sp = scan_subs.add_parser(action, help=f"run {cmd}")
         _add_flags(sp, cmd)

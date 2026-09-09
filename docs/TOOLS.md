@@ -1,6 +1,6 @@
 # Tool reference
 
-70 + 5 tools, reachable identically from the CLI and from MCP. One
+71 + 5 tools, reachable identically from the CLI and from MCP. One
 implementation, two faces: `seohead <command>` in the terminal and
 `seo_<command>` on the MCP server (`seohead mcp`). Five more `sf_*` tools cover
 the Screaming Frog crawl audit workflow specifically — see that section below
@@ -170,6 +170,7 @@ without deleting its scan. The exact arguments and defaults are in the generated
 |---|---|---|
 | `scan-list` | Validates and lists metadata for `*.sqlite` files in one existing directory without reading retained body BLOBs. It stops at 10,000 files and 64 MiB of metadata, and reports unreadable candidates under `errors` rather than treating them as scans. | — |
 | `scan-inspect` | Reads one allowed table (`pages`, `links`, `forms`, `decisions`, `frontier`, `query_variants`, `context_items`, `responses`, `documents`, `resource_refs`, or `audit`) as a paginated view. At most 1,000 rows and 8 MiB of row payload are returned; `has_more`/`truncated` says when the caller must narrow or continue. | — |
+| `scan-status` | Separates queued, inflight, done, and excluded native frontier rows from committed page HTTP outcome classes and no-response records. It reports interrupted captures as unfinished; imported scans name their absent native frontier as unavailable rather than an empty queue. | — |
 | `scan-snapshot` | Makes a validated, portable single-file SQLite copy. `--out` may name a new file or an existing directory; a directory receives a UTC timestamp, host, and short scan UUID filename. Existing destinations are never overwritten. | writes a new file |
 | `scan-pin` | Explicitly pins a scan, or unpins it with `--unpin`, so retention will not select it. | changes scan metadata |
 | `scan-prune` | Produces a retention plan by default. Deletion needs `--apply` and the exact reviewed plan. | deletes only with `--apply` |
@@ -181,6 +182,9 @@ seohead scan-list --directory . --limit 100
 
 # inspect a whitelisted table with a smaller total row-payload budget
 seohead scan-inspect --input native.sqlite --table documents --limit 100 --max-bytes 1048576
+
+# inspect operational state without retrying, requeueing, or reading retained bodies
+seohead scan-status --input native.sqlite
 
 # no-clobber snapshot: either a new filename or an existing directory
 seohead scan-snapshot --input native.sqlite --out snapshot.sqlite
@@ -206,8 +210,8 @@ always protected by automatic selection. The preview's stdout envelope is an
 accepted `--plan` JSON file; a changed directory, identity, metadata, or rank
 invalidates it. After reviewing `plan.json`, run `seohead scan-prune --directory .
 --plan plan.json --apply` to perform that exact deletion plan. The flat commands
-also have the nested `scan list`, `scan inspect`, `scan snapshot`, `scan pin`,
-`scan prune`, and `scan body-diff` forms.
+also have the nested `scan list`, `scan inspect`, `scan status`, `scan snapshot`,
+`scan pin`, `scan prune`, and `scan body-diff` forms.
 
 Pinning acquires the writer lock and writes the artifact in SQLite DELETE journal
 mode. It changes only the `pinned` field, so the SQLite container hash changes,
