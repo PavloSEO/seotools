@@ -316,6 +316,7 @@ def _normalize_sf_audit(document: dict[str, Any]) -> dict[str, Any]:
         "findings": findings,
         "pages": pages,
         "summary": {
+            "evidence_contract": summary.get("evidence_contract"),
             "pages_checked": totals.get("urls_crawled", len(pages)),
             "findings_total": totals.get("issues_total", len(findings)),
             "findings_by_severity": {

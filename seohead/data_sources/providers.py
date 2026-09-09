@@ -114,6 +114,8 @@ def _credential_components(provider: str) -> dict[str, bool]:
     components = {name: credentials.available(*source) for name, source in paths[provider].items()}
     if provider == "gsc":
         components["service_account"] = credentials.gsc_service_account_available()
+        from seohead.data_sources.oauth import grant_available
+        components["durable_oauth"] = grant_available("gsc")
     return components
 
 

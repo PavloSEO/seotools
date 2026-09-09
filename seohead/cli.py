@@ -104,6 +104,7 @@ COMMANDS = (
     "skill-list",
     "skill-show",
     "scenario-show",
+    "provider-auth",
     "provider-registry",
     "provider-verify",
     "provider-collect",
@@ -364,6 +365,12 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
     elif cmd in {"skill-show", "scenario-show"}:
         if getattr(args, "name", None) or getattr(args, "playbook_name", None):
             kw["name"] = getattr(args, "name", None) or args.playbook_name
+    elif cmd == "provider-auth":
+        for name in ("provider", "action", "grant_file"):
+            if getattr(args, name, None) is not None:
+                kw[name] = getattr(args, name)
+        if getattr(args, "confirm", False):
+            kw["confirm"] = True
     elif cmd in {"provider-verify", "provider-collect"}:
         for name in ("provider", "operation", "artifact_dir"):
             if getattr(args, name, None) is not None:
@@ -1229,6 +1236,11 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
         _source_flag(sub, "--target", help="site URL for the new project")
     if cmd in {"skill-show", "scenario-show"}:
         _source_flag(sub, "--name", help="full playbook identifier or unambiguous name")
+    if cmd == "provider-auth":
+        _source_flag(sub, "--provider", help="OAuth provider (gsc)")
+        sub.add_argument("--action", choices=("status", "connect", "refresh", "disconnect", "revoke"))
+        _source_flag(sub, "--grant-file", help="private bounded JSON grant obtained through provider consent")
+        sub.add_argument("--confirm", action="store_true")
     if cmd in {"provider-verify", "provider-collect"}:
         _source_flag(sub, "--provider", help="provider registry identifier")
     if cmd == "provider-collect":

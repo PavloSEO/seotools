@@ -5,11 +5,14 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import warnings
 from collections.abc import Iterable
+from io import BytesIO
 from typing import Any
 from urllib.parse import urljoin, urlsplit
 
 from bs4 import BeautifulSoup
+from PIL import Image, UnidentifiedImageError
 
 from . import ScanError
 
@@ -27,6 +30,7 @@ _STATES = {
 }
 _CSS_URL = re.compile(r"url\(\s*(['\"]?)(.*?)\1\s*\)", re.IGNORECASE)
 _CSS_IMPORT = re.compile(r"@import\s+(?:url\()?\s*['\"]([^'\"]+)['\"]", re.IGNORECASE)
+_INTEGRITY_STATES = {"declared", "absent", "unknown"}
 
 
 def ensure_schema(con: sqlite3.Connection) -> None:
@@ -37,8 +41,21 @@ def ensure_schema(con: sqlite3.Connection) -> None:
         "CREATE TABLE IF NOT EXISTS resource_graph_occurrences (occurrence_id INTEGER PRIMARY KEY,"
         "page_url_id INTEGER NOT NULL,source_document_id INTEGER NOT NULL,representation TEXT NOT NULL,"
         "ordinal INTEGER NOT NULL,kind TEXT NOT NULL,carrier TEXT NOT NULL,raw_url TEXT NOT NULL,"
-        "resolved_url TEXT NOT NULL,nesting_depth INTEGER NOT NULL,state TEXT NOT NULL,reason TEXT NOT NULL,"
+        "resolved_url TEXT NOT NULL,integrity TEXT,integrity_state TEXT NOT NULL DEFAULT 'unknown',"
+        "nesting_depth INTEGER NOT NULL,state TEXT NOT NULL,reason TEXT NOT NULL,"
         "UNIQUE(page_url_id,source_document_id,representation,ordinal))"
+    )
+    occurrence_columns = {row[1] for row in con.execute("PRAGMA table_info(resource_graph_occurrences)")}
+    for name, definition in (
+        ("integrity", "TEXT"),
+        ("integrity_state", "TEXT NOT NULL DEFAULT 'unknown'"),
+    ):
+        if name not in occurrence_columns:
+            con.execute(f"ALTER TABLE resource_graph_occurrences ADD COLUMN {name} {definition}")
+    con.execute(
+        "CREATE TABLE IF NOT EXISTS resource_graph_fetches (resolved_url TEXT PRIMARY KEY,state TEXT NOT NULL,"
+        "reason TEXT NOT NULL,status_code INTEGER,content_type TEXT NOT NULL,bytes_received INTEGER NOT NULL,"
+        "elapsed_seconds REAL,origin_host TEXT NOT NULL,redirects INTEGER NOT NULL,nesting_depth INTEGER NOT NULL)"
     )
     existing = {row[1] for row in con.execute("PRAGMA table_info(resource_graph_fetches)")}
     for name, definition in (
@@ -53,28 +70,56 @@ def ensure_schema(con: sqlite3.Connection) -> None:
         if name not in existing:
             con.execute(f"ALTER TABLE resource_graph_fetches ADD COLUMN {name} {definition}")
     con.execute(
-        "CREATE TABLE IF NOT EXISTS resource_graph_fetches (resolved_url TEXT PRIMARY KEY,state TEXT NOT NULL,"
-        "reason TEXT NOT NULL,status_code INTEGER,content_type TEXT NOT NULL,bytes_received INTEGER NOT NULL,"
-        "elapsed_seconds REAL,origin_host TEXT NOT NULL,redirects INTEGER NOT NULL,nesting_depth INTEGER NOT NULL)"
-    )
-    con.execute(
         "CREATE INDEX IF NOT EXISTS resource_graph_occurrences_url ON resource_graph_occurrences(resolved_url)"
     )
 
 
-def _append(values: list[dict[str, Any]], *, kind: str, carrier: str, raw: str, base_url: str) -> None:
+def _append(
+    values: list[dict[str, Any]],
+    *,
+    kind: str,
+    carrier: str,
+    raw: str,
+    base_url: str,
+    integrity: str | None = None,
+    integrity_state: str = "unknown",
+) -> None:
     value = raw.strip()
     resolved = urljoin(base_url, value)
     parts = urlsplit(resolved)
     if not value or parts.scheme.lower() not in {"http", "https"} or not parts.hostname:
         return
-    values.append({"kind": kind, "carrier": carrier, "raw_url": value, "resolved_url": resolved})
+    values.append(
+        {
+            "kind": kind,
+            "carrier": carrier,
+            "raw_url": value,
+            "resolved_url": resolved,
+            "integrity": integrity,
+            "integrity_state": integrity_state,
+        }
+    )
 
 
-def _srcset(values: list[dict[str, Any]], raw: str, base_url: str) -> None:
+def _srcset(
+    values: list[dict[str, Any]],
+    raw: str,
+    base_url: str,
+    *,
+    integrity: str | None,
+    integrity_state: str,
+) -> None:
     for candidate in raw.split(","):
         value = candidate.strip().split(maxsplit=1)[0] if candidate.strip() else ""
-        _append(values, kind="image", carrier="srcset", raw=value, base_url=base_url)
+        _append(
+            values,
+            kind="image",
+            carrier="srcset",
+            raw=value,
+            base_url=base_url,
+            integrity=integrity,
+            integrity_state=integrity_state,
+        )
 
 
 def extract(html: str | None, base_url: str, *, max_occurrences: int = 20_000) -> tuple[list[dict[str, Any]], int]:
@@ -96,6 +141,15 @@ def extract(html: str | None, base_url: str, *, max_occurrences: int = 20_000) -
     }
     for tag in soup.find_all(True):
         name = tag.name.lower()
+        declared_integrity = tag.get("integrity") if tag.has_attr("integrity") else None
+        integrity = declared_integrity if isinstance(declared_integrity, str) else None
+        integrity_state = (
+            "declared"
+            if integrity is not None
+            else "unknown"
+            if tag.has_attr("integrity")
+            else "absent"
+        )
         if name == "link":
             rel = {str(value).lower() for value in tag.get("rel") or ()}
             kind = (
@@ -108,17 +162,39 @@ def extract(html: str | None, base_url: str, *, max_occurrences: int = 20_000) -
                 else None
             )
             if kind and isinstance(tag.get("href"), str):
-                _append(values, kind=kind, carrier="link[href]", raw=tag["href"], base_url=base_url)
+                _append(
+                    values,
+                    kind=kind,
+                    carrier="link[href]",
+                    raw=tag["href"],
+                    base_url=base_url,
+                    integrity=integrity,
+                    integrity_state=integrity_state,
+                )
         for attribute, kind in attributes.get(name, ()):
             raw = tag.get(attribute)
             if not isinstance(raw, str):
                 continue
             if attribute == "srcset":
-                _srcset(values, raw, base_url)
+                _srcset(
+                    values,
+                    raw,
+                    base_url,
+                    integrity=integrity,
+                    integrity_state=integrity_state,
+                )
             else:
                 if name == "script" and str(tag.get("type") or "").lower() != "module":
                     kind = "script"
-                _append(values, kind=kind, carrier=f"{name}[{attribute}]", raw=raw, base_url=base_url)
+                _append(
+                    values,
+                    kind=kind,
+                    carrier=f"{name}[{attribute}]",
+                    raw=raw,
+                    base_url=base_url,
+                    integrity=integrity,
+                    integrity_state=integrity_state,
+                )
         style = tag.get("style")
         if isinstance(style, str):
             _css(values, style, base_url, carrier=f"{name}[style]")
@@ -171,8 +247,8 @@ def store_document(
     )
     for ordinal, value in enumerate(values):
         con.execute(
-            "INSERT INTO resource_graph_occurrences(page_url_id,source_document_id,representation,ordinal,kind,carrier,raw_url,resolved_url,nesting_depth,state,reason) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO resource_graph_occurrences(page_url_id,source_document_id,representation,ordinal,kind,carrier,raw_url,resolved_url,integrity,integrity_state,nesting_depth,state,reason) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 page_url_id,
                 source_document_id,
@@ -182,6 +258,8 @@ def store_document(
                 value["carrier"],
                 value["raw_url"],
                 value["resolved_url"],
+                value["integrity"],
+                value["integrity_state"],
                 0,
                 "disabled",
                 "resource fetch is disabled",
@@ -241,7 +319,7 @@ def read(con: sqlite3.Connection, *, limit: int = 1_000, offset: int = 0) -> dic
     coverage = (
         {"state": "unavailable", "reason": "resource declarations were not captured"}
         if not total
-        else {"state": "partial" if any(states.get(name) for name in ("disabled", "budget", "failed", "excluded")) else "complete", "counts": states}
+        else {"state": "partial" if any(states.get(name) for name in ("disabled", "budget", "failed", "excluded", "partial")) else "complete", "counts": states}
     )
     return {
         "state": coverage["state"],
@@ -273,6 +351,8 @@ def validate(con: sqlite3.Connection) -> None:
             or not row["carrier"]
             or not row["raw_url"]
             or not row["resolved_url"]
+            or row["integrity_state"] not in _INTEGRITY_STATES
+            or (row["integrity_state"] != "declared" and row["integrity"] is not None)
             or not con.execute(
                 "SELECT 1 FROM documents WHERE document_id=? AND url_id=? AND representation=?",
                 (row["source_document_id"], row["page_url_id"], row["representation"]),
@@ -286,10 +366,14 @@ def validate(con: sqlite3.Connection) -> None:
         raise ScanError("resource graph occurrence ordinals are not contiguous")
     for row in con.execute("SELECT * FROM resource_graph_fetches"):
         if (
-            row["state"] not in {"complete", "failed", "excluded", "budget"}
+            row["state"] not in {"complete", "partial", "failed", "excluded", "budget"}
             or row["bytes_received"] < 0
             or row["redirects"] < 0
             or row["nesting_depth"] < 0
+            or row["integrity_state"] not in _INTEGRITY_STATES | {"mixed"}
+            or (row["width"] is None) != (row["height"] is None)
+            or (row["width"] is not None and (type(row["width"]) is not int or row["width"] < 1))
+            or (row["height"] is not None and (type(row["height"]) is not int or row["height"] < 1))
         ):
             raise ScanError("resource graph fetch is invalid")
 
@@ -359,6 +443,7 @@ def capture(
         try:
             current = url
             redirects = 0
+            redirect_scope_reason = ""
             while True:
                 record, _parsed = fetch_one(
                 current,
@@ -379,8 +464,7 @@ def capture(
                 next_url = urljoin(current, record.redirect_url)
                 redirect_reason = scope.rejection(next_url, start_host)
                 if redirect_reason:
-                    _set_occurrence_state(scan.con, url, "excluded", redirect_reason)
-                    totals["excluded"] += 1
+                    redirect_scope_reason = redirect_reason
                     break
                 redirects += 1
                 current = next_url
@@ -388,7 +472,9 @@ def capture(
             body = event.entity_bytes if event is not None else None
             content_type = record.content_type or ""
             status = record.status_code
-            if record.redirect_url and 300 <= (record.status_code or 0) < 400:
+            if redirect_scope_reason:
+                state, reason = "excluded", redirect_scope_reason
+            elif record.redirect_url and 300 <= (record.status_code or 0) < 400:
                 state, reason = "failed", "resource redirect budget exhausted"
             elif status is None or not 200 <= status < 300:
                 state, reason = "failed", record.error or "resource response was not successful"
@@ -402,10 +488,32 @@ def capture(
             seen_origins.add(host)
             scan.con.execute(
                 "INSERT INTO resource_graph_fetches(resolved_url,state,reason,status_code,content_type,bytes_received,elapsed_seconds,origin_host,redirects,nesting_depth,final_url,compression,cache_state,integrity_state,width,height,body_state) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (url, state, reason, status, content_type, received, (clock() - before) if clock else None, host, redirects, row["nesting_depth"], current, (event.content_encoding if event is not None else "unknown") or "identity", record.cache_status or "unknown", "unknown", None, None, "complete" if body is not None else "partial"),
+                (
+                    url,
+                    state,
+                    reason,
+                    status,
+                    content_type,
+                    received,
+                    (clock() - before) if clock else None,
+                    host,
+                    redirects,
+                    row["nesting_depth"],
+                    current,
+                    (event.content_encoding if event is not None else "unknown") or "identity",
+                    record.cache_status or "unknown",
+                    _fetch_integrity_state(scan.con, url),
+                    *_image_dimensions(body),
+                    "complete" if body is not None else "partial",
+                ),
             )
             _set_occurrence_state(scan.con, url, state, reason)
-            totals["fetched" if state == "complete" else "failed"] += 1
+            if state == "complete":
+                totals["fetched"] += 1
+            elif state == "excluded":
+                totals["excluded"] += 1
+            else:
+                totals["failed"] += 1
             if state == "complete" and content_type.partition(";")[0].strip().lower() == "text/css":
                 _store_css_children(scan.con, row, (body or b"").decode("utf-8", "replace"), graph["max_nesting"])
         except RequestBudgetExhausted:
@@ -415,8 +523,26 @@ def capture(
         except Exception as exc:
             used_count += 1
             scan.con.execute(
-                "INSERT INTO resource_graph_fetches VALUES(?,?,?,?,?,?,?,?,?,?)",
-                (url, "failed", str(exc)[:500], None, "", 0, None, host, 0, row["nesting_depth"]),
+                "INSERT INTO resource_graph_fetches(resolved_url,state,reason,status_code,content_type,bytes_received,elapsed_seconds,origin_host,redirects,nesting_depth,final_url,compression,cache_state,integrity_state,width,height,body_state) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    url,
+                    "failed",
+                    str(exc)[:500],
+                    None,
+                    "",
+                    0,
+                    None,
+                    host,
+                    0,
+                    row["nesting_depth"],
+                    "",
+                    "unknown",
+                    "unknown",
+                    _fetch_integrity_state(scan.con, url),
+                    None,
+                    None,
+                    "unavailable",
+                ),
             )
             _set_occurrence_state(scan.con, url, "failed", "resource fetch failed")
             totals["failed"] += 1
@@ -429,6 +555,36 @@ def _set_occurrence_state(con: sqlite3.Connection, url: str, state: str, reason:
         "UPDATE resource_graph_occurrences SET state=?,reason=? WHERE resolved_url=? AND state='disabled'",
         (state, reason, url),
     )
+
+
+def _fetch_integrity_state(con: sqlite3.Connection, url: str) -> str:
+    """Summarize declarations without losing their individual integrity values."""
+    states = {
+        row[0]
+        for row in con.execute(
+            "SELECT DISTINCT integrity_state FROM resource_graph_occurrences WHERE resolved_url=?",
+            (url,),
+        )
+    }
+    if len(states) == 1:
+        return states.pop()
+    return "mixed" if states else "unknown"
+
+
+def _image_dimensions(body: bytes | None) -> tuple[int | None, int | None]:
+    """Read dimensions from one retained entity without decoding a pixel buffer."""
+    if body is None:
+        return None, None
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(BytesIO(body)) as image:
+                width, height = image.size
+    except (Image.DecompressionBombError, UnidentifiedImageError, OSError, ValueError):
+        return None, None
+    if type(width) is not int or type(height) is not int or width < 1 or height < 1:
+        return None, None
+    return width, height
 
 
 def _store_css_children(con: sqlite3.Connection, parent: Any, text: str, max_nesting: int) -> None:
@@ -444,10 +600,11 @@ def _store_css_children(con: sqlite3.Connection, parent: Any, text: str, max_nes
     ).fetchone()[0]
     for value in values:
         con.execute(
-            "INSERT OR IGNORE INTO resource_graph_occurrences(page_url_id,source_document_id,representation,ordinal,kind,carrier,raw_url,resolved_url,nesting_depth,state,reason) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT OR IGNORE INTO resource_graph_occurrences(page_url_id,source_document_id,representation,ordinal,kind,carrier,raw_url,resolved_url,integrity,integrity_state,nesting_depth,state,reason) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 parent["page_url_id"], parent["source_document_id"], parent["representation"], ordinal,
-                value["kind"], value["carrier"], value["raw_url"], value["resolved_url"], depth,
+                value["kind"], value["carrier"], value["raw_url"], value["resolved_url"],
+                value["integrity"], value["integrity_state"], depth,
                 "disabled", "resource fetch is pending",
             ),
         )

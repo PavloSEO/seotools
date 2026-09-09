@@ -192,7 +192,14 @@ def prepare_project(directory: str, *, tools: dict, template: dict | None = None
     policy = project_policy(directory)["policy"]
     if competitors is not None and (not isinstance(competitors, list) or len(competitors) > policy["competitor_limit"]):
         raise ValueError("competitor candidate list exceeds the project limit")
-    candidates = [_candidate(value) for value in competitors or []]
+    previous_preparation = preparation_status(directory)
+    previous_candidates = [
+        {key: row[key] for key in ("url", "source", "observed_at")}
+        for row in previous_preparation.get("competitors", [])
+    ]
+    candidates = [_candidate(value) for value in (competitors if competitors is not None else previous_candidates)]
+    if len(candidates) > policy["competitor_limit"]:
+        raise ValueError("saved competitor candidate list exceeds the current project limit")
     if len({row["url"] for row in candidates}) != len(candidates):
         raise ValueError("duplicate competitor candidates")
     if any(row["url"] == project["site"]["target"] for row in candidates):
@@ -234,10 +241,10 @@ def prepare_project(directory: str, *, tools: dict, template: dict | None = None
                 raise ValueError("crawl result is not a retained project scan")
             relative = source.relative_to(root).as_posix()
             from seohead.storage import open_scan
-            with open_scan(source) as con:
+            with contextlib.closing(open_scan(source)) as con:
                 header = dict(con.execute("SELECT * FROM scan WHERE singleton=1").fetchone())
                 audit = json.loads(con.execute("SELECT document_json FROM audit WHERE singleton=1").fetchone()[0])
-            state["steps"]["crawl"] = {"state": "run", "artifact": relative, "scan_uuid": header["scan_uuid"], "partial": bool(header["crawl_partial"]), "reason": header["finish_reason"]}
+            state["steps"]["crawl"] = {"state": "partial" if header["crawl_partial"] else "run", "artifact": relative, "scan_uuid": header["scan_uuid"], "partial": bool(header["crawl_partial"]), "reason": header["finish_reason"]}
             sitemap_skips = [row for row in audit.get("run", {}).get("checks_skipped", []) if str(row.get("id", "")).startswith("SITEMAP_")]
             state["steps"]["sitemap"] = {"state": "partial" if sitemap_skips else "run", "artifact": relative, "reason": "saved sitemap coverage; unavailable checks remain explicit", "unavailable": sitemap_skips}
             from .coverage import record_execution

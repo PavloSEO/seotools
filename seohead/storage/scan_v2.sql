@@ -40,6 +40,8 @@ CREATE TABLE resource_graph_occurrences (
   carrier TEXT NOT NULL,
   raw_url TEXT NOT NULL,
   resolved_url TEXT NOT NULL,
+  integrity TEXT,
+  integrity_state TEXT NOT NULL DEFAULT 'unknown',
   nesting_depth INTEGER NOT NULL,
   state TEXT NOT NULL,
   reason TEXT NOT NULL,
@@ -56,7 +58,14 @@ CREATE TABLE resource_graph_fetches (
   elapsed_seconds REAL,
   origin_host TEXT NOT NULL,
   redirects INTEGER NOT NULL,
-  nesting_depth INTEGER NOT NULL
+  nesting_depth INTEGER NOT NULL,
+  final_url TEXT NOT NULL DEFAULT '',
+  compression TEXT NOT NULL DEFAULT 'unknown',
+  cache_state TEXT NOT NULL DEFAULT 'unknown',
+  integrity_state TEXT NOT NULL DEFAULT 'unknown',
+  width INTEGER,
+  height INTEGER,
+  body_state TEXT NOT NULL DEFAULT 'unavailable'
 );
 
 CREATE INDEX resource_graph_occurrences_url ON resource_graph_occurrences(resolved_url);
