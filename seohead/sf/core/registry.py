@@ -624,7 +624,7 @@ CHECKS: dict[str, dict[str, Any]] = {
         "severity": "notice",
         "source": "SF-derived",
         "message": "Page contains a notranslate directive",
-        "fix": "Confirm that blocking the browser's offer-to-translate prompt is intentional.",
+        "fix": "Confirm that opting out of translation-related Google Search features is intentional.",
     },
     "UNAVAILABLE_AFTER": {
         "severity": "warning",

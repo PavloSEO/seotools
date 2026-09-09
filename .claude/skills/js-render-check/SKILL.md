@@ -94,7 +94,7 @@ Returned fields:
 | "N% of text appears only after JS" | critical when >50% | move the primary content into the server response |
 | "links appear only after JS" | critical | site traversal breaks: the crawler cannot reach deeper pages |
 | "title is changed by a script" | critical | an unpredictable title may appear in search results |
-| "canonical is injected by a script" | critical | the directive must not depend on rendering |
+| "canonical is injected by a script" | conditional | critical when it rewrites a source-HTML canonical to a conflicting target; when source HTML has no canonical and JavaScript adds one, validate the rendered target and crawlability instead of treating injection alone as critical |
 | "Schema.org appears only after JS" | warning | rich results are uncertain |
 | "rendering changes nothing" | okay | SSR works; no further investigation is needed |
 | `ok: false` with `reason: "incomplete_render"` | not a finding | the render did not capture the page: report the check as blocked and re-run it, do not read the snapshots as a diff |
@@ -146,9 +146,12 @@ field before comparing two runs, because they were captured at different milesto
   of firing content late — not as a first-pass setting.
 - **Title/canonical changed by a script.** Before flagging this as critical,
   check what it changed *to*: a script normalizing a trailing slash or
-  protocol is cosmetic, while a script rewriting canonical to a different
-  page (or every page to the homepage) is the critical case this check
-  exists to catch.
+  protocol is cosmetic, while a script rewriting a source-HTML canonical to a
+  different page (or every page to the homepage) is the critical case this
+  check exists to catch. When source HTML has no canonical and JavaScript adds
+  one, record the JS-only canonical and validate the rendered target and
+  crawlability; do not treat injection alone as critical. Google permits this
+  fallback when the canonical cannot be set in source HTML.
 - **`empty_shell` present but the rest of the findings look mild.** An empty
   root container combined with a small raw/rendered diff usually means the
   fetch failed before JS executed (timeout, bot-block, redirect) rather than

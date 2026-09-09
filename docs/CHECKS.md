@@ -179,7 +179,7 @@ python scripts/generate_checks_reference.py
 | `NOIMAGEINDEX` | notice | SF:Directives:NoImageIndex | Page contains a noimageindex directive | Confirm that preventing images on this page from being indexed is intentional. |
 | `META_REFRESH_REDIRECT` | warning | SF:Directives:Refresh | Redirect is implemented with meta refresh | Replace meta refresh with a server-side 301 redirect when the move is permanent. |
 | `HTTP_REFRESH_REDIRECT` | warning | crawl:http_refresh | Redirect is implemented with an HTTP Refresh response header | Replace it with a server-side 301/302 redirect (Location header); a search engine treats Refresh the same as a meta refresh -- an unreliable, delayed signal compared to a real HTTP redirect status code. |
-| `NOTRANSLATE` | notice | SF-derived | Page contains a notranslate directive | Confirm that blocking the browser's offer-to-translate prompt is intentional. |
+| `NOTRANSLATE` | notice | SF-derived | Page contains a notranslate directive | Confirm that opting out of translation-related Google Search features is intentional. |
 | `UNAVAILABLE_AFTER` | warning | SF-derived | Page carries an unavailable_after directive with a deindex date | Confirm the date is intentional and in the future; once it passes, the page is removed from the index automatically. |
 
 ## --- extension: canonicals ---
