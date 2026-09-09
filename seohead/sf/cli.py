@@ -446,21 +446,30 @@ def main(argv: list[str] | None = None) -> int:
             log(f"[cli] protected site: crawling through local auth proxy {proxy_base}")
 
         try:
-            result = run_audit(
-                input_mode=input_mode,
-                source=source,
-                exports_dir=exports_dir,
-                config_path=args.config,
-                config_overrides=cfg_overrides or None,
-                sf_cli=args.sf_cli,
-                sitemap_url=args.sitemap,
-                profile=args.profile,
-                fetch_all_inlinks=args.fetch_all_inlinks or None,
-                live_recheck=args.live_recheck,
-                output_dir=os.path.join(args.out, "exports"),
-                url_rewrite=(auth_proxy.base_url, auth_proxy.origin) if auth_proxy else None,
-                log=log,
-            )
+            from seohead.terminal_progress import elapsed_progress, show_banner
+
+            licensed_run = input_mode in {"crawl", "crawl-list", "load-crawl"}
+            if licensed_run:
+                show_banner(
+                    "Screaming Frog run started; elapsed time only because SF exposes no crawl percentage.",
+                    quiet=args.quiet,
+                )
+            with elapsed_progress("Screaming Frog run", enabled=licensed_run and not args.quiet):
+                result = run_audit(
+                    input_mode=input_mode,
+                    source=source,
+                    exports_dir=exports_dir,
+                    config_path=args.config,
+                    config_overrides=cfg_overrides or None,
+                    sf_cli=args.sf_cli,
+                    sitemap_url=args.sitemap,
+                    profile=args.profile,
+                    fetch_all_inlinks=args.fetch_all_inlinks or None,
+                    live_recheck=args.live_recheck,
+                    output_dir=os.path.join(args.out, "exports"),
+                    url_rewrite=(auth_proxy.base_url, auth_proxy.origin) if auth_proxy else None,
+                    log=log,
+                )
         finally:
             # Bound to the crawl attempt, not the happy path: a failure here must
             # not leave a credentialed proxy bound to a loopback port (#263).
