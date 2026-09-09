@@ -288,19 +288,34 @@ def test_documented_command_executes_or_at_least_still_parses(
     from seohead.cli import main as cli_main
 
     _seed_workdir(tmp_path, fixture_site)
-    if argv[:2] in (["project", "open"], ["project", "status"]):
+    if argv[:1] == ["project"] and argv[1] in {
+        "open",
+        "status",
+        "checklist-init",
+        "checklist-update",
+        "checklist-record",
+    }:
         # Each documentation case runs independently; opening/status require the
         # project that the preceding creation command would have published.
         from seohead.projects.workspace import create_project
 
         directory = argv[argv.index("--directory") + 1]
         create_project(tmp_path / directory, "https://example.test/")
+        if argv[1] in {"checklist-update", "checklist-record"}:
+            from seohead.projects.coverage import initialize_coverage
+
+            initialize_coverage(tmp_path / directory)
     if argv[:1] in (["duplicate-check"], ["boilerplate-report"]) and "--scan" in argv:
         # Body consumers need a native retained corpus, including when they use
         # the same filename that report examples use for a saved audit.
         _seed_documented_body_scan(tmp_path, argv[argv.index("--scan") + 1])
     elif any(".sqlite" in value for value in argv) and not {"--scan-out", "--resume"} & set(argv):
         _seed_scan_inputs(tmp_path)
+    if argv[:1] == ["report-build"] and "--project" in argv:
+        from seohead.projects.workspace import create_project
+
+        directory = argv[argv.index("--project") + 1]
+        create_project(tmp_path / directory, "https://example.com/")
     if argv[:2] == ["scan", "reanalyze"] or argv[:1] == ["scan-reanalyze"]:
         _seed_reanalysis_input(tmp_path)
     if "--plan" in argv:
