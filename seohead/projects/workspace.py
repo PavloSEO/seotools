@@ -123,7 +123,17 @@ def _facts(value: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
                 raise ValueError("fact observed_at must be RFC3339 UTC or null when unknown")
         if any(
             token in name.lower()
-            for token in ("secret", "token", "password", "cookie", "authorization")
+            for token in (
+                "secret",
+                "token",
+                "password",
+                "cookie",
+                "authorization",
+                "api_key",
+                "apikey",
+                "private_key",
+                "credential",
+            )
         ):
             raise ValueError("facts must not store credentials or secrets")
         result.append(

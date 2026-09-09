@@ -166,3 +166,30 @@ def test_nested_and_flat_project_cli_aliases(tmp_path, capsys):
     assert cli.main(["project-status", "--directory", str(project)]) == 0
     assert cli.main(["project", "open", "--directory", str(project)]) == 0
     assert '"not_initialized"' in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "name", ["api_key", "service_api_key", "apikey", "private_key", "credentials"]
+)
+def test_credential_fact_names_refuse_before_project_creation(tmp_path, name):
+    project = tmp_path / "secrets"
+    with pytest.raises(ValueError, match="credentials"):
+        create_project(
+            project,
+            "https://example.test/",
+            facts=[
+                {"name": name, "value": "synthetic", "provenance": "operator", "observed_at": None}
+            ],
+        )
+    assert not project.exists()
+
+
+def test_keyword_fact_names_are_not_mistaken_for_credentials(tmp_path):
+    result = create_project(
+        tmp_path / "keywords",
+        "https://example.test/",
+        facts=[
+            {"name": "keyword_count", "value": 5, "provenance": "operator", "observed_at": None}
+        ],
+    )
+    assert result["project"]["facts"][0]["value"] == 5
