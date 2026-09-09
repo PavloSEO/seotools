@@ -104,7 +104,9 @@ def test_handler_warns_for_each_list_host_when_robots_are_ignored(monkeypatch, c
     )
 
     handlers.crawl_site(
-        urls=["https://first.example.test/", "https://second.example.test/path"], robots="ignore", out_dir=str(tmp_path)
+        urls=["https://first.example.test/", "https://second.example.test/path"],
+        robots="ignore",
+        out_dir=str(tmp_path),
     )
 
     warning = capsys.readouterr().err
@@ -438,7 +440,9 @@ def test_direct_audit_with_a_single_explicit_sitemap_is_unaffected(monkeypatch, 
 #    indexable missing-sitemap page (#316) ──────────────────────────────────
 
 
-def test_report_only_robots_blocked_page_is_not_reported_as_a_missing_sitemap_page(monkeypatch, tmp_path):
+def test_report_only_robots_blocked_page_is_not_reported_as_a_missing_sitemap_page(
+    monkeypatch, tmp_path
+):
     base = "https://example.com"
     monkeypatch.setattr(
         sitemap_tool,

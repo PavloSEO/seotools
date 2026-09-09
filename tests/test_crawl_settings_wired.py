@@ -364,7 +364,9 @@ def test_handler_threads_every_newly_wired_setting_into_the_spider(monkeypatch, 
         )
     )
 
-    handlers.crawl_site(url="https://example.com/", config=str(config), out_dir=str(tmp_path / "legacy"))
+    handlers.crawl_site(
+        url="https://example.com/", config=str(config), out_dir=str(tmp_path / "legacy")
+    )
 
     assert captured["max_response_bytes"] == 999
     assert captured["max_url_length"] == 123
@@ -702,7 +704,9 @@ def test_handler_threads_the_remaining_settings_into_the_spider(monkeypatch, tmp
         )
     )
 
-    handlers.crawl_site(url="https://example.com/", config=str(config), out_dir=str(tmp_path / "legacy"))
+    handlers.crawl_site(
+        url="https://example.com/", config=str(config), out_dir=str(tmp_path / "legacy")
+    )
 
     assert captured["extra_request_headers"] == {"X-Audit": "seohead"}
     assert captured["adaptive"] is False
