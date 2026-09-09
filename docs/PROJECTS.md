@@ -21,7 +21,7 @@ Facts are optional scalar values with a name, source (`provenance`) and UTC
 `observed_at` timestamp, or null when the observation time is unknown. Keep secrets
 out of facts. Project data is local working material, not a public export.
 
-Use the CLI's `--input` JSON file or the corresponding MCP `seo_project_new`
+Use the CLI's `--input` JSON argument (or JSON on stdin) or the corresponding MCP `seo_project_new`
 parameters to pass `facts`, `template_references` and `profile_references`:
 
 ```json
