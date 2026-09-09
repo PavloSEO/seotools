@@ -126,8 +126,18 @@ def validate_discovery_ledger(con: sqlite3.Connection) -> None:
     if present != {"discovery_occurrences", "discovery_ledger_coverage"}:
         raise ScanError("discovery ledger schema is incomplete")
     relations = {
-        "seed", "hyperlink", "redirect", "canonical", "alternate", "hreflang", "x_default",
-        "next", "prev", "refresh", "form_action", "http_link",
+        "seed",
+        "hyperlink",
+        "redirect",
+        "canonical",
+        "alternate",
+        "hreflang",
+        "x_default",
+        "next",
+        "prev",
+        "refresh",
+        "form_action",
+        "http_link",
     }
     outcomes = {"queued", "fetched", "excluded", "blocked", "unresolved", "unmeasured"}
     for row in con.execute("SELECT * FROM discovery_occurrences"):
@@ -140,27 +150,40 @@ def validate_discovery_ledger(con: sqlite3.Connection) -> None:
             or not isinstance(row["raw_value"], str)
             or not isinstance(row["resolved_value"], str)
             or not isinstance(row["reason"], str)
-            or row["depth"] is not None and (type(row["depth"]) is not int or row["depth"] < 0)
+            or (row["depth"] is not None and (type(row["depth"]) is not int or row["depth"] < 0))
             or not isinstance(json.loads(row["attributes_json"]), dict)
         ):
             raise ScanError("discovery occurrence is invalid")
-        if row["source_url_id"] is not None and not con.execute(
-            "SELECT 1 FROM urls WHERE url_id=?", (row["source_url_id"],)
-        ).fetchone():
+        if (
+            row["source_url_id"] is not None
+            and not con.execute(
+                "SELECT 1 FROM urls WHERE url_id=?", (row["source_url_id"],)
+            ).fetchone()
+        ):
             raise ScanError("discovery occurrence source URL is missing")
-        if row["source_document_id"] is not None and not con.execute(
-            "SELECT 1 FROM documents WHERE document_id=? AND url_id=? AND representation=?",
-            (row["source_document_id"], row["source_url_id"], row["representation"]),
-        ).fetchone():
+        if (
+            row["source_document_id"] is not None
+            and not con.execute(
+                "SELECT 1 FROM documents WHERE document_id=? AND url_id=? AND representation=?",
+                (row["source_document_id"], row["source_url_id"], row["representation"]),
+            ).fetchone()
+        ):
             raise ScanError("discovery occurrence source document is invalid")
-        if row["source_response_id"] is not None and not con.execute(
-            "SELECT 1 FROM documents WHERE document_id=? AND source_response_id=?",
-            (row["source_document_id"], row["source_response_id"]),
-        ).fetchone():
+        if (
+            row["source_response_id"] is not None
+            and not con.execute(
+                "SELECT 1 FROM documents WHERE document_id=? AND source_response_id=?",
+                (row["source_document_id"], row["source_response_id"]),
+            ).fetchone()
+        ):
             raise ScanError("discovery occurrence source response is invalid")
-        target = con.execute("SELECT url_id FROM urls WHERE url=?", (row["resolved_value"],)).fetchone()
+        target = con.execute(
+            "SELECT url_id FROM urls WHERE url=?", (row["resolved_value"],)
+        ).fetchone()
         if (target[0] if target else None) != row["target_url_id"]:
-            raise ScanError("discovery occurrence target identity disagrees with its resolved value")
+            raise ScanError(
+                "discovery occurrence target identity disagrees with its resolved value"
+            )
     for row in con.execute("SELECT * FROM discovery_ledger_coverage"):
         if (
             row["representation"] not in {"static", "rendered", "legacy_fragment"}

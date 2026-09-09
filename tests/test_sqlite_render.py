@@ -154,7 +154,10 @@ def test_render_route_run_coverage_names_disabled_raw_and_budget(monkeypatch):
     assert "not requested" in raw.context[-1]["reason"]
     disabled = _Scan()
     run_render_escalation(disabled, result, _settings(**{"rendering.rendered_links.store": False}))
-    assert "disabled" in disabled.context[-1]["reason"]
+    assert any(
+        item["kind"] == "rendered_route_run_coverage" and "disabled" in item["reason"]
+        for item in disabled.context
+    )
     monkeypatch.setattr(sqlite_render, "_static_html", lambda *_: "<a href='/x'>x</a>")
     from seohead.tools import render as render_tool
 

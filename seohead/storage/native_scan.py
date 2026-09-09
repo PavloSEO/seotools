@@ -914,9 +914,8 @@ class NativeScan:
         if con.execute("SELECT COUNT(*) FROM scan").fetchone()[0] != 1:
             raise ScanError("native scan requires exactly one header")
         scan = con.execute("SELECT * FROM scan WHERE singleton=1").fetchone()
-        if (
-            scan["source_kind"] not in {"native", "reanalysis"}
-            or scan["format_version"] != ("scan.v2" if v2 else FORMAT_VERSION)
+        if scan["source_kind"] not in {"native", "reanalysis"} or scan["format_version"] != (
+            "scan.v2" if v2 else FORMAT_VERSION
         ):
             raise ScanError("not a native scan artifact with the declared format version")
         if scan["evidence_version"] != "crawl.v1" or scan["pinned"] not in (0, 1):

@@ -118,5 +118,5 @@ def test_project_preserves_explicit_legacy_output(tmp_path, monkeypatch, from_co
     else:
         kwargs = {"out_dir": str(legacy)}
     with pytest.raises(LegacySelected):
-        handlers.crawl_site(project=str(project), **kwargs)
+        handlers.crawl_site(project=str(project), approve_large_crawl=True, **kwargs)
     assert list((project / "scans").iterdir()) == []

@@ -792,7 +792,10 @@ def open_scan(path: str | Path, *, require_audit: bool = True):
             from .native_scan import NativeScan
 
             NativeScan._validate_native(con)
-            if require_audit and con.execute("SELECT 1 FROM audit WHERE singleton=1").fetchone() is None:
+            if (
+                require_audit
+                and con.execute("SELECT 1 FROM audit WHERE singleton=1").fetchone() is None
+            ):
                 raise ScanError("scan.v2 has no current audit")
         else:
             _validate(con, require_audit=require_audit)

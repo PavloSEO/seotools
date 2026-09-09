@@ -6,6 +6,7 @@ import json
 import re
 import sqlite3
 import warnings
+from collections.abc import Iterable
 from io import BytesIO
 from typing import Any
 from urllib.parse import urljoin, urlsplit
@@ -538,10 +539,18 @@ def capture(
                 state, reason = "budget", graph_budget_reason
             elif redirect_scope_reason:
                 state, reason = "excluded", redirect_scope_reason
-            elif record is not None and record.redirect_url and 300 <= (record.status_code or 0) < 400:
+            elif (
+                record is not None
+                and record.redirect_url
+                and 300 <= (record.status_code or 0) < 400
+            ):
                 state, reason = "failed", "resource redirect budget exhausted"
             elif status is None or not 200 <= status < 300:
-                state, reason = "failed", (record.error if record is not None else "") or "resource response was not successful"
+                state, reason = (
+                    "failed",
+                    (record.error if record is not None else "")
+                    or "resource response was not successful",
+                )
             elif body is None:
                 state, reason = "partial", "resource response body was not retained completely"
             else:
