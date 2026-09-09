@@ -162,7 +162,7 @@ def search_analytics(
         return {"ok": False, "error": date_error}
     bearer, token_error = _acquire_token(token)
     if bearer is None:
-        return {"ok": False, "state": "not_configured", "error": token_error}
+        return {"ok": False, "error": token_error}
 
     url = f"{SEARCH_ANALYTICS_HOST}/sites/{urllib.parse.quote(site_url, safe='')}/searchAnalytics/query"
     payload = {
@@ -218,7 +218,7 @@ def inspect_url(
         raise ValueError("site_url and inspection_url required")
     bearer, token_error = _acquire_token(token)
     if bearer is None:
-        return {"ok": False, "state": "not_configured", "error": token_error}
+        return {"ok": False, "error": token_error}
 
     url = f"{INSPECTION_HOST}/urlInspection/index:inspect"
     payload = {"inspectionUrl": inspection_url, "siteUrl": site_url}
@@ -268,11 +268,15 @@ def _request(method: str, url: str, payload: dict[str, Any] | None, token: str) 
 
 def _acquire_token(value: str | None) -> tuple[str | None, str | None]:
     """Choose an explicit bearer first, then a library-managed service-account token."""
-    from seohead.data_sources.credentials import MissingCredential, gsc_access_token
+    from seohead.data_sources.credentials import (
+        MissingCredential,
+        gsc_access_token,
+        gsc_service_account_available,
+    )
 
     try:
         return value or gsc_access_token(), None
-    except MissingCredential:
+    except MissingCredential as bearer_error:
         from seohead.data_sources.oauth import grant_available
 
         if grant_available("gsc"):
@@ -280,6 +284,8 @@ def _acquire_token(value: str | None) -> tuple[str | None, str | None]:
                 return durable_oauth_token()["access_token"], None
             except (MissingCredential, OSError, ValueError):
                 return None, "stored OAuth grant refresh failed; reconnect or check the grant"
+        if not gsc_service_account_available():
+            return None, str(bearer_error)
         try:
             return service_account_access_token(), None
         except MissingCredential as service_error:

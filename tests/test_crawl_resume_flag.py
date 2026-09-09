@@ -231,7 +231,7 @@ def test_cli_resume_reaches_the_handler_without_a_url_or_stdin(tmp_path, monkeyp
     # the outcome line is, because that is the question a long run leaves open.
     err = capsys.readouterr().err
     assert "worst-case request rate" not in err
-    assert err.strip() == "crawl-site: finished; 4 URLs fetched"
+    assert err.splitlines() == ["seohead: crawl-site", "crawl-site: finished; 4 URLs fetched"]
 
 
 def test_cli_says_a_crawl_stopped_early_and_how_to_continue_it(tmp_path, monkeypatch, capsys):
