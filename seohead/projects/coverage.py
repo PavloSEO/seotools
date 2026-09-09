@@ -117,7 +117,10 @@ def _definition(value: Any, catalogue: dict, *, historical: bool = False) -> dic
         raise ValueError("invalid execution kind")
     if not isinstance(value["priority"], str) or value["priority"] not in {"P0", "P1", "P2"}:
         raise ValueError("invalid priority")
-    if value["priority_origin"] not in {"default", "operator"}:
+    if not isinstance(value["priority_origin"], str) or value["priority_origin"] not in {
+        "default",
+        "operator",
+    }:
         raise ValueError("invalid priority origin")
     if (
         type(value["enabled"]) is not bool
@@ -219,6 +222,7 @@ def _read(root: Path, project: dict) -> dict | None:
             raise ValueError("invalid checklist history lists")
         if (
             not item["definitions"]
+            or not isinstance(item["definitions"][-1], dict)
             or item["definitions"][-1].get("definition") != item["definition"]
         ):
             raise ValueError("current definition is absent from history")
