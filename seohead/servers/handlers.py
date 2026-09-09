@@ -603,15 +603,6 @@ def crawl_site(
         if value is not None:
             resolved_overrides[path] = value
     settings = crawl_config.load(config, overrides=resolved_overrides)
-    analysis_segments = settings["analysis"]["segments"]
-    if analysis_segments:
-        from seohead.sf.core.segments import SegmentError, resolve_order
-
-        try:
-            resolve_order(analysis_segments)
-        except SegmentError as exc:
-            raise crawl_config.ConfigError(f"analysis.segments: {exc}") from exc
-    _warn_ignored_robots(settings, url, urls)
     if (
         project_root is not None
         and not scan_out
@@ -624,6 +615,15 @@ def crawl_site(
         from seohead.storage.history import new_scan_path
 
         scan_out = str(new_scan_path(project_root / "scans", url, str(uuid.uuid4())))
+    analysis_segments = settings["analysis"]["segments"]
+    if analysis_segments:
+        from seohead.sf.core.segments import SegmentError, resolve_order
+
+        try:
+            resolve_order(analysis_segments)
+        except SegmentError as exc:
+            raise crawl_config.ConfigError(f"analysis.segments: {exc}") from exc
+    _warn_ignored_robots(settings, url, urls)
     if settings.get("resources", {}).get("fetch") and not scan_out:
         raise ValueError("resources.fetch requires a SQLite scan_out artifact")
     if scan_out:
