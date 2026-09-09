@@ -530,6 +530,8 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
                 kw["viewport"] = args.viewport
             if getattr(args, "wait", None):
                 kw["wait"] = args.wait
+            if getattr(args, "user_agent", None):
+                kw["user_agent"] = args.user_agent
         if cmd == "llms-txt-check" and getattr(args, "brand", None):
             kw["brand"] = args.brand
     return handler_name, kw
@@ -1066,7 +1068,11 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
         sub.add_argument(
             "--viewport",
             choices=("desktop", "mobile"),
-            help="viewport and device emulation mode (default desktop)",
+            help="desktop, or the built-in smartphone diagnostic identity and viewport",
+        )
+        sub.add_argument(
+            "--user-agent",
+            help="explicit identity for both raw and browser requests; must be one header line",
         )
         sub.add_argument(
             "--wait",

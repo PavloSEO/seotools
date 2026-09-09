@@ -66,6 +66,14 @@ Use a mobile viewport and device emulation where the layout differs:
 seohead render-check --url https://example.com --viewport mobile
 ```
 
+Mobile mode uses a stable smartphone diagnostic identity for both the raw and
+browser requests, alongside its 390×844 viewport and touch/mobile flags. It is
+not Googlebot or a crawler-impersonation profile. For a deliberately chosen
+dynamic-serving representation, pass one single-line identity to both sides:
+```bash
+seohead render-check --url https://example.com --viewport mobile --user-agent "ExampleMobileAudit/1.0"
+```
+
 Returned fields:
 
 | Field | Meaning |
@@ -158,6 +166,8 @@ field before comparing two runs, because they were captured at different milesto
 ## Definition of done
 - [ ] `render-check` has been run for the URL(s) in scope, with `--viewport
   mobile` added where layout differs by device.
+- [ ] The recorded `user_agent` and `viewport_size` match the representation
+  being interpreted; a raw/browser comparison never mixes two identities.
 - [ ] The `raw` vs `rendered` diff has been read for words, internal links,
   title, h1, canonical, and JSON-LD — not just the overall percentage.
 - [ ] Every finding at or above the 30% threshold, or any critical-severity
