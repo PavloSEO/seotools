@@ -115,3 +115,24 @@ def evaluate(
         typed: Any = len(values) if rule["kind"] == "count" else values
         results.append({"id": rule["id"], "state": "complete", "matched": matched, "value": typed, "count": len(values)})
     return {"schema_version": VERSION, "representation": representation, "state": "complete", "reason": "", "rules": results}
+
+
+def validate_result(value: Any) -> None:
+    """Validate a persisted extraction result without rerunning selectors or regexes."""
+    if not isinstance(value, dict) or set(value) != {"schema_version", "representation", "state", "reason", "rules"}:
+        raise ValueError("extraction evidence has unsupported fields")
+    if value["schema_version"] != VERSION or value["representation"] not in {"static", "rendered", "legacy_fragment"}:
+        raise ValueError("extraction evidence version or representation is invalid")
+    if value["state"] not in {"complete", "unavailable"} or not isinstance(value["reason"], str) or not isinstance(value["rules"], list):
+        raise ValueError("extraction evidence state is invalid")
+    ids = set()
+    for row in value["rules"]:
+        if not isinstance(row, dict) or set(row) - {"id", "state", "reason", "matched", "value", "count"}:
+            raise ValueError("extraction evidence rule row is invalid")
+        if type(row.get("id")) is not str or row["id"] in ids or row.get("state") not in {"complete", "unavailable"}:
+            raise ValueError("extraction evidence rule identity is invalid")
+        ids.add(row["id"])
+        if not isinstance(row.get("reason", ""), str):
+            raise ValueError("extraction evidence rule reason is invalid")
+        if row["state"] == "complete" and (type(row.get("matched")) is not bool or type(row.get("count")) is not int or row["count"] < 0):
+            raise ValueError("complete extraction evidence row is invalid")
