@@ -300,7 +300,12 @@ def open_project(directory: str | Path, *, expected_site: str | None = None) -> 
     from .coverage import coverage_status
     from .runtime import aggregate_coverage
 
-    return {"ok": True, "project": document, "path": str(root), "checklist": aggregate_coverage(str(root), coverage_status(root))}
+    return {
+        "ok": True,
+        "project": document,
+        "path": str(root),
+        "checklist": aggregate_coverage(str(root), coverage_status(root)),
+    }
 
 
 def project_status(directory: str | Path) -> dict[str, Any]:

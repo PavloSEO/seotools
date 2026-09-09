@@ -642,7 +642,14 @@ def crawl_to_scan(
                 settings["limits"]["max_crawl_seconds"]
                 and elapsed_before + clock() - started >= settings["limits"]["max_crawl_seconds"]
             ):
-                emit_event("budget", {"kind": "seconds", "limit": settings["limits"]["max_crawl_seconds"], "used": int(elapsed_before + clock() - started)})
+                emit_event(
+                    "budget",
+                    {
+                        "kind": "seconds",
+                        "limit": settings["limits"]["max_crawl_seconds"],
+                        "used": int(elapsed_before + clock() - started),
+                    },
+                )
                 partial, finish_reason = True, "duration_limit"
                 scan.interrupt("duration limit reached")
                 break
@@ -747,7 +754,13 @@ def crawl_to_scan(
             for lease in fetchable:
                 emit_event(
                     "request",
-                    {"queue_ordinal": lease.queue_ordinal, "url_id": lease.url_id, "attempt": 1, "method": "GET", "state": "dispatched"},
+                    {
+                        "queue_ordinal": lease.queue_ordinal,
+                        "url_id": lease.url_id,
+                        "attempt": 1,
+                        "method": "GET",
+                        "state": "dispatched",
+                    },
                 )
             with ThreadPoolExecutor(max_workers=max(1, len(fetchable))) as pool:
                 # Futures are consumed in claim order: the C writer's contiguous
@@ -786,7 +799,11 @@ def crawl_to_scan(
                     record.crawl_depth = lease.depth
                     emit_event(
                         "cache",
-                        {"queue_ordinal": lease.queue_ordinal, "url_id": lease.url_id, "state": record.cache_status or "network"},
+                        {
+                            "queue_ordinal": lease.queue_ordinal,
+                            "url_id": lease.url_id,
+                            "state": record.cache_status or "network",
+                        },
                     )
                     if record.error_kind == "timeout":
                         emit_event(
@@ -851,7 +868,11 @@ def crawl_to_scan(
                     if circuit_stopped:
                         emit_event(
                             "circuit",
-                            {"kind": "origin", "state": "stopped", "streak": max(timeouts, server_errors)},
+                            {
+                                "kind": "origin",
+                                "state": "stopped",
+                                "streak": max(timeouts, server_errors),
+                            },
                         )
                         batch = _forms_only_batch(parsed, lease.url)
                     else:

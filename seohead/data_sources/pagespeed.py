@@ -100,8 +100,11 @@ def sample(
     fetcher: Fetcher | None = None,
 ) -> dict[str, Any]:
     """Collect bounded mobile-first templates; an explicit cache may retain sanitized responses."""
-    if not isinstance(urls, list) or not urls or len(urls) > MAX_URLS or not all(
-        isinstance(url, str) and url.startswith(("http://", "https://")) for url in urls
+    if (
+        not isinstance(urls, list)
+        or not urls
+        or len(urls) > MAX_URLS
+        or not all(isinstance(url, str) and url.startswith(("http://", "https://")) for url in urls)
     ):
         raise ValueError(f"urls must contain 1..{MAX_URLS} absolute HTTP(S) URLs")
     key = _credential(api_key)
@@ -109,7 +112,7 @@ def sample(
         return {"ok": False, "state": "not_configured", "verified": False}
     samples = []
     for url in list(dict.fromkeys(urls)):
-        for strategy in (["mobile", "desktop"] if desktop else ["mobile"]):
+        for strategy in ["mobile", "desktop"] if desktop else ["mobile"]:
             cache = _cache_path(cache_dir, url, strategy) if cache_dir else None
             if cache and cache.is_file():
                 try:
@@ -122,17 +125,28 @@ def sample(
                 raw = (fetcher or _default_fetcher)(endpoint, key)
                 parsed = _parse(json.loads(raw), url, strategy)
             except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, ValueError) as exc:
-                samples.append({"url": url, "strategy": strategy, "state": "failed", "error": str(exc)})
+                samples.append(
+                    {"url": url, "strategy": strategy, "state": "failed", "error": str(exc)}
+                )
                 continue
             if parsed is None:
-                samples.append({"url": url, "strategy": strategy, "state": "failed", "error": "malformed PSI v5 response"})
+                samples.append(
+                    {
+                        "url": url,
+                        "strategy": strategy,
+                        "state": "failed",
+                        "error": "malformed PSI v5 response",
+                    }
+                )
                 continue
             if cache:
                 _write_cache(cache, parsed)
             samples.append({"cache": "miss", "state": "complete", **parsed})
     return {
         "ok": all(sample.get("state") == "complete" for sample in samples),
-        "state": "complete" if all(sample.get("state") == "complete" for sample in samples) else "partial",
+        "state": "complete"
+        if all(sample.get("state") == "complete" for sample in samples)
+        else "partial",
         "provider": "pagespeed",
         "samples": samples,
         "mobile_first": True,

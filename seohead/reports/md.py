@@ -46,8 +46,15 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
 
     evidence = evidence_rows(summary)
     if evidence:
-        out += ["## Saved evidence coverage", "", "| Kind | Measurement | State | Scope or reason |", "|---|---|---|---|"]
-        out.extend("| " + " | ".join(_coverage_field(value) for value in row) + " |" for row in evidence)
+        out += [
+            "## Saved evidence coverage",
+            "",
+            "| Kind | Measurement | State | Scope or reason |",
+            "|---|---|---|---|",
+        ]
+        out.extend(
+            "| " + " | ".join(_coverage_field(value) for value in row) + " |" for row in evidence
+        )
         out.append("")
 
     coverage = summary.get("project_coverage")

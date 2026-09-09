@@ -233,7 +233,18 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
             if value is not None:
                 kw[flag] = value
     elif cmd in {"scan-evidence", "scan-extract", "scan-requeue", "scan-import-urls"}:
-        for name in ("input_path", "section", "limit", "offset", "where", "backup_path", "from_scan", "urls_file", "url", "representation"):
+        for name in (
+            "input_path",
+            "section",
+            "limit",
+            "offset",
+            "where",
+            "backup_path",
+            "from_scan",
+            "urls_file",
+            "url",
+            "representation",
+        ):
             if getattr(args, name, None) is not None:
                 kw[name] = getattr(args, name)
     elif cmd == "inspect-url":
@@ -698,6 +709,7 @@ def _project_crawl_defaults(kwargs: dict[str, Any]) -> dict | None:
     if not kwargs.get("project"):
         return None
     from seohead.projects.runtime import project_policy
+
     return project_policy(kwargs["project"])["policy"]["crawl_overrides"]
 
 
@@ -717,7 +729,11 @@ def _print_effective_rate(kwargs: dict[str, Any]) -> None:
         # The same overrides the handler will resolve, in the same precedence, or
         # the printed rate describes a run that is not the one about to happen --
         # which is worse than printing nothing, because it is believed.
-        resolved = crawl_config.load(kwargs.get("config"), overrides=_crawl_overrides(kwargs), base_overrides=_project_crawl_defaults(kwargs))
+        resolved = crawl_config.load(
+            kwargs.get("config"),
+            overrides=_crawl_overrides(kwargs),
+            base_overrides=_project_crawl_defaults(kwargs),
+        )
     except crawl_config.ConfigError:
         return  # the handler call below reports the same error to the user
     rate = crawl_config.effective_request_rate(resolved)
@@ -833,7 +849,11 @@ def _crawl_progress(kwargs: dict[str, Any]) -> CrawlProgress | None:
 
             resolved = resume_inputs(resume)["settings"]
         else:
-            resolved = crawl_config.load(kwargs.get("config"), overrides=_crawl_overrides(kwargs), base_overrides=_project_crawl_defaults(kwargs))
+            resolved = crawl_config.load(
+                kwargs.get("config"),
+                overrides=_crawl_overrides(kwargs),
+                base_overrides=_project_crawl_defaults(kwargs),
+            )
     except (crawl_config.ConfigError, OSError, ValueError, sqlite3.Error):
         return None
     stream = sys.stderr
@@ -880,7 +900,20 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
     if cmd in {"scan-evidence", "scan-extract", "scan-requeue", "scan-import-urls"}:
         _source_flag(sub, "--scan", dest="input_path", help="existing SQLite artifact")
     if cmd == "scan-evidence":
-        sub.add_argument("--section", choices=("capabilities", "corpus", "structured", "routes", "resources", "timeline", "relations", "browser", "extraction"))
+        sub.add_argument(
+            "--section",
+            choices=(
+                "capabilities",
+                "corpus",
+                "structured",
+                "routes",
+                "resources",
+                "timeline",
+                "relations",
+                "browser",
+                "extraction",
+            ),
+        )
         sub.add_argument("--limit", type=int)
         sub.add_argument("--offset", type=int)
     if cmd == "scan-extract":
@@ -907,7 +940,11 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
         sub.add_argument("--limit", type=int)
         sub.add_argument("--include-arguments", action="store_true")
     if cmd == "crawl-site":
-        sub.add_argument("--approve-large-crawl", action="store_true", help="explicitly approve budgets above the project admission thresholds")
+        sub.add_argument(
+            "--approve-large-crawl",
+            action="store_true",
+            help="explicitly approve budgets above the project admission thresholds",
+        )
         sub.add_argument("--user-agent", help="request identity or googlebot diagnostic preset")
         _source_flag(
             sub,
@@ -1235,10 +1272,14 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
     if cmd in {"project-policy", "project-prepare", "project-start"}:
         _source_flag(sub, "--directory", help="project directory")
     if cmd == "project-policy":
-        sub.add_argument("--expected-revision", type=int, help="current policy revision, zero for a new policy")
+        sub.add_argument(
+            "--expected-revision", type=int, help="current policy revision, zero for a new policy"
+        )
     if cmd in {"project-prepare", "project-start"}:
         sub.add_argument("--approve-large-crawl", action="store_true")
-        sub.add_argument("--producer-build", help="explicit producer revision when working outside a clean build")
+        sub.add_argument(
+            "--producer-build", help="explicit producer revision when working outside a clean build"
+        )
     if cmd == "project-start":
         _source_flag(sub, "--target", help="site URL for the new project")
     if cmd in {"skill-show", "scenario-show"}:
@@ -1251,8 +1292,12 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
         sub.add_argument("--review-external-only", action="store_true")
     if cmd == "provider-auth":
         _source_flag(sub, "--provider", help="OAuth provider (gsc)")
-        sub.add_argument("--action", choices=("status", "connect", "refresh", "disconnect", "revoke"))
-        _source_flag(sub, "--grant-file", help="private bounded JSON grant obtained through provider consent")
+        sub.add_argument(
+            "--action", choices=("status", "connect", "refresh", "disconnect", "revoke")
+        )
+        _source_flag(
+            sub, "--grant-file", help="private bounded JSON grant obtained through provider consent"
+        )
         sub.add_argument("--confirm", action="store_true")
     if cmd in {"provider-verify", "provider-collect"}:
         _source_flag(sub, "--provider", help="provider registry identifier")
@@ -1438,8 +1483,12 @@ def build_parser() -> argparse.ArgumentParser:
     reanalyze.add_argument("--out", required=True, help="new derived SQLite scan")
     reanalyze.add_argument("--producer-build", metavar="SHA", help="current analyzer source build")
     mcp = subs.add_parser("mcp", help="run the MCP server (stdio)")
-    mcp.add_argument("--profile", choices=("full", "audit", "infra", "quick-check", "router"), default="full")
-    mcp.add_argument("--no-progress", action="store_true", help="disable optional MCP progress notifications")
+    mcp.add_argument(
+        "--profile", choices=("full", "audit", "infra", "quick-check", "router"), default="full"
+    )
+    mcp.add_argument(
+        "--no-progress", action="store_true", help="disable optional MCP progress notifications"
+    )
     return p
 
 
@@ -1471,6 +1520,7 @@ def main(argv: list[str] | None = None) -> int:
         # point advertised in that module's docstring gives the same outcome as this one.
         return mcp_main(profile=args.profile, progress_notifications=not args.no_progress)
     from seohead.terminal_progress import show_banner
+
     show_banner(cmd, quiet=getattr(args, "quiet", False))
     if cmd == "crawl-site" and getattr(args, "config_help", False):
         _print_config_help()

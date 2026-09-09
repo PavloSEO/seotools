@@ -851,7 +851,9 @@ def validate(config: dict[str, Any]) -> None:
             if type(value) is not int or value < 0:
                 raise ConfigError(f"resources.graph.{name} must be a nonnegative integer")
         if graph["max_requests"] < 1 or graph["max_bytes_per_resource"] < 1:
-            raise ConfigError("resources.graph request and per-resource byte limits must be positive")
+            raise ConfigError(
+                "resources.graph request and per-resource byte limits must be positive"
+            )
         if graph["max_origins"] < 1:
             raise ConfigError("resources.graph.max_origins must be positive")
     if "storage" in config:

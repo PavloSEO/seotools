@@ -217,8 +217,10 @@ def escalate(
     """
     full_render = rendering_config.get("escalation", {}).get("policy", "sampled") == "full"
     urls = [
-        p.url for p in pages
-        if not full_render or (
+        p.url
+        for p in pages
+        if not full_render
+        or (
             getattr(p, "is_html", False)
             and isinstance(getattr(p, "status_code", None), int)
             and 200 <= p.status_code < 300
@@ -246,7 +248,7 @@ def escalate(
         escalated = set(samples)
         probed_patterns = set(samples)
         result.patterns_sampled = 0
-    for pattern, sample_urls in (() if full_render else samples.items()):
+    for pattern, sample_urls in () if full_render else samples.items():
         if not time_left():
             break
         needs_it = False

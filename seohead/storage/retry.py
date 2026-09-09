@@ -86,11 +86,7 @@ def validate_v2(con: sqlite3.Connection, *, require_audit: bool = False) -> None
         raise ScanError("unsupported scan.v2 user version")
     _v2_tables(con)
     scan = con.execute("SELECT * FROM scan WHERE singleton=1").fetchone()
-    if (
-        scan is None
-        or scan["format_version"] != V2_FORMAT
-        or scan["source_kind"] != "native"
-    ):
+    if scan is None or scan["format_version"] != V2_FORMAT or scan["source_kind"] != "native":
         raise ScanError("scan.v2 format header is invalid")
     if con.execute("SELECT COUNT(*) FROM scan").fetchone()[0] != 1:
         raise ScanError("scan.v2 requires one scan header")
@@ -105,16 +101,16 @@ def validate_v2(con: sqlite3.Connection, *, require_audit: bool = False) -> None
     if require_audit and con.execute("SELECT 1 FROM audit WHERE singleton=1").fetchone() is None:
         raise ScanError("scan.v2 has no current audit")
     for row in con.execute("SELECT * FROM retry_attempts"):
-        if (
-            row["operation"] not in {"requeue", "import_urls"}
-            or not re.fullmatch(r"[0-9a-f]{64}", row["backup_sha256"])
+        if row["operation"] not in {"requeue", "import_urls"} or not re.fullmatch(
+            r"[0-9a-f]{64}", row["backup_sha256"]
         ):
             raise ScanError("scan.v2 retry attempt is invalid")
         json.loads(row["where_json"])
     for row in con.execute("SELECT * FROM retry_transitions"):
-        if row["from_frontier_state"] not in {"done", "external"} or row[
-            "to_frontier_state"
-        ] != "queued":
+        if (
+            row["from_frontier_state"] not in {"done", "external"}
+            or row["to_frontier_state"] != "queued"
+        ):
             raise ScanError("scan.v2 retry transition is invalid")
         if row["prior_page_json"] is not None:
             json.loads(row["prior_page_json"])
@@ -145,7 +141,9 @@ def _backup(path: Path, backup_path: Path) -> str:
     con = sqlite3.connect(path.absolute().as_uri() + "?mode=ro", uri=True, timeout=5)
     try:
         con.row_factory = sqlite3.Row
-        reader = SimpleNamespace(path=path, con=con, inspect=lambda copy: _validate_copy(Path(copy)))
+        reader = SimpleNamespace(
+            path=path, con=con, inspect=lambda copy: _validate_copy(Path(copy))
+        )
         NativeScan.snapshot(reader, backup_path)
     finally:
         con.close()
@@ -240,11 +238,19 @@ def _attempt(
     return int(con.execute("SELECT last_insert_rowid()").fetchone()[0])
 
 
-def _evidence_digest(con: sqlite3.Connection, url_id: int, queue_ordinal: int) -> tuple[str, dict[str, int]]:
+def _evidence_digest(
+    con: sqlite3.Connection, url_id: int, queue_ordinal: int
+) -> tuple[str, dict[str, int]]:
     rows = {
-        "links": con.execute("SELECT COUNT(*) FROM links WHERE source_url_id=?", (url_id,)).fetchone()[0],
-        "forms": con.execute("SELECT COUNT(*) FROM forms WHERE page_url_id=?", (url_id,)).fetchone()[0],
-        "resource_refs": con.execute("SELECT COUNT(*) FROM resource_refs WHERE page_url_id=?", (url_id,)).fetchone()[0],
+        "links": con.execute(
+            "SELECT COUNT(*) FROM links WHERE source_url_id=?", (url_id,)
+        ).fetchone()[0],
+        "forms": con.execute(
+            "SELECT COUNT(*) FROM forms WHERE page_url_id=?", (url_id,)
+        ).fetchone()[0],
+        "resource_refs": con.execute(
+            "SELECT COUNT(*) FROM resource_refs WHERE page_url_id=?", (url_id,)
+        ).fetchone()[0],
         "contexts": con.execute(
             "SELECT COUNT(*) FROM context_items WHERE item_key LIKE ? OR (kind='native_commit' AND item_key=?)",
             (f"page:{url_id}:%", str(queue_ordinal)),
@@ -344,14 +350,22 @@ def requeue_scan(
                 (f"page:{row['url_id']}:%", str(row["queue_ordinal"])),
             )
             con.execute("DELETE FROM pages WHERE url_id=?", (row["url_id"],))
-            con.execute("UPDATE frontier SET state='queued' WHERE url_id=? AND state='done'", (row["url_id"],))
+            con.execute(
+                "UPDATE frontier SET state='queued' WHERE url_id=? AND state='done'",
+                (row["url_id"],),
+            )
         con.execute(
             "UPDATE scan SET lifecycle='running',finished_at=NULL,finish_reason='retry_requeue',crawl_partial=1 "
             "WHERE singleton=1"
         )
         con.execute("DELETE FROM audit")
         con.commit()
-        return {"scan": str(path), "backup": str(backup), "attempt_id": attempt_id, "requeued": len(rows)}
+        return {
+            "scan": str(path),
+            "backup": str(backup),
+            "attempt_id": attempt_id,
+            "requeued": len(rows),
+        }
     except BaseException:
         if con is not None:
             con.rollback()
@@ -403,19 +417,23 @@ def scan_import_urls(
             backup_sha256=backup_sha256,
             source_scan_uuid=None,
         )
-        next_ordinal = con.execute("SELECT COALESCE(MAX(queue_ordinal)+1,0) FROM frontier").fetchone()[0]
+        next_ordinal = con.execute(
+            "SELECT COALESCE(MAX(queue_ordinal)+1,0) FROM frontier"
+        ).fetchone()[0]
         added, rejected = 0, 0
         for raw_url in listed_urls:
             url = _strip_fragment(raw_url)
             reason = scope.rejection(url, start_host)
             if reason or (
-                config["limits"]["max_url_length"]
-                and len(url) > config["limits"]["max_url_length"]
+                config["limits"]["max_url_length"] and len(url) > config["limits"]["max_url_length"]
             ):
                 rejected += 1
                 continue
             existing = con.execute("SELECT url_id FROM urls WHERE url=?", (url,)).fetchone()
-            if existing is not None and con.execute("SELECT 1 FROM frontier WHERE url_id=?", (existing[0],)).fetchone():
+            if (
+                existing is not None
+                and con.execute("SELECT 1 FROM frontier WHERE url_id=?", (existing[0],)).fetchone()
+            ):
                 continue
             parts = urlsplit(url)
             query_limit = config["limits"]["max_query_variants_per_path"]
@@ -446,7 +464,9 @@ def scan_import_urls(
             )
             next_ordinal += 1
             added += 1
-        con.execute("UPDATE scan SET lifecycle='running',finished_at=NULL,finish_reason='retry_import',crawl_partial=1 WHERE singleton=1")
+        con.execute(
+            "UPDATE scan SET lifecycle='running',finished_at=NULL,finish_reason='retry_import',crawl_partial=1 WHERE singleton=1"
+        )
         con.execute("DELETE FROM audit")
         con.commit()
         return {

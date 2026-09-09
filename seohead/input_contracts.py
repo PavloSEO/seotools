@@ -47,8 +47,28 @@ def _command(
 # the CLI/handler boundary prove the entries stay synchronized without making
 # package runtime import either interface layer.
 COMMAND_CONTRACTS: tuple[CommandContract, ...] = (
-    _command("provider-auth", "provider_auth", _form("inline_json", "provider", "action", "grant_file", "confirm", note="GSC private grant import/status/refresh; confirmed disconnect or remote revoke. No secret values returned.")),
-    _command("provider-replay", "provider_replay", _form("scan_artifact", "input_path", required_with=("evidence_file", "out_dir"), note="Offline join with a private saved provider envelope; raw joins remain in restricted output.")),
+    _command(
+        "provider-auth",
+        "provider_auth",
+        _form(
+            "inline_json",
+            "provider",
+            "action",
+            "grant_file",
+            "confirm",
+            note="GSC private grant import/status/refresh; confirmed disconnect or remote revoke. No secret values returned.",
+        ),
+    ),
+    _command(
+        "provider-replay",
+        "provider_replay",
+        _form(
+            "scan_artifact",
+            "input_path",
+            required_with=("evidence_file", "out_dir"),
+            note="Offline join with a private saved provider envelope; raw joins remain in restricted output.",
+        ),
+    ),
     _command("parse", "parse", _form("live_url", "url"), _form("url_list", "urls")),
     _command(
         "crawl-site",
@@ -307,7 +327,11 @@ COMMAND_CONTRACTS: tuple[CommandContract, ...] = (
         "inspect-url",
         "inspect_url",
         _form("live_url", "url"),
-        _form("inline_json", "checks", note="Optional bounded selection of closed investigation checks."),
+        _form(
+            "inline_json",
+            "checks",
+            note="Optional bounded selection of closed investigation checks.",
+        ),
     ),
     _command(
         "audit-workflow",

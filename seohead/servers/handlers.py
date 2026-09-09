@@ -598,7 +598,10 @@ def crawl_site(
         if project_root is not None:
             from seohead.projects.runtime import admission
             from seohead.servers.scan_handlers import resume_inputs
-            gate = admission(str(project_root), resume_inputs(resume)["settings"], approved=approve_large_crawl)
+
+            gate = admission(
+                str(project_root), resume_inputs(resume)["settings"], approved=approve_large_crawl
+            )
             if not gate["ok"]:
                 return {"ok": False, "error": gate["reason"], "admission": gate}
         return resume_scan(resume, url=url, producer_build=producer_build, progress=progress)
@@ -641,11 +644,16 @@ def crawl_site(
     base_overrides = None
     if project_root is not None:
         from seohead.projects.runtime import admission, project_policy
+
         base_overrides = project_policy(str(project_root))["policy"]["crawl_overrides"]
     if user_agent == "googlebot":
-        resolved_overrides["http.user_agent"] = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+        resolved_overrides["http.user_agent"] = (
+            "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+        )
         resolved_overrides.setdefault("robots.user_agent_token", "Googlebot")
-    settings = crawl_config.load(config, overrides=resolved_overrides, base_overrides=base_overrides)
+    settings = crawl_config.load(
+        config, overrides=resolved_overrides, base_overrides=base_overrides
+    )
     if project_root is not None:
         gate = admission(str(project_root), settings, approved=approve_large_crawl)
         if not gate["ok"]:
@@ -1402,7 +1410,10 @@ def _audit_crawl_result(
 
     if stored_scan is not None:
         from seohead.sf.core.evidence_contract import attach_contract, attach_saved_corpus
-        scan_identity = stored_scan.con.execute("SELECT scan_uuid FROM scan WHERE singleton=1").fetchone()[0]
+
+        scan_identity = stored_scan.con.execute(
+            "SELECT scan_uuid FROM scan WHERE singleton=1"
+        ).fetchone()[0]
         audit = attach_contract(audit, scan_uuid=scan_identity, con=stored_scan.con)
         audit = attach_saved_corpus(audit, stored_scan.con)
 
@@ -2606,7 +2617,13 @@ def sources_doctor() -> dict[str, Any]:
     from seohead.data_sources import spend as spend_core
 
     from seohead.data_sources.providers import sources_doctor as provider_doctor
-    return {"ok": True, "sources": sources, "provider_status": provider_doctor()["providers"], "spend_log": str(spend_core.log_path())}
+
+    return {
+        "ok": True,
+        "sources": sources,
+        "provider_status": provider_doctor()["providers"],
+        "spend_log": str(spend_core.log_path()),
+    }
 
 
 def scan_reanalyze(input_path: str, out: str, producer_build: str | None = None) -> dict[str, Any]:
@@ -2782,107 +2799,228 @@ def project_priorities(
     return core(directory, policy=policy, apply=apply, expected_revision=expected_revision)
 
 
-
-def project_policy(directory: str, policy: dict | None = None, apply: bool = False, expected_revision: int | None = None) -> dict[str, Any]:
+def project_policy(
+    directory: str,
+    policy: dict | None = None,
+    apply: bool = False,
+    expected_revision: int | None = None,
+) -> dict[str, Any]:
     from seohead.projects.runtime import project_policy as core
+
     return core(directory, policy=policy, apply=apply, expected_revision=expected_revision)
 
 
-def project_prepare(directory: str, template: dict | None = None, competitors: list | None = None, approve_large_crawl: bool = False, producer_build: str | None = None) -> dict[str, Any]:
+def project_prepare(
+    directory: str,
+    template: dict | None = None,
+    competitors: list | None = None,
+    approve_large_crawl: bool = False,
+    producer_build: str | None = None,
+) -> dict[str, Any]:
     from seohead.projects.runtime import prepare_project
-    return prepare_project(directory, tools=HANDLERS, template=template, competitors=competitors, approve_large_crawl=approve_large_crawl, producer_build=producer_build)
+
+    return prepare_project(
+        directory,
+        tools=HANDLERS,
+        template=template,
+        competitors=competitors,
+        approve_large_crawl=approve_large_crawl,
+        producer_build=producer_build,
+    )
 
 
-def project_start(directory: str, target: str, facts: list[dict[str, Any]] | None = None, template: dict | None = None, competitors: list | None = None, approve_large_crawl: bool = False, producer_build: str | None = None) -> dict[str, Any]:
+def project_start(
+    directory: str,
+    target: str,
+    facts: list[dict[str, Any]] | None = None,
+    template: dict | None = None,
+    competitors: list | None = None,
+    approve_large_crawl: bool = False,
+    producer_build: str | None = None,
+) -> dict[str, Any]:
     from seohead.projects.workspace import create_project
+
     created = create_project(directory, target, facts=facts)
     try:
-        return project_prepare(directory, template=template, competitors=competitors, approve_large_crawl=approve_large_crawl, producer_build=producer_build)
+        return project_prepare(
+            directory,
+            template=template,
+            competitors=competitors,
+            approve_large_crawl=approve_large_crawl,
+            producer_build=producer_build,
+        )
     except (ValueError, OSError) as exc:
-        return {"ok": False, "error": str(exc), "project": created, "next": "Use project-prepare to continue the inspectable project"}
+        return {
+            "ok": False,
+            "error": str(exc),
+            "project": created,
+            "next": "Use project-prepare to continue the inspectable project",
+        }
 
 
 def skill_list() -> dict[str, Any]:
     from seohead.projects.runtime import playbook_list
+
     return playbook_list("skill")
 
 
 def skill_show(name: str) -> dict[str, Any]:
     from seohead.projects.runtime import playbook_show
+
     return playbook_show(name, "skill")
 
 
 def scenario_show(name: str) -> dict[str, Any]:
     from seohead.projects.runtime import playbook_show
+
     return playbook_show(name, "scenario")
 
 
-def provider_replay(input_path: str, evidence_file: str, out_dir: str, url_column: str = "url", review_external_only: bool = False) -> dict[str, Any]:
+def provider_replay(
+    input_path: str,
+    evidence_file: str,
+    out_dir: str,
+    url_column: str = "url",
+    review_external_only: bool = False,
+) -> dict[str, Any]:
     from seohead.data_sources.providers import provider_replay as core
-    return core(input_path, evidence_file, out_dir, url_column=url_column, review_external_only=review_external_only)
+
+    return core(
+        input_path,
+        evidence_file,
+        out_dir,
+        url_column=url_column,
+        review_external_only=review_external_only,
+    )
 
 
-def provider_auth(provider: str, action: str = "status", grant_file: str | None = None, confirm: bool = False) -> dict[str, Any]:
+def provider_auth(
+    provider: str, action: str = "status", grant_file: str | None = None, confirm: bool = False
+) -> dict[str, Any]:
     from seohead.data_sources.oauth import manage_grant
+
     return manage_grant(provider, action, grant_file, confirm)
 
 
 def provider_registry() -> dict[str, Any]:
     from seohead.servers.provider_handlers import provider_registry as core
+
     return core()
 
 
 def provider_verify(provider: str, request: dict[str, Any] | None = None) -> dict[str, Any]:
     from seohead.servers.provider_handlers import provider_verify as core
+
     return core(provider, request)
 
 
-def provider_collect(provider: str, operation: str, request: dict[str, Any], artifact_dir: str | None = None) -> dict[str, Any]:
+def provider_collect(
+    provider: str, operation: str, request: dict[str, Any], artifact_dir: str | None = None
+) -> dict[str, Any]:
     from seohead.servers.provider_handlers import provider_collect as core
+
     return core(provider, operation, request, artifact_dir=artifact_dir)
 
 
-def provider_join(crawl_pages: list[dict[str, Any]], evidence_rows: list[dict[str, Any]], review_external_only: bool = False, adjustments: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def provider_join(
+    crawl_pages: list[dict[str, Any]],
+    evidence_rows: list[dict[str, Any]],
+    review_external_only: bool = False,
+    adjustments: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     from seohead.servers.provider_handlers import provider_join as core
-    return core(crawl_pages, evidence_rows, review_external_only=review_external_only, adjustments=adjustments)
 
+    return core(
+        crawl_pages,
+        evidence_rows,
+        review_external_only=review_external_only,
+        adjustments=adjustments,
+    )
 
 
 def inspect_url(url: str, checks: list[str] | None = None) -> dict[str, Any]:
     """Run a closed, bounded single-URL investigation using the existing shared tools."""
     chosen = checks if checks is not None else ["metadata", "headers", "robots"]
-    operations = {"metadata": "parse", "headers": "headers_check", "robots": "robots_check", "redirects": "redirects_check", "structured": "schema_check", "render": "render_check"}
-    if not isinstance(chosen, list) or not chosen or len(chosen) > len(operations) or any(type(name) is not str or name not in operations for name in chosen):
-        raise ValueError("checks must be a bounded selection of metadata/headers/robots/redirects/structured/render")
+    operations = {
+        "metadata": "parse",
+        "headers": "headers_check",
+        "robots": "robots_check",
+        "redirects": "redirects_check",
+        "structured": "schema_check",
+        "render": "render_check",
+    }
+    if (
+        not isinstance(chosen, list)
+        or not chosen
+        or len(chosen) > len(operations)
+        or any(type(name) is not str or name not in operations for name in chosen)
+    ):
+        raise ValueError(
+            "checks must be a bounded selection of metadata/headers/robots/redirects/structured/render"
+        )
     results = {}
     for name in dict.fromkeys(chosen):
         try:
             results[name] = HANDLERS[operations[name]](url=url)
         except (ValueError, OSError) as exc:
             results[name] = {"ok": False, "reason": str(exc)}
-    return {"ok": True, "url": url, "results": results, "scope": "one URL; rendering and field/indexing outcomes are not interchangeable"}
+    return {
+        "ok": True,
+        "url": url,
+        "results": results,
+        "scope": "one URL; rendering and field/indexing outcomes are not interchangeable",
+    }
 
 
-def audit_workflow(directory: str, action: str = "status", target: str | None = None, competitors: list | None = None, template: dict | None = None, audit: Any = None, fmt: str = "md", out: str | None = None, approve_large_crawl: bool = False) -> dict[str, Any]:
+def audit_workflow(
+    directory: str,
+    action: str = "status",
+    target: str | None = None,
+    competitors: list | None = None,
+    template: dict | None = None,
+    audit: Any = None,
+    fmt: str = "md",
+    out: str | None = None,
+    approve_large_crawl: bool = False,
+) -> dict[str, Any]:
     """Expose a closed project workflow rather than an unrestricted action dispatcher."""
     if action == "status":
         return project_status(directory)
     if action == "start":
         if not target:
             raise ValueError("start requires a target URL")
-        return project_start(directory, target, template=template, competitors=competitors, approve_large_crawl=approve_large_crawl)
+        return project_start(
+            directory,
+            target,
+            template=template,
+            competitors=competitors,
+            approve_large_crawl=approve_large_crawl,
+        )
     if action == "prepare":
-        return project_prepare(directory, template=template, competitors=competitors, approve_large_crawl=approve_large_crawl)
+        return project_prepare(
+            directory,
+            template=template,
+            competitors=competitors,
+            approve_large_crawl=approve_large_crawl,
+        )
     if action == "report":
         return report_build(audit=audit, fmt=fmt, out=out, project=directory)
     raise ValueError("action must be status, start, prepare, or report")
 
 
-def tool_catalog(query: str = "", limit: int = 10, include_arguments: bool = False) -> dict[str, Any]:
+def tool_catalog(
+    query: str = "", limit: int = 10, include_arguments: bool = False
+) -> dict[str, Any]:
     """Discover source-derived tool metadata without advertising every schema up front."""
     from dataclasses import asdict
     from seohead.servers.tool_reference import load_seo_tools, load_sf_tools
-    if not isinstance(query, str) or len(query) > 500 or type(limit) is not int or not 1 <= limit <= 50:
+
+    if (
+        not isinstance(query, str)
+        or len(query) > 500
+        or type(limit) is not int
+        or not 1 <= limit <= 50
+    ):
         raise ValueError("query must be bounded text and limit must be 1..50")
     words = query.casefold().split()
     matches = []
@@ -2895,27 +3033,46 @@ def tool_catalog(query: str = "", limit: int = 10, include_arguments: bool = Fal
             row.pop("arguments", None)
             row.pop("notes", None)
         matches.append(row)
-    return {"ok": True, "total": len(matches), "items": matches[:limit], "has_more": len(matches) > limit, "access": "Use the matching startup profile or full profile for direct low-level calls; high-level workflows invoke their bounded steps internally."}
+    return {
+        "ok": True,
+        "total": len(matches),
+        "items": matches[:limit],
+        "has_more": len(matches) > limit,
+        "access": "Use the matching startup profile or full profile for direct low-level calls; high-level workflows invoke their bounded steps internally.",
+    }
 
 
-
-def scan_evidence(input_path: str, section: str = "capabilities", limit: int = 1000, offset: int = 0) -> dict[str, Any]:
+def scan_evidence(
+    input_path: str, section: str = "capabilities", limit: int = 1000, offset: int = 0
+) -> dict[str, Any]:
     from seohead.servers.evidence_handlers import scan_evidence as core
+
     return core(input_path, section=section, limit=limit, offset=offset)
 
 
-def scan_extract(input_path: str, rules: list[dict[str, Any]], url: str | None = None, representation: str = "static", limit: int = 100) -> dict[str, Any]:
+def scan_extract(
+    input_path: str,
+    rules: list[dict[str, Any]],
+    url: str | None = None,
+    representation: str = "static",
+    limit: int = 100,
+) -> dict[str, Any]:
     from seohead.servers.evidence_handlers import scan_extract as core
+
     return core(input_path, rules, url=url, representation=representation, limit=limit)
 
 
-def scan_requeue(input_path: str, where: str, backup_path: str, from_scan: str | None = None) -> dict[str, Any]:
+def scan_requeue(
+    input_path: str, where: str, backup_path: str, from_scan: str | None = None
+) -> dict[str, Any]:
     from seohead.servers.history_handlers import scan_requeue as core
+
     return core(input_path, where=where, backup_path=backup_path, from_scan=from_scan)
 
 
 def scan_import_urls(input_path: str, urls_file: str, backup_path: str) -> dict[str, Any]:
     from seohead.servers.history_handlers import scan_import_urls as core
+
     return core(input_path, urls_file=urls_file, backup_path=backup_path)
 
 
@@ -2986,7 +3143,6 @@ _RAW_HANDLERS = {
     "scan_extract": scan_extract,
     "scan_requeue": scan_requeue,
     "scan_import_urls": scan_import_urls,
-
     "scan_snapshot": scan_snapshot,
     "scan_pin": scan_pin,
     "scan_prune": scan_prune,
@@ -3013,7 +3169,6 @@ _RAW_HANDLERS = {
     "provider_verify": provider_verify,
     "provider_collect": provider_collect,
     "provider_join": provider_join,
-
 }
 
 # Journaling sits here rather than in each interface: the CLI and the MCP server

@@ -785,9 +785,7 @@ def open_scan(path: str | Path, *, require_audit: bool = True):
         version = con.execute("PRAGMA user_version").fetchone()[0]
         app_id = con.execute("PRAGMA application_id").fetchone()[0]
         if version not in {USER_VERSION, 2}:
-            raise ScanError(
-                f"unsupported scan user_version {version}; no automatic migration"
-            )
+            raise ScanError(f"unsupported scan user_version {version}; no automatic migration")
         if app_id != APPLICATION_ID:
             raise ScanError(f"foreign application_id {app_id}; expected {APPLICATION_ID} (SEOH)")
         if version == 2:

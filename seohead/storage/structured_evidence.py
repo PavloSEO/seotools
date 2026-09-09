@@ -110,14 +110,24 @@ def structured_payload(
     html: str | None = None,
 ) -> dict[str, Any]:
     """Capture syntax, graph and local feature-check states without body excerpts."""
-    if type(page_url_id) is not int or type(source_document_id) is not int or representation not in REPRESENTATIONS:
+    if (
+        type(page_url_id) is not int
+        or type(source_document_id) is not int
+        or representation not in REPRESENTATIONS
+    ):
         raise ValueError("structured evidence identity is invalid")
     if not isinstance(parsed, dict):
         return {
-            "schema_version": STRUCTURED_VERSION, "page_url_id": page_url_id,
-            "source_document_id": source_document_id, "representation": representation,
-            "state": "unavailable", "reason": "captured document was not parsed", "blocks": [],
-            "nodes": [], "edges": [], "validation": _validation(None),
+            "schema_version": STRUCTURED_VERSION,
+            "page_url_id": page_url_id,
+            "source_document_id": source_document_id,
+            "representation": representation,
+            "state": "unavailable",
+            "reason": "captured document was not parsed",
+            "blocks": [],
+            "nodes": [],
+            "edges": [],
+            "validation": _validation(None),
         }
     valid = list(parsed.get("jsonld") or [])
     invalid = list(parsed.get("jsonld_invalid") or [])
@@ -134,13 +144,33 @@ def structured_payload(
         for node_ordinal, node in enumerate(_nodes(block)):
             node_id = node.get("@id") if isinstance(node.get("@id"), str) else None
             types = node.get("@type")
-            type_values = [types] if isinstance(types, str) else sorted(t for t in types if isinstance(t, str)) if isinstance(types, list) else []
-            nodes.append({"block_ordinal": ordinal, "ordinal": node_ordinal, "id": node_id, "types": type_values})
+            type_values = (
+                [types]
+                if isinstance(types, str)
+                else sorted(t for t in types if isinstance(t, str))
+                if isinstance(types, list)
+                else []
+            )
+            nodes.append(
+                {
+                    "block_ordinal": ordinal,
+                    "ordinal": node_ordinal,
+                    "id": node_id,
+                    "types": type_values,
+                }
+            )
             for property_name, value in node.items():
                 values = value if isinstance(value, list) else [value]
                 for target in values:
                     if isinstance(target, dict) and isinstance(target.get("@id"), str):
-                        edges.append({"block_ordinal": ordinal, "source_id": node_id, "property": property_name, "target_id": target["@id"]})
+                        edges.append(
+                            {
+                                "block_ordinal": ordinal,
+                                "source_id": node_id,
+                                "property": property_name,
+                                "target_id": target["@id"],
+                            }
+                        )
     for offset, item in enumerate(invalid, start=len(valid)):
         source_ordinal = item.get("index") if isinstance(item, dict) else None
         blocks.append(
@@ -154,13 +184,7 @@ def structured_payload(
     validation = _validation(html)
     if invalid:
         validation["syntax_state"] = "malformed"
-    state = (
-        "malformed"
-        if invalid
-        else "absent"
-        if not valid
-        else validation["structural_state"]
-    )
+    state = "malformed" if invalid else "absent" if not valid else validation["structural_state"]
     reasons = {
         "malformed": "JSON-LD syntax failures captured",
         "structurally_invalid": "Schema.org graph validation found structural errors",
@@ -170,42 +194,69 @@ def structured_payload(
         "valid": "",
     }
     return {
-        "schema_version": STRUCTURED_VERSION, "page_url_id": page_url_id,
-        "source_document_id": source_document_id, "representation": representation,
-        "state": state, "reason": reasons.get(state, "structural validation is unavailable"),
-        "blocks": blocks, "nodes": nodes, "edges": edges, "validation": validation,
+        "schema_version": STRUCTURED_VERSION,
+        "page_url_id": page_url_id,
+        "source_document_id": source_document_id,
+        "representation": representation,
+        "state": state,
+        "reason": reasons.get(state, "structural validation is unavailable"),
+        "blocks": blocks,
+        "nodes": nodes,
+        "edges": edges,
+        "validation": validation,
     }
 
 
 def language_payload(
-    *, page_url_id: int, source_document_id: int, representation: str, parsed: dict[str, Any] | None, html: str | None
+    *,
+    page_url_id: int,
+    source_document_id: int,
+    representation: str,
+    parsed: dict[str, Any] | None,
+    html: str | None,
 ) -> dict[str, Any]:
     """Capture raw/resolved hreflang declarations as directed source evidence."""
-    if type(page_url_id) is not int or type(source_document_id) is not int or representation not in REPRESENTATIONS:
+    if (
+        type(page_url_id) is not int
+        or type(source_document_id) is not int
+        or representation not in REPRESENTATIONS
+    ):
         raise ValueError("language evidence identity is invalid")
     if not isinstance(parsed, dict):
         return {
-            "schema_version": LANGUAGE_VERSION, "page_url_id": page_url_id,
-            "source_document_id": source_document_id, "representation": representation,
-            "state": "unavailable", "reason": "captured document was not parsed", "html_lang": None,
+            "schema_version": LANGUAGE_VERSION,
+            "page_url_id": page_url_id,
+            "source_document_id": source_document_id,
+            "representation": representation,
+            "state": "unavailable",
+            "reason": "captured document was not parsed",
+            "html_lang": None,
             "declarations": [],
         }
     declarations = []
     for ordinal, alternate in enumerate(parsed.get("hreflang") or []):
         if not isinstance(alternate, dict):
             continue
-        declarations.append({
-            "ordinal": ordinal, "lang": str(alternate.get("lang") or ""),
-            "raw_href": str(alternate.get("raw_href") or ""), "target": str(alternate.get("url") or ""),
-            "state": "declared" if alternate.get("url") else "malformed",
-        })
+        declarations.append(
+            {
+                "ordinal": ordinal,
+                "lang": str(alternate.get("lang") or ""),
+                "raw_href": str(alternate.get("raw_href") or ""),
+                "target": str(alternate.get("url") or ""),
+                "state": "declared" if alternate.get("url") else "malformed",
+            }
+        )
     return {
-        "schema_version": LANGUAGE_VERSION, "page_url_id": page_url_id,
-        "source_document_id": source_document_id, "representation": representation,
-        "state": "declared" if declarations else "absent", "reason": "",
+        "schema_version": LANGUAGE_VERSION,
+        "page_url_id": page_url_id,
+        "source_document_id": source_document_id,
+        "representation": representation,
+        "state": "declared" if declarations else "absent",
+        "reason": "",
         "html_lang": (
             str(BeautifulSoup(html, features="lxml").find("html").get("lang") or "")
-            if isinstance(html, str) and BeautifulSoup(html, features="lxml").find("html") is not None
+            if isinstance(html, str)
+            and BeautifulSoup(html, features="lxml").find("html") is not None
             else None
         ),
         "declarations": declarations,
@@ -231,10 +282,27 @@ def _item(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
 def validate_context(con: Any, item: dict[str, Any], payload: Any) -> None:
     """Validate closed payload shape and exact document/page/representation binding."""
     kind = item.get("kind")
-    version = STRUCTURED_VERSION if kind == STRUCTURED_KIND else LANGUAGE_VERSION if kind == LANGUAGE_KIND else None
-    if version is None or item.get("payload_version") != OUTER_VERSION or not isinstance(payload, dict):
+    version = (
+        STRUCTURED_VERSION
+        if kind == STRUCTURED_KIND
+        else LANGUAGE_VERSION
+        if kind == LANGUAGE_KIND
+        else None
+    )
+    if (
+        version is None
+        or item.get("payload_version") != OUTER_VERSION
+        or not isinstance(payload, dict)
+    ):
         raise ScanError("structured or language evidence context is invalid")
-    required = {"schema_version", "page_url_id", "source_document_id", "representation", "state", "reason"}
+    required = {
+        "schema_version",
+        "page_url_id",
+        "source_document_id",
+        "representation",
+        "state",
+        "reason",
+    }
     if kind == STRUCTURED_KIND:
         required |= {"blocks", "nodes", "edges"}
         if payload.get("schema_version") == STRUCTURED_VERSION:
@@ -243,11 +311,26 @@ def validate_context(con: Any, item: dict[str, Any], payload: Any) -> None:
             raise ScanError("structured evidence payload has unsupported version")
     else:
         required |= {"html_lang", "declarations"}
-    if set(payload) != required or (kind != STRUCTURED_KIND and payload["schema_version"] != version):
+    if set(payload) != required or (
+        kind != STRUCTURED_KIND and payload["schema_version"] != version
+    ):
         raise ScanError("structured or language evidence payload has unsupported fields")
-    if type(payload["page_url_id"]) is not int or type(payload["source_document_id"]) is not int or payload["representation"] not in REPRESENTATIONS:
+    if (
+        type(payload["page_url_id"]) is not int
+        or type(payload["source_document_id"]) is not int
+        or payload["representation"] not in REPRESENTATIONS
+    ):
         raise ScanError("structured or language evidence identity is invalid")
-    if payload["state"] not in {"eligible", "valid", "malformed", "structurally_invalid", "unsupported_context", "absent", "declared", "unavailable"} or not isinstance(payload["reason"], str):
+    if payload["state"] not in {
+        "eligible",
+        "valid",
+        "malformed",
+        "structurally_invalid",
+        "unsupported_context",
+        "absent",
+        "declared",
+        "unavailable",
+    } or not isinstance(payload["reason"], str):
         raise ScanError("structured or language evidence state is invalid")
     if kind == STRUCTURED_KIND and payload["schema_version"] == STRUCTURED_VERSION:
         validation = payload["validation"]
@@ -255,13 +338,23 @@ def validate_context(con: Any, item: dict[str, Any], payload: Any) -> None:
             not isinstance(validation, dict)
             or set(validation)
             != {
-                "syntax_state", "structural_state", "feature_eligibility_state",
-                "unsupported_context_normalization", "entity_errors", "entity_warnings",
+                "syntax_state",
+                "structural_state",
+                "feature_eligibility_state",
+                "unsupported_context_normalization",
+                "entity_errors",
+                "entity_warnings",
                 "feature_checks",
             }
             or validation["syntax_state"] not in {"parsed", "malformed", "unavailable"}
             or validation["structural_state"]
-            not in {"valid", "malformed", "structurally_invalid", "unsupported_context", "unavailable"}
+            not in {
+                "valid",
+                "malformed",
+                "structurally_invalid",
+                "unsupported_context",
+                "unavailable",
+            }
             or validation["feature_eligibility_state"] not in {"locally_checked", "unknown"}
             or type(validation["unsupported_context_normalization"]) is not bool
             or type(validation["entity_errors"]) is not int
@@ -269,15 +362,26 @@ def validate_context(con: Any, item: dict[str, Any], payload: Any) -> None:
             or not isinstance(validation["feature_checks"], list)
         ):
             raise ScanError("structured evidence validation state is invalid")
-    if item["item_key"] != f"page:{payload['page_url_id']}:document:{payload['source_document_id']}:representation:{payload['representation']}":
+    if (
+        item["item_key"]
+        != f"page:{payload['page_url_id']}:document:{payload['source_document_id']}:representation:{payload['representation']}"
+    ):
         raise ScanError("structured or language evidence key is invalid")
-    if not con.execute("SELECT 1 FROM documents WHERE document_id=? AND url_id=? AND representation=?", (payload["source_document_id"], payload["page_url_id"], payload["representation"])).fetchone():
+    if not con.execute(
+        "SELECT 1 FROM documents WHERE document_id=? AND url_id=? AND representation=?",
+        (payload["source_document_id"], payload["page_url_id"], payload["representation"]),
+    ).fetchone():
         raise ScanError("structured or language evidence binds the wrong document")
 
 
 def read(con: Any) -> dict[str, Any]:
     """Read typed saved evidence; target observations remain explicitly unmeasured here."""
     output = {"structured": [], "language": []}
-    for row in con.execute("SELECT * FROM context_items WHERE kind IN (?,?) ORDER BY kind,item_key", (STRUCTURED_KIND, LANGUAGE_KIND)):
-        output["structured" if row["kind"] == STRUCTURED_KIND else "language"].append(json.loads(row["payload_json"]))
+    for row in con.execute(
+        "SELECT * FROM context_items WHERE kind IN (?,?) ORDER BY kind,item_key",
+        (STRUCTURED_KIND, LANGUAGE_KIND),
+    ):
+        output["structured" if row["kind"] == STRUCTURED_KIND else "language"].append(
+            json.loads(row["payload_json"])
+        )
     return output

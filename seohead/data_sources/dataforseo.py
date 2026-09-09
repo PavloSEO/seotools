@@ -515,7 +515,11 @@ def backlinks_summary(
         raise ValueError("target required")
     requested_env = (env or "sandbox").lower()
     if not enabled:
-        return {"ok": False, "state": "skipped", "reason": "backlink adapter is disabled by default"}
+        return {
+            "ok": False,
+            "state": "skipped",
+            "reason": "backlink adapter is disabled by default",
+        }
     if not account_eligible or not cache_key:
         return {
             "ok": False,
@@ -528,7 +532,9 @@ def backlinks_summary(
             "state": "skipped",
             "reason": "production backlink calls require explicit production and cost approval",
         }
-    if spend_ceiling_usd is not None and (not isinstance(spend_ceiling_usd, (int, float)) or spend_ceiling_usd < 0):
+    if spend_ceiling_usd is not None and (
+        not isinstance(spend_ceiling_usd, (int, float)) or spend_ceiling_usd < 0
+    ):
         raise ValueError("spend_ceiling_usd must be a non-negative number")
     try:
         source = client or DataForSEOClient(env=requested_env)

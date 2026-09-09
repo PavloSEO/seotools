@@ -27,13 +27,20 @@ def _default_transport(method: str, url: str, payload: dict[str, Any] | None, to
 
 
 def collect(
-    operation: str, *, user_id: str, host_id: str | None = None, token: str | None = None,
-    transport: Transport | None = None
+    operation: str,
+    *,
+    user_id: str,
+    host_id: str | None = None,
+    token: str | None = None,
+    transport: Transport | None = None,
 ) -> dict[str, Any]:
     """Collect verified-host, diagnostics, sitemap, or search-performance REST evidence."""
     from seohead.data_sources.credentials import MissingCredential, yandex_webmaster_token
 
-    if operation not in {"hosts", "indexing", "crawl", "sitemaps", "search_performance"} or not user_id:
+    if (
+        operation not in {"hosts", "indexing", "crawl", "sitemaps", "search_performance"}
+        or not user_id
+    ):
         raise ValueError("a supported operation and user_id are required")
     if operation != "hosts" and not host_id:
         raise ValueError("host_id is required for this Yandex Webmaster operation")
@@ -49,9 +56,17 @@ def collect(
         "search_performance": f"/user/{user_id}/hosts/{host_id}/search-queries/popular?order_by=TOTAL_SHOWS",
     }
     try:
-        body = json.loads((transport or _default_transport)("GET", HOST + paths[operation], None, bearer))
+        body = json.loads(
+            (transport or _default_transport)("GET", HOST + paths[operation], None, bearer)
+        )
     except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, ValueError) as exc:
         return {"ok": False, "state": "failed", "error": str(exc)}
     if not isinstance(body, dict):
         return {"ok": False, "state": "failed", "error": "malformed Yandex Webmaster response"}
-    return {"ok": True, "state": "complete", "operation": operation, "data": body, "read_only": True}
+    return {
+        "ok": True,
+        "state": "complete",
+        "operation": operation,
+        "data": body,
+        "read_only": True,
+    }

@@ -306,7 +306,9 @@ def _artifact_filename(url: str) -> str:
 
 def _redact_console(value: Any) -> str:
     text = str(value or "")[:MAX_CONSOLE_ERROR_CHARS]
-    text = re.sub(r"(?i)(?:authorization|token|secret|password|cookie)\s*[:=]\s*[^\s,;]+", "[redacted]", text)
+    text = re.sub(
+        r"(?i)(?:authorization|token|secret|password|cookie)\s*[:=]\s*[^\s,;]+", "[redacted]", text
+    )
     return re.sub(r"https?://[^\s'\"]+", "[url]", text)
 
 

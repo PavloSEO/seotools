@@ -228,10 +228,7 @@ def validate_context(con: Any, item: dict[str, Any], payload: Any) -> None:
                 payload["completeness"] == "complete"
                 and (payload["omitted"] != 0 or payload["reason"])
             )
-            or (
-                payload["completeness"] == "partial"
-                and not payload["reason"]
-            )
+            or (payload["completeness"] == "partial" and not payload["reason"])
             or (
                 payload["completeness"] == "unavailable"
                 and (payload["observed"] != 0 or payload["omitted"] != 0 or not payload["reason"])
@@ -246,14 +243,17 @@ def validate_context(con: Any, item: dict[str, Any], payload: Any) -> None:
         raise ScanError("native rendered route context kind is invalid")
     if not con.execute("SELECT 1 FROM pages WHERE url_id=?", (payload["page_url_id"],)).fetchone():
         raise ScanError("native rendered route context references an unknown page")
-    if payload["source_document_id"] is not None and not con.execute(
-        "SELECT 1 FROM documents WHERE document_id=? AND url_id=? AND representation=?",
-        (
-            payload["source_document_id"],
-            payload["page_url_id"],
-            payload["representation"],
-        ),
-    ).fetchone():
+    if (
+        payload["source_document_id"] is not None
+        and not con.execute(
+            "SELECT 1 FROM documents WHERE document_id=? AND url_id=? AND representation=?",
+            (
+                payload["source_document_id"],
+                payload["page_url_id"],
+                payload["representation"],
+            ),
+        ).fetchone()
+    ):
         raise ScanError(
             "native rendered route context document does not match its page or representation"
         )

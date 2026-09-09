@@ -69,7 +69,11 @@ def landing_pages(
     rows = body.get("rows") if isinstance(body, dict) else None
     if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
         return {"ok": False, "state": "failed", "error": "malformed GA4 Data API response"}
-    sampling = body.get("metadata", {}).get("dataLossFromOtherRow") if isinstance(body.get("metadata"), dict) else None
+    sampling = (
+        body.get("metadata", {}).get("dataLossFromOtherRow")
+        if isinstance(body.get("metadata"), dict)
+        else None
+    )
     return {
         "ok": True,
         "state": "partial" if len(rows) >= MAX_ROWS or sampling else "complete",

@@ -103,10 +103,18 @@ def _issue_map_refs(check_id: str) -> list[dict[str, str]]:
 
 def _prerequisites(check_id: str, source: str) -> dict[str, Any]:
     """Derive prerequisite labels from declared source metadata, never from check names."""
-    unknown = {"state": "unknown", "value": None, "reason": "registry source does not declare this prerequisite"}
+    unknown = {
+        "state": "unknown",
+        "value": None,
+        "reason": "registry source does not declare this prerequisite",
+    }
     result: dict[str, Any] = {
         "source_tag": source,
-        "required_evidence": {"state": "unknown", "items": [], "reason": "registry source has no typed evidence declaration"},
+        "required_evidence": {
+            "state": "unknown",
+            "items": [],
+            "reason": "registry source has no typed evidence declaration",
+        },
         "population": dict(unknown),
         "representation": dict(unknown),
         "issue_map_refs": _issue_map_refs(check_id),
@@ -117,7 +125,11 @@ def _prerequisites(check_id: str, source: str) -> dict[str, Any]:
             "items": [{"kind": "screaming_frog_export", "source": source}],
             "reason": "",
         }
-        result["population"] = {"state": "derived", "value": "Screaming Frog export rows", "reason": ""}
+        result["population"] = {
+            "state": "derived",
+            "value": "Screaming Frog export rows",
+            "reason": "",
+        }
     elif source.startswith("inlinks:"):
         result["required_evidence"] = {
             "state": "derived",
@@ -132,14 +144,22 @@ def _prerequisites(check_id: str, source: str) -> dict[str, Any]:
             "reason": "",
         }
         result["population"] = {"state": "derived", "value": "sitemap declarations", "reason": ""}
-        result["representation"] = {"state": "not_applicable", "value": None, "reason": "sitemap declarations have no raw/rendered page representation"}
+        result["representation"] = {
+            "state": "not_applicable",
+            "value": None,
+            "reason": "sitemap declarations have no raw/rendered page representation",
+        }
     elif source.startswith("crawl:"):
         result["required_evidence"] = {
             "state": "derived",
             "items": [{"kind": "native_crawl_evidence", "source": source}],
             "reason": "",
         }
-        result["population"] = {"state": "derived", "value": "native crawl evidence records", "reason": ""}
+        result["population"] = {
+            "state": "derived",
+            "value": "native crawl evidence records",
+            "reason": "",
+        }
     return result
 
 
@@ -174,9 +194,15 @@ def capability_rows(document: Mapping[str, Any]) -> list[dict[str, Any]]:
                 if isinstance(check_id, str) and check_id in CHECKS:
                     disabled.setdefault(check_id, "disabled by the saved audit configuration")
         silent_raw = coverage.get("checks_silent_ids")
-        silent = {
-            check_id for check_id in silent_raw if isinstance(check_id, str) and check_id in CHECKS
-        } if isinstance(silent_raw, list) else set()
+        silent = (
+            {
+                check_id
+                for check_id in silent_raw
+                if isinstance(check_id, str) and check_id in CHECKS
+            }
+            if isinstance(silent_raw, list)
+            else set()
+        )
     else:
         silent = set()
     partial = bool(run.get("crawl_partial"))
@@ -560,6 +586,7 @@ def comparison_compatibility(
     before: Mapping[str, Any], after: Mapping[str, Any]
 ) -> list[dict[str, Any]]:
     """Return named comparison bases without inferring equality from absence."""
+
     def side(document: Mapping[str, Any], key: str) -> Any:
         run = document.get("run") if isinstance(document.get("run"), Mapping) else {}
         summary = document.get("summary") if isinstance(document.get("summary"), Mapping) else {}

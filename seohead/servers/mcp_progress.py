@@ -21,7 +21,9 @@ def _has_progress_token(context: Any) -> bool:
 class ProgressReporter(AbstractAsyncContextManager["ProgressReporter"]):
     """Emit throttled standard notifications only while an active request supplied a token."""
 
-    def __init__(self, context: Any, label: str, *, clock: Callable[[], float] = time.monotonic) -> None:
+    def __init__(
+        self, context: Any, label: str, *, clock: Callable[[], float] = time.monotonic
+    ) -> None:
         self.context = context
         self.label = label
         self.clock = clock
@@ -55,7 +57,9 @@ class ProgressReporter(AbstractAsyncContextManager["ProgressReporter"]):
         """Report actual elapsed time when no completion total is available."""
         seconds = max(self._last_progress, self.clock() - self._started)
         self._last_progress = seconds
-        await self._send(seconds, None, message or f"{self.label}: {seconds:.1f}s elapsed; total unknown")
+        await self._send(
+            seconds, None, message or f"{self.label}: {seconds:.1f}s elapsed; total unknown"
+        )
 
     async def _send(self, progress: float, total: float | None, message: str) -> None:
         if not self.enabled or self._closed:
@@ -96,9 +100,17 @@ def wrap_long_tools(server: Any) -> None:
     import typing
 
     names = {
-        "seo_crawl_site", "seo_parse", "seo_links_check", "seo_report_build",
-        "seo_project_start", "seo_project_prepare", "seo_provider_collect",
-        "seo_scan_reanalyze", "seo_inspect_url", "seo_audit_workflow", "sf_audit_run",
+        "seo_crawl_site",
+        "seo_parse",
+        "seo_links_check",
+        "seo_report_build",
+        "seo_project_start",
+        "seo_project_prepare",
+        "seo_provider_collect",
+        "seo_scan_reanalyze",
+        "seo_inspect_url",
+        "seo_audit_workflow",
+        "sf_audit_run",
     }
 
     def wrapped(function, label):
@@ -106,7 +118,11 @@ def wrap_long_tools(server: Any) -> None:
         async def invoke(*args, **kwargs):
             reporter = ProgressReporter(server.get_context(), label)
             async with reporter:
-                work = asyncio.create_task(function(*args, **kwargs) if inspect.iscoroutinefunction(function) else asyncio.to_thread(function, *args, **kwargs))
+                work = asyncio.create_task(
+                    function(*args, **kwargs)
+                    if inspect.iscoroutinefunction(function)
+                    else asyncio.to_thread(function, *args, **kwargs)
+                )
                 try:
                     while not work.done():
                         finished, _ = await asyncio.wait({work}, timeout=1.0)
@@ -116,10 +132,14 @@ def wrap_long_tools(server: Any) -> None:
                 finally:
                     if not work.done():
                         work.cancel()
+
         hints = typing.get_type_hints(function)
         signature = inspect.signature(function)
         invoke.__signature__ = signature.replace(
-            parameters=[parameter.replace(annotation=hints.get(name, parameter.annotation)) for name, parameter in signature.parameters.items()],
+            parameters=[
+                parameter.replace(annotation=hints.get(name, parameter.annotation))
+                for name, parameter in signature.parameters.items()
+            ],
             return_annotation=hints.get("return", signature.return_annotation),
         )
         invoke.__annotations__ = hints
@@ -130,4 +150,13 @@ def wrap_long_tools(server: Any) -> None:
             continue
         function = wrapped(tool.fn, tool.name)
         server.remove_tool(tool.name)
-        server.add_tool(function, name=tool.name, title=tool.title, description=tool.description, annotations=tool.annotations, icons=tool.icons, meta=tool.meta, structured_output=tool.fn_metadata.output_schema is not None)
+        server.add_tool(
+            function,
+            name=tool.name,
+            title=tool.title,
+            description=tool.description,
+            annotations=tool.annotations,
+            icons=tool.icons,
+            meta=tool.meta,
+            structured_output=tool.fn_metadata.output_schema is not None,
+        )

@@ -27,9 +27,15 @@ def _path(provider: str) -> Path:
 def save_grant(provider: str, grant: dict[str, Any]) -> None:
     """Explicitly persist a read-only grant locally with restrictive permissions."""
     required = {"refresh_token", "client_id", "client_secret", "scopes"}
-    if not isinstance(grant, dict) or set(grant) != required or not all(isinstance(grant[key], str) and grant[key] for key in required - {"scopes"}):
+    if (
+        not isinstance(grant, dict)
+        or set(grant) != required
+        or not all(isinstance(grant[key], str) and grant[key] for key in required - {"scopes"})
+    ):
         raise ValueError("OAuth grant has an unsupported shape")
-    if not isinstance(grant["scopes"], list) or grant["scopes"] != ["https://www.googleapis.com/auth/webmasters.readonly"]:
+    if not isinstance(grant["scopes"], list) or grant["scopes"] != [
+        "https://www.googleapis.com/auth/webmasters.readonly"
+    ]:
         raise ValueError("GSC grants must have only the webmasters.readonly scope")
     path = _path(provider)
     if path.parent.is_symlink() or path.is_symlink():
@@ -51,7 +57,12 @@ def save_grant(provider: str, grant: dict[str, Any]) -> None:
 
 def _grant(provider: str) -> dict[str, Any]:
     path = _path(provider)
-    if not path.is_file() or path.is_symlink() or path.stat().st_mode & 0o077 or path.stat().st_size > 65536:
+    if (
+        not path.is_file()
+        or path.is_symlink()
+        or path.stat().st_mode & 0o077
+        or path.stat().st_size > 65536
+    ):
         raise MissingCredential("durable OAuth grant is not configured")
     try:
         value = json.loads(path.read_text())
@@ -60,7 +71,10 @@ def _grant(provider: str) -> dict[str, Any]:
     if (
         not isinstance(value, dict)
         or set(value) != {"refresh_token", "client_id", "client_secret", "scopes"}
-        or any(not isinstance(value.get(key), str) or not value[key] for key in ("refresh_token", "client_id", "client_secret"))
+        or any(
+            not isinstance(value.get(key), str) or not value[key]
+            for key in ("refresh_token", "client_id", "client_secret")
+        )
         or value.get("scopes") != ["https://www.googleapis.com/auth/webmasters.readonly"]
     ):
         raise MissingCredential("durable OAuth grant is invalid")
@@ -78,12 +92,16 @@ def _default_refresh(payload: dict[str, str]) -> dict[str, Any]:
         return json.loads(response.read().decode("utf-8"))
 
 
-def refresh_access_token(provider: str, *, transport: RefreshTransport | None = None) -> dict[str, Any]:
+def refresh_access_token(
+    provider: str, *, transport: RefreshTransport | None = None
+) -> dict[str, Any]:
     """Exchange a stored refresh token only when an explicit live operation needs it."""
     grant = _grant(provider)
     payload = {
-        "grant_type": "refresh_token", "refresh_token": grant["refresh_token"],
-        "client_id": grant["client_id"], "client_secret": grant["client_secret"],
+        "grant_type": "refresh_token",
+        "refresh_token": grant["refresh_token"],
+        "client_id": grant["client_id"],
+        "client_secret": grant["client_secret"],
     }
     body = (transport or _default_refresh)(payload)
     token = body.get("access_token") if isinstance(body, dict) else None
@@ -100,7 +118,9 @@ def grant_available(provider: str = "gsc") -> bool:
     return True
 
 
-def manage_grant(provider: str, action: str = "status", grant_file: str | None = None, confirm: bool = False) -> dict[str, Any]:
+def manage_grant(
+    provider: str, action: str = "status", grant_file: str | None = None, confirm: bool = False
+) -> dict[str, Any]:
     """Manage a local read-only grant without returning OAuth material.
 
     Connect imports a grant obtained through the provider's consent flow; it
@@ -114,7 +134,12 @@ def manage_grant(provider: str, action: str = "status", grant_file: str | None =
         if not isinstance(grant_file, str):
             raise ValueError("connect requires a private grant_file")
         source = Path(grant_file).expanduser()
-        if source.is_symlink() or not source.is_file() or source.stat().st_mode & 0o077 or source.stat().st_size > 65536:
+        if (
+            source.is_symlink()
+            or not source.is_file()
+            or source.stat().st_mode & 0o077
+            or source.stat().st_size > 65536
+        ):
             raise ValueError("grant_file must be a private bounded regular JSON file")
         try:
             grant = json.loads(source.read_text(encoding="utf-8"))
@@ -124,7 +149,13 @@ def manage_grant(provider: str, action: str = "status", grant_file: str | None =
         return {"ok": True, "configured": True, "access_verified": False}
     if action == "refresh":
         refreshed = refresh_access_token(provider)
-        return {"ok": True, "refreshed": True, "scopes": refreshed["scopes"], "expires_in": refreshed["expires_in"], "property_access_verified": False}
+        return {
+            "ok": True,
+            "refreshed": True,
+            "scopes": refreshed["scopes"],
+            "expires_in": refreshed["expires_in"],
+            "property_access_verified": False,
+        }
     if action in {"disconnect", "revoke"}:
         if confirm is not True:
             raise ValueError("disconnect/revoke requires confirm=true")
@@ -133,7 +164,8 @@ def manage_grant(provider: str, action: str = "status", grant_file: str | None =
             request = urllib.request.Request(
                 "https://oauth2.googleapis.com/revoke",
                 data=urllib.parse.urlencode({"token": grant["refresh_token"]}).encode(),
-                method="POST", headers={"Content-Type": "application/x-www-form-urlencoded"},
+                method="POST",
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
             try:
                 with open_no_redirect(request, timeout=30) as response:
@@ -142,5 +174,10 @@ def manage_grant(provider: str, action: str = "status", grant_file: str | None =
             except OSError as exc:
                 raise ValueError("Google revocation failed; local grant preserved") from exc
         path.unlink()
-        return {"ok": True, "configured": False, "remote_revoked": action == "revoke", "scope": "stored OAuth grant only; environment bearers and service accounts are unchanged"}
+        return {
+            "ok": True,
+            "configured": False,
+            "remote_revoked": action == "revoke",
+            "scope": "stored OAuth grant only; environment bearers and service accounts are unchanged",
+        }
     raise ValueError("action must be status, connect, refresh, disconnect, or revoke")

@@ -177,7 +177,10 @@ def validate_payload(payload: Any) -> None:
         "simhash",
         "content_tokens",
     }
-    if not isinstance(payload, dict) or payload.get("schema_version") not in {VERSION, LEGACY_VERSION}:
+    if not isinstance(payload, dict) or payload.get("schema_version") not in {
+        VERSION,
+        LEGACY_VERSION,
+    }:
         raise ScanError("content evidence payload has unsupported fields or version")
     if payload["schema_version"] == LEGACY_VERSION:
         required.remove("content_tokens")
@@ -196,7 +199,13 @@ def validate_payload(payload: Any) -> None:
     if not isinstance(payload["canonical_target"], str):
         raise ScanError("content evidence canonical target is invalid")
     if payload["state"] == "unavailable":
-        unavailable_keys = ("strategy", "exact_hash", "normalized_hash", "boilerplate_hash", "simhash")
+        unavailable_keys = (
+            "strategy",
+            "exact_hash",
+            "normalized_hash",
+            "boilerplate_hash",
+            "simhash",
+        )
         if payload["schema_version"] == VERSION:
             unavailable_keys += ("content_tokens",)
         if payload["reason"] == "" or any(payload[key] is not None for key in unavailable_keys):
@@ -206,9 +215,18 @@ def validate_payload(payload: Any) -> None:
             raise ScanError("content evidence strategy is invalid")
         if payload["reason"] and payload["state"] != "empty":
             raise ScanError("complete content evidence must not carry a reason")
-        for key, length in (("exact_hash", 64), ("normalized_hash", 64), ("boilerplate_hash", 64), ("simhash", 16)):
+        for key, length in (
+            ("exact_hash", 64),
+            ("normalized_hash", 64),
+            ("boilerplate_hash", 64),
+            ("simhash", 16),
+        ):
             value = payload[key]
-            if type(value) is not str or len(value) != length or any(c not in "0123456789abcdef" for c in value):
+            if (
+                type(value) is not str
+                or len(value) != length
+                or any(c not in "0123456789abcdef" for c in value)
+            ):
                 raise ScanError(f"content evidence {key} is invalid")
         if payload["schema_version"] == VERSION and (
             type(payload["content_tokens"]) is not int or payload["content_tokens"] < 0
@@ -283,10 +301,17 @@ def derive_duplicates(
         raise ValueError("duplicate threshold must be a float from 0 to 1")
     if type(min_tokens) is not int or min_tokens < 1:
         raise ValueError("duplicate minimum token count must be positive")
-    if type(max_candidates) is not int or max_candidates < 1 or type(max_pairs) is not int or max_pairs < 1:
+    if (
+        type(max_candidates) is not int
+        or max_candidates < 1
+        or type(max_pairs) is not int
+        or max_pairs < 1
+    ):
         raise ValueError("duplicate analysis limits must be positive integers")
     eligible, excluded, partial_reasons = [], [], []
-    for item in sorted(items, key=lambda row: (row.get("page_url_id") or 0, row.get("source_document_id") or 0)):
+    for item in sorted(
+        items, key=lambda row: (row.get("page_url_id") or 0, row.get("source_document_id") or 0)
+    ):
         page_url_id = item.get("page_url_id")
         if item.get("state") == "empty":
             excluded.append({"page_url_id": page_url_id, "reason": "main content is empty"})
@@ -297,7 +322,9 @@ def derive_duplicates(
         elif item["content_tokens"] < min_tokens:
             excluded.append({"page_url_id": page_url_id, "reason": "main content is too short"})
         elif not include_nonindexable and item.get("indexable") is not True:
-            reason = "non-indexable" if item.get("indexable") is False else "indexability is unmeasured"
+            reason = (
+                "non-indexable" if item.get("indexable") is False else "indexability is unmeasured"
+            )
             excluded.append({"page_url_id": page_url_id, "reason": reason})
         else:
             canonical = item.get("canonical_target")
@@ -307,20 +334,34 @@ def derive_duplicates(
                 else (page_urls or {}).get(page_url_id)
             )
             if canonical:
-                source_identity, canonical_identity = _url_identity(source_url), _url_identity(canonical)
+                source_identity, canonical_identity = (
+                    _url_identity(source_url),
+                    _url_identity(canonical),
+                )
                 if source_identity is None or canonical_identity is None:
-                    excluded.append({"page_url_id": page_url_id, "reason": "canonical target identity is unknown"})
+                    excluded.append(
+                        {
+                            "page_url_id": page_url_id,
+                            "reason": "canonical target identity is unknown",
+                        }
+                    )
                 elif source_identity != canonical_identity:
-                    excluded.append({"page_url_id": page_url_id, "reason": "canonicalized to another target"})
+                    excluded.append(
+                        {"page_url_id": page_url_id, "reason": "canonicalized to another target"}
+                    )
                 else:
                     eligible.append(item)
             else:
                 eligible.append(item)
     if len(eligible) > max_candidates:
         for item in eligible[max_candidates:]:
-            excluded.append({"page_url_id": item["page_url_id"], "reason": "duplicate candidate cap reached"})
+            excluded.append(
+                {"page_url_id": item["page_url_id"], "reason": "duplicate candidate cap reached"}
+            )
         eligible = eligible[:max_candidates]
-        partial_reasons.append("candidate cap reached before all eligible content could be compared")
+        partial_reasons.append(
+            "candidate cap reached before all eligible content could be compared"
+        )
     exact: dict[tuple[str, str, str, str, str], set[int]] = {}
     for item in eligible:
         implementation = item["implementation"]
@@ -347,7 +388,12 @@ def derive_duplicates(
     for item in eligible:
         implementation = item["implementation"]
         by_identity.setdefault(
-            (item["representation"], item["strategy"], implementation["version"], implementation["source_sha256"]),
+            (
+                item["representation"],
+                item["strategy"],
+                implementation["version"],
+                implementation["source_sha256"],
+            ),
             [],
         ).append(item)
     witnesses, pairs_considered, capped = [], 0, False

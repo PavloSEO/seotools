@@ -69,7 +69,9 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
     if evidence:
         doc.add_heading("Saved evidence coverage", level=1)
         table = doc.add_table(rows=1, cols=4)
-        for cell, value in zip(table.rows[0].cells, ("Kind", "Measurement", "State", "Scope or reason")):
+        for cell, value in zip(
+            table.rows[0].cells, ("Kind", "Measurement", "State", "Scope or reason")
+        ):
             cell.text = value
         for row in evidence:
             for cell, value in zip(table.add_row().cells, row):

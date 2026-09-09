@@ -371,12 +371,19 @@ def run_render_escalation(
         document_id = scan.commit_render(*args, **kwargs)
         if getattr(scan, "con", None) is not None and hasattr(scan, "path"):
             from seohead.storage import browser_artifacts
-            page_url_id = scan.con.execute("SELECT url_id FROM documents WHERE document_id=?", (document_id,)).fetchone()[0]
+
+            page_url_id = scan.con.execute(
+                "SELECT url_id FROM documents WHERE document_id=?", (document_id,)
+            ).fetchone()[0]
             fetched = pending_artifacts.pop(args[0], {"ok": False})
             artifact_config = settings["rendering"]["artifacts"]
             item = browser_artifacts.save(
-                scan.path, page_url_id, document_id, fetched,
-                screenshots=artifact_config["screenshots"], console_errors=artifact_config["console_errors"],
+                scan.path,
+                page_url_id,
+                document_id,
+                fetched,
+                screenshots=artifact_config["screenshots"],
+                console_errors=artifact_config["console_errors"],
             )
             scan.write_context([item])
         return document_id
@@ -392,16 +399,31 @@ def run_render_escalation(
         interrupted_render or render_seconds_before >= maximum_render_seconds
     )
     if maximum_render_seconds > 0 and not exhausted:
-        rendering_config["escalation"]["max_render_seconds"] = maximum_render_seconds - render_seconds_before
+        rendering_config["escalation"]["max_render_seconds"] = (
+            maximum_render_seconds - render_seconds_before
+        )
 
     def save_render_elapsed(active: bool) -> None:
         if hasattr(scan, "write_context"):
             seconds = render_seconds_before + max(0.0, time.monotonic() - render_started)
-            scan.write_context([{
-                "kind": "render_elapsed", "item_key": "run", "payload_version": "scan_context.v1",
-                "payload_json": json.dumps({"schema_version": "render_elapsed.v1", "seconds": seconds, "active": active}),
-                "completeness": "complete", "reason": "",
-            }])
+            scan.write_context(
+                [
+                    {
+                        "kind": "render_elapsed",
+                        "item_key": "run",
+                        "payload_version": "scan_context.v1",
+                        "payload_json": json.dumps(
+                            {
+                                "schema_version": "render_elapsed.v1",
+                                "seconds": seconds,
+                                "active": active,
+                            }
+                        ),
+                        "completeness": "complete",
+                        "reason": "",
+                    }
+                ]
+            )
 
     start_url = (
         scan.con.execute("SELECT start_url FROM scan").fetchone()[0]
@@ -419,6 +441,7 @@ def run_render_escalation(
 
     def fetch_browser(target: str) -> dict[str, Any]:
         from seohead.storage import browser_artifacts
+
         artifact_kwargs = {}
         if hasattr(scan, "path") and rendering_config["artifacts"]["screenshots"]:
             artifact_kwargs["artifacts_dir"] = str(browser_artifacts.staging_dir(scan.path))
@@ -428,9 +451,13 @@ def run_render_escalation(
             capture_config["artifacts"]["screenshots"] = False
             capture_config["artifacts"]["console_errors"] = False
         fetched = render_tool.render_document(
-            target, capture_config, user_agent=settings["http"]["user_agent"],
-            max_html_bytes=max_parse_bytes, policy_facts=_policy_facts(settings, target),
-            **gate_kwargs, **artifact_kwargs,
+            target,
+            capture_config,
+            user_agent=settings["http"]["user_agent"],
+            max_html_bytes=max_parse_bytes,
+            policy_facts=_policy_facts(settings, target),
+            **gate_kwargs,
+            **artifact_kwargs,
         )
         pending_artifacts[target] = fetched
         return fetched
@@ -646,11 +673,13 @@ def run_render_escalation(
                 if degenerate
                 else "rendered body is not parseable",
             }
-        links, forms, partial_reasons, route_observations, route_coverage, candidates, decisions = _rendered_batch(
-            parsed,
-            target_url=target,
-            depth=candidate.crawl_depth,
-            settings=settings,
+        links, forms, partial_reasons, route_observations, route_coverage, candidates, decisions = (
+            _rendered_batch(
+                parsed,
+                target_url=target,
+                depth=candidate.crawl_depth,
+                settings=settings,
+            )
         )
         captures = fetched.get("captures", ()) if label == "legacy_fragment" else ()
         from .sqlite_adapter import _resource_observations

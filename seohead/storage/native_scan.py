@@ -173,9 +173,7 @@ def _native_config(value: Any, *, recorded: bool = False) -> dict[str, Any]:
         )
         validation_config["rendering"]["rendered_links"].setdefault("crawl", False)
         validation_config.setdefault("limits", {})
-        validation_config["limits"].setdefault(
-            "max_requests", 0
-        )
+        validation_config["limits"].setdefault("max_requests", 0)
     try:
         validate_crawl_config(
             validate_recorded_credentials(validation_config) if recorded else value
@@ -250,9 +248,7 @@ def _content_capture(value: Any) -> dict[str, Any] | None:
         raise ScanError("content evidence settings must be a mapping")
     if value["indexable"] is not None and type(value["indexable"]) is not bool:
         raise ScanError("content evidence indexability must be boolean or unavailable")
-    if any(
-        not isinstance(value[name], str) for name in ("canonical_target", "unavailable_reason")
-    ):
+    if any(not isinstance(value[name], str) for name in ("canonical_target", "unavailable_reason")):
         raise ScanError("content evidence text fields must be strings")
     return value
 
@@ -456,7 +452,9 @@ class NativeScan:
             from seohead.storage.events import append, ensure_schema
 
             ensure_schema(self.con)
-            prior = self.con.execute("SELECT COALESCE(MAX(sequence),0) FROM scan_events").fetchone()[0]
+            prior = self.con.execute(
+                "SELECT COALESCE(MAX(sequence),0) FROM scan_events"
+            ).fetchone()[0]
             meta = self.con.execute(
                 "SELECT cap,captured,dropped FROM scan_event_meta WHERE singleton=1"
             ).fetchone()
@@ -509,9 +507,7 @@ class NativeScan:
 
             for raw_event in events:
                 event = validate(raw_event)
-                self._event(
-                    event["event_type"], event["payload"], occurred_at=event["occurred_at"]
-                )
+                self._event(event["event_type"], event["payload"], occurred_at=event["occurred_at"])
             self._event_sink.dropped += dropped
             self._event_coverage()
             self.con.commit()
@@ -774,10 +770,8 @@ class NativeScan:
                 and scan["writer_revision"] != expected_writer_revision
             ):
                 raise ScanError("native scan producing build differs; refusing mixed-build resume")
-            if (
-                expected_config is not None
-                and scan["config_fingerprint"]
-                != _resume_fingerprint(expected_config, json.loads(scan["config_json"]))
+            if expected_config is not None and scan["config_fingerprint"] != _resume_fingerprint(
+                expected_config, json.loads(scan["config_json"])
             ):
                 raise ScanError("native scan configuration differs; refusing unsafe resume")
             # Credential references/values never enter the artifact. A local,
@@ -1603,7 +1597,10 @@ class NativeScan:
             counts = apply_seeds(
                 self.con, entries, limit=self._stored_query_limit(), start_url=start
             )
-            if self.con.execute("SELECT format_version FROM scan WHERE singleton=1").fetchone()[0] == "scan.v2":
+            if (
+                self.con.execute("SELECT format_version FROM scan WHERE singleton=1").fetchone()[0]
+                == "scan.v2"
+            ):
                 from .discovery_ledger import store_seeds
 
                 store_seeds(self.con, entries)
@@ -1713,7 +1710,13 @@ class NativeScan:
                 added.append(Lease(url_id, url, int(depth), next_ordinal))
                 self._event(
                     "queue",
-                    {"queue_ordinal": next_ordinal, "url_id": url_id, "depth": depth, "reason": "enqueue", "count": 1},
+                    {
+                        "queue_ordinal": next_ordinal,
+                        "url_id": url_id,
+                        "depth": depth,
+                        "reason": "enqueue",
+                        "count": 1,
+                    },
                 )
                 next_ordinal += 1
             self._event_coverage()
@@ -1760,7 +1763,13 @@ class NativeScan:
             for lease in leases:
                 self._event(
                     "queue",
-                    {"queue_ordinal": lease.queue_ordinal, "url_id": lease.url_id, "depth": lease.depth, "reason": "claimed", "count": 1},
+                    {
+                        "queue_ordinal": lease.queue_ordinal,
+                        "url_id": lease.url_id,
+                        "depth": lease.depth,
+                        "reason": "claimed",
+                        "count": 1,
+                    },
                 )
             self._event_coverage()
             self.con.commit()
@@ -2008,9 +2017,7 @@ class NativeScan:
             "runtime": runtime or {},
             "context": context,
             "route_observations": route_observations,
-            "content_capture": hashlib.sha256(
-                _dump(content_capture).encode("utf-8")
-            ).hexdigest()
+            "content_capture": hashlib.sha256(_dump(content_capture).encode("utf-8")).hexdigest()
             if content_capture is not None
             else None,
         }
@@ -2649,7 +2656,9 @@ class NativeScan:
             runtime = self.resume_snapshot()["runtime"]
             runtime["throttle"]["requests_used"] = requests_used
             self._write_runtime(runtime, runtime["max_depth_reached"])
-            self._event("budget", {"kind": "http_requests", "limit": maximum, "used": requests_used})
+            self._event(
+                "budget", {"kind": "http_requests", "limit": maximum, "used": requests_used}
+            )
             self._event_coverage()
             self.con.commit()
         except BaseException:

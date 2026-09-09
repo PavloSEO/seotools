@@ -11,21 +11,40 @@ HIGH_LEVEL_TOOLS = frozenset(
 _PROFILE_TOOLS = {
     "audit": frozenset(
         {
-            "seo_inspect_url", "seo_audit_workflow", "seo_tool_catalog", "sf_audit_run",
-            "sf_audit_summary", "sf_audit_issues", "sf_audit_tasks", "sf_list_exports",
+            "seo_inspect_url",
+            "seo_audit_workflow",
+            "seo_tool_catalog",
+            "sf_audit_run",
+            "sf_audit_summary",
+            "sf_audit_issues",
+            "sf_audit_tasks",
+            "sf_list_exports",
         }
     ),
     "infra": frozenset(
         {
-            "seo_inspect_url", "seo_tool_catalog", "seo_domain_profile", "seo_cdn_check",
-            "seo_tech_detect", "seo_security_check", "seo_headers_check", "seo_robots_check",
-            "seo_sitemap_crawl", "seo_regions_check",
+            "seo_inspect_url",
+            "seo_tool_catalog",
+            "seo_domain_profile",
+            "seo_cdn_check",
+            "seo_tech_detect",
+            "seo_security_check",
+            "seo_headers_check",
+            "seo_robots_check",
+            "seo_sitemap_crawl",
+            "seo_regions_check",
         }
     ),
     "quick-check": frozenset(
         {
-            "seo_inspect_url", "seo_tool_catalog", "seo_parse", "seo_headers_check",
-            "seo_robots_check", "seo_redirects_check", "seo_schema_check", "seo_hreflang_check",
+            "seo_inspect_url",
+            "seo_tool_catalog",
+            "seo_parse",
+            "seo_headers_check",
+            "seo_robots_check",
+            "seo_redirects_check",
+            "seo_schema_check",
+            "seo_hreflang_check",
         }
     ),
     # The router excludes seo_tool_run: an action:any schema could bypass real tool guards.

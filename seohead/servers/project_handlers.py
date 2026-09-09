@@ -58,7 +58,9 @@ def project_checklist_record(
     from seohead.projects.runtime import resolve_item_scope
 
     target, local_id = resolve_item_scope(directory, item_id)
-    return record_execution(target, item_id=local_id, record=record, expected_revision=expected_revision)
+    return record_execution(
+        target, item_id=local_id, record=record, expected_revision=expected_revision
+    )
 
 
 def project_priorities(

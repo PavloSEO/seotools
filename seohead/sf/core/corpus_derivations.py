@@ -31,8 +31,15 @@ def _page_index(con: Any) -> tuple[dict[int, dict[str, Any]], dict[str, list[dic
             else dict(
                 zip(
                     (
-                        "url_id", "url", "document_id", "status_code", "canonical",
-                        "meta_robots", "x_robots", "representation", "hreflang_outside_head",
+                        "url_id",
+                        "url",
+                        "document_id",
+                        "status_code",
+                        "canonical",
+                        "meta_robots",
+                        "x_robots",
+                        "representation",
+                        "hreflang_outside_head",
                     ),
                     row,
                     strict=True,

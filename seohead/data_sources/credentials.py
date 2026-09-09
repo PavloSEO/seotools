@@ -132,9 +132,13 @@ def gsc_service_account_path() -> Path:
     try:
         info = path.stat()
     except OSError as exc:
-        raise MissingCredential("GSC service-account JSON file is not configured or readable") from exc
+        raise MissingCredential(
+            "GSC service-account JSON file is not configured or readable"
+        ) from exc
     if path.is_symlink() or not path.is_file() or info.st_mode & 0o077:
-        raise MissingCredential("GSC service-account JSON must be a private regular file (mode 0600)")
+        raise MissingCredential(
+            "GSC service-account JSON must be a private regular file (mode 0600)"
+        )
     return path
 
 

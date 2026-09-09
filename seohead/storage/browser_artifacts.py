@@ -85,7 +85,11 @@ def _move_screenshot(scan_path: str | Path, source: str | None) -> dict[str, Any
         return {"state": "unavailable", "reason": "renderer produced no screenshot", "ref": None}
     staging = staging_dir(scan_path)
     if staging.is_symlink() or staging.parent.is_symlink():
-        return {"state": "unavailable", "reason": "browser screenshot staging directory is unsafe", "ref": None}
+        return {
+            "state": "unavailable",
+            "reason": "browser screenshot staging directory is unsafe",
+            "ref": None,
+        }
     staged = staging.resolve()
     path = Path(source)
     try:
@@ -119,7 +123,9 @@ def _save_console(scan_path: str | Path, errors: Any, omitted: Any) -> dict[str,
     values = [_redact(value) for value in errors] if isinstance(errors, list) else []
     values = values[:MAX_CONSOLE_ERRORS]
     omitted_count = int(omitted) if type(omitted) is int and omitted >= 0 else 0
-    body = json.dumps({"schema_version": "browser_console.v1", "errors": values}, separators=(",", ":"))
+    body = json.dumps(
+        {"schema_version": "browser_console.v1", "errors": values}, separators=(",", ":")
+    )
     digest = hashlib.sha256(body.encode()).hexdigest()
     target = _root(scan_path) / "console" / f"{digest}.json"
     try:
@@ -166,7 +172,11 @@ def save(
         staged_path = rendered.get("screenshot_path")
         if isinstance(staged_path, str):
             candidate = Path(staged_path)
-            if not candidate.is_symlink() and candidate.is_file() and staging_dir(scan_path).resolve() in candidate.resolve().parents:
+            if (
+                not candidate.is_symlink()
+                and candidate.is_file()
+                and staging_dir(scan_path).resolve() in candidate.resolve().parents
+            ):
                 candidate.unlink()
         rendered = {"ok": False}
     screenshot = (
@@ -175,14 +185,26 @@ def save(
         else {"state": "disabled", "reason": "screenshot retention disabled", "ref": None}
     )
     console = (
-        _save_console(scan_path, rendered.get("console_errors"), rendered.get("console_errors_omitted"))
+        _save_console(
+            scan_path, rendered.get("console_errors"), rendered.get("console_errors_omitted")
+        )
         if console_errors and rendered.get("ok") is not False
-        else {"state": "unavailable", "reason": "render did not complete; console evidence is unavailable", "ref": None}
+        else {
+            "state": "unavailable",
+            "reason": "render did not complete; console evidence is unavailable",
+            "ref": None,
+        }
         if console_errors
         else {"state": "disabled", "reason": "console retention disabled", "ref": None}
     )
     states = {screenshot["state"], console["state"]}
-    completeness = "complete" if states <= {"stored", "disabled"} else "partial" if states & {"stored", "partial"} else "unavailable"
+    completeness = (
+        "complete"
+        if states <= {"stored", "disabled"}
+        else "partial"
+        if states & {"stored", "partial"}
+        else "unavailable"
+    )
     reasons = "; ".join(item["reason"] for item in (screenshot, console) if item["reason"])
     payload = {
         "schema_version": VERSION,
@@ -264,7 +286,15 @@ def validate_context(con: Any, item: dict[str, Any], payload: Any) -> None:
     elif console["ref"] is not None or not console["reason"]:
         raise ScanError("unavailable browser console must not carry a reference")
     states = {screenshot["state"], console["state"]}
-    expected = "complete" if states <= {"stored", "disabled"} else "partial" if states & {"stored", "partial"} else "unavailable"
-    expected_reason = "; ".join(value["reason"] for value in (screenshot, console) if value["reason"])
+    expected = (
+        "complete"
+        if states <= {"stored", "disabled"}
+        else "partial"
+        if states & {"stored", "partial"}
+        else "unavailable"
+    )
+    expected_reason = "; ".join(
+        value["reason"] for value in (screenshot, console) if value["reason"]
+    )
     if item["completeness"] != expected or item["reason"] != expected_reason:
         raise ScanError("browser artifact context completeness disagrees with its evidence")

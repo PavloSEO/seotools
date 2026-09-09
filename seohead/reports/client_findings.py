@@ -252,7 +252,9 @@ def project_finding(finding: dict[str, Any]) -> dict[str, Any]:
         if reference.get("id"):
             projected["client_details"].append("Saved observation: " + reference["id"])
         else:
-            projected["client_details"].append("Saved observation unavailable: " + reference.get("reason", "not captured"))
+            projected["client_details"].append(
+                "Saved observation unavailable: " + reference.get("reason", "not captured")
+            )
     return projected
 
 

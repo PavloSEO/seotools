@@ -274,6 +274,7 @@ def _acquire_token(value: str | None) -> tuple[str | None, str | None]:
         return value or gsc_access_token(), None
     except MissingCredential:
         from seohead.data_sources.oauth import grant_available
+
         if grant_available("gsc"):
             try:
                 return durable_oauth_token()["access_token"], None
@@ -316,13 +317,17 @@ def service_account_access_token() -> str:
         session.max_redirects = 0
         credentials.refresh(Request(session=session))
     except Exception as exc:
-        raise MissingCredential("GSC service-account token refresh failed; check file permissions and Google grants") from exc
+        raise MissingCredential(
+            "GSC service-account token refresh failed; check file permissions and Google grants"
+        ) from exc
     if not isinstance(credentials.token, str) or not credentials.token:
         raise MissingCredential("GSC service-account token refresh returned no access token")
     return credentials.token
 
 
-def durable_oauth_token(*, refresh_transport: Callable[[dict[str, str]], dict[str, Any]] | None = None) -> dict[str, Any]:
+def durable_oauth_token(
+    *, refresh_transport: Callable[[dict[str, str]], dict[str, Any]] | None = None
+) -> dict[str, Any]:
     """Refresh an explicitly stored ``webmasters.readonly`` grant for a bounded operation."""
     from seohead.data_sources.oauth import refresh_access_token
 
@@ -337,12 +342,19 @@ def discover_properties(
     if bearer is None:
         return {"ok": False, "state": "not_configured", "verified": False, "error": token_error}
     try:
-        body = _response_object((transport or _request)("GET", f"{SEARCH_ANALYTICS_HOST}/sites", None, bearer))
+        body = _response_object(
+            (transport or _request)("GET", f"{SEARCH_ANALYTICS_HOST}/sites", None, bearer)
+        )
     except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
         return {"ok": False, "state": "verification_failed", "verified": False, "error": str(exc)}
     entries = body.get("siteEntry") if body else None
     if not isinstance(entries, list) or not all(isinstance(entry, dict) for entry in entries):
-        return {"ok": False, "state": "verification_failed", "verified": False, "error": "malformed GSC property response"}
+        return {
+            "ok": False,
+            "state": "verification_failed",
+            "verified": False,
+            "error": "malformed GSC property response",
+        }
     return {
         "ok": True,
         "verified": True,

@@ -68,4 +68,10 @@ def collect(
         return {"ok": False, "state": "failed", "error": str(exc)}
     if not isinstance(body, dict) or "d" not in body:
         return {"ok": False, "state": "failed", "error": "malformed Bing Webmaster JSON response"}
-    return {"ok": True, "state": "complete", "operation": operation, "data": body["d"], "read_only": True}
+    return {
+        "ok": True,
+        "state": "complete",
+        "operation": operation,
+        "data": body["d"],
+        "read_only": True,
+    }

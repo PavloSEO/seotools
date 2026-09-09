@@ -391,7 +391,9 @@ def crawl_site_scan(
                     rendered_scan,
                     rendered_result,
                     settings,
-                    request_gate=run.dispatch_gate.wait_turn if run.dispatch_gate is not None else None,
+                    request_gate=run.dispatch_gate.wait_turn
+                    if run.dispatch_gate is not None
+                    else None,
                 )
                 queued_before = rendered_scan.resume_snapshot()["counts"]["queued"]
             if not queued_before or run.partial:
@@ -408,7 +410,11 @@ def crawl_site_scan(
             )
             render_cycles += 1
             run = replace(run, start_page_gate=initial_start_page_gate)
-            if run.partial or run.pages <= prior_pages or render_cycles >= settings["rendering"]["escalation"]["max_render_urls"]:
+            if (
+                run.partial
+                or run.pages <= prior_pages
+                or render_cycles >= settings["rendering"]["escalation"]["max_render_urls"]
+            ):
                 break
     with NativeScan.open(run.path) as scan:
         snapshot = scan.resume_snapshot(include_edges=True)

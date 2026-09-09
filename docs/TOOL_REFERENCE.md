@@ -6,7 +6,7 @@ Generated from the MCP tool definitions in `seohead/servers/mcp_server.py` and `
 python scripts/generate_tool_reference.py
 ```
 
-**72 core tools** (`seohead <command>` / `seo_<command>` on the MCP server) plus **5 crawl-audit tools** (`sf_<command>`, driven by `seohead sf ...`) — 77 in total.
+**92 core tools** (`seohead <command>` / `seo_<command>` on the MCP server) plus **5 crawl-audit tools** (`sf_<command>`, driven by `seohead sf ...`) — 97 in total.
 
 Every tool shares one contract: JSON in, JSON out. A target that could not be reached comes back as `{"ok": false, "error": "..."}` instead of raising, so an unreachable site is data, not a crash.
 
@@ -105,6 +105,8 @@ Crawl a site from a start URL by following links, or fetch an explicit ``urls`` 
 | `overrides` | `dict[str, Any] | None` | `None` |
 | `resume` | `str | None` | `None` |
 | `project` | `str | None` | `None` |
+| `approve_large_crawl` | `bool` | `False` |
+| `user_agent` | `str | None` | `None` |
 
 **Cost** — network: yes · writes files: yes · idempotent: no · spends money: no
 
@@ -1042,6 +1044,296 @@ The default is read-only preview. apply=true requires expected_revision and atom
 saves policy provenance; it preserves explicit operator choices and completion evidence.
 Read-only status and reports never upgrade coverage schemas. A custom policy is data,
 not executable code; omitted policy uses the packaged defaults.
+
+### `project-policy`
+
+MCP name: `seo_project_policy`
+
+Read or explicitly update operator crawl defaults and project admission thresholds.
+
+| Argument | Type | Default |
+|---|---|---|
+| `directory` | `str` | `required` |
+| `policy` | `dict | None` | `None` |
+| `apply` | `bool` | `False` |
+| `expected_revision` | `int | None` | `None` |
+
+**Cost** — network: no · writes files: yes · idempotent: no · spends money: no
+
+### `project-prepare`
+
+MCP name: `seo_project_prepare`
+
+Prepare an existing project with a bounded native crawl and saved sitemap coverage.
+
+| Argument | Type | Default |
+|---|---|---|
+| `directory` | `str` | `required` |
+| `template` | `dict | None` | `None` |
+| `competitors` | `list | None` | `None` |
+| `approve_large_crawl` | `bool` | `False` |
+| `producer_build` | `str | None` | `None` |
+
+**Cost** — network: yes · writes files: yes · idempotent: no · spends money: no
+
+**Behavior and failure modes**
+
+Competitors must be supplied candidates with provenance; absent sources stay pending.
+All site checklists remain separate. Paid provider calls are never hidden in preparation.
+
+### `project-start`
+
+MCP name: `seo_project_start`
+
+Create and prepare a new bounded project; failures leave inspectable pending work.
+
+| Argument | Type | Default |
+|---|---|---|
+| `directory` | `str` | `required` |
+| `target` | `str` | `required` |
+| `facts` | `list[dict[str, Any]] | None` | `None` |
+| `template` | `dict | None` | `None` |
+| `competitors` | `list | None` | `None` |
+| `approve_large_crawl` | `bool` | `False` |
+| `producer_build` | `str | None` | `None` |
+
+**Cost** — network: yes · writes files: yes · idempotent: no · spends money: no
+
+### `skill-list`
+
+MCP name: `seo_skill_list`
+
+List the packaged, source-derived method playbooks without executing them.
+
+Takes no arguments.
+
+**Cost** — network: no · writes files: no · idempotent: yes · spends money: no
+
+### `skill-show`
+
+MCP name: `seo_skill_show`
+
+Return a packaged skill's exact text and definition identity.
+
+| Argument | Type | Default |
+|---|---|---|
+| `name` | `str` | `required` |
+
+**Cost** — network: no · writes files: no · idempotent: yes · spends money: no
+
+### `scenario-show`
+
+MCP name: `seo_scenario_show`
+
+Return a packaged workflow scenario's text without running its commands.
+
+| Argument | Type | Default |
+|---|---|---|
+| `name` | `str` | `required` |
+
+**Cost** — network: no · writes files: no · idempotent: yes · spends money: no
+
+### `provider-replay`
+
+MCP name: `seo_provider_replay`
+
+Join a saved private provider collection to a saved scan with no network; retain raw rows locally and return counts.
+
+| Argument | Type | Default |
+|---|---|---|
+| `input_path` | `str` | `required` |
+| `evidence_file` | `str` | `required` |
+| `out_dir` | `str` | `required` |
+| `url_column` | `str` | `'url'` |
+| `review_external_only` | `bool` | `False` |
+
+**Cost** — network: no · writes files: yes · idempotent: no · spends money: no
+
+### `provider-auth`
+
+MCP name: `seo_provider_auth`
+
+Manage GSC read-only OAuth grants: import private file, refresh, or explicitly revoke. Never returns secrets.
+
+| Argument | Type | Default |
+|---|---|---|
+| `provider` | `str` | `required` |
+| `action` | `Literal['status', 'connect', 'refresh', 'disconnect', 'revoke']` | `'status'` |
+| `grant_file` | `str | None` | `None` |
+| `confirm` | `bool` | `False` |
+
+**Cost** — network: yes · writes files: yes · idempotent: yes · spends money: no
+
+### `provider-registry`
+
+MCP name: `seo_provider_registry`
+
+List provider operations, credential components, quota and privacy boundaries.
+
+Takes no arguments.
+
+**Cost** — network: no · writes files: no · idempotent: yes · spends money: no
+
+### `provider-verify`
+
+MCP name: `seo_provider_verify`
+
+Explicitly verify bounded read-only account/target access; present credentials are not verification.
+
+| Argument | Type | Default |
+|---|---|---|
+| `provider` | `str` | `required` |
+| `request` | `dict[str, Any] | None` | `None` |
+
+**Cost** — network: yes · writes files: no · idempotent: yes · spends money: no
+
+### `provider-collect`
+
+MCP name: `seo_provider_collect`
+
+Collect a declared provider operation with versioned redacted evidence.
+
+| Argument | Type | Default |
+|---|---|---|
+| `provider` | `str` | `required` |
+| `operation` | `str` | `required` |
+| `request` | `dict[str, Any]` | `required` |
+| `artifact_dir` | `str | None` | `None` |
+
+**Cost** — network: yes · writes files: yes · idempotent: no · spends money: yes, external provider quota
+
+**Behavior and failure modes**
+
+Raw identifiers and rows belong only in an explicit restricted artifact directory.
+Paid operations require their provider's explicit production and cost guards; the
+backlink-index adapter is disabled by default. Collection never implies indexing.
+
+### `provider-join`
+
+MCP name: `seo_provider_join`
+
+Join supplied URL evidence exactly and preserve unmatched populations and technical severity.
+
+| Argument | Type | Default |
+|---|---|---|
+| `crawl_pages` | `list[dict[str, Any]]` | `required` |
+| `evidence_rows` | `list[dict[str, Any]]` | `required` |
+| `review_external_only` | `bool` | `False` |
+| `adjustments` | `list[dict[str, Any]] | None` | `None` |
+
+**Cost** — network: no · writes files: no · idempotent: yes · spends money: no
+
+### `inspect-url`
+
+MCP name: `seo_inspect_url`
+
+Inspect one URL with bounded metadata/header/robots/redirect/structured/render steps.
+
+| Argument | Type | Default |
+|---|---|---|
+| `url` | `str` | `required` |
+| `checks` | `list[str] | None` | `None` |
+
+**Cost** — network: yes · writes files: no · idempotent: yes · spends money: no
+
+### `audit-workflow`
+
+MCP name: `seo_audit_workflow`
+
+Use a closed project workflow: status, bounded start/prepare, or an evidence-backed report.
+
+| Argument | Type | Default |
+|---|---|---|
+| `directory` | `str` | `required` |
+| `action` | `Literal['status', 'start', 'prepare', 'report']` | `'status'` |
+| `target` | `str | None` | `None` |
+| `competitors` | `list | None` | `None` |
+| `template` | `dict | None` | `None` |
+| `audit` | `Any` | `None` |
+| `fmt` | `str` | `'md'` |
+| `out` | `str | None` | `None` |
+| `approve_large_crawl` | `bool` | `False` |
+
+**Cost** — network: yes · writes files: yes · idempotent: no · spends money: no
+
+### `tool-catalog`
+
+MCP name: `seo_tool_catalog`
+
+Search complete source-derived tool metadata and load argument details only on request.
+
+| Argument | Type | Default |
+|---|---|---|
+| `query` | `str` | `''` |
+| `limit` | `int` | `10` |
+| `include_arguments` | `bool` | `False` |
+
+**Cost** — network: no · writes files: no · idempotent: yes · spends money: no
+
+### `scan-evidence`
+
+MCP name: `seo_scan_evidence`
+
+Read captured evidence, resource windows or the event timeline without fetching or migration.
+
+| Argument | Type | Default |
+|---|---|---|
+| `input_path` | `str` | `required` |
+| `section` | `Literal['capabilities', 'corpus', 'structured', 'routes', 'resources', 'timeline', 'relations', 'browser', 'extraction']` | `'capabilities'` |
+| `limit` | `int` | `1000` |
+| `offset` | `int` | `0` |
+
+**Cost** — network: no · writes files: no · idempotent: yes · spends money: no
+
+### `scan-extract`
+
+MCP name: `seo_scan_extract`
+
+Run bounded data-only extraction rules on retained complete bodies, without network or writes.
+
+| Argument | Type | Default |
+|---|---|---|
+| `input_path` | `str` | `required` |
+| `rules` | `list[dict[str, Any]]` | `required` |
+| `url` | `str | None` | `None` |
+| `representation` | `str` | `'static'` |
+| `limit` | `int` | `100` |
+
+**Cost** — network: no · writes files: no · idempotent: yes · spends money: no
+
+### `scan-requeue`
+
+MCP name: `seo_scan_requeue`
+
+Explicitly requeue selected saved URLs in the same SQLite with verified backup and attempt history.
+
+| Argument | Type | Default |
+|---|---|---|
+| `input_path` | `str` | `required` |
+| `where` | `str` | `required` |
+| `backup_path` | `str` | `required` |
+| `from_scan` | `str | None` | `None` |
+
+**Cost** — network: no · writes files: yes · idempotent: no · spends money: no · can overwrite/remove existing data
+
+**Behavior and failure modes**
+
+where is a restricted validated predicate, never arbitrary SQL. This operation can perform
+an explicit write-time v1 to v2 upgrade; readers never upgrade. It makes no network request.
+
+### `scan-import-urls`
+
+MCP name: `seo_scan_import_urls`
+
+Explicitly import a TXT/CSV/XLSX/XML seed list through stored scope and query guards with backup.
+
+| Argument | Type | Default |
+|---|---|---|
+| `input_path` | `str` | `required` |
+| `urls_file` | `str` | `required` |
+| `backup_path` | `str` | `required` |
+
+**Cost** — network: no · writes files: yes · idempotent: no · spends money: no · can overwrite/remove existing data
 
 ### `scan-list`
 

@@ -56,11 +56,16 @@ def capture(
         parsed=parsed,
         html=html,
     )
-    items = [content_evidence.context_item(content), *structured_evidence.context_items(structured, language)]
+    items = [
+        content_evidence.context_item(content),
+        *structured_evidence.context_items(structured, language),
+    ]
     if rules_to_apply:
         from seohead.tools.extraction_rules import evaluate
 
-        rules = evaluate(html=html, parsed=parsed, rules=rules_to_apply, representation=representation)
+        rules = evaluate(
+            html=html, parsed=parsed, rules=rules_to_apply, representation=representation
+        )
         items.append(
             {
                 "kind": "extraction_rule_evidence",
@@ -68,7 +73,11 @@ def capture(
                 "payload_version": "scan_context.v1",
                 "payload_json": json.dumps(rules, sort_keys=True, separators=(",", ":")),
                 "completeness": (
-                    "complete" if rules["state"] == "complete" else "partial" if rules["state"] == "partial" else "unavailable"
+                    "complete"
+                    if rules["state"] == "complete"
+                    else "partial"
+                    if rules["state"] == "partial"
+                    else "unavailable"
                 ),
                 "reason": rules["reason"],
             }
