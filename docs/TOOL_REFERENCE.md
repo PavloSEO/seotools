@@ -131,9 +131,11 @@ says, exactly like the CLI's flags -- pass one explicitly only to
 change that one setting. ``seo_crawl_describe_settings`` lists the
 defaults each of them falls back to.
 
-``scan_out`` opts into a SQLite scan file with bounded collection and
-resume; it cannot be combined with list mode or ``out_dir``. It requires
-``cache.mode=off``. Native scans retain bounded HTML entities and separate
+A URL crawl with neither ``scan_out`` nor ``out_dir`` writes a collision-safe
+SQLite scan below the caller's ``scans/`` directory. ``scan_out`` overrides
+that destination; ``out_dir`` selects the explicit legacy directory route.
+List mode and ``cache.mode`` live/replay require ``out_dir`` during this
+migration. Native scans retain bounded HTML entities and separate
 DOM; their policy records disabled, sensitive, no-store and budget omissions.
 In the config file, ``resources.fetch=true`` opts into direct same-origin
 script/stylesheet capture (20,000 HTTP attempts and 5 MiB per response by

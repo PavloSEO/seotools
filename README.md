@@ -17,7 +17,7 @@ It does not replace specialist judgement. It records what was measured, what fai
 
 | If you have… | Run | You get |
 |---|---|---|
-| A site with no crawl | `seohead crawl-site --url https://example.com --out-dir ./run` | A bounded native crawl with `audit.json`, crawl records, and a prioritized task backlog |
+| A site with no crawl | `seohead crawl-site --url https://example.com` | A bounded native scan under `./scans/` with retained crawl evidence and audit output |
 | Existing Screaming Frog exports | `seohead sf run --exports-dir ./exports --out ./report --tasks` | `audit.json`, `audit.md`, `tasks.json`, and `tasks.md` without another crawl |
 | A licensed local Screaming Frog installation | `seohead sf run --crawl https://example.com --out ./report --tasks` | A local SF crawl followed by the same audit artifacts |
 | A current-state evidence pass | `seohead site-audit --url https://example.com --limit 25` | One `seohead.site-audit/1` document from selected sitemap URLs and site-level checks |
@@ -71,11 +71,11 @@ The `all` extra installs every optional integration. Install only what a workflo
 seohead crawl-site \
   --url https://example.com \
   --max-urls 500 \
-  --out-dir ./run
+  --scan-out ./scans/audit.sqlite
 
 # Render the resulting audit as a client document or working spreadsheet.
-seohead report-build --audit ./run/audit.json --format docx --out audit.docx
-seohead report-build --audit ./run/audit.json --format xlsx --out audit.xlsx
+seohead report-build --audit ./scans/audit.sqlite --format docx --out audit.docx
+seohead report-build --audit ./scans/audit.sqlite --format xlsx --out audit.xlsx
 
 # Run focused evidence checks when a full crawl is not the question.
 seohead parse --url https://example.com

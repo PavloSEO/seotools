@@ -776,8 +776,15 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
             help="TXT, CSV, XLSX, or XML URL list: list mode, no discovery",
         )
         sub.add_argument("--max-urls", type=int, help="URL budget (default 200)")
-        sub.add_argument("--out-dir", help="directory for pages.jsonl and audit.json")
-        sub.add_argument("--scan-out", metavar="FILE", help="opt-in SQLite scan artifact")
+        sub.add_argument(
+            "--out-dir",
+            help="legacy directory output; disables default scan",
+        )
+        sub.add_argument(
+            "--scan-out",
+            metavar="FILE",
+            help="native SQLite destination override",
+        )
         _source_flag(
             sub,
             "--resume",

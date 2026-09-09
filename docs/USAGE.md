@@ -18,22 +18,27 @@ seohead report-build --audit audit.json --format docx --out client.docx
 `--limit` caps the pages parsed (default 25); URLs come from the sitemap
 unless `--urls` is given. Any format: `xlsx`, `docx`, `csv`, `md`, `json`.
 
-## Native SQLite crawl (opt-in)
+## Native SQLite crawl (default for a URL crawl)
 
 ```bash
-# Replace SOURCE_SHA with the actual crawler build's full source commit SHA
-seohead crawl-site --url https://example.com --max-urls 50 --scan-out native.sqlite --producer-build SOURCE_SHA
+# A URL crawl writes a collision-safe native scan under ./scans/ by default.
+seohead crawl-site --url https://example.com --max-urls 50
+
+# Choose a destination explicitly when a stable filename is needed.
+seohead crawl-site --url https://example.com --max-urls 50 --scan-out native.sqlite
 seohead report-build --audit native.sqlite --format md --out native-report.md
 
 # if the crawl was interrupted, continue it from the artifact -- no other flag
-seohead crawl-site --resume native.sqlite --producer-build SOURCE_SHA
+seohead crawl-site --resume native.sqlite
 ```
 
-The default crawl output remains a directory. SQLite mode keeps queue, evidence
-and runtime in one transactional scan and resumes an interrupted file under the
-same build/configuration: `--resume` reads the start URL and that configuration
-back from the artifact, and refuses by name when the file was written by another
-build or for another start URL. Its default body policy is
+SQLite mode keeps queue, evidence and runtime in one transactional scan and resumes
+an interrupted file under the same build/configuration: `--resume` reads the start
+URL and that configuration back from the artifact, and refuses by name when the
+file was written by another build or for another start URL. Use `--out-dir DIR` for
+the explicit legacy directory route (`pages.jsonl` and `audit.json`); it does not
+silently become a native scan. List inputs and cache `live`/`replay` also require
+that legacy route while native scan support is added deliberately. Its default body policy is
 `storage.body_mode=captured_entity_bytes`, which retains bounded captured HTTP
 entity bytes and separately captured DOM when available; `off` retains metadata
 only. Native capture requires raw rendering, cache off, and credential-free

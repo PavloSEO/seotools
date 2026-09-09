@@ -167,8 +167,10 @@ def _seed_scan_inputs(tmp_path: Path) -> None:
     scan = import_run(
         source, tmp_path / "scan.sqlite", producer_build="1" * 40, effective_config=original_config
     )
-    for name in ("before.sqlite", "after.sqlite", "native.sqlite"):
-        shutil.copyfile(scan, tmp_path / name)
+    for name in ("before.sqlite", "after.sqlite", "native.sqlite", "scans/audit.sqlite"):
+        target = tmp_path / name
+        target.parent.mkdir(exist_ok=True)
+        shutil.copyfile(scan, target)
 
 
 def _seed_documented_body_scan(tmp_path: Path, target: str) -> None:

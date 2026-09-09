@@ -63,14 +63,16 @@ The last command runs a real audit (mode B) over the synthetic crawl in
 ## Crawling without a Screaming Frog licence
 
 ```bash
-seohead crawl-site --url https://example.com/ --max-urls 200 --out-dir ./report
+seohead crawl-site --url https://example.com/ --max-urls 200
 ```
 
 Follows links from the start URL on the same host, respects `robots.txt`, and audits the result
 through the same checks used for Screaming Frog exports. `--min-delay` is the floor beneath an
 adaptive back-off: latency widens the delay, a timeout widens it hard, and repeated timeouts stop
-the run rather than pushing a failing origin. Rows land in `pages.jsonl` as they are collected, so
-an interrupted crawl still leaves evidence behind.
+the run rather than pushing a failing origin. A URL crawl commits evidence to a native SQLite
+artifact under `./scans/` by default, returning its path as `scan`. Use `--scan-out` for a chosen
+filename, or explicit `--out-dir` for the legacy `pages.jsonl`/`audit.json` workflow. Interrupted
+native scans keep committed evidence and resume with `crawl-site --resume FILE`.
 
 While it runs, a progress line on stderr is refreshed in place:
 
@@ -82,7 +84,7 @@ crawl-site: 6516 fetched, 34635 known (18%), 9.8 req/s, 11m05s
 queued, capped at the URL budget — not the size of the site. A crawler
 discovers its own workload as it walks, so that denominator grows, and the
 percentage is not an estimate of when the run will finish. The scan size
-appears only with `--scan-out`, and counts the artifact's write-ahead log
+appears for the default native artifact (or an explicit `--scan-out`), and counts the artifact's write-ahead log
 alongside the file itself — which is why it can fall at the end of a run, when
 SQLite folds that log back into the file.
 
@@ -211,7 +213,7 @@ from #13) — in which case some of the difference may be the configuration, not
 ## Crawler configuration
 
 ```bash
-seohead crawl-site --url https://example.com/ --config crawl.json --out-dir ./report
+seohead crawl-site --url https://example.com/ --config crawl.json
 ```
 
 ```json
@@ -231,7 +233,7 @@ headers, cookies, API keys, and tokens are refused there: put them in host-bound
 `http.credential_headers` as `env:VARIABLE` references and set `http.credentials_acknowledged=true`.
 
 `crawl-site --help` only shows the handful of settings used directly on the command line
-(`--url`, `--max-urls`, `--out-dir`, `--config`, `--robots`, `--sitemap`); everything else — the
+(`--url`, `--max-urls`, `--out-dir`, `--scan-out`, `--config`, `--robots`, `--sitemap`); everything else — the
 settings above and every one the crawler build-out has added since — lives in the config file. Run
 `seohead crawl-site --config-help` for the full list: every key's path, type, default, and
 description, generated from this module rather than hand-maintained. (`--max-depth` and
