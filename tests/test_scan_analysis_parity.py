@@ -261,3 +261,21 @@ def test_sql_graph_audit_matches_legacy_without_building_all_inlinks(
             "ONLY_NONINDEXABLE_SOURCE_INLINKS",
             "DEEP_DISCOVERY_PATH",
         }
+    # Report writers receive the same semantic audit input. The saved-reference
+    # contracts were independently validated above, and are deliberately local
+    # to the scan rather than a renderer-parity dimension.
+    legacy_render_audit, sql_render_audit = _outcome(legacy_audit), _outcome(sql_audit)
+    for audit in (legacy_render_audit, sql_render_audit):
+        audit["run"]["generated_at"] = legacy_audit["run"]["generated_at"]
+    from seohead.reports import build_report
+
+    for fmt in ("json", "md", "csv", "xlsx", "docx"):
+        left, right = tmp_path / f"legacy.{fmt}", tmp_path / f"sql.{fmt}"
+        legacy_rendered = build_report(legacy_render_audit, fmt, str(left))
+        sql_rendered = build_report(sql_render_audit, fmt, str(right))
+        assert legacy_rendered["ok"], legacy_rendered
+        assert sql_rendered["ok"], sql_rendered
+        assert left.read_bytes() == right.read_bytes()
+        if fmt == "csv":
+            for suffix in (".pages.csv", ".scope.csv"):
+                assert left.with_suffix(suffix).read_bytes() == right.with_suffix(suffix).read_bytes()
