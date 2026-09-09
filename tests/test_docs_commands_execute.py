@@ -377,11 +377,13 @@ def test_documented_command_executes_or_at_least_still_parses(
         "priorities",
     }:
         # Each documentation case runs independently; opening/status require the
-        # project that the preceding creation command would have published.
+        # project that the preceding creation command would have published. A line
+        # naming a project shipped under examples/ already has one, copied above.
         from seohead.projects.workspace import create_project
 
         directory = argv[argv.index("--directory") + 1]
-        create_project(tmp_path / directory, "https://example.test/")
+        if not (tmp_path / directory).exists():
+            create_project(tmp_path / directory, "https://example.test/")
         if argv[1] in {"checklist-update", "checklist-record", "priorities"}:
             from seohead.projects.coverage import initialize_coverage
 
