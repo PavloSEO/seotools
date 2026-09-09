@@ -69,9 +69,9 @@ def _evidence_references(
     for issue in issues:
         evidence = issue.get("evidence") if isinstance(issue.get("evidence"), dict) else {}
         contract = evidence.get("contract") if isinstance(evidence.get("contract"), dict) else {}
-        if contract.get("state") == "measured":
+        if contract.get("state") in {"measured", "imported_projection"}:
             record = {
-                "state": "measured",
+                "state": str(contract["state"]),
                 "id": str(contract.get("id") or ""),
                 "source_table": str(contract.get("source_table") or ""),
                 "observation_id": str(contract.get("observation_id") or ""),

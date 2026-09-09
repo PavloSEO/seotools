@@ -166,7 +166,7 @@ def _evidence_reference(value: Any) -> dict[str, str]:
             "reason": "no stable saved-evidence reference is present in this audit",
         }
     state = contract.get("state")
-    if state != "measured":
+    if state not in {"measured", "imported_projection"}:
         return {
             "state": "unavailable",
             "reason": str(contract.get("reason") or "saved evidence is unavailable"),
@@ -182,7 +182,7 @@ def _evidence_reference(value: Any) -> dict[str, str]:
             "reason": "saved evidence reference is incomplete",
         }
     return {
-        "state": "measured",
+        "state": state,
         "id": identifier,
         "source_table": source_table,
         "observation_id": observation_id,

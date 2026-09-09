@@ -158,8 +158,8 @@ def capability_rows(document: Mapping[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
-def _issue_reference(issue: Mapping[str, Any], scan_uuid: str | None) -> dict[str, Any]:
-    """Build a saved-audit reference; never fabricate one for a legacy audit."""
+def _finding_projection(issue: Mapping[str, Any], scan_uuid: str | None) -> dict[str, Any]:
+    """Name the saved audit issue separately from its underlying observations."""
     issue_id = issue.get("id")
     if scan_uuid is None:
         return {
@@ -174,6 +174,7 @@ def _issue_reference(issue: Mapping[str, Any], scan_uuid: str | None) -> dict[st
     observation_id = f"issue:{issue_id}"
     return {
         "state": "measured",
+        "role": "finding_projection",
         "id": stable_evidence_id(
             scan_uuid=scan_uuid, source_table="audit", observation_id=observation_id
         ),
@@ -183,8 +184,259 @@ def _issue_reference(issue: Mapping[str, Any], scan_uuid: str | None) -> dict[st
     }
 
 
+def _saved_scan(con: Any, scan_uuid: str | None) -> tuple[str | None, str | None]:
+    """Return the retained scan source or an explicit binding failure reason."""
+    if con is None:
+        return None, "underlying saved observations were not supplied"
+    if scan_uuid is None:
+        return None, "saved scan has no valid UUID binding"
+    try:
+        row = con.execute("SELECT scan_uuid,source_kind FROM scan WHERE singleton=1").fetchone()
+    except Exception:
+        return None, "saved scan cannot resolve retained observations"
+    if row is None:
+        return None, "saved scan header is unavailable"
+    try:
+        stored_uuid, source_kind = row[0], row[1]
+    except (IndexError, KeyError):
+        return None, "saved scan header has an unsupported shape"
+    if _scan_uuid(stored_uuid) != scan_uuid:
+        return None, "saved scan identity does not match the audit binding"
+    if source_kind not in {"native", "reanalysis", "legacy_import"}:
+        return None, "saved scan source kind is unsupported"
+    return str(source_kind), None
+
+
+def _stored_page_observations(
+    con: Any, *, scan_uuid: str, url: str, role: str, source_kind: str
+) -> list[dict[str, Any]]:
+    """Resolve one audit URL to actual page/document/response records only."""
+    try:
+        row = con.execute(
+            "SELECT p.url_id,p.document_id,p.representation,d.source_response_id,r.response_id "
+            "FROM urls u JOIN pages p ON p.url_id=u.url_id "
+            "LEFT JOIN documents d ON d.document_id=p.document_id "
+            "LEFT JOIN responses r ON r.response_id=d.source_response_id WHERE u.url=?",
+            (url,),
+        ).fetchone()
+    except Exception:
+        return []
+    if row is None:
+        return []
+    try:
+        url_id, document_id, representation, source_response_id, response_id = row
+    except (TypeError, ValueError):
+        return []
+    if type(url_id) is not int or url_id < 1:
+        return []
+    state = "imported_projection" if source_kind == "legacy_import" else "measured"
+    output = [
+        {
+            "state": state,
+            "role": role,
+            "id": stable_evidence_id(
+                scan_uuid=scan_uuid, source_table="pages", observation_id=f"url_id:{url_id}"
+            ),
+            "scan_uuid": scan_uuid,
+            "source_table": "pages",
+            "observation_id": f"url_id:{url_id}",
+            "representation": representation if isinstance(representation, str) else "",
+        }
+    ]
+    output.append(
+        {
+            "state": state,
+            "role": role,
+            "id": stable_evidence_id(
+                scan_uuid=scan_uuid, source_table="urls", observation_id=f"url_id:{url_id}"
+            ),
+            "scan_uuid": scan_uuid,
+            "source_table": "urls",
+            "observation_id": f"url_id:{url_id}",
+            "representation": "",
+        }
+    )
+    if type(document_id) is int and document_id > 0:
+        output.append(
+            {
+                "state": state,
+                "role": role,
+                "id": stable_evidence_id(
+                    scan_uuid=scan_uuid,
+                    source_table="documents",
+                    observation_id=f"document_id:{document_id}",
+                ),
+                "scan_uuid": scan_uuid,
+                "source_table": "documents",
+                "observation_id": f"document_id:{document_id}",
+                "representation": representation if isinstance(representation, str) else "",
+            }
+        )
+    if (
+        type(source_response_id) is int
+        and source_response_id > 0
+        and source_response_id == response_id
+    ):
+        output.append(
+            {
+                "state": state,
+                "role": role,
+                "id": stable_evidence_id(
+                    scan_uuid=scan_uuid,
+                    source_table="responses",
+                    observation_id=f"response_id:{source_response_id}",
+                ),
+                "scan_uuid": scan_uuid,
+                "source_table": "responses",
+                "observation_id": f"response_id:{source_response_id}",
+                "representation": representation if isinstance(representation, str) else "",
+            }
+        )
+    return output
+
+
+def _language_observations(
+    con: Any, *, scan_uuid: str, observations: list[dict[str, Any]], source_kind: str
+) -> list[dict[str, Any]]:
+    """Return saved hreflang declaration observations for already-resolved documents."""
+    if source_kind == "legacy_import":
+        return []
+    documents = [
+        item
+        for item in observations
+        if item.get("source_table") == "documents" and item.get("role") == "target"
+    ]
+    output: list[dict[str, Any]] = []
+    for document in documents:
+        observation_id = document.get("observation_id")
+        representation = document.get("representation")
+        if not isinstance(observation_id, str) or not observation_id.startswith("document_id:"):
+            continue
+        try:
+            document_id = int(observation_id.split(":", 1)[1])
+        except ValueError:
+            continue
+        try:
+            row = con.execute(
+                "SELECT item_key,payload_json FROM context_items WHERE kind='language_evidence' "
+                "AND item_key LIKE ? ORDER BY item_key LIMIT 1",
+                (f"%:document:{document_id}:representation:%",),
+            ).fetchone()
+        except Exception:
+            continue
+        if row is None:
+            continue
+        try:
+            item_key, payload_text = row
+            payload = json.loads(payload_text)
+            declarations = payload.get("declarations") if isinstance(payload, dict) else []
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if not isinstance(item_key, str) or not isinstance(declarations, list):
+            continue
+        if not declarations:
+            state = payload.get("state") if isinstance(payload.get("state"), str) else "unknown"
+            output.append(
+                {
+                    "state": "measured",
+                    "role": "declaration",
+                    "id": stable_evidence_id(
+                        scan_uuid=scan_uuid,
+                        source_table="context_items",
+                        observation_id=f"language_evidence:{item_key}:state:{state}",
+                    ),
+                    "scan_uuid": scan_uuid,
+                    "source_table": "context_items",
+                    "observation_id": f"language_evidence:{item_key}:state:{state}",
+                    "representation": representation if isinstance(representation, str) else "",
+                }
+            )
+        for declaration in declarations[:100]:
+            if not isinstance(declaration, Mapping) or type(declaration.get("ordinal")) is not int:
+                continue
+            ordinal = declaration["ordinal"]
+            output.append(
+                {
+                    "state": "measured",
+                    "role": "declaration",
+                    "id": stable_evidence_id(
+                        scan_uuid=scan_uuid,
+                        source_table="context_items",
+                        observation_id=f"language_evidence:{item_key}:ordinal:{ordinal}",
+                    ),
+                    "scan_uuid": scan_uuid,
+                    "source_table": "context_items",
+                    "observation_id": f"language_evidence:{item_key}:ordinal:{ordinal}",
+                    "representation": representation if isinstance(representation, str) else "",
+                }
+            )
+    return output
+
+
+def _underlying_references(
+    issue: Mapping[str, Any], *, con: Any, scan_uuid: str | None
+) -> tuple[list[dict[str, Any]], str]:
+    """Resolve target/source/declaration rows without making a network request."""
+    source_kind, unavailable_reason = _saved_scan(con, scan_uuid)
+    if unavailable_reason:
+        return [], unavailable_reason
+    assert source_kind is not None and scan_uuid is not None
+    observations: list[dict[str, Any]] = []
+    target_url = issue.get("target_url")
+    if isinstance(target_url, str) and target_url:
+        observations.extend(
+            _stored_page_observations(
+                con, scan_uuid=scan_uuid, url=target_url, role="target", source_kind=source_kind
+            )
+        )
+    sources: set[str] = set()
+    locations = issue.get("locations")
+    if isinstance(locations, list):
+        for location in locations[:100]:
+            source_url = location.get("source_url") if isinstance(location, Mapping) else None
+            if isinstance(source_url, str) and source_url:
+                sources.add(source_url)
+    for source_url in sorted(sources):
+        observations.extend(
+            _stored_page_observations(
+                con, scan_uuid=scan_uuid, url=source_url, role="source", source_kind=source_kind
+            )
+        )
+    check = issue.get("check")
+    if isinstance(check, str) and check.startswith("HREFLANG_"):
+        observations.extend(
+            _language_observations(
+                con, scan_uuid=scan_uuid, observations=observations, source_kind=source_kind
+            )
+        )
+    if observations:
+        return observations, ""
+    if source_kind == "legacy_import":
+        return [], "legacy import has no captured page/document/response observations"
+    return [], "no retained page/document/response observation matches this finding"
+
+
+def _issue_reference(
+    issue: Mapping[str, Any], *, con: Any, scan_uuid: str | None
+) -> dict[str, Any]:
+    """Return underlying observations first; the audit ordinal stays a projection."""
+    finding = _finding_projection(issue, scan_uuid)
+    observations, reason = _underlying_references(issue, con=con, scan_uuid=scan_uuid)
+    if not observations:
+        return {
+            "state": "unavailable",
+            "reason": reason,
+            "finding": finding,
+            "observations": [],
+        }
+    primary = dict(observations[0])
+    primary["finding"] = finding
+    primary["observations"] = observations
+    return primary
+
+
 def attach_contract(
-    document: Mapping[str, Any], *, scan_uuid: str | None = None
+    document: Mapping[str, Any], *, scan_uuid: str | None = None, con: Any = None
 ) -> dict[str, Any]:
     """Return a copied audit document with additive capability and evidence IDs.
 
@@ -192,6 +444,8 @@ def attach_contract(
     use it before reports/tasks are built without breaking existing audit JSON
     readers.  A UUID supplied by a scan header wins over any run field so an
     integration can bind an exported document to its retained scan explicitly.
+    ``con`` is an already-open scan connection; when supplied, references bind
+    to stored pages/documents/responses and (where present) language contexts.
     """
     projected = copy.deepcopy(dict(document))
     if projected.get("schema_version") != AUDIT_SCHEMA_VERSION:
@@ -219,7 +473,7 @@ def attach_contract(
                 continue
             saved_evidence = issue.get("evidence")
             evidence = dict(saved_evidence) if isinstance(saved_evidence, Mapping) else {}
-            evidence["contract"] = _issue_reference(issue, identity)
+            evidence["contract"] = _issue_reference(issue, con=con, scan_uuid=identity)
             issue["evidence"] = evidence
     return projected
 
