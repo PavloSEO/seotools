@@ -125,6 +125,56 @@ def gsc_access_token() -> str:
     )
 
 
+def gsc_service_account_path() -> Path:
+    """Return a restricted local service-account JSON path without reading or printing its key."""
+    configured = os.environ.get("GSC_SERVICE_ACCOUNT_FILE")
+    path = Path(configured).expanduser() if configured else CONFIG_ROOT / "gsc/service-account.json"
+    try:
+        info = path.stat()
+    except OSError as exc:
+        raise MissingCredential(
+            "GSC service-account JSON file is not configured or readable"
+        ) from exc
+    if path.is_symlink() or not path.is_file() or info.st_mode & 0o077:
+        raise MissingCredential(
+            "GSC service-account JSON must be a private regular file (mode 0600)"
+        )
+    return path
+
+
+def gsc_service_account_available() -> bool:
+    try:
+        gsc_service_account_path()
+    except MissingCredential:
+        return False
+    return True
+
+
+def ga4_access_token() -> str:
+    """Read a read-only Google Analytics Data API bearer token."""
+    return read(
+        "ga4/access_token",
+        "GA4_ACCESS_TOKEN",
+        hint="Authorize only analytics.readonly for the selected GA4 property.",
+    )
+
+
+def yandex_webmaster_token() -> str:
+    return read(
+        "yandex-webmaster/access_token",
+        "YANDEX_WEBMASTER_TOKEN",
+        hint="Authorize a read-only Yandex Webmaster application before collecting evidence.",
+    )
+
+
+def bing_webmaster_key() -> str:
+    return read(
+        "bing-webmaster/api_key",
+        "BING_WEBMASTER_API_KEY",
+        hint="Create a Bing Webmaster API key for the verified site.",
+    )
+
+
 def crux_api_key() -> str:
     return read(
         "crux/api_key",

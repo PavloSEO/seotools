@@ -16,20 +16,11 @@ def _validate_extraction_rule_evidence(con: Any, item: dict[str, Any], payload: 
     except ValueError as exc:
         raise ScanError("native extraction rule evidence is invalid") from exc
     if (
-        not isinstance(payload, dict)
-        or set(payload) != {"schema_version", "representation", "state", "reason", "rules"}
-        or payload["schema_version"] != "extraction_rules.v1"
-        or payload["representation"] not in {"static", "rendered", "legacy_fragment"}
-        or payload["state"] not in {"complete", "unavailable"}
-        or not isinstance(payload["reason"], str)
-        or not isinstance(payload["rules"], list)
-        or len(payload["rules"]) > 100
-        or item["payload_version"] != "scan_context.v1"
-        or item["completeness"]
-        != ("complete" if payload["state"] == "complete" else "unavailable")
+        len(payload["rules"]) > 100
+        or item["completeness"] != payload["state"]
         or item["reason"] != payload["reason"]
     ):
-        raise ScanError("native extraction rule evidence is invalid")
+        raise ScanError("native extraction rule evidence envelope disagrees")
     prefix, marker, suffix = item["item_key"].partition(":document:")
     if not prefix.startswith("page:") or marker != ":document:" or ":representation:" not in suffix:
         raise ScanError("native extraction rule evidence key is invalid")
@@ -48,19 +39,6 @@ def _validate_extraction_rule_evidence(con: Any, item: dict[str, Any], payload: 
         ).fetchone()
     ):
         raise ScanError("native extraction rule evidence binds the wrong document")
-    for rule in payload["rules"]:
-        if not isinstance(rule, dict) or type(rule.get("id")) is not str:
-            raise ScanError("native extraction rule evidence result is invalid")
-        if payload["state"] == "complete":
-            if set(rule) != {"id", "state", "matched", "value", "count"} or (
-                rule["state"] != "complete"
-                or type(rule["matched"]) is not bool
-                or type(rule["count"]) is not int
-                or rule["count"] < 0
-            ):
-                raise ScanError("native extraction rule evidence result is invalid")
-        elif set(rule) != {"id", "state", "reason"} or rule["state"] != "unavailable":
-            raise ScanError("native extraction rule evidence result is invalid")
 
 
 def validate_context(
@@ -90,6 +68,21 @@ def validate_context(
     if item["kind"] in sitemaps.KINDS:
         sitemaps.validate_context(con, item, payload, sitemap_roots)
         return
+    if item["kind"] == "render_elapsed":
+        if (
+            not isinstance(payload, dict)
+            or set(payload) != {"schema_version", "seconds", "active"}
+            or payload["schema_version"] != "render_elapsed.v1"
+            or type(payload["seconds"]) not in {int, float}
+            or not math.isfinite(payload["seconds"])
+            or payload["seconds"] < 0
+            or type(payload["active"]) is not bool
+            or item["item_key"] != "run"
+            or item["completeness"] != "complete"
+            or item["reason"]
+        ):
+            raise ScanError("native render elapsed context is invalid")
+        return
     if item["kind"] == "resource_inventory":
         from .resources import validate_inventory_context
 
@@ -108,6 +101,11 @@ def validate_context(
         from .content_evidence import validate_context as validate_content_evidence
 
         validate_content_evidence(con, item, payload)
+        return
+    if item["kind"] == "browser_artifacts":
+        from .browser_artifacts import validate_context as validate_browser_artifacts
+
+        validate_browser_artifacts(con, item, payload)
         return
     if item["kind"] in {"structured_evidence", "language_evidence"}:
         from .structured_evidence import validate_context as validate_structured_evidence
@@ -350,6 +348,16 @@ def put_context(con: Any, item: dict[str, Any], *, sitemap_roots: set[int] | Non
         "SELECT * FROM context_items WHERE kind=? AND item_key=?", (item["kind"], item["item_key"])
     ).fetchone()
     if existing is not None:
+        if item["kind"] == "render_elapsed":
+            previous = json.loads(existing["payload_json"])
+            current = json.loads(item["payload_json"])
+            if current["seconds"] < previous["seconds"]:
+                raise ScanError("render elapsed seconds cannot decrease")
+            con.execute(
+                "UPDATE context_items SET payload_json=? WHERE kind='render_elapsed' AND item_key='run'",
+                (item["payload_json"],),
+            )
+            return
         if dict(existing) != item:
             raise ScanError("native context retry disagrees with committed observation")
         return

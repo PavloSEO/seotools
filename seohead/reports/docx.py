@@ -63,6 +63,20 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
         row = table.add_row().cells
         row[0].text, row[1].text = name, str(value)
 
+    from seohead.reports.evidence_summary import rows as evidence_rows
+
+    evidence = evidence_rows(summary)
+    if evidence:
+        doc.add_heading("Saved evidence coverage", level=1)
+        table = doc.add_table(rows=1, cols=4)
+        for cell, value in zip(
+            table.rows[0].cells, ("Kind", "Measurement", "State", "Scope or reason")
+        ):
+            cell.text = value
+        for row in evidence:
+            for cell, value in zip(table.add_row().cells, row):
+                cell.text = value
+
     coverage = summary.get("project_coverage")
     if isinstance(coverage, dict):
         from seohead.reports.project_coverage import priority_text, value_text

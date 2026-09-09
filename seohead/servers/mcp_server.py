@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Any
+from typing import Any, Literal
 
 from seohead import runlog
 from seohead.models import ParseManyResult, RobotsCheckResult
@@ -49,7 +49,7 @@ def _checked(result: Any) -> Any:
     return result
 
 
-def build_server():  # -> FastMCP
+def build_server(profile: str = "full", progress_notifications: bool = False):  # -> FastMCP
     runlog.set_interface("mcp")
     from mcp.server.fastmcp import FastMCP
     from mcp.types import ToolAnnotations
@@ -146,6 +146,8 @@ def build_server():  # -> FastMCP
         overrides: dict[str, Any] | None = None,
         resume: str | None = None,
         project: str | None = None,
+        approve_large_crawl: bool = False,
+        user_agent: str | None = None,
     ) -> dict[str, Any]:
         """Crawl a site from a start URL by following links, or fetch an explicit
         ``urls`` list instead of following links at all, then audit the result
@@ -217,6 +219,8 @@ def build_server():  # -> FastMCP
                 overrides=overrides,
                 resume=resume,
                 project=project,
+                approve_large_crawl=approve_large_crawl,
+                user_agent=user_agent,
             )
         )
 
@@ -1055,6 +1059,249 @@ def build_server():  # -> FastMCP
             )
         )
 
+    @mcp.tool(annotations=create_files, structured_output=True)
+    def seo_project_policy(
+        directory: str,
+        policy: dict | None = None,
+        apply: bool = False,
+        expected_revision: int | None = None,
+    ) -> dict[str, Any]:
+        """Read or explicitly update operator crawl defaults and project admission thresholds."""
+        return _checked(
+            handlers.project_policy(
+                directory, policy=policy, apply=apply, expected_revision=expected_revision
+            )
+        )
+
+    @mcp.tool(annotations=create_files_from_web, structured_output=True)
+    def seo_project_prepare(
+        directory: str,
+        template: dict | None = None,
+        competitors: list | None = None,
+        approve_large_crawl: bool = False,
+        producer_build: str | None = None,
+    ) -> dict[str, Any]:
+        """Prepare an existing project with a bounded native crawl and saved sitemap coverage.
+
+        Competitors must be supplied candidates with provenance; absent sources stay pending.
+        All site checklists remain separate. Paid provider calls are never hidden in preparation.
+        """
+        return _checked(
+            handlers.project_prepare(
+                directory,
+                template=template,
+                competitors=competitors,
+                approve_large_crawl=approve_large_crawl,
+                producer_build=producer_build,
+            )
+        )
+
+    @mcp.tool(annotations=create_files_from_web, structured_output=True)
+    def seo_project_start(
+        directory: str,
+        target: str,
+        facts: list[dict[str, Any]] | None = None,
+        template: dict | None = None,
+        competitors: list | None = None,
+        approve_large_crawl: bool = False,
+        producer_build: str | None = None,
+    ) -> dict[str, Any]:
+        """Create and prepare a new bounded project; failures leave inspectable pending work."""
+        return _checked(
+            handlers.project_start(
+                directory,
+                target,
+                facts=facts,
+                template=template,
+                competitors=competitors,
+                approve_large_crawl=approve_large_crawl,
+                producer_build=producer_build,
+            )
+        )
+
+    @mcp.tool(annotations=read_files, structured_output=True)
+    def seo_skill_list() -> dict[str, Any]:
+        """List the packaged, source-derived method playbooks without executing them."""
+        return _checked(handlers.skill_list())
+
+    @mcp.tool(annotations=read_files, structured_output=True)
+    def seo_skill_show(name: str) -> dict[str, Any]:
+        """Return a packaged skill's exact text and definition identity."""
+        return _checked(handlers.skill_show(name))
+
+    @mcp.tool(annotations=read_files, structured_output=True)
+    def seo_scenario_show(name: str) -> dict[str, Any]:
+        """Return a packaged workflow scenario's text without running its commands."""
+        return _checked(handlers.scenario_show(name))
+
+    @mcp.tool(annotations=create_files, structured_output=True)
+    def seo_provider_replay(
+        input_path: str,
+        evidence_file: str,
+        out_dir: str,
+        url_column: str = "url",
+        review_external_only: bool = False,
+    ) -> dict[str, Any]:
+        """Join a saved private provider collection to a saved scan with no network; retain raw rows locally and return counts."""
+        return _checked(
+            handlers.provider_replay(
+                input_path,
+                evidence_file,
+                out_dir,
+                url_column=url_column,
+                review_external_only=review_external_only,
+            )
+        )
+
+    @mcp.tool(annotations=submit, structured_output=True)
+    def seo_provider_auth(
+        provider: str,
+        action: Literal["status", "connect", "refresh", "disconnect", "revoke"] = "status",
+        grant_file: str | None = None,
+        confirm: bool = False,
+    ) -> dict[str, Any]:
+        """Manage GSC read-only OAuth grants: import private file, refresh, or explicitly revoke. Never returns secrets."""
+        return _checked(
+            handlers.provider_auth(
+                provider=provider, action=action, grant_file=grant_file, confirm=confirm
+            )
+        )
+
+    @mcp.tool(annotations=read_files, structured_output=True)
+    def seo_provider_registry() -> dict[str, Any]:
+        """List provider operations, credential components, quota and privacy boundaries."""
+        return _checked(handlers.provider_registry())
+
+    @mcp.tool(annotations=fetch, structured_output=True)
+    def seo_provider_verify(provider: str, request: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Explicitly verify bounded read-only account/target access; present credentials are not verification."""
+        return _checked(handlers.provider_verify(provider, request))
+
+    @mcp.tool(annotations=paid, structured_output=True)
+    def seo_provider_collect(
+        provider: str, operation: str, request: dict[str, Any], artifact_dir: str | None = None
+    ) -> dict[str, Any]:
+        """Collect a declared provider operation with versioned redacted evidence.
+
+        Raw identifiers and rows belong only in an explicit restricted artifact directory.
+        Paid operations require their provider's explicit production and cost guards; the
+        backlink-index adapter is disabled by default. Collection never implies indexing.
+        """
+        return _checked(
+            handlers.provider_collect(provider, operation, request, artifact_dir=artifact_dir)
+        )
+
+    @mcp.tool(annotations=pure, structured_output=True)
+    def seo_provider_join(
+        crawl_pages: list[dict[str, Any]],
+        evidence_rows: list[dict[str, Any]],
+        review_external_only: bool = False,
+        adjustments: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Join supplied URL evidence exactly and preserve unmatched populations and technical severity."""
+        return _checked(
+            handlers.provider_join(
+                crawl_pages,
+                evidence_rows,
+                review_external_only=review_external_only,
+                adjustments=adjustments,
+            )
+        )
+
+    @mcp.tool(annotations=fetch, structured_output=True)
+    def seo_inspect_url(url: str, checks: list[str] | None = None) -> dict[str, Any]:
+        """Inspect one URL with bounded metadata/header/robots/redirect/structured/render steps."""
+        return _checked(handlers.inspect_url(url, checks=checks))
+
+    @mcp.tool(annotations=create_files_from_web, structured_output=True)
+    def seo_audit_workflow(
+        directory: str,
+        action: Literal["status", "start", "prepare", "report"] = "status",
+        target: str | None = None,
+        competitors: list | None = None,
+        template: dict | None = None,
+        audit: Any = None,
+        fmt: str = "md",
+        out: str | None = None,
+        approve_large_crawl: bool = False,
+    ) -> dict[str, Any]:
+        """Use a closed project workflow: status, bounded start/prepare, or an evidence-backed report."""
+        return _checked(
+            handlers.audit_workflow(
+                directory,
+                action=action,
+                target=target,
+                competitors=competitors,
+                template=template,
+                audit=audit,
+                fmt=fmt,
+                out=out,
+                approve_large_crawl=approve_large_crawl,
+            )
+        )
+
+    @mcp.tool(annotations=read_files, structured_output=True)
+    def seo_tool_catalog(
+        query: str = "", limit: int = 10, include_arguments: bool = False
+    ) -> dict[str, Any]:
+        """Search complete source-derived tool metadata and load argument details only on request."""
+        return _checked(
+            handlers.tool_catalog(query, limit=limit, include_arguments=include_arguments)
+        )
+
+    @mcp.tool(annotations=read_files, structured_output=True)
+    def seo_scan_evidence(
+        input_path: str,
+        section: Literal[
+            "capabilities",
+            "corpus",
+            "structured",
+            "routes",
+            "resources",
+            "timeline",
+            "relations",
+            "browser",
+            "extraction",
+        ] = "capabilities",
+        limit: int = 1000,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        """Read captured evidence, resource windows or the event timeline without fetching or migration."""
+        return _checked(
+            handlers.scan_evidence(input_path, section=section, limit=limit, offset=offset)
+        )
+
+    @mcp.tool(annotations=read_files, structured_output=True)
+    def seo_scan_extract(
+        input_path: str,
+        rules: list[dict[str, Any]],
+        url: str | None = None,
+        representation: str = "static",
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        """Run bounded data-only extraction rules on retained complete bodies, without network or writes."""
+        return _checked(
+            handlers.scan_extract(
+                input_path, rules, url=url, representation=representation, limit=limit
+            )
+        )
+
+    @mcp.tool(annotations=rewrite_files, structured_output=True)
+    def seo_scan_requeue(
+        input_path: str, where: str, backup_path: str, from_scan: str | None = None
+    ) -> dict[str, Any]:
+        """Explicitly requeue selected saved URLs in the same SQLite with verified backup and attempt history.
+
+        where is a restricted validated predicate, never arbitrary SQL. This operation can perform
+        an explicit write-time v1 to v2 upgrade; readers never upgrade. It makes no network request.
+        """
+        return _checked(handlers.scan_requeue(input_path, where, backup_path, from_scan=from_scan))
+
+    @mcp.tool(annotations=rewrite_files, structured_output=True)
+    def seo_scan_import_urls(input_path: str, urls_file: str, backup_path: str) -> dict[str, Any]:
+        """Explicitly import a TXT/CSV/XLSX/XML seed list through stored scope and query guards with backup."""
+        return _checked(handlers.scan_import_urls(input_path, urls_file, backup_path))
+
     @mcp.tool(annotations=read_files, structured_output=True)
     def seo_scan_list(
         directory: str | None = None, offset: int = 0, limit: int = 100, project: str | None = None
@@ -1153,11 +1400,17 @@ def build_server():  # -> FastMCP
     from seohead.servers import sf_mcp
 
     sf_mcp.register(mcp)
+    from seohead.servers.mcp_profiles import configure_profile
+    from seohead.servers.mcp_progress import install_progress, wrap_long_tools
 
+    if progress_notifications:
+        install_progress(mcp)
+        wrap_long_tools(mcp)
+    configure_profile(mcp, profile)
     return mcp
 
 
-def main() -> int:
+def main(profile: str = "full", progress_notifications: bool = True) -> int:
     """Run the stdio server; return an exit code instead of letting the caller import
     ``mcp`` itself to find out whether the server started.
 
@@ -1171,7 +1424,7 @@ def main() -> int:
     outcome.
     """
     try:
-        build_server().run()
+        build_server(profile=profile, progress_notifications=progress_notifications).run()
     except ModuleNotFoundError:
         # build_server()'s only lazy import is the optional "mcp" SDK (see its own
         # docstring) -- nothing else in this path is optional, so any

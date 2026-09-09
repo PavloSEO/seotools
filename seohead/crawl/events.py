@@ -64,7 +64,11 @@ def _timestamp(value: Any) -> tuple[str | None, str]:
 
 
 def _payload(event_type: str, value: Any) -> dict[str, Any]:
-    if event_type not in EVENT_TYPES or not isinstance(value, dict) or set(value) - _PAYLOAD_KEYS[event_type]:
+    if (
+        event_type not in EVENT_TYPES
+        or not isinstance(value, dict)
+        or set(value) - _PAYLOAD_KEYS[event_type]
+    ):
         raise ValueError("event payload does not match its event type")
     clean = {}
     for key, item in value.items():
@@ -86,7 +90,12 @@ def _payload(event_type: str, value: Any) -> dict[str, Any]:
 def validate(event: Any) -> dict[str, Any]:
     """Validate one serializable event without fabricating timestamps or source detail."""
     if not isinstance(event, dict) or set(event) != {
-        "format", "sequence", "event_type", "occurred_at", "timestamp_state", "payload"
+        "format",
+        "sequence",
+        "event_type",
+        "occurred_at",
+        "timestamp_state",
+        "payload",
     }:
         raise ValueError("event has unsupported fields")
     if event["format"] != FORMAT or type(event["sequence"]) is not int or event["sequence"] < 1:
@@ -115,7 +124,9 @@ class EventSink:
         self.events: list[dict[str, Any]] = []
         self.dropped = 0
 
-    def emit(self, event_type: str, payload: dict[str, Any], *, occurred_at: Any = _UNSET) -> dict[str, Any] | None:
+    def emit(
+        self, event_type: str, payload: dict[str, Any], *, occurred_at: Any = _UNSET
+    ) -> dict[str, Any] | None:
         """Append a typed record, or record omitted coverage when the bounded cap is reached."""
         if len(self.events) >= self.cap:
             self.dropped += 1
@@ -145,4 +156,8 @@ class EventSink:
         }
 
     def snapshot(self) -> dict[str, Any]:
-        return {"format": "seohead.crawl-timeline.v1", "events": copy.deepcopy(self.events), "coverage": self.coverage()}
+        return {
+            "format": "seohead.crawl-timeline.v1",
+            "events": copy.deepcopy(self.events),
+            "coverage": self.coverage(),
+        }

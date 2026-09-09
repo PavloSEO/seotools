@@ -47,6 +47,28 @@ def _command(
 # the CLI/handler boundary prove the entries stay synchronized without making
 # package runtime import either interface layer.
 COMMAND_CONTRACTS: tuple[CommandContract, ...] = (
+    _command(
+        "provider-auth",
+        "provider_auth",
+        _form(
+            "inline_json",
+            "provider",
+            "action",
+            "grant_file",
+            "confirm",
+            note="GSC private grant import/status/refresh; confirmed disconnect or remote revoke. No secret values returned.",
+        ),
+    ),
+    _command(
+        "provider-replay",
+        "provider_replay",
+        _form(
+            "scan_artifact",
+            "input_path",
+            required_with=("evidence_file", "out_dir"),
+            note="Offline join with a private saved provider envelope; raw joins remain in restricted output.",
+        ),
+    ),
     _command("parse", "parse", _form("live_url", "url"), _form("url_list", "urls")),
     _command(
         "crawl-site",
@@ -250,6 +272,80 @@ COMMAND_CONTRACTS: tuple[CommandContract, ...] = (
             note="Optional data-only priority policy; preview by default. Apply requires expected_revision.",
         ),
     ),
+    _command(
+        "project-policy",
+        "project_policy",
+        _form("project_directory", "directory"),
+        _form(
+            "inline_json",
+            "policy",
+            note="Optional data-only policy; preview by default. Apply requires expected_revision.",
+        ),
+    ),
+    _command(
+        "project-prepare",
+        "project_prepare",
+        _form("project_directory", "directory"),
+        _form("inline_json", "template", note="Optional data-only project template."),
+        _form("inline_json", "competitors", note="Optional bounded competitor inputs."),
+    ),
+    _command(
+        "project-start",
+        "project_start",
+        _form("project_directory", "directory"),
+        _form("live_url", "target"),
+        _form("inline_json", "facts", note="Optional supplied project facts."),
+        _form("inline_json", "template", note="Optional data-only project template."),
+        _form("inline_json", "competitors", note="Optional bounded competitor inputs."),
+    ),
+    _command("skill-list", "skill_list", _form("no_input")),
+    _command("skill-show", "skill_show", _form("selector", "name")),
+    _command("scenario-show", "scenario_show", _form("selector", "name")),
+    _command("provider-registry", "provider_registry", _form("no_input")),
+    _command(
+        "provider-verify",
+        "provider_verify",
+        _form("provider_identifier", "provider"),
+        _form("inline_json", "request", note="Optional read-only target-access request."),
+    ),
+    _command(
+        "provider-collect",
+        "provider_collect",
+        _form("provider_identifier", "provider"),
+        _form("selector", "operation"),
+        _form("inline_json", "request"),
+        _form("local_directory", "artifact_dir", note="Optional restricted raw-evidence location."),
+    ),
+    _command(
+        "provider-join",
+        "provider_join",
+        _form("inline_json", "crawl_pages"),
+        _form("inline_json", "evidence_rows"),
+        _form("inline_json", "adjustments", note="Optional evidence-backed priority adjustments."),
+    ),
+    _command(
+        "inspect-url",
+        "inspect_url",
+        _form("live_url", "url"),
+        _form(
+            "inline_json",
+            "checks",
+            note="Optional bounded selection of closed investigation checks.",
+        ),
+    ),
+    _command(
+        "audit-workflow",
+        "audit_workflow",
+        _form("project_directory", "directory"),
+        _form("selector", "action", note="status, start, prepare, or report."),
+        _form("live_url", "target", note="Required only for action=start."),
+        _form("audit_document", "audit", note="Required only for action=report."),
+    ),
+    _command(
+        "tool-catalog",
+        "tool_catalog",
+        _form("inline_text", "query", note="Optional bounded discovery query."),
+    ),
     _command("scan-inspect", "scan_inspect", _form("scan_artifact", "input_path")),
     _command("scan-status", "scan_status", _form("scan_artifact", "input_path")),
     _command("scan-rendered-routes", "scan_rendered_routes", _form("scan_artifact", "input_path")),
@@ -272,6 +368,42 @@ COMMAND_CONTRACTS: tuple[CommandContract, ...] = (
         _form("scan_artifact", "left", "right"),
         _form("selector", "url", note="Selects the logical URL within both scans."),
     ),
+    _command(
+        "scan-evidence",
+        "scan_evidence",
+        _form("scan_artifact", "input_path"),
+        _form(
+            "selector",
+            "section",
+            note="capabilities, corpus, structured, routes, resources, or timeline.",
+        ),
+    ),
+    _command(
+        "scan-extract",
+        "scan_extract",
+        _form("scan_artifact", "input_path"),
+        _form(
+            "inline_json",
+            "rules",
+            note="Closed declarative rules over retained complete bodies.",
+        ),
+        _form("selector", "url", note="Optional exact logical URL."),
+    ),
+    _command(
+        "scan-requeue",
+        "scan_requeue",
+        _form("scan_artifact", "input_path"),
+        _form("selector", "where", note="Restricted saved URL/page predicate."),
+        _form("local_file", "backup_path", note="Mandatory new verified backup destination."),
+        _form("scan_artifact", "from_scan", note="Optional alternate saved selection source."),
+    ),
+    _command(
+        "scan-import-urls",
+        "scan_import_urls",
+        _form("scan_artifact", "input_path"),
+        _form("local_file", "urls_file", note="Explicit TXT, CSV, XLSX, or XML URL source."),
+        _form("local_file", "backup_path", note="Mandatory new verified backup destination."),
+    ),
 )
 
 
@@ -290,7 +422,12 @@ SF_CONTRACTS: tuple[CommandContract, ...] = (
     ),
     _command("sf doctor", None, _form("local_config", "config")),
     _command("sf save-config", None, _form("no_input")),
-    _command("mcp", None, _form("no_input"), note="Starts the local stdio server."),
+    _command(
+        "mcp",
+        None,
+        _form("no_input"),
+        note="Starts the local stdio server; profile and progress-notification behavior are startup options.",
+    ),
 )
 
 
@@ -311,7 +448,9 @@ _KIND_LABELS = {
     "inline_text": "Inline text",
     "selector": "Selector",
     "provider_query": "Provider query",
+    "provider_identifier": "Provider identifier",
     "local_config": "Local configuration",
+    "local_directory": "Local directory",
     "project_directory": "Project directory",
     "no_input": "No direct input",
 }

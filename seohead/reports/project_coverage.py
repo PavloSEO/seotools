@@ -23,8 +23,7 @@ def _audit_domain(document: dict[str, Any], kind: str) -> str:
 
 def load_snapshot(project: str, document: dict[str, Any], kind: str) -> tuple[Path, dict[str, Any]]:
     """Bind a human report to one project and return its current checklist state."""
-    from seohead.projects.coverage import coverage_status
-    from seohead.projects.workspace import open_project
+    from seohead.projects.workspace import open_project, project_status
 
     opened = open_project(project)
     project_document = opened["project"]
@@ -36,7 +35,7 @@ def load_snapshot(project: str, document: dict[str, Any], kind: str) -> tuple[Pa
         raise ValueError(
             f"project site {expected!r} does not match audit source identity {actual!r}"
         )
-    snapshot = coverage_status(opened["path"])
+    snapshot = project_status(opened["path"])["checklist"]
     return Path(opened["path"]), {
         "project": {
             "uuid": project_document["project_uuid"],

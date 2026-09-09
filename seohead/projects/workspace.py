@@ -298,13 +298,20 @@ def open_project(directory: str | Path, *, expected_site: str | None = None) -> 
     if expected_site is not None and normalize_domain(expected_site) != document["site"]["host"]:
         raise ValueError("project site identity conflicts with the requested site")
     from .coverage import coverage_status
+    from .runtime import aggregate_coverage
 
-    return {"ok": True, "project": document, "path": str(root), "checklist": coverage_status(root)}
+    return {
+        "ok": True,
+        "project": document,
+        "path": str(root),
+        "checklist": aggregate_coverage(str(root), coverage_status(root)),
+    }
 
 
 def project_status(directory: str | Path) -> dict[str, Any]:
-    """Report scan history, evidence-backed checklist state and pending preparation."""
+    """Report scan history, per-site coverage and recorded preparation state."""
     from .coverage import coverage_status
+    from .runtime import aggregate_coverage, preparation_status
 
     root, document = _load(directory)
     return {
@@ -315,9 +322,6 @@ def project_status(directory: str | Path) -> dict[str, Any]:
             "profile_references": document["profile_references"],
         },
         "scans": list_scans(root / "scans"),
-        "checklist": coverage_status(root),
-        "preparation": {
-            "state": "pending",
-            "reason": "automatic project preparation is not implemented",
-        },
+        "checklist": aggregate_coverage(str(root), coverage_status(root)),
+        "preparation": preparation_status(str(root)),
     }

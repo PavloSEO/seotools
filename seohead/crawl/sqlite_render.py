@@ -10,6 +10,7 @@ small escalation summary in memory.
 
 from __future__ import annotations
 
+import copy
 import dataclasses
 import json
 import time
@@ -362,12 +363,68 @@ def run_render_escalation(
         else None
     )
 
+    pending_artifacts: dict[str, dict[str, Any]] = {}
+
     def commit_render(*args, **kwargs):
         if elapsed_before is not None:
             kwargs["elapsed_seconds"] = elapsed_before + time.monotonic() - render_started
-        return scan.commit_render(*args, **kwargs)
+        document_id = scan.commit_render(*args, **kwargs)
+        if getattr(scan, "con", None) is not None and hasattr(scan, "path"):
+            from seohead.storage import browser_artifacts
 
-    rendering_config = settings["rendering"]
+            page_url_id = scan.con.execute(
+                "SELECT url_id FROM documents WHERE document_id=?", (document_id,)
+            ).fetchone()[0]
+            fetched = pending_artifacts.pop(args[0], {"ok": False})
+            artifact_config = settings["rendering"]["artifacts"]
+            item = browser_artifacts.save(
+                scan.path,
+                page_url_id,
+                document_id,
+                fetched,
+                screenshots=artifact_config["screenshots"],
+                console_errors=artifact_config["console_errors"],
+            )
+            scan.write_context([item])
+        return document_id
+
+    rendering_config = copy.deepcopy(settings["rendering"])
+    saved_render = scan.read_context("render_elapsed") if hasattr(scan, "read_context") else None
+    render_seconds_before = float(saved_render["seconds"]) if saved_render else 0.0
+    maximum_render_seconds = float(rendering_config["escalation"].get("max_render_seconds", 0))
+    # A killed process cannot measure its final interval. Refuse to silently
+    # grant a fresh finite budget when the previous phase was left active.
+    interrupted_render = bool(saved_render and saved_render["active"])
+    exhausted = maximum_render_seconds > 0 and (
+        interrupted_render or render_seconds_before >= maximum_render_seconds
+    )
+    if maximum_render_seconds > 0 and not exhausted:
+        rendering_config["escalation"]["max_render_seconds"] = (
+            maximum_render_seconds - render_seconds_before
+        )
+
+    def save_render_elapsed(active: bool) -> None:
+        if hasattr(scan, "write_context"):
+            seconds = render_seconds_before + max(0.0, time.monotonic() - render_started)
+            scan.write_context(
+                [
+                    {
+                        "kind": "render_elapsed",
+                        "item_key": "run",
+                        "payload_version": "scan_context.v1",
+                        "payload_json": json.dumps(
+                            {
+                                "schema_version": "render_elapsed.v1",
+                                "seconds": seconds,
+                                "active": active,
+                            }
+                        ),
+                        "completeness": "complete",
+                        "reason": "",
+                    }
+                ]
+            )
+
     start_url = (
         scan.con.execute("SELECT start_url FROM scan").fetchone()[0]
         if getattr(scan, "con", None) is not None
@@ -381,6 +438,29 @@ def run_render_escalation(
     max_parse_bytes = min(settings["limits"]["max_response_bytes"], 8 * MAX_RECORD_BYTES)
     max_retained_bytes = settings["storage"]["max_body_bytes"]
     gate_kwargs = {"request_gate": request_gate} if request_gate is not None else {}
+
+    def fetch_browser(target: str) -> dict[str, Any]:
+        from seohead.storage import browser_artifacts
+
+        artifact_kwargs = {}
+        if hasattr(scan, "path") and rendering_config["artifacts"]["screenshots"]:
+            artifact_kwargs["artifacts_dir"] = str(browser_artifacts.staging_dir(scan.path))
+        capture_config = rendering_config
+        if _policy_facts(settings, target)["credentials_used"]:
+            capture_config = copy.deepcopy(rendering_config)
+            capture_config["artifacts"]["screenshots"] = False
+            capture_config["artifacts"]["console_errors"] = False
+        fetched = render_tool.render_document(
+            target,
+            capture_config,
+            user_agent=settings["http"]["user_agent"],
+            max_html_bytes=max_parse_bytes,
+            policy_facts=_policy_facts(settings, target),
+            **gate_kwargs,
+            **artifact_kwargs,
+        )
+        pending_artifacts[target] = fetched
+        return fetched
 
     if mode == "js":
 
@@ -411,14 +491,7 @@ def run_render_escalation(
                     "needs_escalation": False,
                     "reason": "retained static body is unavailable",
                 }
-            fetched = render_tool.render_document(
-                target,
-                rendering_config,
-                user_agent=settings["http"]["user_agent"],
-                max_html_bytes=max_parse_bytes,
-                policy_facts=_policy_facts(settings, target),
-                **gate_kwargs,
-            )
+            fetched = fetch_browser(target)
             renderer = fetched.get("renderer")
             if not isinstance(renderer, dict):
                 renderer = _unknown_renderer(target, settings)
@@ -473,14 +546,7 @@ def run_render_escalation(
 
         def render_fetch(target: str) -> dict[str, Any]:
             scan.preflight_capture()
-            return render_tool.render_document(
-                target,
-                rendering_config,
-                user_agent=settings["http"]["user_agent"],
-                max_html_bytes=max_parse_bytes,
-                policy_facts=_policy_facts(settings, target),
-                **gate_kwargs,
-            )
+            return fetch_browser(target)
 
         representation = "rendered"
     else:
@@ -607,11 +673,13 @@ def run_render_escalation(
                 if degenerate
                 else "rendered body is not parseable",
             }
-        links, forms, partial_reasons, route_observations, route_coverage, candidates, decisions = _rendered_batch(
-            parsed,
-            target_url=target,
-            depth=candidate.crawl_depth,
-            settings=settings,
+        links, forms, partial_reasons, route_observations, route_coverage, candidates, decisions = (
+            _rendered_batch(
+                parsed,
+                target_url=target,
+                depth=candidate.crawl_depth,
+                settings=settings,
+            )
         )
         captures = fetched.get("captures", ()) if label == "legacy_fragment" else ()
         from .sqlite_adapter import _resource_observations
@@ -661,20 +729,24 @@ def run_render_escalation(
             )
         }
         render_pages = [page for page in result.pages if page.url not in attempted]
-        import copy
-
-        rendering_config = copy.deepcopy(rendering_config)
         rendering_config["escalation"]["max_render_urls"] = max(
             0, rendering_config["escalation"]["max_render_urls"] - len(attempted)
         )
-    outcome = render_escalation.escalate(
-        render_pages,
-        rendering_config,
-        probe=probe,
-        render_fetch=render_fetch,
-        representation_label=representation,
-        render_consumer=consume,
-    )
+    if exhausted:
+        outcome = render_escalation.EscalationResult(mode=mode, time_budget_exhausted=True)
+    else:
+        save_render_elapsed(True)
+        try:
+            outcome = render_escalation.escalate(
+                render_pages,
+                rendering_config,
+                probe=probe,
+                render_fetch=render_fetch,
+                representation_label=representation,
+                render_consumer=consume,
+            )
+        finally:
+            save_render_elapsed(False)
     if (
         hasattr(scan, "write_context")
         and settings["rendering"]["rendered_links"]["store"]

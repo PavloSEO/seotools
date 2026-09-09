@@ -36,6 +36,7 @@
         "effective_max_requests_per_second": {"type": ["number", "string"]},
         "crawl_stopped_reason": {"type": ["string", "null"]},
         "collector": {"type": "string"},
+        "scan_uuid": {"type": "string"},
         "exports_missing": {"type": "array", "items": {"type": "string"}},
         "checks_skipped": {
           "type": "array",
@@ -86,7 +87,9 @@
         "health_score_scope": {"type": "string"},
         "size_stats_bytes": {"type": "object"},
         "internal_linking": {"type": "object"},
-        "sitemap": {"type": "object"}
+        "sitemap": {"type": "object"},
+        "evidence_contract": {"type": "object"},
+        "saved_corpus_derivations": {"type": "object"}
       }
     },
     "issues": {

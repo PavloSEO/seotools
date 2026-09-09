@@ -29,7 +29,13 @@ def record(con: sqlite3.Connection, response_id: int, event: Any) -> None:
     con.execute(
         "INSERT INTO response_transport_meta VALUES(?,?,?,?,?,?,?,?)",
         (
-            response_id, protocol, "known" if protocol else "unavailable", event.response_time,
-            "unknown", "unknown", "unknown", "unknown",
+            response_id,
+            protocol,
+            "known" if protocol else "unavailable",
+            event.response_time,
+            "unknown",
+            "unknown",
+            "unknown",
+            "unknown",
         ),
     )

@@ -42,6 +42,21 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
         detail = f" {'; '.join(bits)}" if bits else ""
         out += [f"> **Partial crawl — scope is limited.**{detail}", ""]
 
+    from seohead.reports.evidence_summary import rows as evidence_rows
+
+    evidence = evidence_rows(summary)
+    if evidence:
+        out += [
+            "## Saved evidence coverage",
+            "",
+            "| Kind | Measurement | State | Scope or reason |",
+            "|---|---|---|---|",
+        ]
+        out.extend(
+            "| " + " | ".join(_coverage_field(value) for value in row) + " |" for row in evidence
+        )
+        out.append("")
+
     coverage = summary.get("project_coverage")
     if isinstance(coverage, dict):
         from seohead.reports.project_coverage import priority_text, value_text

@@ -176,6 +176,9 @@ does rather than by what somebody thought of.
 | 54 | [AI visibility](ai-visibility.md) | will an assistant cite this site |
 | 55 | [Comparing two crawls](comparison.md) | what changed since the release |
 | 56 | [From audit to deliverable](deliverable.md) | the last mile |
+| 57 | [Provider evidence](provider-evidence.md) | connect, verify, collect, join, refresh, and revoke external evidence |
+| 58 | [Project control](project-control.md) | prepare a bounded local project without claiming the audit is complete |
+| 59 | [Saved evidence](saved-evidence.md) | reuse retained observations and separate backup-protected mutations |
 
 
 ## The rule underneath all of them

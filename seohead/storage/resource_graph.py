@@ -45,7 +45,9 @@ def ensure_schema(con: sqlite3.Connection) -> None:
         "nesting_depth INTEGER NOT NULL,state TEXT NOT NULL,reason TEXT NOT NULL,"
         "UNIQUE(page_url_id,source_document_id,representation,ordinal))"
     )
-    occurrence_columns = {row[1] for row in con.execute("PRAGMA table_info(resource_graph_occurrences)")}
+    occurrence_columns = {
+        row[1] for row in con.execute("PRAGMA table_info(resource_graph_occurrences)")
+    }
     for name, definition in (
         ("integrity", "TEXT"),
         ("integrity_state", "TEXT NOT NULL DEFAULT 'unknown'"),
@@ -122,7 +124,9 @@ def _srcset(
         )
 
 
-def extract(html: str | None, base_url: str, *, max_occurrences: int = 20_000) -> tuple[list[dict[str, Any]], int]:
+def extract(
+    html: str | None, base_url: str, *, max_occurrences: int = 20_000
+) -> tuple[list[dict[str, Any]], int]:
     """Extract declared HTTP(S) resources and inline CSS references in document order."""
     if not isinstance(html, str):
         return [], 0
@@ -208,7 +212,11 @@ def _css(values: list[dict[str, Any]], text: str, base_url: str, *, carrier: str
     for raw in _CSS_IMPORT.findall(text):
         _append(values, kind="css_import", carrier=carrier, raw=raw, base_url=base_url)
     for _quote, raw in _CSS_URL.findall(text):
-        kind = "font" if urlsplit(raw).path.lower().endswith((".woff", ".woff2", ".ttf", ".otf")) else "css_url"
+        kind = (
+            "font"
+            if urlsplit(raw).path.lower().endswith((".woff", ".woff2", ".ttf", ".otf"))
+            else "css_url"
+        )
         _append(values, kind=kind, carrier=carrier, raw=raw, base_url=base_url)
 
 
@@ -237,7 +245,15 @@ def store_document(
         "DELETE FROM resource_graph_occurrences WHERE page_url_id=? AND source_document_id=? AND representation=?",
         (page_url_id, source_document_id, representation),
     )
-    state = "unavailable" if html is None else "partial" if omitted else "empty" if not values else "complete"
+    state = (
+        "unavailable"
+        if html is None
+        else "partial"
+        if omitted
+        else "empty"
+        if not values
+        else "complete"
+    )
     reason = (
         "document body was not available"
         if html is None
@@ -282,7 +298,11 @@ def store_document(
             f"document:{source_document_id}",
             "scan_context.v1",
             json.dumps(payload, sort_keys=True, separators=(",", ":")),
-            "unavailable" if state == "unavailable" else "partial" if state == "partial" else "complete",
+            "unavailable"
+            if state == "unavailable"
+            else "partial"
+            if state == "partial"
+            else "complete",
             reason,
         ),
     )
@@ -314,12 +334,22 @@ def read(con: sqlite3.Connection, *, limit: int = 1_000, offset: int = 0) -> dic
     ]
     fetches = [
         dict(row)
-        for row in con.execute("SELECT * FROM resource_graph_fetches ORDER BY resolved_url LIMIT ? OFFSET ?", (limit, offset))
+        for row in con.execute(
+            "SELECT * FROM resource_graph_fetches ORDER BY resolved_url LIMIT ? OFFSET ?",
+            (limit, offset),
+        )
     ]
     coverage = (
         {"state": "unavailable", "reason": "resource declarations were not captured"}
         if not total
-        else {"state": "partial" if any(states.get(name) for name in ("disabled", "budget", "failed", "excluded", "partial")) else "complete", "counts": states}
+        else {
+            "state": "partial"
+            if any(
+                states.get(name) for name in ("disabled", "budget", "failed", "excluded", "partial")
+            )
+            else "complete",
+            "counts": states,
+        }
     )
     return {
         "state": coverage["state"],
@@ -446,16 +476,16 @@ def capture(
             redirect_scope_reason = ""
             while True:
                 record, _parsed = fetch_one(
-                current,
-                client=client,
-                fetcher=fetcher,
-                extra_headers=_headers(settings, current),
-                user_agent=settings["http"]["user_agent"],
-                max_response_bytes=graph["max_bytes_per_resource"],
-                retry_on_timeout=0,
-                wait=wait,
-                capture_observer=events.append,
-                capture_max_bytes=graph["max_bytes_per_resource"],
+                    current,
+                    client=client,
+                    fetcher=fetcher,
+                    extra_headers=_headers(settings, current),
+                    user_agent=settings["http"]["user_agent"],
+                    max_response_bytes=graph["max_bytes_per_resource"],
+                    retry_on_timeout=0,
+                    wait=wait,
+                    capture_observer=events.append,
+                    capture_max_bytes=graph["max_bytes_per_resource"],
                 )
                 if not record.redirect_url or not 300 <= (record.status_code or 0) < 400:
                     break
@@ -515,7 +545,9 @@ def capture(
             else:
                 totals["failed"] += 1
             if state == "complete" and content_type.partition(";")[0].strip().lower() == "text/css":
-                _store_css_children(scan.con, row, (body or b"").decode("utf-8", "replace"), graph["max_nesting"])
+                _store_css_children(
+                    scan.con, row, (body or b"").decode("utf-8", "replace"), graph["max_nesting"]
+                )
         except RequestBudgetExhausted:
             _set_occurrence_state(scan.con, url, "budget", "total HTTP request budget exhausted")
             totals["budget"] += 1
@@ -602,10 +634,19 @@ def _store_css_children(con: sqlite3.Connection, parent: Any, text: str, max_nes
         con.execute(
             "INSERT OR IGNORE INTO resource_graph_occurrences(page_url_id,source_document_id,representation,ordinal,kind,carrier,raw_url,resolved_url,integrity,integrity_state,nesting_depth,state,reason) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
-                parent["page_url_id"], parent["source_document_id"], parent["representation"], ordinal,
-                value["kind"], value["carrier"], value["raw_url"], value["resolved_url"],
-                value["integrity"], value["integrity_state"], depth,
-                "disabled", "resource fetch is pending",
+                parent["page_url_id"],
+                parent["source_document_id"],
+                parent["representation"],
+                ordinal,
+                value["kind"],
+                value["carrier"],
+                value["raw_url"],
+                value["resolved_url"],
+                value["integrity"],
+                value["integrity_state"],
+                depth,
+                "disabled",
+                "resource fetch is pending",
             ),
         )
         ordinal += 1

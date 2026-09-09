@@ -79,6 +79,7 @@ _LINK_KEYS = {
     "raw_href",
 }
 _FORM_KEYS = {"page", "method", "action", "has_password"}
+_EVENT_NOW = object()
 # Page fields the record carries as Python objects and the pages table stores as JSON
 # text. Spelled once: the same map was written out at three call sites below, and a
 # fourth entry (the canonical walk, #21) had to reach all of them to be stored at all.
@@ -172,9 +173,7 @@ def _native_config(value: Any, *, recorded: bool = False) -> dict[str, Any]:
         )
         validation_config["rendering"]["rendered_links"].setdefault("crawl", False)
         validation_config.setdefault("limits", {})
-        validation_config["limits"].setdefault(
-            "max_requests", 0
-        )
+        validation_config["limits"].setdefault("max_requests", 0)
     try:
         validate_crawl_config(
             validate_recorded_credentials(validation_config) if recorded else value
@@ -249,9 +248,7 @@ def _content_capture(value: Any) -> dict[str, Any] | None:
         raise ScanError("content evidence settings must be a mapping")
     if value["indexable"] is not None and type(value["indexable"]) is not bool:
         raise ScanError("content evidence indexability must be boolean or unavailable")
-    if any(
-        not isinstance(value[name], str) for name in ("canonical_target", "unavailable_reason")
-    ):
+    if any(not isinstance(value[name], str) for name in ("canonical_target", "unavailable_reason")):
         raise ScanError("content evidence text fields must be strings")
     return value
 
@@ -300,6 +297,53 @@ def _put_resource_graph(
         source_document_id=source_document_id,
         representation=representation,
         html=content_capture["html"],
+    )
+
+
+def _put_discovery_ledger(
+    con: sqlite3.Connection,
+    *,
+    page_url_id: int,
+    source_document_id: int | None,
+    representation: str,
+    source_url: str,
+    depth: int,
+    content_capture: dict[str, Any] | None,
+    links: list[dict[str, Any]],
+    candidates: list[dict[str, Any]],
+    decisions: list[dict[str, Any]],
+    forms: list[dict[str, Any]],
+) -> None:
+    """Persist v2-only discovery relations after their frontier outcomes settle."""
+    if source_document_id is None:
+        return
+    version = con.execute("SELECT format_version FROM scan WHERE singleton=1").fetchone()[0]
+    if version != "scan.v2":
+        return
+    header = con.execute(
+        "SELECT r.effective_headers_redacted_json FROM documents d "
+        "LEFT JOIN responses r ON r.response_id=d.source_response_id WHERE d.document_id=?",
+        (source_document_id,),
+    ).fetchone()
+    try:
+        headers = json.loads(header[0]) if header is not None and header[0] else {}
+    except ValueError:
+        headers = {}
+    from .discovery_ledger import store_document_relations
+
+    store_document_relations(
+        con,
+        source_url_id=page_url_id,
+        source_document_id=source_document_id,
+        representation=representation,
+        source_url=source_url,
+        depth=depth,
+        html=content_capture["html"] if content_capture is not None else None,
+        headers=headers,
+        links=links,
+        candidates=candidates,
+        decisions=decisions,
+        forms=forms,
     )
 
 
@@ -404,17 +448,44 @@ class NativeScan:
         self.failpoint: Callable[[str], None] | None = None
         self._event_sink = None
         if self.con.execute("PRAGMA user_version").fetchone()[0] == 2:
-            from seohead.crawl.events import EventSink
+            from seohead.crawl.events import EventSink, MAX_EVENTS
             from seohead.storage.events import append, ensure_schema
 
             ensure_schema(self.con)
-            prior = self.con.execute("SELECT COALESCE(MAX(sequence),0) FROM scan_events").fetchone()[0]
-            self._event_sink = EventSink(writer=lambda event: append(self.con, event))
+            prior = self.con.execute(
+                "SELECT COALESCE(MAX(sequence),0) FROM scan_events"
+            ).fetchone()[0]
+            meta = self.con.execute(
+                "SELECT cap,captured,dropped FROM scan_event_meta WHERE singleton=1"
+            ).fetchone()
+            cap = meta[0] if meta is not None else MAX_EVENTS
+            if (
+                type(cap) is not int
+                or not 1 <= cap <= MAX_EVENTS
+                or prior > cap
+                or (
+                    meta is not None
+                    and (
+                        type(meta[1]) is not int
+                        or type(meta[2]) is not int
+                        or meta[1] != prior
+                        or meta[2] < 0
+                    )
+                )
+            ):
+                raise ScanError("saved event timeline coverage is invalid")
+            self._event_sink = EventSink(cap=cap, writer=lambda event: append(self.con, event))
             self._event_sink.events = [{}] * prior
+            self._event_sink.dropped = meta[2] if meta is not None else 0
 
-    def _event(self, event_type: str, payload: dict[str, Any]) -> None:
+    def _event(
+        self, event_type: str, payload: dict[str, Any], *, occurred_at: Any = _EVENT_NOW
+    ) -> None:
         if self._event_sink is not None:
-            self._event_sink.emit(event_type, payload, occurred_at=None)
+            if occurred_at is _EVENT_NOW:
+                self._event_sink.emit(event_type, payload)
+            else:
+                self._event_sink.emit(event_type, payload, occurred_at=occurred_at)
 
     def _event_coverage(self) -> None:
         if self._event_sink is not None:
@@ -432,8 +503,11 @@ class NativeScan:
             raise ScanError("event sink is invalid")
         self._begin()
         try:
-            for event in events:
-                self._event(event["event_type"], event["payload"])
+            from seohead.crawl.events import validate
+
+            for raw_event in events:
+                event = validate(raw_event)
+                self._event(event["event_type"], event["payload"], occurred_at=event["occurred_at"])
             self._event_sink.dropped += dropped
             self._event_coverage()
             self.con.commit()
@@ -610,11 +684,13 @@ class NativeScan:
                 from .resource_graph import ensure_schema as ensure_resource_graph
                 from .events import ensure_schema as ensure_events
                 from .transport import ensure_schema as ensure_transport
+                from .discovery_ledger import ensure_schema as ensure_discovery_ledger
 
                 upgrade_to_v2(con)
                 ensure_resource_graph(con)
                 ensure_events(con)
                 ensure_transport(con)
+                ensure_discovery_ledger(con)
             from .sitemaps import declare
 
             for ordinal, (sitemap_url, source) in enumerate(initial_sitemaps):
@@ -694,10 +770,8 @@ class NativeScan:
                 and scan["writer_revision"] != expected_writer_revision
             ):
                 raise ScanError("native scan producing build differs; refusing mixed-build resume")
-            if (
-                expected_config is not None
-                and scan["config_fingerprint"]
-                != _resume_fingerprint(expected_config, json.loads(scan["config_json"]))
+            if expected_config is not None and scan["config_fingerprint"] != _resume_fingerprint(
+                expected_config, json.loads(scan["config_json"])
             ):
                 raise ScanError("native scan configuration differs; refusing unsafe resume")
             # Credential references/values never enter the artifact. A local,
@@ -1523,6 +1597,13 @@ class NativeScan:
             counts = apply_seeds(
                 self.con, entries, limit=self._stored_query_limit(), start_url=start
             )
+            if (
+                self.con.execute("SELECT format_version FROM scan WHERE singleton=1").fetchone()[0]
+                == "scan.v2"
+            ):
+                from .discovery_ledger import store_seeds
+
+                store_seeds(self.con, entries)
             self.con.commit()
             return counts
         except BaseException:
@@ -1629,7 +1710,13 @@ class NativeScan:
                 added.append(Lease(url_id, url, int(depth), next_ordinal))
                 self._event(
                     "queue",
-                    {"queue_ordinal": next_ordinal, "url_id": url_id, "depth": depth, "reason": "enqueue", "count": 1},
+                    {
+                        "queue_ordinal": next_ordinal,
+                        "url_id": url_id,
+                        "depth": depth,
+                        "reason": "enqueue",
+                        "count": 1,
+                    },
                 )
                 next_ordinal += 1
             self._event_coverage()
@@ -1676,7 +1763,13 @@ class NativeScan:
             for lease in leases:
                 self._event(
                     "queue",
-                    {"queue_ordinal": lease.queue_ordinal, "url_id": lease.url_id, "depth": lease.depth, "reason": "claimed", "count": 1},
+                    {
+                        "queue_ordinal": lease.queue_ordinal,
+                        "url_id": lease.url_id,
+                        "depth": lease.depth,
+                        "reason": "claimed",
+                        "count": 1,
+                    },
                 )
             self._event_coverage()
             self.con.commit()
@@ -1924,9 +2017,7 @@ class NativeScan:
             "runtime": runtime or {},
             "context": context,
             "route_observations": route_observations,
-            "content_capture": hashlib.sha256(
-                _dump(content_capture).encode("utf-8")
-            ).hexdigest()
+            "content_capture": hashlib.sha256(_dump(content_capture).encode("utf-8")).hexdigest()
             if content_capture is not None
             else None,
         }
@@ -2160,6 +2251,19 @@ class NativeScan:
             )
             self._partial_reasons(partial_reasons)
             self.con.execute("UPDATE frontier SET state='done' WHERE url_id=?", (lease.url_id,))
+            _put_discovery_ledger(
+                self.con,
+                page_url_id=lease.url_id,
+                source_document_id=document_id,
+                representation="static",
+                source_url=lease.url,
+                depth=lease.depth,
+                content_capture=content_capture,
+                links=links,
+                candidates=candidates,
+                decisions=decisions,
+                forms=forms,
+            )
             self._hit("after_frontier")
             self._hit("before_runtime")
             self._write_runtime(runtime or {}, lease.depth)
@@ -2414,6 +2518,19 @@ class NativeScan:
                 representation=representation,
                 content_capture=content_capture,
             )
+            _put_discovery_ledger(
+                self.con,
+                page_url_id=page["url_id"],
+                source_document_id=document_id,
+                representation=representation,
+                source_url=url,
+                depth=lease.depth,
+                content_capture=content_capture,
+                links=links,
+                candidates=candidates,
+                decisions=decisions,
+                forms=forms,
+            )
             if route_coverage is not None:
                 from .native_context import put_context
                 from .rendered_routes import context_items
@@ -2539,7 +2656,9 @@ class NativeScan:
             runtime = self.resume_snapshot()["runtime"]
             runtime["throttle"]["requests_used"] = requests_used
             self._write_runtime(runtime, runtime["max_depth_reached"])
-            self._event("budget", {"kind": "http_requests", "limit": maximum, "used": requests_used})
+            self._event(
+                "budget", {"kind": "http_requests", "limit": maximum, "used": requests_used}
+            )
             self._event_coverage()
             self.con.commit()
         except BaseException:

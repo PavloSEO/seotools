@@ -41,6 +41,7 @@ MAX_DELAY_S = 60.0
 # more concurrent request. Slow to grow, fast to collapse.
 WIDEN_AFTER_CONSECUTIVE_OK = 3
 
+
 class RequestBudgetExhausted(RuntimeError):
     """The configured total HTTP-attempt budget was consumed before dispatch."""
 
@@ -83,8 +84,10 @@ class DispatchGate:
             return self._requests_used
 
     def restore_requests_used(self, value: int) -> None:
-        if type(value) is not int or value < 0 or (
-            self._max_requests and value > self._max_requests
+        if (
+            type(value) is not int
+            or value < 0
+            or (self._max_requests and value > self._max_requests)
         ):
             raise ValueError("request count is outside configured budget")
         with self._lock:

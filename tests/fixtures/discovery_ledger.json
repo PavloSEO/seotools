@@ -1,0 +1,35 @@
+{
+  "schema_version": "discovery_ledger.v1",
+  "occurrences": [
+    {
+      "source_kind": "html",
+      "relation": "canonical",
+      "representation": "static",
+      "carrier": "link[0]",
+      "raw_value": "/preferred",
+      "resolved_value": "https://example.test/preferred",
+      "outcome": "queued",
+      "reason": ""
+    },
+    {
+      "source_kind": "http_header",
+      "relation": "canonical",
+      "representation": "static",
+      "carrier": "http-link[0]",
+      "raw_value": "https://example.test/preferred",
+      "resolved_value": "https://example.test/preferred",
+      "outcome": "fetched",
+      "reason": ""
+    },
+    {
+      "source_kind": "seed",
+      "relation": "seed",
+      "representation": "unmeasured",
+      "carrier": "sitemap",
+      "raw_value": "mailto:editor@example.test",
+      "resolved_value": "mailto:editor@example.test",
+      "outcome": "excluded",
+      "reason": "unsupported_scheme"
+    }
+  ]
+}

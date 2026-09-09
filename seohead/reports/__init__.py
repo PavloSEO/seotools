@@ -226,6 +226,7 @@ def _normalize_sf_audit(document: dict[str, Any]) -> dict[str, Any]:
             "fix_hint": issue.get("fix_hint") or "",
             "locations": issue.get("locations") or [],
             "details": issue.get("details") or {},
+            "evidence": issue.get("evidence") or {},
         }
         for issue in document.get("issues") or []
     ]
@@ -315,6 +316,7 @@ def _normalize_sf_audit(document: dict[str, Any]) -> dict[str, Any]:
         "findings": findings,
         "pages": pages,
         "summary": {
+            "evidence_contract": summary.get("evidence_contract"),
             "pages_checked": totals.get("urls_crawled", len(pages)),
             "findings_total": totals.get("issues_total", len(findings)),
             "findings_by_severity": {

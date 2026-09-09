@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-from pathlib import Path
 from typing import Any
 
 from seohead.crawl.events import FORMAT, MAX_EVENTS, validate
@@ -39,7 +38,10 @@ def append(con: sqlite3.Connection, event: dict[str, Any]) -> None:
     con.execute(
         f"INSERT INTO {TABLE}(sequence,event_type,occurred_at,timestamp_state,payload_json) VALUES(?,?,?,?,?)",
         (
-            event["sequence"], event["event_type"], event["occurred_at"], event["timestamp_state"],
+            event["sequence"],
+            event["event_type"],
+            event["occurred_at"],
+            event["timestamp_state"],
             json.dumps(event["payload"], sort_keys=True, separators=(",", ":"), allow_nan=False),
         ),
     )
@@ -51,7 +53,10 @@ def set_coverage(con: sqlite3.Connection, coverage: dict[str, Any]) -> None:
         not isinstance(coverage, dict)
         or set(coverage) != {"state", "captured", "dropped", "cap"}
         or coverage["state"] not in {"complete", "partial"}
-        or any(type(coverage[name]) is not int or coverage[name] < 0 for name in ("captured", "dropped", "cap"))
+        or any(
+            type(coverage[name]) is not int or coverage[name] < 0
+            for name in ("captured", "dropped", "cap")
+        )
         or not 1 <= coverage["cap"] <= MAX_EVENTS
         or coverage["captured"] > coverage["cap"]
         or (coverage["state"] == "complete") != (coverage["dropped"] == 0)
@@ -59,7 +64,9 @@ def set_coverage(con: sqlite3.Connection, coverage: dict[str, Any]) -> None:
         raise ScanError("scan event coverage is invalid")
     con.execute(
         f"INSERT INTO {META_TABLE}(singleton,cap,captured,dropped) VALUES(1,?,?,?) "
-        "ON CONFLICT(singleton) DO UPDATE SET cap=excluded.cap,captured=excluded.captured,dropped=excluded.dropped",
+        "ON CONFLICT(singleton) DO UPDATE SET cap=excluded.cap,"
+        "captured=MAX(scan_event_meta.captured,excluded.captured),"
+        "dropped=MAX(scan_event_meta.dropped,excluded.dropped)",
         (coverage["cap"], coverage["captured"], coverage["dropped"]),
     )
 
@@ -76,17 +83,35 @@ def timeline(con: sqlite3.Connection, *, limit: int = 1_000) -> dict[str, Any]:
                 (limit,),
             )
         )
-        meta = con.execute(f"SELECT cap,captured,dropped FROM {META_TABLE} WHERE singleton=1").fetchone()
+        meta = con.execute(
+            f"SELECT cap,captured,dropped FROM {META_TABLE} WHERE singleton=1"
+        ).fetchone()
     except sqlite3.Error as exc:
         raise ScanError("scan does not contain the optional event timeline") from exc
     events = []
     for row in reversed(rows):
         try:
-            events.append(validate({"format": FORMAT, "sequence": row[0], "event_type": row[1], "occurred_at": row[2], "timestamp_state": row[3], "payload": json.loads(row[4])}))
+            events.append(
+                validate(
+                    {
+                        "format": FORMAT,
+                        "sequence": row[0],
+                        "event_type": row[1],
+                        "occurred_at": row[2],
+                        "timestamp_state": row[3],
+                        "payload": json.loads(row[4]),
+                    }
+                )
+            )
         except (TypeError, ValueError) as exc:
             raise ScanError("scan event timeline is malformed") from exc
     coverage = (
-        {"state": "partial" if meta[2] else "complete", "captured": meta[1], "dropped": meta[2], "cap": meta[0]}
+        {
+            "state": "partial" if meta[2] else "complete",
+            "captured": meta[1],
+            "dropped": meta[2],
+            "cap": meta[0],
+        }
         if meta is not None
         else {"state": "unknown", "captured": len(events), "dropped": "unknown", "cap": "unknown"}
     )
@@ -99,7 +124,9 @@ def read_timeline(path: str, *, limit: int = 1_000) -> dict[str, Any]:
         raise ValueError("timeline path is required")
     if os.path.islink(path) or not os.path.isfile(path):
         raise ScanError("timeline path must be an existing non-symlink SQLite artifact")
-    con = sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True)
+    from seohead.storage import open_scan
+
+    con = open_scan(path, require_audit=False)
     try:
         con.execute("PRAGMA query_only=ON")
         return timeline(con, limit=limit)
