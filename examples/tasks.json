@@ -3,7 +3,7 @@
   "source": {
     "project": "example.com",
     "site_name": "example.com",
-    "generated_at": "2026-09-08T21:18:03Z",
+    "generated_at": "2026-09-09T16:31:47Z",
     "health_score": null,
     "crawl_valid": true,
     "crawl_invalid_reason": null,
@@ -126,6 +126,13 @@
       "reproductions": [
         "https://example.com/old-page returned HTTP 404. Recorded observation: Destination scope: internal"
       ],
+      "evidence_references": [
+        {
+          "state": "unavailable",
+          "reason": "no stable saved-evidence reference is present"
+        }
+      ],
+      "evidence_references_truncated": 0,
       "broken_links": [
         {
           "target_url": "https://example.com/old-page",
@@ -164,7 +171,14 @@
       "urls_truncated": 0,
       "reproductions": [
         "https://example.com/old-page returned HTTP 404. Recorded observation: Inlinks: 4"
-      ]
+      ],
+      "evidence_references": [
+        {
+          "state": "unavailable",
+          "reason": "no stable saved-evidence reference is present"
+        }
+      ],
+      "evidence_references_truncated": 0
     },
     {
       "id": "TASK-c5d3ee4f",
@@ -183,7 +197,14 @@
       "urls_truncated": 0,
       "reproductions": [
         "At https://example.com/no-title: Title element is missing"
-      ]
+      ],
+      "evidence_references": [
+        {
+          "state": "unavailable",
+          "reason": "no stable saved-evidence reference is present"
+        }
+      ],
+      "evidence_references_truncated": 0
     },
     {
       "id": "TASK-45424e37",
@@ -204,7 +225,14 @@
       "reproductions": [
         "At https://example.com/: Duplicate count: 2.",
         "At https://example.com/page-b: Duplicate count: 2."
-      ]
+      ],
+      "evidence_references": [
+        {
+          "state": "unavailable",
+          "reason": "no stable saved-evidence reference is present"
+        }
+      ],
+      "evidence_references_truncated": 0
     },
     {
       "id": "TASK-54b0732a",
@@ -225,7 +253,14 @@
       "reproductions": [
         "At https://example.com/page-a: Duplicate count: 2.",
         "At https://example.com/page-b: Duplicate count: 2."
-      ]
+      ],
+      "evidence_references": [
+        {
+          "state": "unavailable",
+          "reason": "no stable saved-evidence reference is present"
+        }
+      ],
+      "evidence_references_truncated": 0
     },
     {
       "id": "TASK-64efab10",
@@ -244,7 +279,14 @@
       "urls_truncated": 0,
       "reproductions": [
         "At https://example.com/no-title: Indexable page has no canonical URL"
-      ]
+      ],
+      "evidence_references": [
+        {
+          "state": "unavailable",
+          "reason": "no stable saved-evidence reference is present"
+        }
+      ],
+      "evidence_references_truncated": 0
     },
     {
       "id": "TASK-aa336983",
@@ -263,7 +305,14 @@
       "urls_truncated": 0,
       "reproductions": [
         "At https://example.com/no-title: Meta description is missing"
-      ]
+      ],
+      "evidence_references": [
+        {
+          "state": "unavailable",
+          "reason": "no stable saved-evidence reference is present"
+        }
+      ],
+      "evidence_references_truncated": 0
     },
     {
       "id": "TASK-d54d97a7",
@@ -282,7 +331,14 @@
       "urls_truncated": 0,
       "reproductions": [
         "At https://example.com/page-a: H1 count: 2."
-      ]
+      ],
+      "evidence_references": [
+        {
+          "state": "unavailable",
+          "reason": "no stable saved-evidence reference is present"
+        }
+      ],
+      "evidence_references_truncated": 0
     },
     {
       "id": "TASK-9e27800e",
@@ -301,7 +357,14 @@
       "urls_truncated": 0,
       "reproductions": [
         "At https://example.com/no-title: Abs threshold kb: 200."
-      ]
+      ],
+      "evidence_references": [
+        {
+          "state": "unavailable",
+          "reason": "no stable saved-evidence reference is present"
+        }
+      ],
+      "evidence_references_truncated": 0
     },
     {
       "id": "TASK-9bda9060",
@@ -320,7 +383,14 @@
       "urls_truncated": 0,
       "reproductions": [
         "At https://example.com/no-title: Max s: 1.5."
-      ]
+      ],
+      "evidence_references": [
+        {
+          "state": "unavailable",
+          "reason": "no stable saved-evidence reference is present"
+        }
+      ],
+      "evidence_references_truncated": 0
     },
     {
       "id": "TASK-5c3d9251",
@@ -339,7 +409,14 @@
       "urls_truncated": 0,
       "reproductions": [
         "At https://example.com/page-b: Threshold: 200."
-      ]
+      ],
+      "evidence_references": [
+        {
+          "state": "unavailable",
+          "reason": "no stable saved-evidence reference is present"
+        }
+      ],
+      "evidence_references_truncated": 0
     },
     {
       "id": "TASK-9ea5b337",
@@ -362,7 +439,14 @@
         "At https://example.com/: Duplicate count: 3.",
         "At https://example.com/no-title: Duplicate count: 3.",
         "At https://example.com/page-a: Duplicate count: 3."
-      ]
+      ],
+      "evidence_references": [
+        {
+          "state": "unavailable",
+          "reason": "no stable saved-evidence reference is present"
+        }
+      ],
+      "evidence_references_truncated": 0
     },
     {
       "id": "TASK-f4d7444c",
@@ -383,7 +467,14 @@
       "reproductions": [
         "At https://example.com/page-a: Length: 26.",
         "At https://example.com/page-b: Length: 26."
-      ]
+      ],
+      "evidence_references": [
+        {
+          "state": "unavailable",
+          "reason": "no stable saved-evidence reference is present"
+        }
+      ],
+      "evidence_references_truncated": 0
     },
     {
       "id": "TASK-6c37199b",
@@ -402,7 +493,14 @@
       "urls_truncated": 0,
       "reproductions": [
         "At https://example.com/page-a: Length: 7."
-      ]
+      ],
+      "evidence_references": [
+        {
+          "state": "unavailable",
+          "reason": "no stable saved-evidence reference is present"
+        }
+      ],
+      "evidence_references_truncated": 0
     },
     {
       "id": "TASK-69aebead",
@@ -421,7 +519,14 @@
       "urls_truncated": 0,
       "reproductions": [
         "At https://example.com/page-b: Bytes per word: 1600.0."
-      ]
+      ],
+      "evidence_references": [
+        {
+          "state": "unavailable",
+          "reason": "no stable saved-evidence reference is present"
+        }
+      ],
+      "evidence_references_truncated": 0
     },
     {
       "id": "TASK-b37fa823",
@@ -440,7 +545,14 @@
       "urls_truncated": 0,
       "reproductions": [
         "At https://example.com/page-b: Text ratio: 8.0."
-      ]
+      ],
+      "evidence_references": [
+        {
+          "state": "unavailable",
+          "reason": "no stable saved-evidence reference is present"
+        }
+      ],
+      "evidence_references_truncated": 0
     }
   ]
 }

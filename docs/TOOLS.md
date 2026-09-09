@@ -278,9 +278,11 @@ and spend-journal rules.
 | Command | What it does | Network / writes |
 |---|---|---|
 | `provider-registry` | Lists declared providers and their bounded operations; it does not verify credentials | no |
+| `provider-auth` | Manages a private GSC read-only OAuth grant: status, connect from a private grant file, explicit refresh, confirmed local disconnect, or confirmed remote revoke. It never returns OAuth material. | refresh/revoke only when requested |
 | `provider-verify` | Performs one explicit read-only credential and optional target-access check. An authenticated account does not by itself prove access to a requested target. | provider read |
 | `provider-collect` | Performs one declared read-only operation and returns a versioned evidence envelope with complete, partial, failed, or skipped state. An optional restricted artifact directory keeps raw rows locally. | provider read; optional local artifact |
 | `provider-join` | Joins supplied crawl pages and collected evidence rows without changing a frontier. It preserves matched, crawl-only, external-only, and unkeyable populations. | no |
+| `provider-replay` | Replays a private saved provider collection against a saved scan offline, writes a restricted joined artifact, and keeps the crawl frontier unchanged. | local artifact write |
 
 Provider evidence can change work order only when its coverage is usable; sampled,
 truncated, unmatched, or privacy-thresholded values remain unavailable for a
@@ -412,7 +414,7 @@ echo '{"url":"https://example.com"}' | seohead parse
 tool must not knock where it was not asked to.
 
 **MCP.** The same set under the `seo_*` names plus the `sf_*` audit tools
-(60 + 5):
+(92 + 5):
 
 ```bash
 seohead mcp        # stdio

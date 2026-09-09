@@ -1,6 +1,6 @@
 # Usage scenarios
 
-The rest of the documentation lists what this toolkit *has*: 72 commands, 77 callable tools,
+The rest of the documentation lists what this toolkit *has*: 92 commands, 97 callable tools,
 161 checks, 30 workflow skills, each described on its own. This directory describes what it
 **does** — the chains that run several of them in order and end in something a person can act on.
 
@@ -33,7 +33,7 @@ build rather than sitting here misleading its next reader.
 
 ## The scenarios
 
-Fifty-six chains, grouped by the question you arrived with. Every issue this toolkit can find
+59 chains, grouped by the question you arrived with. Every issue this toolkit can find
 appears in at least one of them — `tests/test_scenario_coverage.py` asserts that against
 [COVERAGE_SF_ISSUES.md](../COVERAGE_SF_ISSUES.md), so the catalogue is decided by what the code
 does rather than by what somebody thought of.

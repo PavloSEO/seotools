@@ -97,17 +97,8 @@ For a retained native scan, `scan reanalyze` creates a new derived SQLite artifa
 
 ## Start a controlled project
 
-```bash
-# Create a local workspace and run its policy-bounded preparation path.
-seohead project start --directory ./example-project --target https://example.com
-
-# Inspect progress first. A policy preview is read-only; applying a change needs
-# the revision returned by the preview.
-seohead project status --directory ./example-project
-seohead project policy --directory ./example-project
-```
-
-Preparation records its crawl scope, operator-supplied competitor candidates,
+Use `project-start` with a local directory and public target URL to create a
+workspace and enter its policy-bounded preparation path. Preparation records its crawl scope, operator-supplied competitor candidates,
 and each unavailable step. It does not invent competitors or turn a partial
 crawl into a completed audit. [The project-control scenario](docs/scenarios/project-control.md)
 shows the review points and [PROJECTS.md](docs/PROJECTS.md) describes the local

@@ -33,18 +33,22 @@ back to the scan.
 
 ## 3. Review mutations separately
 
-```bash
-# Each mutation needs a new backup path; review the selection first.
-seohead scan requeue --scan native.sqlite --where 'status_code = 500' --backup native-before-requeue.sqlite
-seohead scan import-urls --scan native.sqlite --urls-file review-urls.csv --backup native-before-import.sqlite
-```
-
-`scan-requeue` and `scan-import-urls` are the explicit mutation boundaries.
-They do not run because an evidence read happened, and they refuse to proceed
-without their mandatory verified backup destination.
+`scan-requeue` and `scan-import-urls` are explicit mutation boundaries. They
+do not run because an evidence read happened, and each requires a newly created
+verified backup destination after the restricted selection has been reviewed.
 
 ## Acceptance
 
 - Evidence reads state their retained population and no network request occurs.
 - Offline extraction names unavailable source bodies instead of treating them as absent values.
 - Any requeue or import has a newly created backup that can be inspected before further collection.
+
+## Covers
+
+Saved evidence is a reader and operator-control workflow; it does not add a
+separate SF issue-catalogue finding.
+
+## What it cannot answer
+
+It cannot recreate a body that retention omitted, prove a live target has not
+changed since capture, or establish an uncaptured representation as clean.
