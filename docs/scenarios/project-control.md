@@ -16,13 +16,8 @@ only retrieve packaged guidance; they do not run a crawl.
 
 ## 2. Create and prepare the workspace
 
-```bash
-seohead project start \
-  --directory ./example-project \
-  --target https://example.com
-```
-
-The preparation path initializes the local checklist, applies the default
+Create a local workspace with the `project-start` command, supplying its
+directory and a public target URL. The preparation path initializes the local checklist, applies the default
 bounded crawl policy, and writes an initial plan. A failure or partial crawl
 remains recorded as such in `preparation.json` and project status.
 

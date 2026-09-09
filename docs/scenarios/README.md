@@ -33,7 +33,7 @@ build rather than sitting here misleading its next reader.
 
 ## The scenarios
 
-Fifty-nine chains, grouped by the question you arrived with. Every issue this toolkit can find
+59 chains, grouped by the question you arrived with. Every issue this toolkit can find
 appears in at least one of them — `tests/test_scenario_coverage.py` asserts that against
 [COVERAGE_SF_ISSUES.md](../COVERAGE_SF_ISSUES.md), so the catalogue is decided by what the code
 does rather than by what somebody thought of.
