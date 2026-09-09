@@ -50,6 +50,20 @@ does not run a check, skill or scenario, and makes no network request.
 seohead project checklist-init --directory ./example-project
 ```
 
+[`examples/project-skeleton`](../examples/project-skeleton) is shipped with that
+step already applied, so its committed `coverage.json` carries one definition per
+catalogue item and its status reports counts instead of `not_initialized`:
+
+```bash
+seohead project status --directory examples/project-skeleton
+```
+
+Every shipped item is `not_run` and carries no execution record: the example states
+what the catalogue asks for, not a result, because nothing has been run against its
+synthetic site. Its definition observation times are the project's own creation time
+rather than a generating machine's clock. Regenerate the file with
+`python scripts/generate_project_skeleton_coverage.py` when the catalogue changes.
+
 The returned status includes `revision`, `counts`, `views` and `items`. Pass that
 revision to every update or evidence record so a concurrent writer cannot replace
 newer local history. Structured definitions and records use the normal `--input`
