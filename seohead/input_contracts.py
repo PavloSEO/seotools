@@ -240,6 +240,16 @@ COMMAND_CONTRACTS: tuple[CommandContract, ...] = (
             note="Requires expected_revision; records supplied evidence only.",
         ),
     ),
+    _command(
+        "project-priorities",
+        "project_priorities",
+        _form("project_directory", "directory"),
+        _form(
+            "inline_json",
+            "policy",
+            note="Optional data-only priority policy; preview by default. Apply requires expected_revision.",
+        ),
+    ),
     _command("scan-inspect", "scan_inspect", _form("scan_artifact", "input_path")),
     _command("scan-status", "scan_status", _form("scan_artifact", "input_path")),
     _command("scan-rendered-routes", "scan_rendered_routes", _form("scan_artifact", "input_path")),

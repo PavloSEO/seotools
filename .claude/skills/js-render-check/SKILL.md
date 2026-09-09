@@ -17,6 +17,13 @@ Screaming Frog measures **one** snapshot—raw or rendered, depending on whether
 Rendering is enabled—but does not compare "before JS" with "after JS." This skill
 performs exactly that diff.
 
+Google can render JavaScript and parse crawlable links from the rendered HTML, but
+rendering may be delayed and other crawlers may not render. Read the result as one
+diagnostic snapshot, then verify material cases with [Google's JavaScript SEO
+basics](https://developers.google.com/search/docs/crawling-indexing/javascript/javascript-seo-basics)
+or URL Inspection rather than treating JavaScript dependence alone as proof that
+Google cannot crawl or index a page.
+
 ## Trigger
 - "Do content / links / metadata appear only after JS?"
 - SPA / Next.js / Nuxt / CSR: "Will it be indexed?" or "Is SSR required?"
@@ -88,15 +95,19 @@ Returned fields:
 
 ## How to Interpret Findings
 
+The severity labels and percentage thresholds below are specialist triage heuristics, not Google
+indexing requirements. Verify a material defect in the intended crawler and representation before
+reporting it as an implementation problem.
+
 | Finding | Severity | Action |
 |---|---|---|
 | "empty `<div id="root">` container" | critical | use SSR or prerendering: without rendering, the bot sees an empty page |
 | "N% of text appears only after JS" | critical when >50% | move the primary content into the server response |
-| "links appear only after JS" | critical | site traversal breaks: the crawler cannot reach deeper pages |
+| "links appear only after JS" | triage | confirm the rendered links are crawlable `<a href>` elements and whether static navigation or a sitemap already covers their targets; JS insertion alone does not prove Google cannot discover them |
 | "title is changed by a script" | critical | an unpredictable title may appear in search results |
-| "canonical is injected by a script" | critical | the directive must not depend on rendering |
+| "canonical is injected by a script" | conditional | critical when it rewrites a source-HTML canonical to a conflicting target; when source HTML has no canonical and JavaScript adds one, validate the rendered target and crawlability instead of treating injection alone as critical |
 | "Schema.org appears only after JS" | warning | rich results are uncertain |
-| "rendering changes nothing" | okay | SSR works; no further investigation is needed |
+| "rendering changes nothing" | okay for this URL and snapshot | no material raw/rendered difference was observed; this does not prove SSR or whole-site health |
 | `ok: false` with `reason: "incomplete_render"` | not a finding | the render did not capture the page: report the check as blocked and re-run it, do not read the snapshots as a diff |
 
 ## Alert Threshold
@@ -146,9 +157,13 @@ field before comparing two runs, because they were captured at different milesto
   of firing content late — not as a first-pass setting.
 - **Title/canonical changed by a script.** Before flagging this as critical,
   check what it changed *to*: a script normalizing a trailing slash or
-  protocol is cosmetic, while a script rewriting canonical to a different
-  page (or every page to the homepage) is the critical case this check
-  exists to catch.
+  protocol is cosmetic, while a script rewriting a source-HTML canonical to a
+  different page (or every page to the homepage) is the critical case this
+  check exists to catch. When source HTML has no canonical and JavaScript adds
+  one, record the JS-only canonical and validate the rendered target and
+  crawlability; do not treat injection alone as critical. Google permits this
+  fallback when the canonical cannot be set in source HTML; see [Google's
+  canonical guidance](https://developers.google.com/search/docs/crawling-indexing/consolidate-duplicate-urls).
 - **`empty_shell` present but the rest of the findings look mild.** An empty
   root container combined with a small raw/rendered diff usually means the
   fetch failed before JS executed (timeout, bot-block, redirect) rather than

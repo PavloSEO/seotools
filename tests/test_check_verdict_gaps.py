@@ -221,6 +221,7 @@ def test_canonical_requirement_left_on_still_judges_its_check(tmp_path):
 
 def test_url_hygiene_checks_fire_and_stay_silent(tmp_path):
     space_url = "https://example.com/has space"
+    encoded_query_url = "https://example.com/search?q=red%20shoes"
     slashes_url = "https://example.com/a//b"
     repetitive_url = "https://example.com/shop/shop"
     http_url = "http://example.com/insecure"
@@ -228,6 +229,7 @@ def test_url_hygiene_checks_fire_and_stay_silent(tmp_path):
     params_url = "https://example.com/page?utm=1"
     rows = [
         _row(space_url),
+        _row(encoded_query_url),
         _row(slashes_url),
         _row(repetitive_url),
         _row(http_url),
@@ -237,6 +239,7 @@ def test_url_hygiene_checks_fire_and_stay_silent(tmp_path):
     ]
     f = _fired(_run(tmp_path, rows))
     assert space_url in f.get("URL_CONTAINS_SPACE", set())
+    assert encoded_query_url in f.get("URL_CONTAINS_SPACE", set())
     assert OK not in f.get("URL_CONTAINS_SPACE", set())
     assert slashes_url in f.get("URL_MULTIPLE_SLASHES", set())
     assert OK not in f.get("URL_MULTIPLE_SLASHES", set())

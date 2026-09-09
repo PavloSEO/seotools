@@ -363,3 +363,7 @@ seohead mcp        # stdio
 - [ARCHITECTURE.md](ARCHITECTURE.md) — layers, invariants, where new code goes
 - [SKILLS.md](SKILLS.md) — which skill drives which tool
 - [DECISIONS.md](DECISIONS.md) — why it was decided this way and not another
+
+### Project priority policy
+
+`project-priorities` / `seo_project_priorities` previews data-only work priorities from saved project facts. Explicit `--apply` requires the current checklist revision and saves policy provenance. It preserves operator choices and completion evidence; it does not run detection or change finding severity. See [project workspaces](PROJECTS.md).

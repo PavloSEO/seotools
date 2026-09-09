@@ -87,6 +87,7 @@ and this decision makes no backend migration.
 | `project-checklist-init` | Project directory (`directory`)<br>Inline JSON (`template`) | Optional reusable data-only checklist template. |
 | `project-checklist-update` | Project directory (`directory`)<br>Inline JSON (`item`) | Requires expected_revision for optimistic concurrency. |
 | `project-checklist-record` | Project directory (`directory`)<br>Selector (`item_id`)<br>Inline JSON (`record`) | Requires expected_revision; records supplied evidence only. |
+| `project-priorities` | Project directory (`directory`)<br>Inline JSON (`policy`) | Optional data-only priority policy; preview by default. Apply requires expected_revision. |
 | `scan-inspect` | Scan artifact (`input_path`) | — |
 | `scan-status` | Scan artifact (`input_path`) | — |
 | `scan-rendered-routes` | Scan artifact (`input_path`) | — |

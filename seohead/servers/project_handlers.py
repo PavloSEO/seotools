@@ -53,3 +53,15 @@ def project_checklist_record(
     return record_execution(
         directory, item_id=item_id, record=record, expected_revision=expected_revision
     )
+
+
+def project_priorities(
+    directory: str,
+    policy: dict | None = None,
+    apply: bool = False,
+    expected_revision: int | None = None,
+) -> dict[str, Any]:
+    """Preview or explicitly apply an offline priority policy."""
+    from seohead.projects.priorities import project_priorities as core
+
+    return core(directory, policy=policy, apply=apply, expected_revision=expected_revision)

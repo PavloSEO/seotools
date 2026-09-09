@@ -109,6 +109,16 @@ seohead project checklist-record \
 record local status; neither command executes a checklist operation or contacts a
 site, browser, provider or crawler.
 
+Preview project work priorities from saved facts, then explicitly apply the reviewed
+policy with the current checklist revision:
+
+```bash
+seohead project priorities --directory ./example-project
+```
+
+The MCP equivalent is `seo_project_priorities`. Its default is read-only preview;
+`apply: true` requires `expected_revision`. See [priority policy details](PROJECTS.md#preview-and-apply-work-priorities).
+
 ## Saved scan history
 
 These commands are local and offline. `scan list` validates artifact metadata and

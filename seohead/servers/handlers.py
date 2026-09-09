@@ -2740,6 +2740,17 @@ def project_checklist_record(
     return core(directory, item_id=item_id, record=record, expected_revision=expected_revision)
 
 
+def project_priorities(
+    directory: str,
+    policy: dict | None = None,
+    apply: bool = False,
+    expected_revision: int | None = None,
+) -> dict[str, Any]:
+    from seohead.servers.project_handlers import project_priorities as core
+
+    return core(directory, policy=policy, apply=apply, expected_revision=expected_revision)
+
+
 _RAW_HANDLERS = {
     "parse": parse,
     "redirects_generate": redirects_generate,
@@ -2813,6 +2824,7 @@ _RAW_HANDLERS = {
     "project_checklist_init": project_checklist_init,
     "project_checklist_update": project_checklist_update,
     "project_checklist_record": project_checklist_record,
+    "project_priorities": project_priorities,
 }
 
 # Journaling sits here rather than in each interface: the CLI and the MCP server

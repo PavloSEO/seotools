@@ -45,6 +45,13 @@ are not reported — the pattern it is looking for is `/shop/shop/` or `/en/prod
 is a duplicated prefix or a crawl trap. And uppercase is judged on the path only, because the
 host is case-insensitive and reporting it would be noise on every URL.
 
+`URL_CONTAINS_SPACE` is a URL-hygiene heuristic, not proof that Google cannot index the URL.
+[Google's URL structure guide](https://developers.google.com/search/docs/crawling-indexing/url-structure)
+requires percent encoding where necessary. The check reads the full URL, so a functional query
+such as `?q=red%20shoes` can trigger it even though removing `%20` would change the query value.
+Encode literal spaces in links, but do not mechanically rewrite percent-encoded values. Change a
+canonical path only after verifying equivalent content and planning the redirect/canonical route.
+
 **4. Apply the dominance rule before you write anything down.** If one of these checks is above
 roughly half of all findings, stop trusting it for this report, verify five of its hits by hand,
 and file a bug. Notices scale with page count, and a notice on every page is a template

@@ -112,7 +112,7 @@ Page-level utilities: `asset-weight-check` · `boilerplate-report` ·
 `soft404-check`
 
 Project workspace: `project-checklist-init` · `project-checklist-record` ·
-`project-checklist-update` · `project-new` · `project-open` · `project-status`
+`project-checklist-update` · `project-priorities` · `project-new` · `project-open` · `project-status`
 
 Saved scan history: `scan-body-diff` · `scan-inspect` · `scan-list` · `scan-pin` ·
 `scan-prune` · `scan-rendered-routes` · `scan-snapshot` · `scan-status`

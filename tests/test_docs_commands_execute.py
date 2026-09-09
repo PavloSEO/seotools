@@ -294,6 +294,7 @@ def test_documented_command_executes_or_at_least_still_parses(
         "checklist-init",
         "checklist-update",
         "checklist-record",
+        "priorities",
     }:
         # Each documentation case runs independently; opening/status require the
         # project that the preceding creation command would have published.
@@ -301,7 +302,7 @@ def test_documented_command_executes_or_at_least_still_parses(
 
         directory = argv[argv.index("--directory") + 1]
         create_project(tmp_path / directory, "https://example.test/")
-        if argv[1] in {"checklist-update", "checklist-record"}:
+        if argv[1] in {"checklist-update", "checklist-record", "priorities"}:
             from seohead.projects.coverage import initialize_coverage
 
             initialize_coverage(tmp_path / directory)
