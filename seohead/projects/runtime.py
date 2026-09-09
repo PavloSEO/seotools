@@ -583,8 +583,13 @@ def aggregate_coverage(directory: str, primary: dict) -> dict:
     ]
     if any(site["checklist"]["state"] != "initialized" for site in sites):
         result.update(
+            state="not_initialized",
             complete=False,
             counts_known=False,
+            counts=None,
+            by_kind={},
+            items=[],
+            views={key: [] for key in primary.get("views", {})},
             reason="one or more site checklists are not initialized",
         )
         return result
