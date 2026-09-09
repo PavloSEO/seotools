@@ -41,6 +41,8 @@ def test_markdown_renders(result):
     assert "# Audit Tasks" in md
     assert "P1" in md
     assert "/html/body/footer/nav/a[2]" in md  # tasks.md preserves XPath location evidence.
+    assert "BROKEN_INTERNAL_LINK" not in md
+    assert "Reproduction:" in md
 
 
 def _audit_with_occurrences(occurrences_count: int) -> dict:

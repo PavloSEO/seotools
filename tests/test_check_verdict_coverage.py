@@ -68,7 +68,6 @@ KNOWN_UNCOVERED: frozenset[str] = frozenset(
         "BODY_MISSING",
         "BODY_MULTIPLE",
         "CANONICALISED",
-        "CANONICAL_MULTIPLE",
         "CANONICAL_OUTSIDE_HEAD",
         "DEEP_CRAWL_DEPTH",
         "DEEP_DISCOVERY_PATH",
