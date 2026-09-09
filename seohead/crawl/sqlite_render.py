@@ -83,7 +83,13 @@ def _rendered_batch(
     target_url: str,
     depth: int,
     settings: dict[str, Any],
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
+) -> tuple[
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[str],
+    list[dict[str, Any]],
+    dict[str, Any] | None,
+]:
     """Use the native collector's existing parser-to-observation contract.
 
     Rendered evidence never discovers or queues a URL.  ``_document_batch``
@@ -102,7 +108,33 @@ def _rendered_batch(
         start_host=(urlsplit(target_url).hostname or "").lower(),
         settings=settings,
     )
-    return batch.links, batch.forms, batch.partial_reasons
+    if settings["rendering"]["rendered_links"]["store"]:
+        from seohead.storage.rendered_routes import observations
+
+        routes, coverage = observations(parsed, batch, "rendered")
+    else:
+        routes, coverage = [], None
+    return batch.links, batch.forms, batch.partial_reasons, routes, coverage
+
+
+def _content_capture(
+    *,
+    html: Any,
+    parsed: dict[str, Any] | None,
+    settings: dict[str, Any],
+    canonical_target: str = "",
+    unavailable_reason: str = "",
+) -> dict[str, Any]:
+    """Carry one parsed representation into the writer-owned document context hook."""
+    return {
+        "html": html if isinstance(html, str) else None,
+        "parsed": parsed,
+        "settings": settings,
+        "indexable": None,
+        "canonical_target": canonical_target,
+        "unavailable_reason": unavailable_reason,
+        "extraction_rules": None,
+    }
 
 
 def _candidate(
@@ -284,6 +316,36 @@ def run_render_escalation(
     serialized HTML is released as soon as its transaction has committed.
     """
     mode = settings["rendering"]["mode"]
+    from seohead.storage.rendered_routes import run_context
+
+    if hasattr(scan, "write_context"):
+        enabled = settings["rendering"]["rendered_links"]["store"]
+        if not enabled:
+            scan.write_context(
+                [
+                    run_context(
+                        "unavailable",
+                        "rendered route ledger disabled by policy",
+                        False,
+                        mode,
+                        len(result.pages),
+                        0,
+                    )
+                ]
+            )
+        elif mode == "raw":
+            scan.write_context(
+                [
+                    run_context(
+                        "unavailable",
+                        "rendering mode is raw; rendered representation was not requested",
+                        True,
+                        mode,
+                        len(result.pages),
+                        0,
+                    )
+                ]
+            )
     if mode == "raw" or not result.pages:
         return render_escalation.EscalationResult(mode=mode)
 
@@ -333,6 +395,12 @@ def run_render_escalation(
                     captured_at=_now(),
                     body_state="unavailable",
                     body_reason="not_in_corpus",
+                    content_capture=_content_capture(
+                        html=None,
+                        parsed=None,
+                        settings=settings,
+                        unavailable_reason="retained static body is unavailable",
+                    ),
                 )
                 return {
                     "ok": False,
@@ -363,6 +431,12 @@ def run_render_escalation(
                     body_reason="truncated"
                     if fetched.get("dom_state") == "truncated"
                     else "fetch_failed",
+                    content_capture=_content_capture(
+                        html=None,
+                        parsed=None,
+                        settings=settings,
+                        unavailable_reason=str(fetched.get("error") or "render failed"),
+                    ),
                 )
                 return {"ok": False, "needs_escalation": False}
             # A probe DOM is an observation in its own right.  Store it before
@@ -374,6 +448,12 @@ def run_render_escalation(
                 html=fetched.get("html"),
                 renderer=renderer,
                 captured_at=_now(),
+                content_capture=_content_capture(
+                    html=fetched.get("html"),
+                    parsed=None,
+                    settings=settings,
+                    unavailable_reason="rendered probe was not parsed for content evidence",
+                ),
             )
             raw = render_tool._snapshot(raw_html, target)
             rendered_html = str(fetched.get("html") or "")
@@ -446,6 +526,23 @@ def run_render_escalation(
                 if fetched.get("dom_state") == "truncated"
                 else "fetch_failed",
                 captures=fetched.get("captures", ()) if label == "legacy_fragment" else (),
+                content_capture=_content_capture(
+                    html=None,
+                    parsed=None,
+                    settings=settings,
+                    unavailable_reason=str(fetched.get("error") or "render failed"),
+                ),
+                route_coverage=(
+                    {
+                        "representation": label,
+                        "observed": 0,
+                        "omitted": 0,
+                        "completeness": "unavailable",
+                        "reason": str(fetched.get("error") or "render failed"),
+                    }
+                    if settings["rendering"]["rendered_links"]["store"]
+                    else None
+                ),
             )
             return {
                 "accepted": False,
@@ -475,6 +572,29 @@ def run_render_escalation(
                 captured_at=str(fetched.get("captured_at") or _now()),
                 representation=label,
                 captures=fetched.get("captures", ()) if label == "legacy_fragment" else (),
+                content_capture=_content_capture(
+                    html=fetched.get("html") if label == "rendered" else None,
+                    parsed=None,
+                    settings=settings,
+                    unavailable_reason=(
+                        "rendered body is degenerate"
+                        if degenerate
+                        else "rendered body is not parseable"
+                    ),
+                ),
+                route_coverage=(
+                    {
+                        "representation": label,
+                        "observed": 0,
+                        "omitted": 0,
+                        "completeness": "unavailable",
+                        "reason": "rendered body is degenerate"
+                        if degenerate
+                        else "rendered body is not parseable",
+                    }
+                    if settings["rendering"]["rendered_links"]["store"]
+                    else None
+                ),
             )
             return {
                 "accepted": False,
@@ -483,7 +603,7 @@ def run_render_escalation(
                 if degenerate
                 else "rendered body is not parseable",
             }
-        links, forms, partial_reasons = _rendered_batch(
+        links, forms, partial_reasons, route_observations, route_coverage = _rendered_batch(
             parsed,
             target_url=target,
             depth=candidate.crawl_depth,
@@ -506,6 +626,14 @@ def run_render_escalation(
             representation=label,
             captures=captures,
             partial_reasons=partial_reasons,
+            content_capture=_content_capture(
+                html=fetched.get("html") if label == "rendered" else None,
+                parsed=parsed,
+                settings=settings,
+                canonical_target=candidate.canonical,
+            ),
+            route_observations=route_observations,
+            route_coverage=route_coverage,
             **resource_observations,
         )
         state, reason = _document_state(scan, document_id)
@@ -516,7 +644,7 @@ def run_render_escalation(
             result._rendered_start_html = fetched.get("html")
         return {"accepted": True, "state": state, "reason": reason}
 
-    return render_escalation.escalate(
+    outcome = render_escalation.escalate(
         result.pages,
         rendering_config,
         probe=probe,
@@ -524,6 +652,34 @@ def run_render_escalation(
         representation_label=representation,
         render_consumer=consume,
     )
+    if hasattr(scan, "write_context") and settings["rendering"]["rendered_links"]["store"]:
+        partial = (
+            outcome.render_budget_exhausted
+            or outcome.time_budget_exhausted
+            or bool(outcome.patterns_unprobed)
+        )
+        reason = (
+            "render URL budget exhausted"
+            if outcome.render_budget_exhausted
+            else "render time budget exhausted"
+            if outcome.time_budget_exhausted
+            else "one or more patterns were not probed"
+            if outcome.patterns_unprobed
+            else ""
+        )
+        scan.write_context(
+            [
+                run_context(
+                    "partial" if partial else "complete",
+                    reason,
+                    True,
+                    mode,
+                    len(result.pages),
+                    sum(outcome.render_counts.values()),
+                )
+            ]
+        )
+    return outcome
 
 
 __all__ = ["run_render_escalation"]

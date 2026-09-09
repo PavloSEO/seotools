@@ -254,6 +254,21 @@ def resume_inputs(scan_path: str) -> dict[str, Any]:
             f"(finish reason: {header['finish_reason']}); there is nothing left to resume"
         )
     settings = json.loads(header["config_json"])
+    if "max_requests" not in settings.get("limits", {}):
+        # Pre-budget artifacts made no total-attempt promise. Keep that recorded
+        # semantics on resume instead of silently applying a later default.
+        settings.setdefault("limits", {})["max_requests"] = 0
+    if "graph" not in settings.get("resources", {}):
+        import copy
+
+        from seohead.crawl.settings import DEFAULTS
+
+        if "resources" not in settings:
+            settings["resources"] = copy.deepcopy(DEFAULTS["resources"])
+        else:
+            settings["resources"]["graph"] = copy.deepcopy(DEFAULTS["resources"]["graph"])
+    if "format_version" not in settings.get("storage", {}):
+        settings.setdefault("storage", {})["format_version"] = "scan.v1"
     if settings.get("http", {}).get("credential_headers"):
         # The artifact stores credential references redacted, by design, so the
         # settings read back from it are not the settings the interrupted run

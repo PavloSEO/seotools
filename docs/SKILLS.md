@@ -115,7 +115,7 @@ Project workspace: `project-checklist-init` · `project-checklist-record` ·
 `project-checklist-update` · `project-priorities` · `project-new` · `project-open` · `project-status`
 
 Saved scan history: `scan-body-diff` · `scan-inspect` · `scan-list` · `scan-pin` ·
-`scan-prune` · `scan-snapshot` · `scan-status`
+`scan-prune` · `scan-rendered-routes` · `scan-snapshot` · `scan-status`
 
 External data sources (`data_sources/` layer): `crtsh-subdomains` ·
 `crux-report` · `google-keywords` · `google-serp` · `gsc-query` ·

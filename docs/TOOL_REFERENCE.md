@@ -1086,6 +1086,18 @@ Summarize frontier work and committed page outcomes from one saved scan offline.
 
 **Cost** — network: no · writes files: no · idempotent: yes · spends money: no
 
+### `scan-rendered-routes`
+
+MCP name: `seo_scan_rendered_routes`
+
+Read stored static/rendered route evidence without fetching routes.
+
+| Argument | Type | Default |
+|---|---|---|
+| `input_path` | `str` | `required` |
+
+**Cost** — network: no · writes files: no · idempotent: yes · spends money: no
+
 ### `scan-snapshot`
 
 MCP name: `seo_scan_snapshot`

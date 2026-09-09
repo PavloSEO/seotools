@@ -14,6 +14,7 @@ import itertools
 import json
 import sqlite3
 import time
+from threading import Lock
 from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager, suppress
@@ -36,7 +37,7 @@ from seohead.crawl.spider import (
     _fold_failure_streaks,
     _strip_fragment,
 )
-from seohead.crawl.throttle import Throttle
+from seohead.crawl.throttle import RequestBudgetExhausted, Throttle
 from seohead.models import ParsedRobots
 from seohead.recon.net import UA, http_client, normalize_url
 from seohead.storage import MAX_RECORD_BYTES, ScanBackpressure, ScanError
@@ -95,6 +96,8 @@ class _DocumentBatch:
     decisions: list[dict[str, Any]] = field(default_factory=list)
     candidates: list[dict[str, Any]] = field(default_factory=list)
     partial_reasons: list[str] = field(default_factory=list)
+    route_observations: list[dict[str, Any]] = field(default_factory=list)
+    route_coverage: dict[str, Any] | None = None
 
 
 def _runtime(
@@ -105,15 +108,18 @@ def _runtime(
     timeouts: int,
     server_errors: int,
     robots_delay: float | None,
+    dispatch_gate: _DispatchGate | None = None,
 ) -> dict[str, Any]:
     """The C-owned resume shape; no adapter-side state file exists."""
+    throttle_state = throttle.snapshot_state()
+    throttle_state["requests_used"] = dispatch_gate.requests_used if dispatch_gate else 0
     return {
         "max_depth_reached": max_depth,
         "elapsed_seconds": elapsed,
         "circuit_timeout_streak": timeouts,
         "circuit_server_error_streak": server_errors,
         "crawl_delay_applied": robots_delay,
-        "throttle": throttle.snapshot_state(),
+        "throttle": throttle_state,
     }
 
 
@@ -180,11 +186,13 @@ def _client_context(
 
 
 def _restore_runtime(
-    throttle: Throttle, snapshot: dict[str, Any]
+    throttle: Throttle, dispatch_gate: _DispatchGate, snapshot: dict[str, Any]
 ) -> tuple[int, float, int, int, float | None]:
     """Use the shared Throttle restore API; never re-create hidden counters here."""
     runtime = snapshot["runtime"]
-    throttle.restore_state(runtime["throttle"])
+    throttle_state = dict(runtime["throttle"])
+    dispatch_gate.restore_requests_used(int(throttle_state.pop("requests_used", 0)))
+    throttle.restore_state(throttle_state)
     return (
         runtime["max_depth_reached"],
         runtime["elapsed_seconds"],
@@ -213,14 +221,17 @@ def _document_batch(
     settings: dict[str, Any],
 ) -> _DocumentBatch:
     """Use the shared helper; this module never reparses HTML or recreates links."""
+    batch = _DocumentBatch()
     if parsed is None:
-        return _DocumentBatch()
+        if settings["rendering"]["rendered_links"]["store"]:
+            from seohead.storage.rendered_routes import observations
+
+            batch.route_observations, batch.route_coverage = observations(parsed, batch, "static")
+        return batch
     try:
         from seohead.crawl.spider import apply_document_links, form_edges
     except ImportError as exc:  # integration order guard until shared helper merges
         raise RuntimeError("SQLite adapter requires shared spider document helpers") from exc
-
-    batch = _DocumentBatch()
 
     def record_edge(edge: Any) -> None:
         batch.links.append(dataclasses.asdict(edge))
@@ -275,6 +286,10 @@ def _document_batch(
     batch.forms.extend(dataclasses.asdict(form) for form in forms)
     if omitted:
         batch.partial_reasons.append("form_observations_omitted")
+    if settings["rendering"]["rendered_links"]["store"]:
+        from seohead.storage.rendered_routes import observations
+
+        batch.route_observations, batch.route_coverage = observations(parsed, batch, "static")
     return batch
 
 
@@ -387,7 +402,22 @@ def crawl_to_scan(
         max_concurrency=settings["speed"]["concurrency"],
         adaptive=settings["speed"]["adaptive"],
     )
-    dispatch_gate = _DispatchGate(throttle, sleeper, clock)
+    from seohead.crawl.events import EventSink
+
+    adapter_events = EventSink()
+    event_lock = Lock()
+
+    def emit_event(event_type, payload):
+        with event_lock:
+            adapter_events.emit(event_type, payload, occurred_at=None)
+
+    dispatch_gate = _DispatchGate(
+        throttle,
+        sleeper,
+        clock,
+        max_requests=settings["limits"]["max_requests"],
+        event_callback=emit_event,
+    )
     started = clock()
     timeouts = server_errors = max_depth = 0
     elapsed_before = 0.0
@@ -416,6 +446,7 @@ def crawl_to_scan(
             runtime_versions=runtime_versions,
             limitations=limitations,
             initial_sitemaps=initial_sitemaps,
+            format_version=settings["storage"]["format_version"],
         )
     )
     with _client_context(settings, fetcher) as client, scan_context as scan:
@@ -528,7 +559,7 @@ def crawl_to_scan(
         if existing:
             snapshot = scan.resume_snapshot()
             max_depth, elapsed_before, timeouts, server_errors, robots_delay = _restore_runtime(
-                throttle, snapshot
+                throttle, dispatch_gate, snapshot
             )
             scan.recover_inflight()
         if not seeded:
@@ -602,6 +633,7 @@ def crawl_to_scan(
             if progress is not None:
                 progress(counts["pages"], counts["queued"] + counts["inflight"])
             if counts["pages"] >= limit:
+                emit_event("budget", {"kind": "urls", "limit": limit, "used": counts["pages"]})
                 if counts["queued"] or counts["inflight"]:
                     partial, finish_reason = True, "url_limit"
                     scan.interrupt(f"url limit reached ({limit})")
@@ -610,6 +642,7 @@ def crawl_to_scan(
                 settings["limits"]["max_crawl_seconds"]
                 and elapsed_before + clock() - started >= settings["limits"]["max_crawl_seconds"]
             ):
+                emit_event("budget", {"kind": "seconds", "limit": settings["limits"]["max_crawl_seconds"], "used": int(elapsed_before + clock() - started)})
                 partial, finish_reason = True, "duration_limit"
                 scan.interrupt("duration limit reached")
                 break
@@ -711,6 +744,11 @@ def crawl_to_scan(
                 actions.append((lease, blocked and robots_policy == "respect"))
 
             fetchable = [lease for lease, excluded in actions if not excluded]
+            for lease in fetchable:
+                emit_event(
+                    "request",
+                    {"queue_ordinal": lease.queue_ordinal, "url_id": lease.url_id, "attempt": 1, "method": "GET", "state": "dispatched"},
+                )
             with ThreadPoolExecutor(max_workers=max(1, len(fetchable))) as pool:
                 # Futures are consumed in claim order: the C writer's contiguous
                 # inflight-prefix rule then gives deterministic evidence order.
@@ -729,6 +767,7 @@ def crawl_to_scan(
                                     timeouts=timeouts,
                                     server_errors=server_errors,
                                     robots_delay=robots_delay,
+                                    dispatch_gate=dispatch_gate,
                                 ),
                             )
                         except (ScanError, sqlite3.Error) as exc:
@@ -737,10 +776,29 @@ def crawl_to_scan(
                         continue
                     try:
                         lease, (record, parsed), captures = futures[lease.queue_ordinal].result()
+                    except RequestBudgetExhausted:
+                        partial, finish_reason = True, "request_limit"
+                        scan.interrupt("total HTTP request budget exhausted")
+                        break
                     except ScanError as exc:
                         _storage_failure(scan, exc)
                         raise
                     record.crawl_depth = lease.depth
+                    emit_event(
+                        "cache",
+                        {"queue_ordinal": lease.queue_ordinal, "url_id": lease.url_id, "state": record.cache_status or "network"},
+                    )
+                    if record.error_kind == "timeout":
+                        emit_event(
+                            "retry",
+                            {
+                                "queue_ordinal": lease.queue_ordinal,
+                                "url_id": lease.url_id,
+                                "attempt": 1,
+                                "reason": "timeout",
+                                "delay_ms": round(throttle.delay * 1000),
+                            },
+                        )
                     max_depth = max(max_depth, lease.depth)
                     if (
                         settings["discovery"]["resolve_redirect_destination"]
@@ -791,6 +849,10 @@ def crawl_to_scan(
                         or server_errors >= STOP_AFTER_CONSECUTIVE_FAILURES
                     )
                     if circuit_stopped:
+                        emit_event(
+                            "circuit",
+                            {"kind": "origin", "state": "stopped", "streak": max(timeouts, server_errors)},
+                        )
                         batch = _forms_only_batch(parsed, lease.url)
                     else:
                         batch = _DocumentBatch()
@@ -815,6 +877,8 @@ def crawl_to_scan(
                         batch.decisions.extend(links_batch.decisions)
                         batch.candidates.extend(links_batch.candidates)
                         batch.partial_reasons.extend(links_batch.partial_reasons)
+                        batch.route_observations.extend(links_batch.route_observations)
+                        batch.route_coverage = links_batch.route_coverage
                     try:
                         if (
                             record.is_html
@@ -847,9 +911,27 @@ def crawl_to_scan(
                                 timeouts=timeouts,
                                 server_errors=server_errors,
                                 robots_delay=robots_delay,
+                                dispatch_gate=dispatch_gate,
                             ),
                             partial_reasons=tuple(batch.partial_reasons),
                             context=robots_context.get(lease.queue_ordinal, ()),
+                            content_capture={
+                                "html": (
+                                    parsed.get("_raw_html") if isinstance(parsed, dict) else None
+                                ),
+                                "parsed": parsed,
+                                "settings": settings,
+                                "indexable": None,
+                                "canonical_target": record.canonical,
+                                "unavailable_reason": (
+                                    "static document was not parsed as eligible HTML"
+                                    if parsed is None
+                                    else ""
+                                ),
+                                "extraction_rules": None,
+                            },
+                            route_observations=batch.route_observations,
+                            route_coverage=batch.route_coverage,
                             captures=captures,
                             **resource_observations,
                         )
@@ -865,6 +947,7 @@ def crawl_to_scan(
 
         if finish_reason not in {"errors", "storage_backpressure"}:
             from .sqlite_resources import capture_resources
+            from seohead.storage.resource_graph import capture as capture_resource_graph
 
             capture_resources(
                 scan,
@@ -876,6 +959,16 @@ def crawl_to_scan(
                 throttle=throttle,
                 dispatch_gate=dispatch_gate,
             )
+            capture_resource_graph(
+                scan,
+                settings,
+                client=client,
+                fetcher=fetcher,
+                wait=dispatch_gate.wait_turn,
+                clock=clock,
+            )
+        scan.record_events(adapter_events)
+        scan.record_request_count(dispatch_gate.requests_used)
         if start_page_gate is None:
             start_page_gate = retained_start_gate(scan, settings, content_area_config)
         outcome = scan.resume_snapshot(include_edges=True)

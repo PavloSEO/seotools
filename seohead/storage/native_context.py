@@ -7,6 +7,62 @@ from typing import Any
 from . import ScanError, _insert
 
 
+def _validate_extraction_rule_evidence(con: Any, item: dict[str, Any], payload: Any) -> None:
+    """Validate closed rule results and bind their envelope to one document."""
+    from seohead.tools.extraction_rules import validate_result
+
+    try:
+        validate_result(payload)
+    except ValueError as exc:
+        raise ScanError("native extraction rule evidence is invalid") from exc
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != {"schema_version", "representation", "state", "reason", "rules"}
+        or payload["schema_version"] != "extraction_rules.v1"
+        or payload["representation"] not in {"static", "rendered", "legacy_fragment"}
+        or payload["state"] not in {"complete", "unavailable"}
+        or not isinstance(payload["reason"], str)
+        or not isinstance(payload["rules"], list)
+        or len(payload["rules"]) > 100
+        or item["payload_version"] != "scan_context.v1"
+        or item["completeness"]
+        != ("complete" if payload["state"] == "complete" else "unavailable")
+        or item["reason"] != payload["reason"]
+    ):
+        raise ScanError("native extraction rule evidence is invalid")
+    prefix, marker, suffix = item["item_key"].partition(":document:")
+    if not prefix.startswith("page:") or marker != ":document:" or ":representation:" not in suffix:
+        raise ScanError("native extraction rule evidence key is invalid")
+    document_text, representation = suffix.split(":representation:", 1)
+    try:
+        page_url_id, document_id = int(prefix[5:]), int(document_text)
+    except ValueError as exc:
+        raise ScanError("native extraction rule evidence key is invalid") from exc
+    if (
+        page_url_id < 1
+        or document_id < 1
+        or representation != payload["representation"]
+        or not con.execute(
+            "SELECT 1 FROM documents WHERE document_id=? AND url_id=? AND representation=?",
+            (document_id, page_url_id, representation),
+        ).fetchone()
+    ):
+        raise ScanError("native extraction rule evidence binds the wrong document")
+    for rule in payload["rules"]:
+        if not isinstance(rule, dict) or type(rule.get("id")) is not str:
+            raise ScanError("native extraction rule evidence result is invalid")
+        if payload["state"] == "complete":
+            if set(rule) != {"id", "state", "matched", "value", "count"} or (
+                rule["state"] != "complete"
+                or type(rule["matched"]) is not bool
+                or type(rule["count"]) is not int
+                or rule["count"] < 0
+            ):
+                raise ScanError("native extraction rule evidence result is invalid")
+        elif set(rule) != {"id", "state", "reason"} or rule["state"] != "unavailable":
+            raise ScanError("native extraction rule evidence result is invalid")
+
+
 def validate_context(
     con: Any, item: dict[str, Any], *, sitemap_roots: set[int] | None = None
 ) -> None:
@@ -38,6 +94,28 @@ def validate_context(
         from .resources import validate_inventory_context
 
         validate_inventory_context(con, item)
+        return
+    if item["kind"] in {
+        "rendered_route_ledger",
+        "rendered_route_coverage",
+        "rendered_route_run_coverage",
+    }:
+        from .rendered_routes import validate_context as validate_rendered_routes
+
+        validate_rendered_routes(con, item, payload)
+        return
+    if item["kind"] == "content_evidence":
+        from .content_evidence import validate_context as validate_content_evidence
+
+        validate_content_evidence(con, item, payload)
+        return
+    if item["kind"] in {"structured_evidence", "language_evidence"}:
+        from .structured_evidence import validate_context as validate_structured_evidence
+
+        validate_structured_evidence(con, item, payload)
+        return
+    if item["kind"] == "extraction_rule_evidence":
+        _validate_extraction_rule_evidence(con, item, payload)
         return
     if item["kind"] == "resource_commit":
         if (

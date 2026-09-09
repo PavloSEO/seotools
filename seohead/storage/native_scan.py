@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import copy
 import hashlib
 import itertools
 import json
@@ -138,17 +139,159 @@ def _native_config(value: Any, *, recorded: bool = False) -> dict[str, Any]:
             if isinstance(default, dict):
                 require_fields(actual[name], default, f"{path}.{name}")
 
-    # Earlier native v1 captures predate the optional storage settings. Validate
-    # their recorded configuration without filling it or changing its fingerprint.
-    require_fields(
-        config,
-        {k: v for k, v in DEFAULTS.items() if k not in {"storage", "resources"} or k in config},
-    )
+    expected = copy.deepcopy(DEFAULTS)
+    if recorded:
+        # These optional fields were added after native v1 artifacts existed.
+        # Validate an ephemeral current-shape projection, while returning the
+        # original recorded mapping so its historical fingerprint is unchanged.
+        for name in ("storage", "resources"):
+            if name not in config:
+                expected.pop(name)
+        if "resources" in config and "graph" not in config["resources"]:
+            expected["resources"].pop("graph")
+        if "storage" in config and "format_version" not in config["storage"]:
+            expected["storage"].pop("format_version")
+        if "rendering" in config and "rendered_links" not in config["rendering"]:
+            expected["rendering"].pop("rendered_links")
+        if "limits" in config and "max_requests" not in config["limits"]:
+            expected["limits"].pop("max_requests")
+    require_fields(config, expected)
+    validation_config = copy.deepcopy(config)
+    if recorded:
+        for name in ("storage", "resources"):
+            validation_config.setdefault(name, copy.deepcopy(DEFAULTS[name]))
+        validation_config["resources"].setdefault(
+            "graph", copy.deepcopy(DEFAULTS["resources"]["graph"])
+        )
+        validation_config["storage"].setdefault("format_version", "scan.v1")
+        validation_config.setdefault("rendering", {})
+        validation_config["rendering"].setdefault(
+            "rendered_links", copy.deepcopy(DEFAULTS["rendering"]["rendered_links"])
+        )
+        validation_config.setdefault("limits", {})
+        validation_config["limits"].setdefault(
+            "max_requests", 0
+        )
     try:
-        validate_crawl_config(validate_recorded_credentials(config) if recorded else value)
+        validate_crawl_config(
+            validate_recorded_credentials(validation_config) if recorded else value
+        )
     except (TypeError, ValueError, KeyError) as exc:
         raise ScanError(f"native effective configuration is invalid: {exc}") from exc
     return config
+
+
+def _resume_fingerprint(expected_config: Any, recorded_config: Any) -> str:
+    """Compare a current request using the recorded artifact's known option shape."""
+    expected = _native_config(expected_config)
+    recorded = _native_config(recorded_config, recorded=True)
+    for name in ("storage", "resources"):
+        if name not in recorded and expected.get(name) == DEFAULTS[name]:
+            expected.pop(name)
+    if (
+        "resources" in recorded
+        and "graph" not in recorded["resources"]
+        and expected["resources"].get("graph") == DEFAULTS["resources"]["graph"]
+    ):
+        expected["resources"].pop("graph")
+    if (
+        "storage" in recorded
+        and "format_version" not in recorded["storage"]
+        and expected["storage"].get("format_version") == "scan.v1"
+    ):
+        expected["storage"].pop("format_version")
+    if (
+        "rendering" in recorded
+        and "rendered_links" not in recorded["rendering"]
+        and expected["rendering"].get("rendered_links") == DEFAULTS["rendering"]["rendered_links"]
+    ):
+        expected["rendering"].pop("rendered_links")
+    if (
+        "limits" in recorded
+        and "max_requests" not in recorded["limits"]
+        and expected["limits"].get("max_requests") == 0
+    ):
+        expected["limits"].pop("max_requests")
+    return crawl_config_fingerprint(expected)
+
+
+_CONTENT_CAPTURE_FIELDS = {
+    "html",
+    "parsed",
+    "settings",
+    "indexable",
+    "canonical_target",
+    "unavailable_reason",
+    "extraction_rules",
+}
+
+
+def _content_capture(value: Any) -> dict[str, Any] | None:
+    """Validate the bounded collector input used to create document contexts."""
+    if value is None:
+        return None
+    if not isinstance(value, dict) or set(value) != _CONTENT_CAPTURE_FIELDS:
+        raise ScanError("content evidence capture has unsupported fields")
+    if value["html"] is not None and not isinstance(value["html"], str):
+        raise ScanError("content evidence HTML must be text or unavailable")
+    if value["parsed"] is not None and not isinstance(value["parsed"], dict):
+        raise ScanError("content evidence parser result must be a mapping or unavailable")
+    if not isinstance(value["settings"], dict):
+        raise ScanError("content evidence settings must be a mapping")
+    if value["indexable"] is not None and type(value["indexable"]) is not bool:
+        raise ScanError("content evidence indexability must be boolean or unavailable")
+    if any(
+        not isinstance(value[name], str) for name in ("canonical_target", "unavailable_reason")
+    ):
+        raise ScanError("content evidence text fields must be strings")
+    return value
+
+
+def _put_content_evidence(
+    con: sqlite3.Connection,
+    *,
+    page_url_id: int,
+    source_document_id: int | None,
+    representation: str,
+    content_capture: dict[str, Any] | None,
+) -> None:
+    """Derive body-free evidence only after the bound document exists."""
+    if content_capture is None:
+        return
+    if source_document_id is None:
+        raise ScanError("content evidence requires a stored source document")
+    from seohead.crawl.content_evidence import capture
+    from seohead.storage.native_context import put_context
+
+    for item in capture(
+        page_url_id=page_url_id,
+        source_document_id=source_document_id,
+        representation=representation,
+        **content_capture,
+    ):
+        put_context(con, item)
+
+
+def _put_resource_graph(
+    con: sqlite3.Connection,
+    *,
+    page_url_id: int,
+    source_document_id: int | None,
+    representation: str,
+    content_capture: dict[str, Any] | None,
+) -> None:
+    """Store v2 resource declarations alongside the document that emitted them."""
+    if content_capture is None or source_document_id is None:
+        return
+    from .resource_graph import store_document
+
+    store_document(
+        con,
+        page_url_id=page_url_id,
+        source_document_id=source_document_id,
+        representation=representation,
+        html=content_capture["html"],
+    )
 
 
 @dataclass(frozen=True)
@@ -250,6 +393,44 @@ class NativeScan:
         self.con = connection
         self._lock_fd = lock_fd
         self.failpoint: Callable[[str], None] | None = None
+        self._event_sink = None
+        if self.con.execute("PRAGMA user_version").fetchone()[0] == 2:
+            from seohead.crawl.events import EventSink
+            from seohead.storage.events import append, ensure_schema
+
+            ensure_schema(self.con)
+            prior = self.con.execute("SELECT COALESCE(MAX(sequence),0) FROM scan_events").fetchone()[0]
+            self._event_sink = EventSink(writer=lambda event: append(self.con, event))
+            self._event_sink.events = [{}] * prior
+
+    def _event(self, event_type: str, payload: dict[str, Any]) -> None:
+        if self._event_sink is not None:
+            self._event_sink.emit(event_type, payload, occurred_at=None)
+
+    def _event_coverage(self) -> None:
+        if self._event_sink is not None:
+            from seohead.storage.events import set_coverage
+
+            set_coverage(self.con, self._event_sink.coverage())
+
+    def record_events(self, sink: Any) -> None:
+        """Persist bounded adapter events in one writer transaction after worker fold-back."""
+        if self._event_sink is None:
+            return
+        events = getattr(sink, "events", None)
+        dropped = getattr(sink, "dropped", None)
+        if not isinstance(events, list) or type(dropped) is not int or dropped < 0:
+            raise ScanError("event sink is invalid")
+        self._begin()
+        try:
+            for event in events:
+                self._event(event["event_type"], event["payload"])
+            self._event_sink.dropped += dropped
+            self._event_coverage()
+            self.con.commit()
+        except BaseException:
+            self._rollback()
+            raise
 
     @classmethod
     def create(
@@ -265,6 +446,7 @@ class NativeScan:
         limitations: Iterable[str] = (),
         retention: dict[str, Any] | None = None,
         initial_sitemaps: Iterable[tuple[str, str]] = (),
+        format_version: str = "scan.v1",
     ) -> NativeScan:
         """Create a no-clobber running scan with no audit and no body lanes."""
         _runtime()
@@ -283,6 +465,10 @@ class NativeScan:
         ):
             raise ScanError("native scan requires complete runtime version provenance")
         effective = _native_config(config)
+        if format_version not in {"scan.v1", "scan.v2"}:
+            raise ScanError("native scan format_version must be scan.v1 or scan.v2")
+        if effective["storage"]["format_version"] != format_version:
+            raise ScanError("native scan format selection differs from its effective configuration")
         initial_sitemaps = _bounded_items(initial_sitemaps, "selected sitemap roots", 5000)
         derived_fingerprint = crawl_config_fingerprint(effective)
         if config_fingerprint is not None and config_fingerprint != derived_fingerprint:
@@ -381,10 +567,11 @@ class NativeScan:
                     "crawl_delay_applied": None,
                     "throttle_state_json": _dump(
                         {
-                            "schema_version": "scan_throttle.v1",
+                            "schema_version": "scan_throttle.v2",
                             "delay_seconds": 0.0,
                             "concurrency": 1,
                             "consecutive_ok": 0,
+                            "requests_used": 0,
                         }
                     ),
                 },
@@ -409,6 +596,16 @@ class NativeScan:
                         "reason": "",
                     },
                 )
+            if format_version == "scan.v2":
+                from .retry import upgrade_to_v2
+                from .resource_graph import ensure_schema as ensure_resource_graph
+                from .events import ensure_schema as ensure_events
+                from .transport import ensure_schema as ensure_transport
+
+                upgrade_to_v2(con)
+                ensure_resource_graph(con)
+                ensure_events(con)
+                ensure_transport(con)
             from .sitemaps import declare
 
             for ordinal, (sitemap_url, source) in enumerate(initial_sitemaps):
@@ -488,9 +685,11 @@ class NativeScan:
                 and scan["writer_revision"] != expected_writer_revision
             ):
                 raise ScanError("native scan producing build differs; refusing mixed-build resume")
-            if expected_config is not None and scan[
-                "config_fingerprint"
-            ] != crawl_config_fingerprint(_native_config(expected_config)):
+            if (
+                expected_config is not None
+                and scan["config_fingerprint"]
+                != _resume_fingerprint(expected_config, json.loads(scan["config_json"]))
+            ):
                 raise ScanError("native scan configuration differs; refusing unsafe resume")
             # Credential references/values never enter the artifact. A local,
             # per-scan verifier detects a changed explicit context on resume.
@@ -613,6 +812,11 @@ class NativeScan:
     def _validate_native(con: sqlite3.Connection) -> None:
         if con.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID:
             raise ScanError("foreign application_id")
+        if con.execute("PRAGMA user_version").fetchone()[0] == 2:
+            from .retry import validate_v2
+
+            validate_v2(con, require_audit=False)
+            return
         if con.execute("PRAGMA user_version").fetchone()[0] != USER_VERSION:
             raise ScanError("unsupported scan user_version")
         if _objects(con) != _expected()[0]:
@@ -769,12 +973,27 @@ class NativeScan:
             throttle = json.loads(runtime["throttle_state_json"])
         except (TypeError, ValueError) as exc:
             raise ScanError("native scan throttle state is invalid JSON") from exc
+        throttle_v1 = {"schema_version", "delay_seconds", "concurrency", "consecutive_ok"}
+        throttle_v2 = {*throttle_v1, "requests_used"}
         if (
             not isinstance(throttle, dict)
-            or set(throttle) != {"schema_version", "delay_seconds", "concurrency", "consecutive_ok"}
-            or throttle["schema_version"] != "scan_throttle.v1"
+            or (
+                set(throttle) != throttle_v1
+                if throttle.get("schema_version") == "scan_throttle.v1"
+                else set(throttle) != throttle_v2
+            )
+            or throttle["schema_version"] not in {"scan_throttle.v1", "scan_throttle.v2"}
             or type(throttle["concurrency"]) is not int
             or type(throttle["consecutive_ok"]) is not int
+            or (
+                throttle["schema_version"] == "scan_throttle.v2"
+                and (type(throttle["requests_used"]) is not int or throttle["requests_used"] < 0)
+            )
+            or (
+                throttle["schema_version"] == "scan_throttle.v2"
+                and config["limits"].get("max_requests", 0)
+                and throttle["requests_used"] > config["limits"]["max_requests"]
+            )
             or not isinstance(throttle["delay_seconds"], (int, float))
             or not math.isfinite(float(throttle["delay_seconds"]))
             or throttle["delay_seconds"] < 0
@@ -944,6 +1163,9 @@ class NativeScan:
             from .native_context import validate_context
 
             validate_context(con, dict(item), sitemap_roots=sitemap_roots)
+        from .rendered_routes import validate_ledger
+
+        validate_ledger(con)
         if scan["source_kind"] == "reanalysis":
             marker = con.execute(
                 "SELECT payload_json FROM context_items WHERE kind='reanalysis_provenance' AND item_key='run'"
@@ -1058,6 +1280,7 @@ class NativeScan:
         runtime = dict(self.con.execute("SELECT * FROM resume_state WHERE singleton=1").fetchone())
         throttle = json.loads(runtime.pop("throttle_state_json"))
         throttle.pop("schema_version")
+        throttle.setdefault("requests_used", 0)
         runtime["throttle"] = throttle
         runtime.pop("singleton")
         runtime.pop("state_version")
@@ -1395,7 +1618,12 @@ class NativeScan:
                     (url_id, next_ordinal, int(depth)),
                 )
                 added.append(Lease(url_id, url, int(depth), next_ordinal))
+                self._event(
+                    "queue",
+                    {"queue_ordinal": next_ordinal, "url_id": url_id, "depth": depth, "reason": "enqueue", "count": 1},
+                )
                 next_ordinal += 1
+            self._event_coverage()
             self.con.commit()
             return added
         except BaseException:
@@ -1436,6 +1664,12 @@ class NativeScan:
             self.con.executemany(
                 "UPDATE frontier SET state='inflight' WHERE url_id=?", [(x.url_id,) for x in leases]
             )
+            for lease in leases:
+                self._event(
+                    "queue",
+                    {"queue_ordinal": lease.queue_ordinal, "url_id": lease.url_id, "depth": lease.depth, "reason": "claimed", "count": 1},
+                )
+            self._event_coverage()
             self.con.commit()
             self._hit("after_claim")
             return leases
@@ -1457,6 +1691,8 @@ class NativeScan:
                 "SELECT COUNT(*) FROM frontier WHERE state='inflight'"
             ).fetchone()[0]
             self.con.execute("UPDATE frontier SET state='queued' WHERE state='inflight'")
+            self._event("checkpoint", {"state": "recovered", "queued": count, "inflight": 0})
+            self._event_coverage()
             self.con.commit()
             return count
         except BaseException:
@@ -1483,9 +1719,14 @@ class NativeScan:
             raise ScanError("pages.content_frames_same_origin exceeds content_frames")
         if record.get("body_unavailable") not in {"", "oversized"}:
             raise ScanError("pages.body_unavailable has an unknown marker")
+        page_ordinal = self.con.execute("SELECT COUNT(*) FROM pages").fetchone()[0]
+        if self.con.execute("PRAGMA user_version").fetchone()[0] == 2:
+            page_ordinal = self.con.execute(
+                "SELECT COALESCE(MAX(page_ordinal)+1,0) FROM pages"
+            ).fetchone()[0]
         row: dict[str, Any] = {
             "url_id": lease.url_id,
-            "page_ordinal": self.con.execute("SELECT COUNT(*) FROM pages").fetchone()[0],
+            "page_ordinal": page_ordinal,
         }
         for name, column in columns.items():
             if name in {"url_id", "page_ordinal", "document_id"}:
@@ -1617,6 +1858,9 @@ class NativeScan:
         partial_reasons: Iterable[str] = (),
         runtime: dict[str, Any] | None = None,
         context: Iterable[dict[str, Any]] = (),
+        content_capture: dict[str, Any] | None = None,
+        route_observations: Iterable[dict[str, Any]] = (),
+        route_coverage: dict[str, Any] | None = None,
         captures: Iterable[Any] = (),
         resources: Iterable[dict[str, Any]] = (),
         resource_inventory_state: str | None = None,
@@ -1648,15 +1892,17 @@ class NativeScan:
         resources = _bounded_items(resources, "resource declarations", MAX_EDGES_PER_PAGE)
         candidates = _bounded_items(candidates, "ordered discovery candidates")
         partial_reasons = _bounded_items(partial_reasons, "partial reasons", 16)
+        content_capture = _content_capture(content_capture)
         for _ in _json_chunks(record):
             pass
-        links, forms, decisions, discovered, query_reservations, context = (
+        links, forms, decisions, discovered, query_reservations, context, route_observations = (
             _bounded_items(links, "links", MAX_EDGES_PER_PAGE),
             _bounded_items(forms, "forms"),
             _bounded_items(decisions, "decisions"),
             _bounded_items(discovered, "discovered frontier entries"),
             _bounded_items(query_reservations, "query reservations"),
             _bounded_items(context, "context items"),
+            _bounded_items(route_observations, "rendered route observations", MAX_EDGES_PER_PAGE),
         )
         payload = {
             "lease": lease.__dict__,
@@ -1668,6 +1914,12 @@ class NativeScan:
             "query_reservations": query_reservations,
             "runtime": runtime or {},
             "context": context,
+            "route_observations": route_observations,
+            "content_capture": hashlib.sha256(
+                _dump(content_capture).encode("utf-8")
+            ).hexdigest()
+            if content_capture is not None
+            else None,
         }
         if capture_metadata:
             payload["captures"] = capture_metadata
@@ -1748,6 +2000,26 @@ class NativeScan:
             _insert(self.con, "pages", page_row)
             self._hit("after_page")
             self._write_observations(lease, document_id, "static", links, forms)
+            _put_content_evidence(
+                self.con,
+                page_url_id=lease.url_id,
+                source_document_id=document_id,
+                representation="static",
+                content_capture=content_capture,
+            )
+            _put_resource_graph(
+                self.con,
+                page_url_id=lease.url_id,
+                source_document_id=document_id,
+                representation="static",
+                content_capture=content_capture,
+            )
+            if route_coverage is not None:
+                from .rendered_routes import context_items
+
+                context.extend(
+                    context_items(lease.url_id, document_id, route_coverage, route_observations)
+                )
             if resource_inventory_state is not None:
                 from .resources import put_declarations
 
@@ -1899,6 +2171,11 @@ class NativeScan:
                     "reason": "atomic page commit",
                 },
             )
+            self._event(
+                "checkpoint",
+                {"state": "page_committed", "queued": len(discovered), "inflight": 0},
+            )
+            self._event_coverage()
             self.con.execute(
                 "UPDATE scan SET evidence_revision=evidence_revision+1 WHERE singleton=1"
             )
@@ -1959,6 +2236,9 @@ class NativeScan:
         resource_inventory_state: str | None = None,
         resources_omitted: int = 0,
         elapsed_seconds: float | None = None,
+        route_observations: Iterable[dict[str, Any]] = (),
+        route_coverage: dict[str, Any] | None = None,
+        content_capture: dict[str, Any] | None = None,
     ) -> int:
         """Retain one render attempt and its accepted extraction atomically."""
         from .corpus import store_rendered_document, store_response
@@ -1971,6 +2251,10 @@ class NativeScan:
         forms = _bounded_items(forms, "rendered forms", 2000)
         partial_reasons = _bounded_items(partial_reasons, "render partial reasons", 16)
         resources = _bounded_items(resources, "render resource declarations", MAX_EDGES_PER_PAGE)
+        route_observations = _bounded_items(
+            route_observations, "rendered route observations", MAX_EDGES_PER_PAGE
+        )
+        content_capture = _content_capture(content_capture)
         captures = list(itertools.islice(captures, 1001))
         if (
             len(captures) > 1000
@@ -2073,6 +2357,28 @@ class NativeScan:
                     )
             elif links or forms:
                 raise ScanError("unaccepted render cannot replace graph observations")
+            _put_content_evidence(
+                self.con,
+                page_url_id=page["url_id"],
+                source_document_id=document_id,
+                representation=representation,
+                content_capture=content_capture,
+            )
+            _put_resource_graph(
+                self.con,
+                page_url_id=page["url_id"],
+                source_document_id=document_id,
+                representation=representation,
+                content_capture=content_capture,
+            )
+            if route_coverage is not None:
+                from .native_context import put_context
+                from .rendered_routes import context_items
+
+                for item in context_items(
+                    page["url_id"], document_id, route_coverage, route_observations
+                ):
+                    put_context(self.con, item)
             self._hit("after_render_page")
             if elapsed_seconds is not None:
                 runtime = self.resume_snapshot()["runtime"]
@@ -2086,6 +2392,11 @@ class NativeScan:
                 (len(captures) if representation == "legacy_fragment" else 1,),
             )
             self._sync_corpus()
+            self._event(
+                "render",
+                {"url_id": page["url_id"], "representation": representation, "state": "stored"},
+            )
+            self._event_coverage()
             self._hit("before_render_commit")
             self.con.commit()
             return document_id
@@ -2105,7 +2416,10 @@ class NativeScan:
         if set(runtime) != required:
             raise ScanError("runtime state must have the exact child-C key set")
         throttle = runtime["throttle"]
-        if set(throttle) != {"delay_seconds", "concurrency", "consecutive_ok"}:
+        if set(throttle) == {"delay_seconds", "concurrency", "consecutive_ok"}:
+            throttle = {**throttle, "requests_used": 0}
+            runtime = {**runtime, "throttle": throttle}
+        if set(throttle) != {"delay_seconds", "concurrency", "consecutive_ok", "requests_used"}:
             raise ScanError("runtime throttle state must have the exact child-C key set")
         config = _config(
             json.loads(
@@ -2139,6 +2453,8 @@ class NativeScan:
             or not 1 <= throttle["concurrency"] <= config["speed"]["concurrency"]
             or type(throttle["consecutive_ok"]) is not int
             or not 0 <= throttle["consecutive_ok"] <= 2
+            or type(throttle["requests_used"]) is not int
+            or throttle["requests_used"] < 0
         ):
             raise ScanError("runtime state has invalid finite values or throttle bounds")
         current = self.con.execute(
@@ -2154,13 +2470,38 @@ class NativeScan:
             runtime["circuit_timeout_streak"],
             runtime["circuit_server_error_streak"],
             runtime["crawl_delay_applied"],
-            _dump({"schema_version": "scan_throttle.v1", **throttle}),
+            _dump({"schema_version": "scan_throttle.v2", **throttle}),
         )
         self.con.execute(
             "UPDATE resume_state SET max_depth_reached=?, elapsed_seconds=?, circuit_timeout_streak=?, "
             "circuit_server_error_streak=?, crawl_delay_applied=?, throttle_state_json=? WHERE singleton=1",
             values,
         )
+
+    def record_request_count(self, requests_used: int) -> None:
+        """Checkpoint the shared HTTP-attempt count without changing frontier state."""
+        self._assert_mutable()
+        if type(requests_used) is not int or requests_used < 0:
+            raise ScanError("request count must be a nonnegative integer")
+        config = json.loads(
+            self.con.execute("SELECT config_json FROM scan WHERE singleton=1").fetchone()[0]
+        )
+        maximum = config.get("limits", {}).get("max_requests", 0)
+        if type(maximum) is not int or maximum < 0:
+            raise ScanError("stored request budget is invalid")
+        if maximum and requests_used > maximum:
+            raise ScanError("request count exceeds the stored budget")
+        self._begin()
+        try:
+            runtime = self.resume_snapshot()["runtime"]
+            runtime["throttle"]["requests_used"] = requests_used
+            self._write_runtime(runtime, runtime["max_depth_reached"])
+            self._event("budget", {"kind": "http_requests", "limit": maximum, "used": requests_used})
+            self._event_coverage()
+            self.con.commit()
+        except BaseException:
+            self._rollback()
+            raise
 
     def _stored_query_limit(self) -> int:
         try:
@@ -2185,6 +2526,8 @@ class NativeScan:
                 "UPDATE scan SET lifecycle='interrupted', finish_reason=?, crawl_partial=1 WHERE singleton=1",
                 (reason,),
             )
+            self._event("stop", {"reason": reason})
+            self._event_coverage()
             self.con.commit()
         except BaseException:
             self._rollback()

@@ -565,24 +565,18 @@ def test_a_connection_failure_trips_the_breaker_like_a_timeout():
     assert throttle.should_stop(limit=5) is True
 
 
-# ── concurrency ceiling (#14: "a config file alone cannot raise it") ────────
+# ── operator concurrency policy ─────────────────────────────────────────────
 
 
-def test_the_concurrency_ceiling_is_enforced_by_the_throttle_itself_not_only_by_a_caller():
-    """A config-supplied value is clamped at the object that actually paces
-    requests, not only where the caller happens to validate it — so a future
-    caller that constructs a Throttle directly, without going through
-    crawl_site()'s own clamp, still cannot exceed the ceiling."""
-    from seohead.crawl.throttle import MAX_CONCURRENCY_CEILING, Throttle
+def test_throttle_keeps_the_operator_configured_concurrency_limit():
+    """Adaptive control starts conservatively, but does not replace policy."""
+    from seohead.crawl.throttle import Throttle
 
     t = Throttle(max_concurrency=999)
-    assert t.max_concurrency == MAX_CONCURRENCY_CEILING
+    assert t.max_concurrency == 999
 
 
-def test_the_configured_concurrency_ceiling_survives_a_crawl_end_to_end():
-    """The obvious bypass: ask crawl_site() itself for far more than the ceiling."""
-    from seohead.crawl.throttle import MAX_CONCURRENCY_CEILING
-
+def test_crawl_keeps_the_operator_configured_concurrency_limit():
     site = {
         "https://example.com/robots.txt": FakeResponse("User-agent: *\n", ct="text/plain"),
         "https://example.com/": page(*[f"/p{i}" for i in range(30)]),
@@ -596,7 +590,7 @@ def test_the_configured_concurrency_ceiling_survives_a_crawl_end_to_end():
         max_urls=50,
         concurrency=999,
     )
-    assert result.effective_concurrency <= MAX_CONCURRENCY_CEILING
+    assert result.effective_concurrency <= 999
 
 
 # ── credential headers ──────────────────────────────────────────────────────

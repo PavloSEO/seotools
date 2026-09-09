@@ -717,7 +717,9 @@ def crawl_site(
             max_concurrency=settings["speed"]["concurrency"],
             adaptive=settings["speed"]["adaptive"],
         )
-        dispatch_gate = DispatchGate(throttle, time.sleep)
+        dispatch_gate = DispatchGate(
+            throttle, time.sleep, max_requests=settings["limits"]["max_requests"]
+        )
     out_dir = settings["output"]["dir"] or None
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
@@ -779,6 +781,7 @@ def crawl_site(
         result = _spider(
             url,
             max_urls=settings["limits"]["max_urls"],
+            max_requests=settings["limits"]["max_requests"],
             max_depth=settings["limits"]["max_depth"],
             max_seconds=max_seconds,
             min_delay=settings["speed"]["min_delay_seconds"],
@@ -2646,6 +2649,12 @@ def scan_status(input_path: str) -> dict[str, Any]:
     return core(input_path)
 
 
+def scan_rendered_routes(input_path: str) -> dict[str, Any]:
+    from seohead.servers.history_handlers import scan_rendered_routes as core
+
+    return core(input_path)
+
+
 def scan_snapshot(input_path: str, out: str) -> dict[str, Any]:
     from seohead.servers.history_handlers import scan_snapshot as core
 
@@ -2890,6 +2899,7 @@ _RAW_HANDLERS = {
     "scan_list": scan_list,
     "scan_inspect": scan_inspect,
     "scan_status": scan_status,
+    "scan_rendered_routes": scan_rendered_routes,
     "scan_snapshot": scan_snapshot,
     "scan_pin": scan_pin,
     "scan_prune": scan_prune,

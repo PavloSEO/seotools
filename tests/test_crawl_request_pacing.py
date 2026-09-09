@@ -1,12 +1,24 @@
 """Every follow-up request uses the current shared dispatch budget."""
 
 import httpx
+import pytest
 
 from seohead.crawl.collect import collect_urls
 from seohead.crawl.settings import load
 from seohead.crawl.spider import _DispatchGate, crawl_site
 from seohead.crawl.sqlite_adapter import crawl_to_scan
-from seohead.crawl.throttle import Throttle
+from seohead.crawl.throttle import RequestBudgetExhausted, Throttle
+
+
+def test_dispatch_gate_counts_and_refuses_total_http_attempts():
+    gate = _DispatchGate(Throttle(), lambda _seconds: None, max_requests=2)
+
+    gate.wait_turn()
+    gate.wait_turn()
+
+    with pytest.raises(RequestBudgetExhausted):
+        gate.wait_turn()
+    assert gate.requests_used == 2
 
 
 def test_dispatch_gate_applies_a_new_timeout_penalty_to_the_next_turn():
