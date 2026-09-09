@@ -10,6 +10,7 @@ small escalation summary in memory.
 
 from __future__ import annotations
 
+import copy
 import dataclasses
 import json
 import time
@@ -367,7 +368,28 @@ def run_render_escalation(
             kwargs["elapsed_seconds"] = elapsed_before + time.monotonic() - render_started
         return scan.commit_render(*args, **kwargs)
 
-    rendering_config = settings["rendering"]
+    rendering_config = copy.deepcopy(settings["rendering"])
+    saved_render = scan.read_context("render_elapsed") if hasattr(scan, "read_context") else None
+    render_seconds_before = float(saved_render["seconds"]) if saved_render else 0.0
+    maximum_render_seconds = float(rendering_config["escalation"].get("max_render_seconds", 0))
+    # A killed process cannot measure its final interval. Refuse to silently
+    # grant a fresh finite budget when the previous phase was left active.
+    interrupted_render = bool(saved_render and saved_render["active"])
+    exhausted = maximum_render_seconds > 0 and (
+        interrupted_render or render_seconds_before >= maximum_render_seconds
+    )
+    if maximum_render_seconds > 0 and not exhausted:
+        rendering_config["escalation"]["max_render_seconds"] = maximum_render_seconds - render_seconds_before
+
+    def save_render_elapsed(active: bool) -> None:
+        if hasattr(scan, "write_context"):
+            seconds = render_seconds_before + max(0.0, time.monotonic() - render_started)
+            scan.write_context([{
+                "kind": "render_elapsed", "item_key": "run", "payload_version": "scan_context.v1",
+                "payload_json": json.dumps({"schema_version": "render_elapsed.v1", "seconds": seconds, "active": active}),
+                "completeness": "complete", "reason": "",
+            }])
+
     start_url = (
         scan.con.execute("SELECT start_url FROM scan").fetchone()[0]
         if getattr(scan, "con", None) is not None
@@ -661,20 +683,24 @@ def run_render_escalation(
             )
         }
         render_pages = [page for page in result.pages if page.url not in attempted]
-        import copy
-
-        rendering_config = copy.deepcopy(rendering_config)
         rendering_config["escalation"]["max_render_urls"] = max(
             0, rendering_config["escalation"]["max_render_urls"] - len(attempted)
         )
-    outcome = render_escalation.escalate(
-        render_pages,
-        rendering_config,
-        probe=probe,
-        render_fetch=render_fetch,
-        representation_label=representation,
-        render_consumer=consume,
-    )
+    if exhausted:
+        outcome = render_escalation.EscalationResult(mode=mode, time_budget_exhausted=True)
+    else:
+        save_render_elapsed(True)
+        try:
+            outcome = render_escalation.escalate(
+                render_pages,
+                rendering_config,
+                probe=probe,
+                render_fetch=render_fetch,
+                representation_label=representation,
+                render_consumer=consume,
+            )
+        finally:
+            save_render_elapsed(False)
     if (
         hasattr(scan, "write_context")
         and settings["rendering"]["rendered_links"]["store"]

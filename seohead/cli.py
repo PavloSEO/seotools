@@ -108,6 +108,13 @@ COMMANDS = (
     "provider-verify",
     "provider-collect",
     "provider-join",
+    "inspect-url",
+    "audit-workflow",
+    "tool-catalog",
+    "scan-evidence",
+    "scan-extract",
+    "scan-requeue",
+    "scan-import-urls",
 )
 
 # Tools whose complete direct CLI input can be supplied by one --url flag.
@@ -223,6 +230,23 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
             value = getattr(args, flag, None)
             if value is not None:
                 kw[flag] = value
+    elif cmd in {"scan-evidence", "scan-extract", "scan-requeue", "scan-import-urls"}:
+        for name in ("input_path", "section", "limit", "offset", "where", "backup_path", "from_scan", "urls_file", "url", "representation"):
+            if getattr(args, name, None) is not None:
+                kw[name] = getattr(args, name)
+    elif cmd == "inspect-url":
+        if getattr(args, "url", None):
+            kw["url"] = args.url
+    elif cmd == "audit-workflow":
+        for name in ("directory", "action", "target", "out", "fmt"):
+            if getattr(args, name, None) is not None:
+                kw[name] = getattr(args, name)
+    elif cmd == "tool-catalog":
+        for name in ("query", "limit"):
+            if getattr(args, name, None) is not None:
+                kw[name] = getattr(args, name)
+        if getattr(args, "include_arguments", False):
+            kw["include_arguments"] = True
     elif cmd == "parse":
         if args.url:
             kw["url"] = args.url
@@ -839,6 +863,35 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
             help="verify bot identities with forward-confirmed reverse DNS "
             "(performs network lookups)",
         )
+    if cmd in {"scan-evidence", "scan-extract", "scan-requeue", "scan-import-urls"}:
+        _source_flag(sub, "--scan", dest="input_path", help="existing SQLite artifact")
+    if cmd == "scan-evidence":
+        sub.add_argument("--section", choices=("capabilities", "corpus", "structured", "routes", "resources", "timeline"))
+        sub.add_argument("--limit", type=int)
+        sub.add_argument("--offset", type=int)
+    if cmd == "scan-extract":
+        _source_flag(sub, "--url", help="optional exact logical URL")
+        sub.add_argument("--representation", choices=("static", "rendered", "legacy_fragment"))
+        sub.add_argument("--limit", type=int)
+    if cmd in {"scan-requeue", "scan-import-urls"}:
+        _source_flag(sub, "--backup", dest="backup_path", help="new mandatory verified backup path")
+    if cmd == "scan-requeue":
+        _source_flag(sub, "--where", help="restricted predicate over saved URL/page fields")
+        _source_flag(sub, "--from-scan", help="optional alternate SQLite selection source")
+    if cmd == "scan-import-urls":
+        _source_flag(sub, "--urls-file", help="explicit external TXT/CSV/XLSX/XML URL list")
+    if cmd == "inspect-url":
+        _source_flag(sub, "--url", help="one page URL")
+    if cmd == "audit-workflow":
+        _source_flag(sub, "--directory", help="project workspace")
+        sub.add_argument("--action", choices=("status", "start", "prepare", "report"))
+        _source_flag(sub, "--target", help="target for a new project")
+        sub.add_argument("--out")
+        sub.add_argument("--format", dest="fmt", choices=("md", "csv", "xlsx", "docx", "json"))
+    if cmd == "tool-catalog":
+        sub.add_argument("--query")
+        sub.add_argument("--limit", type=int)
+        sub.add_argument("--include-arguments", action="store_true")
     if cmd == "crawl-site":
         sub.add_argument("--approve-large-crawl", action="store_true", help="explicitly approve budgets above the project admission thresholds")
         sub.add_argument("--user-agent", help="request identity or googlebot diagnostic preset")
@@ -1314,6 +1367,10 @@ def build_parser() -> argparse.ArgumentParser:
         "pin",
         "prune",
         "body-diff",
+        "evidence",
+        "extract",
+        "requeue",
+        "import-urls",
     ):
         cmd = "scan-" + action
         sp = scan_subs.add_parser(action, help=f"run {cmd}")
@@ -1355,7 +1412,9 @@ def build_parser() -> argparse.ArgumentParser:
     _source_flag(reanalyze, "--input", dest="input_path", required=True, help="source SQLite scan")
     reanalyze.add_argument("--out", required=True, help="new derived SQLite scan")
     reanalyze.add_argument("--producer-build", metavar="SHA", help="current analyzer source build")
-    subs.add_parser("mcp", help="run the MCP server (stdio)")
+    mcp = subs.add_parser("mcp", help="run the MCP server (stdio)")
+    mcp.add_argument("--profile", choices=("full", "audit", "infra", "quick-check", "router"), default="full")
+    mcp.add_argument("--no-progress", action="store_true", help="disable optional MCP progress notifications")
     return p
 
 
@@ -1385,7 +1444,7 @@ def main(argv: list[str] | None = None) -> int:
         # mcp_main() itself catches a missing optional SDK and returns 1 after a stderr
         # diagnostic (#366), so the direct `python -m seohead.servers.mcp_server` entry
         # point advertised in that module's docstring gives the same outcome as this one.
-        return mcp_main()
+        return mcp_main(profile=args.profile, progress_notifications=not args.no_progress)
     from seohead.terminal_progress import show_banner
     show_banner(cmd, quiet=getattr(args, "quiet", False))
     if cmd == "crawl-site" and getattr(args, "config_help", False):
