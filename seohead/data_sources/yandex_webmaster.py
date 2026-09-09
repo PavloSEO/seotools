@@ -42,9 +42,9 @@ def collect(
     paths = {
         "hosts": f"/user/{user_id}/hosts",
         "indexing": f"/user/{user_id}/hosts/{host_id}/search-urls",
-        "crawl": f"/user/{user_id}/hosts/{host_id}/search-urls/samples",
+        "crawl": f"/user/{user_id}/hosts/{host_id}/search-urls/events/samples",
         "sitemaps": f"/user/{user_id}/hosts/{host_id}/sitemaps",
-        "search_performance": f"/user/{user_id}/hosts/{host_id}/search-queries/popular",
+        "search_performance": f"/user/{user_id}/hosts/{host_id}/search-queries/popular?order_by=TOTAL_SHOWS",
     }
     try:
         body = json.loads((transport or _default_transport)("GET", HOST + paths[operation], None, bearer))

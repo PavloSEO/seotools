@@ -166,11 +166,17 @@ def provider_verify(provider: str, request: dict[str, Any] | None = None, *, tra
         from seohead.data_sources.gsc import discover_properties
         result = discover_properties(transport=transport)
     elif provider == "yandex_webmaster":
+        if not request.get("user_id"):
+            return {
+                "ok": False, "provider": provider, "state": "credential_present", "verified": False,
+                "credential_components": components,
+                "note": "user_id is required for the bounded verified-host discovery read",
+            }
         from seohead.data_sources.yandex_webmaster import collect
         result = collect("hosts", user_id=request.get("user_id", ""), transport=transport)
     elif provider == "bing_webmaster":
         from seohead.data_sources.bing_webmaster import collect
-        result = collect("sites", site_url=request.get("site_url", ""), transport=transport)
+        result = collect("sites", site_url=request.get("site_url", ""), transport=transport, rest_endpoint=request.get("rest_endpoint"))
     else:
         return {
             "ok": False, "provider": provider, "state": "credential_present", "verified": False,
