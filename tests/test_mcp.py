@@ -241,3 +241,32 @@ def test_crawl_site_explicit_override_changes_only_that_setting(monkeypatch):
     assert forwarded["max_urls"] == 2
     for key in ("max_depth", "min_delay", "robots", "concurrency"):
         assert forwarded[key] is None
+
+
+def test_render_check_mcp_forwards_explicit_identity(monkeypatch):
+    """#670: the local MCP surface cannot strand the mobile identity in the CLI."""
+    received = []
+    monkeypatch.setattr(
+        "seohead.servers.handlers.render_check",
+        lambda **kwargs: received.append(kwargs) or {"ok": True},
+    )
+    tool = build_server()._tool_manager.get_tool("seo_render_check")
+
+    assert asyncio.run(
+        tool.run(
+            {
+                "url": "https://example.test/",
+                "viewport": "mobile",
+                "wait": "load",
+                "user_agent": "Example/1.0",
+            }
+        )
+    ) == {"ok": True}
+    assert received == [
+        {
+            "url": "https://example.test/",
+            "viewport": "mobile",
+            "wait": "load",
+            "user_agent": "Example/1.0",
+        }
+    ]

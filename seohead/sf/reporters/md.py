@@ -6,6 +6,8 @@ import os
 from collections import defaultdict
 from typing import Any
 
+from seohead.reports.client_findings import check_title
+
 from ..core.models import AuditResult, Issue
 from ..core.registry import check_meta
 
@@ -72,7 +74,7 @@ def _write_internal_linking(w, block: dict[str, Any] | None) -> None:
             f"{depth.get('pages')} HTML pages "
             f"({depth.get('unreachable')} reached by no link at all)"
         )
-        w(f"- Depth floor used for `DEEP_CLICK_DEPTH`: **{depth.get('floor_used')}**")
+        w(f"- Configured depth floor: **{depth.get('floor_used')}**")
     else:
         w(f"- Click depth not measured: {_esc(depth.get('reason') or 'no reason recorded')}.")
     positions = block.get("by_position") or {}
@@ -103,11 +105,8 @@ def write_markdown(result: AuditResult, path: str) -> str:
     w(f"# SEO audit — {run.get('project', 'unknown')}")
     w("")
     w(f"- **Generated:** {run.get('generated_at')}")
-    w(f"- **Input mode:** {run.get('input_mode')}  ·  **Profile:** {run.get('profile')}")
-    if run.get("sf_version_detected"):
-        w(f"- **SF version:** {run['sf_version_detected']}")
-    w(f"- **Source:** {_esc(run.get('source') or run.get('exports_dir'))}")
-    w(f"- **Exports used:** {', '.join(run.get('exports_used', [])) or '—'}")
+    if run.get("source"):
+        w(f"- **Audited site:** {_esc(run.get('source'))}")
     w("")
 
     # 2. health summary
@@ -173,11 +172,11 @@ def write_markdown(result: AuditResult, path: str) -> str:
             check_severity.setdefault(issue.check, issue.severity)
         w("**Most frequent issues:**")
         w("")
-        w("| Check | Count | Severity |")
+        w("| Issue | Count | Severity |")
         w("|---|---:|---|")
         for check, count in top:
             severity = check_severity.get(check, check_meta(check)["severity"])
-            w(f"| `{check}` | {count} | {severity} |")
+            w(f"| {check_title(check)} | {count} | {severity} |")
         w("")
     _write_internal_linking(w, s.get("internal_linking"))
     if "size_stats_bytes" in s:
@@ -202,10 +201,10 @@ def write_markdown(result: AuditResult, path: str) -> str:
             "live site before the rest of this report is acted on."
         )
         w("")
-        w("| Check | Pages | Share of crawl |")
+        w("| Issue | Pages | Share of crawl |")
         w("|---|---:|---:|")
         for row in implausible:
-            w(f"| `{row['check']}` | {row['pages']} | {row['share']:.0%} |")
+            w(f"| {check_title(row['check'])} | {row['pages']} | {row['share']:.0%} |")
         w("")
 
     # group issues by severity
@@ -234,10 +233,10 @@ def write_markdown(result: AuditResult, path: str) -> str:
     if skipped:
         w("## Appendix: skipped checks")
         w("")
-        w("| Check | Reason |")
+        w("| Issue | Reason |")
         w("|---|---|")
         for sk in skipped:
-            w(f"| `{sk.id}` | {_esc(sk.reason)} |")
+            w(f"| {check_title(sk.id)} | {_esc(sk.reason)} |")
         w("")
 
     # A disabled check is an operator's own choice, not missing evidence, but
@@ -247,10 +246,10 @@ def write_markdown(result: AuditResult, path: str) -> str:
     if disabled:
         w("## Appendix: disabled checks")
         w("")
-        w("| Check |")
+        w("| Issue |")
         w("|---|")
         for d in disabled:
-            w(f"| `{d.id}` |")
+            w(f"| {check_title(d.id)} |")
         w("")
 
     text = "\n".join(lines) + "\n"
@@ -267,7 +266,7 @@ def _render_severity_section(w, issues: list[Issue]) -> None:
 
     for check, group in sorted(by_check.items()):
         meta = check_meta(check)
-        w(f"### `{check}` — {meta['message']} ({len(group)})")
+        w(f"### {check_title(check)} ({len(group)})")
         w("")
         if check in LINK_CHECKS:
             _render_link_table(w, group)
@@ -327,7 +326,7 @@ def _render_duplicates(w, group: list[Issue]) -> None:
         if value:
             w(f'- **"{_esc(value)}"** — {len(urls)} URLs:')
         else:
-            w(f"- Group `{gid}` — {len(urls)} URLs:")
+            w(f"- Duplicate group — {len(urls)} URLs:")
         for url in urls[:MAX_GROUP_URLS]:
             w(f"    - {_esc(url)}")
         if len(urls) > MAX_GROUP_URLS:
@@ -351,7 +350,7 @@ def _render_generic(w, group: list[Issue]) -> None:
         w("|---|---|")
         for issue in group[:MAX_GENERIC_ROWS]:
             detail = ", ".join(
-                f"{k}={_esc(v)}"
+                f"{k.replace('_', ' ').capitalize()}: {_esc(v)}"
                 for k, v in issue.details.items()
                 if not isinstance(v, (list, dict))
             )

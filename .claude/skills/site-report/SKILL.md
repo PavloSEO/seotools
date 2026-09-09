@@ -91,15 +91,21 @@ the checks that did not run successfully. Their silence does **not** mean "no is
 found." All four formats print this block separately, and the report should be read
 starting with it.
 
-**Then read `findings` by level.** `critical` means the issue is preventing ranking
-right now (the crawler sees an empty page, the canonical points to another host, or
-the page is noindexed). `warning` means the issue causes interference or wastes the
-crawl budget. `notice` is an observation.
+**Then read `findings` by level.** `critical` means the saved evidence matches a
+high-severity rule (for example, an empty page, an off-site canonical, or noindex).
+It does not measure current ranking loss. `warning` means the rule identifies a
+problem likely to interfere with crawling or indexing. `notice` is an observation.
 
 **The level is assigned by rules, not measured.** The rule table is
 `SEVERITY_RULES` in `seohead/audit/site.py`; order matters (the first match wins).
 The document states this explicitly in `summary.severity_note`. If the client
 disagrees with a priority, the rule can be shown and discussed.
+
+**Deliver the recorded observation, not an internal label.** Human formats name
+the issue in plain language and show its saved URL/status/location as the
+reproduction. They do not use a check identifier or the name of the collector as
+evidence. If an older audit lacks those primitive facts, say that reproduction is
+unavailable from the saved audit; do not add a live request or invent one.
 
 ## Which Format Is for Whom
 
@@ -143,6 +149,8 @@ disagrees with a priority, the rule can be shown and discussed.
   same JSON — no re-audit for a second format.
 - [ ] Findings delivered to the user are grouped by critical/warning/notice per
   `SEVERITY_RULES`, not by ad hoc judgment.
+- [ ] Each finding has its saved reproduction, or explicitly says which evidence
+  is absent; failed and partial-run warnings remain before the executive summary.
 
 ## Cost
 `seohead site-audit` runs the site-level checks (domain, CDN/cache, stack,

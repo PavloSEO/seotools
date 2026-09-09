@@ -67,10 +67,16 @@ Converts an SF export (CSV/XLSX) **or** an existing `audit.json` into a human-re
    - **Notice** — URL hygiene, meta-field lengths;
    - **Sitemap & robots** — sitemaps, mismatches, `lastmod` distribution.
 4. **Highlight what matters:** start with critical issues and the most frequent
-   problems (`summary.by_check`); explain the impact and what to fix (the `fix_hint`
-   field). Do not dump the entire list — highlight the priorities and attach the
-   rest as a file.
+problems (`summary.by_check`); explain the impact and what to fix (the `fix_hint`
+field). Do not dump the entire list — highlight the priorities and attach the
+rest as a file.
 5. **Attach** `report/audit.md` (+ `audit.json`) for download.
+
+The Markdown report is for a reader, while `audit.json` remains the technical
+artifact. Use the recorded URL, response status, source location, and detail as
+the reproduction. Do not present a registry identifier or collector name as
+proof. If an older saved audit does not contain a reproducible primitive, state
+that limitation instead of re-crawling or inventing a result.
 
 ## Decision points
 - **`audit.json` already exists vs. fresh exports were also handed over.** If the
@@ -95,6 +101,8 @@ Converts an SF export (CSV/XLSX) **or** an existing `audit.json` into a human-re
   summary, critical, warning, notice, sitemap & robots.
 - [ ] Every broken link in the critical section carries
   source/destination/anchor/position/XPath, not just a URL.
+- [ ] Each delivered finding names a reader-facing issue and its saved
+  reproduction, or explicitly says that the saved audit cannot reproduce it.
 - [ ] The narrative delivered to the user leads with critical issues and cites
   `summary.by_check` for scale, rather than dumping the full issue list inline.
 - [ ] `audit.md` (+ `audit.json`) is attached for download.

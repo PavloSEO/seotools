@@ -382,7 +382,8 @@ def build_server():  # -> FastMCP
 
     @mcp.tool(annotations=pure, structured_output=True)
     def seo_duplicate_check(
-        items: list[dict],
+        items: list[dict] | None = None,
+        scan: str | None = None,
         threshold: float = 0.92,
         with_fingerprints: bool = False,
         only_indexable: bool = True,
@@ -399,10 +400,14 @@ def build_server():  # -> FastMCP
         does not create false matches. only_indexable=True (default) compares only
         items whose indexable flag is true or absent, since a page canonicalised to
         another is an intended twin, not a defect; set it to false to audit the
-        canonical tags themselves."""
+        canonical tags themselves. Pass scan for a validated read-only scan.v1
+        corpus; it reads retained page bodies only and returns coverage. Scan input is
+        capped at 10,000 documents, 16 MiB of extracted input, one million shingles,
+        and 250,000 candidate comparisons; an exhausted bound is unavailable, never clean."""
         return _checked(
             handlers.duplicate_check(
                 items=items,
+                scan=scan,
                 threshold=threshold,
                 with_fingerprints=with_fingerprints,
                 only_indexable=only_indexable,
@@ -475,7 +480,9 @@ def build_server():  # -> FastMCP
         )
 
     @mcp.tool(annotations=pure, structured_output=True)
-    def seo_boilerplate_report(pages: list[dict]) -> dict[str, Any]:
+    def seo_boilerplate_report(
+        pages: list[dict] | None = None, scan: str | None = None
+    ) -> dict[str, Any]:
         """Answer "is the boilerplate actually the same everywhere?" across a crawled
         corpus. Hashes each page's header/nav/footer markup (structure kept, not just
         text, so a link dropped from a menu still changes the hash), groups pages by
@@ -483,8 +490,10 @@ def build_server():  # -> FastMCP
         fraction of the corpus and a sample URL. Catches a nav block that lost links on
         one template, a footer never migrated on old pages, or a menu that renders
         differently under one language branch. Each page is {"url", "html"}, or
-        {"url", "hash"} when the hash was already computed upstream."""
-        return _checked(handlers.boilerplate_report(pages=pages))
+        {"url", "hash"} when the hash was already computed upstream. Pass scan
+        for a validated read-only scan.v1 corpus with retained page HTML. Scan input is
+        capped at 10,000 documents and 16 MiB; an exhausted bound is unavailable."""
+        return _checked(handlers.boilerplate_report(pages=pages, scan=scan))
 
     @mcp.tool(annotations=fetch, structured_output=True)
     def seo_social_meta_check(
@@ -536,7 +545,12 @@ def build_server():  # -> FastMCP
         return _checked(handlers.regions_check(url=url, extra=extra, limit=limit, render=render))
 
     @mcp.tool(annotations=fetch, structured_output=True)
-    def seo_render_check(url: str, viewport: str = "desktop", wait: str = "load") -> dict[str, Any]:
+    def seo_render_check(
+        url: str,
+        viewport: str = "desktop",
+        wait: str = "load",
+        user_agent: str | None = None,
+    ) -> dict[str, Any]:
         """Compare the raw server HTML with the DOM after JavaScript runs — the gap between
         them is what a non-rendering crawler loses. Reports an empty SPA shell
         (<div id="root"></div> means a robot gets a blank page), the share of text and
@@ -553,8 +567,11 @@ def build_server():  # -> FastMCP
         snapshots, never as findings about the site: an unmeasured page is not a defect.
         A requested wait milestone that times out (networkidle on a site with long-polling
         scripts) falls back to reading the DOM at domcontentloaded, recorded in
-        wait_reached."""
-        return _checked(handlers.render_check(url=url, viewport=viewport, wait=wait))
+        wait_reached. `viewport="mobile"` uses a stable smartphone diagnostic identity;
+        user_agent overrides that identity for both requests."""
+        return _checked(
+            handlers.render_check(url=url, viewport=viewport, wait=wait, user_agent=user_agent)
+        )
 
     @mcp.tool(annotations=fetch, structured_output=True)
     def seo_site_audit(

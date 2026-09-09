@@ -399,11 +399,12 @@ Suggest a connected Schema.org @graph for a page. Classifies the page (Article/P
 
 MCP name: `seo_duplicate_check`
 
-Find near-duplicate pages among a list of {id, text} documents using simhash + locality-sensitive hashing (no O(n^2) pairwise comparison). Returns exact duplicates (by content hash) separately from near-duplicate clusters (similarity at or above the threshold, with exact pairwise similarity inside each cluster), so a byte-identical pair is never reported twice. Feed it page texts from a crawl (SF export, sitemap + parse) to surface thin/duplicate content on large sites; ideally each item's text is already scoped to the page's content area (see seo_markdown_extract or parse's content_text field), so shared navigation and footer boilerplate does not create false matches. only_indexable=True (default) compares only items whose indexable flag is true or absent, since a page canonicalised to another is an intended twin, not a defect; set it to false to audit the canonical tags themselves.
+Find near-duplicate pages among a list of {id, text} documents using simhash + locality-sensitive hashing (no O(n^2) pairwise comparison). Returns exact duplicates (by content hash) separately from near-duplicate clusters (similarity at or above the threshold, with exact pairwise similarity inside each cluster), so a byte-identical pair is never reported twice. Feed it page texts from a crawl (SF export, sitemap + parse) to surface thin/duplicate content on large sites; ideally each item's text is already scoped to the page's content area (see seo_markdown_extract or parse's content_text field), so shared navigation and footer boilerplate does not create false matches. only_indexable=True (default) compares only items whose indexable flag is true or absent, since a page canonicalised to another is an intended twin, not a defect; set it to false to audit the canonical tags themselves. Pass scan for a validated read-only scan.v1 corpus; it reads retained page bodies only and returns coverage. Scan input is capped at 10,000 documents, 16 MiB of extracted input, one million shingles, and 250,000 candidate comparisons; an exhausted bound is unavailable, never clean.
 
 | Argument | Type | Default |
 |---|---|---|
-| `items` | `list[dict]` | `required` |
+| `items` | `list[dict] | None` | `None` |
+| `scan` | `str | None` | `None` |
 | `threshold` | `float` | `0.92` |
 | `with_fingerprints` | `bool` | `False` |
 | `only_indexable` | `bool` | `True` |
@@ -481,11 +482,12 @@ Render a page as Markdown in two scopes. content_markdown strips navigation and 
 
 MCP name: `seo_boilerplate_report`
 
-Answer "is the boilerplate actually the same everywhere?" across a crawled corpus. Hashes each page's header/nav/footer markup (structure kept, not just text, so a link dropped from a menu still changes the hash), groups pages by that hash, and reports every group that is not the dominant one -- with its fraction of the corpus and a sample URL. Catches a nav block that lost links on one template, a footer never migrated on old pages, or a menu that renders differently under one language branch. Each page is {"url", "html"}, or {"url", "hash"} when the hash was already computed upstream.
+Answer "is the boilerplate actually the same everywhere?" across a crawled corpus. Hashes each page's header/nav/footer markup (structure kept, not just text, so a link dropped from a menu still changes the hash), groups pages by that hash, and reports every group that is not the dominant one -- with its fraction of the corpus and a sample URL. Catches a nav block that lost links on one template, a footer never migrated on old pages, or a menu that renders differently under one language branch. Each page is {"url", "html"}, or {"url", "hash"} when the hash was already computed upstream. Pass scan for a validated read-only scan.v1 corpus with retained page HTML. Scan input is capped at 10,000 documents and 16 MiB; an exhausted bound is unavailable.
 
 | Argument | Type | Default |
 |---|---|---|
-| `pages` | `list[dict]` | `required` |
+| `pages` | `list[dict] | None` | `None` |
+| `scan` | `str | None` | `None` |
 
 **Cost** — network: no · writes files: no · idempotent: yes · spends money: no
 
@@ -547,13 +549,14 @@ Audit a site's regional structure: subdomains (msk.site.ru), folders (site.ru/ms
 
 MCP name: `seo_render_check`
 
-Compare the raw server HTML with the DOM after JavaScript runs — the gap between them is what a non-rendering crawler loses. Reports an empty SPA shell (<div id="root"></div> means a robot gets a blank page), the share of text and internal links that appear only after JS, a title/canonical rewritten by script, and Schema.org markup injected client-side. Also returns lab timings (TTFB, FCP, LCP, CLS, load) measured in one Chromium run — these are lab numbers, not field Core Web Vitals from CrUX, and are labelled metrics_lab for that reason. Also returns dual_crawl (schema dualcrawl.v1): per-URL image/link evidence seen by only the raw pass or only the rendered pass, a separate question from the raw/rendered diff above. Requires Playwright; if it is missing the tool says so and gives the install command instead of failing. A render that did not finish — a document with no title, no h1, no canonical and no links, far smaller than the raw response — comes back as ok:false with reason "incomplete_render" and both snapshots, never as findings about the site: an unmeasured page is not a defect. A requested wait milestone that times out (networkidle on a site with long-polling scripts) falls back to reading the DOM at domcontentloaded, recorded in wait_reached.
+Compare the raw server HTML with the DOM after JavaScript runs — the gap between them is what a non-rendering crawler loses. Reports an empty SPA shell (<div id="root"></div> means a robot gets a blank page), the share of text and internal links that appear only after JS, a title/canonical rewritten by script, and Schema.org markup injected client-side. Also returns lab timings (TTFB, FCP, LCP, CLS, load) measured in one Chromium run — these are lab numbers, not field Core Web Vitals from CrUX, and are labelled metrics_lab for that reason. Also returns dual_crawl (schema dualcrawl.v1): per-URL image/link evidence seen by only the raw pass or only the rendered pass, a separate question from the raw/rendered diff above. Requires Playwright; if it is missing the tool says so and gives the install command instead of failing. A render that did not finish — a document with no title, no h1, no canonical and no links, far smaller than the raw response — comes back as ok:false with reason "incomplete_render" and both snapshots, never as findings about the site: an unmeasured page is not a defect. A requested wait milestone that times out (networkidle on a site with long-polling scripts) falls back to reading the DOM at domcontentloaded, recorded in wait_reached. `viewport="mobile"` uses a stable smartphone diagnostic identity; user_agent overrides that identity for both requests.
 
 | Argument | Type | Default |
 |---|---|---|
 | `url` | `str` | `required` |
 | `viewport` | `str` | `'desktop'` |
 | `wait` | `str` | `'load'` |
+| `user_agent` | `str | None` | `None` |
 
 **Cost** — network: yes · writes files: no · idempotent: yes · spends money: no
 

@@ -9,6 +9,7 @@ import pytest
 
 from seohead.sf.config import ConfigError
 from seohead.sf.core.audit import run_audit
+from seohead.sf.core.registry import check_meta
 from seohead.sf.reporters import write_json, write_markdown
 from seohead.sf.reporters.jsonfile import validate
 from seohead.sf.reporters.md import _esc
@@ -61,10 +62,12 @@ def test_markdown_frequency_table_uses_overridden_severity_not_registry_default(
     path = write_markdown(res, str(tmp_path / "audit.md"))
     with open(path, encoding="utf-8") as stream:
         text = stream.read()
+    from seohead.reports.client_findings import check_title
+
     freq_line = next(
         line
         for line in text.splitlines()
-        if "`TITLE_DUPLICATE`" in line and "|" in line and line.count("|") == 4
+        if check_title("TITLE_DUPLICATE") in line and "|" in line and line.count("|") == 4
     )
     assert "notice" in freq_line
     assert "warning" not in freq_line
@@ -81,13 +84,11 @@ def test_markdown_frequency_table_keeps_registry_default_without_overrides(resul
         (
             line
             for line in text.splitlines()
-            if "`BROKEN_INTERNAL_LINK`" in line and line.count("|") == 4
+            if check_meta("BROKEN_INTERNAL_LINK")["message"] in line and line.count("|") == 4
         ),
         None,
     )
     if freq_line is not None:
-        from seohead.sf.core.registry import check_meta
-
         expected = check_meta("BROKEN_INTERNAL_LINK")["severity"]
         assert expected in freq_line
 
@@ -114,7 +115,8 @@ def test_markdown_has_broken_link_table(result, tmp_path):
     path = write_markdown(result, str(tmp_path / "audit.md"))
     with open(path, encoding="utf-8") as stream:
         text = stream.read()
-    assert "BROKEN_INTERNAL_LINK" in text
+    assert check_meta("BROKEN_INTERNAL_LINK")["message"] in text
+    assert "BROKEN_INTERNAL_LINK" not in text
     assert "/html/body/footer/nav/a[2]" in text  # XPath location details are rendered.
     score = result.summary["health_score"]
     if score is None:
@@ -171,7 +173,7 @@ def test_markdown_populates_skipped_and_disabled_appendices_from_the_result(resu
 
     assert "## Appendix: skipped checks" in text
     first_skipped = result.skipped[0]
-    assert f"`{first_skipped.id}`" in text
+    assert check_meta(first_skipped.id)["message"] in text
     assert first_skipped.reason in text
     # Negative control: no disabled checks in this run, so that appendix
     # must stay absent rather than printing an empty table.
@@ -196,7 +198,7 @@ def test_markdown_disabled_appendix_is_populated_when_a_check_is_turned_off(expo
     text = Path(path).read_text(encoding="utf-8")
 
     assert "## Appendix: disabled checks" in text
-    assert "`BROKEN_INTERNAL_LINK`" in text
+    assert check_meta("BROKEN_INTERNAL_LINK")["message"] in text
 
 
 def test_markdown_states_a_withheld_score_with_its_reason(tmp_path, result):

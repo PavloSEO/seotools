@@ -7,7 +7,7 @@ required together; the notes name those relationships.
 A **scan artifact** is a retained local `scan.v1` SQLite file. Read-only analysis and
 history operations do not replay a crawl or promise retained page bodies. `crawl-site --resume`
 is the explicit exception: it continues network collection. `duplicate-check` and
-`boilerplate-report` currently accept inline corpora only; they do not accept `--scan`.
+`boilerplate-report` may instead read one retained scan corpus with `--scan`.
 
 ## Operational-store decision
 
@@ -48,13 +48,13 @@ and this decision makes no backend migration.
 | `backlinks-check` | Domain (`target`); requires `donors`<br>URL list (`donors`); requires `target`<br>Local file (`donors_file`); requires `target` | — |
 | `schema-check` | Live URL (`url`)<br>Inline HTML (`html`) | — |
 | `schema-build` | Live URL (`url`)<br>Inline HTML (`html`) | — |
-| `duplicate-check` | Inline corpus (`items`) | — |
+| `duplicate-check` | Inline corpus (`items`)<br>Scan artifact (`scan`) | — |
 | `ai-bots-check` | Live URL (`url`)<br>Inline text (`robots_text`) | — |
 | `mirror-check` | Live URL (`url`) | — |
 | `llms-txt-check` | Live URL (`url`) | — |
 | `citability-check` | Live URL (`url`)<br>Inline text (`text`) | — |
 | `markdown-extract` | Live URL (`url`)<br>Inline HTML (`html`) | — |
-| `boilerplate-report` | Inline corpus (`pages`) | — |
+| `boilerplate-report` | Inline corpus (`pages`)<br>Scan artifact (`scan`) | — |
 | `social-meta-check` | Live URL (`url`)<br>Inline JSON (`og, twitter`) | — |
 | `soft404-check` | Live URL (`url`) | — |
 | `log-analyze` | Local log (`path`) | — |

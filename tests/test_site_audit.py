@@ -344,7 +344,8 @@ def test_markdown_keeps_the_failed_tools_visible(tmp_path):
     target = tmp_path / "r.md"
     build_report(DOCUMENT, fmt="md", path=str(target))
     text = target.read_text(encoding="utf-8")
-    assert "Unavailable checks" in text and "log_analyze" in text
+    assert "Unavailable checks" in text and "Log analyze" in text
+    assert "file is unavailable" in text and "log_analyze" not in text
     assert "Critical" in text
 
 
@@ -570,7 +571,8 @@ def test_xlsx_findings_sheet_carries_located_evidence(tmp_path):
     ws = load_workbook(target)["Findings"]
     headers = [cell.value for cell in ws[1]]
     row = dict(zip(headers, [cell.value for cell in ws[2]], strict=True))
-    assert row["Check"] == "BROKEN_INTERNAL_LINK"
+    assert row["Finding"] == "Internal link points to a 4xx URL"
+    assert "https://example.test/dead returned HTTP 404" in row["Reproduction"]
     assert row["Status"] == 404
     assert row["Occurrences"] == 2
     assert row["Fix Hint"] == "Replace the shared footer link."
@@ -590,7 +592,8 @@ def test_csv_findings_carries_located_evidence(tmp_path):
         rows = list(csv.reader(fh, delimiter=";"))
     header, row = rows[0], dict(zip(rows[0], rows[1], strict=True))
     assert "Locations" in header and "Fix Hint" in header
-    assert row["Check"] == "BROKEN_INTERNAL_LINK"
+    assert row["Finding"] == "Internal link points to a 4xx URL"
+    assert "https://example.test/dead returned HTTP 404" in row["Reproduction"]
     assert row["Status"] == "404"
     assert row["Occurrences"] == "2"
     assert "https://example.test/source-a" in row["Locations"]

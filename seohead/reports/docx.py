@@ -21,6 +21,7 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
     from docx.shared import Pt, RGBColor
 
     from seohead.reports import SEVERITY_TITLES
+    from seohead.reports.client_findings import check_title
 
     doc = Document()
     summary = document.get("summary") or {}
@@ -70,7 +71,9 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
             "Their silence is a configuration choice, not a clean result:"
         )
         for item in disabled:
-            doc.add_paragraph(f"{item.get('id')} — {item.get('reason')}", style="List Bullet")
+            doc.add_paragraph(
+                f"{check_title(item.get('id'))} — {item.get('reason')}", style="List Bullet"
+            )
 
     failed = summary.get("tools_failed") or []
     if failed:
@@ -80,7 +83,9 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
             "Their silence does not mean that no issues were found:"
         )
         for item in failed:
-            doc.add_paragraph(f"{item.get('tool')} — {item.get('error')}", style="List Bullet")
+            doc.add_paragraph(
+                f"{check_title(item.get('tool'))} — {item.get('error')}", style="List Bullet"
+            )
 
     findings = document.get("findings") or []
     for level in ("critical", "warning", "notice"):
@@ -99,14 +104,18 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
             run.bold = True
             run.font.color.rgb = RGBColor(0xC0, 0, 0)
         for finding in chunk[:_MAX_FINDINGS_PER_LEVEL]:
-            text = finding.get("text", "")
-            where = finding.get("url") or finding.get("source", "")
             para = doc.add_paragraph(style="List Bullet")
-            para.add_run(text)
-            if where:
-                tail = para.add_run(f"  [{where}]")
-                tail.font.size = Pt(8)
-                tail.font.color.rgb = RGBColor(0x80, 0x80, 0x80)
+            para.add_run(finding.get("client_title", "Audit finding")).bold = True
+            observation = finding.get("client_observation")
+            if observation:
+                doc.add_paragraph(f"Observation: {observation}", style="List Bullet 2")
+            doc.add_paragraph(
+                f"Reproduction: {finding.get('client_reproduction', '')}", style="List Bullet 2"
+            )
+            for detail in finding.get("client_details") or []:
+                doc.add_paragraph(f"Evidence: {detail}", style="List Bullet 2")
+            for location in finding.get("client_locations") or []:
+                doc.add_paragraph(f"Location: {location}", style="List Bullet 2")
         if len(chunk) > _MAX_FINDINGS_PER_LEVEL:
             doc.add_paragraph(
                 f"…and {len(chunk) - _MAX_FINDINGS_PER_LEVEL} more. "

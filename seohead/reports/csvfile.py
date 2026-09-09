@@ -20,6 +20,8 @@ from typing import Any
 
 def _scope_rows(summary: dict[str, Any]) -> list[list[Any]]:
     """Return run evidence separately from task-tracker finding rows (#574)."""
+    from seohead.reports.client_findings import check_title
+
     rows: list[list[Any]] = []
     if summary.get("crawl_valid") is False:
         rows.append(
@@ -38,14 +40,14 @@ def _scope_rows(summary: dict[str, Any]) -> list[list[Any]]:
             bits.append(scope)
         rows.append(["crawl", "scope", "partial", "; ".join(bits)])
     for item in summary.get("checks_disabled") or []:
-        rows.append(["check", item.get("id", ""), "disabled", item.get("reason", "")])
+        rows.append(["check", check_title(item.get("id")), "disabled", item.get("reason", "")])
     for item in summary.get("tools_failed") or []:
-        rows.append(["check", item.get("tool", ""), "unavailable", item.get("error", "")])
+        rows.append(["check", check_title(item.get("tool")), "unavailable", item.get("error", "")])
     return rows
 
 
 def write(document: dict[str, Any], path: pathlib.Path) -> None:
-    from seohead.reports import SEVERITY_TITLES, format_locations, neutralize_formula
+    from seohead.reports import SEVERITY_TITLES, neutralize_formula
 
     with path.open("w", encoding="utf-8-sig", newline="") as fh:
         # ``utf-8-sig`` includes a BOM so Excel detects UTF-8 instead of corrupting
@@ -58,12 +60,13 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
         writer.writerow(
             [
                 "Severity",
-                "Source",
                 "URL",
                 "Finding",
-                "Check",
+                "Observation",
+                "Reproduction",
                 "Status",
                 "Occurrences",
+                "Evidence",
                 "Locations",
                 "Fix Hint",
             ]
@@ -72,13 +75,14 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
             writer.writerow(
                 [
                     SEVERITY_TITLES.get(finding.get("severity"), finding.get("severity")),
-                    neutralize_formula(finding.get("source", "")),
                     neutralize_formula(finding.get("url", "")),
-                    neutralize_formula(finding.get("text", "")),
-                    finding.get("check", ""),
+                    neutralize_formula(finding.get("client_title", "Audit finding")),
+                    neutralize_formula(finding.get("client_observation", "")),
+                    neutralize_formula(finding.get("client_reproduction", "")),
                     finding.get("status_code", ""),
                     finding.get("occurrences_count", ""),
-                    neutralize_formula(format_locations(finding.get("locations"))),
+                    neutralize_formula("; ".join(finding.get("client_details") or [])),
+                    neutralize_formula("; ".join(finding.get("client_locations") or [])),
                     neutralize_formula(finding.get("fix_hint", "")),
                 ]
             )

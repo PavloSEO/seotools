@@ -1,9 +1,6 @@
 # SEO audit — example.com
 
-- **Generated:** 2026-09-08T20:33:57Z
-- **Input mode:** parse-exports  ·  **Profile:** full
-- **Source:** examples/exports
-- **Exports used:** internal_all, inlinks_4xx
+- **Generated:** 2026-09-08T21:18:03Z
 
 ## Health summary
 
@@ -24,20 +21,20 @@ _70 of 161 checks could run; the score is not comparable to a run with full evid
 
 **Most frequent issues:**
 
-| Check | Count | Severity |
+| Issue | Count | Severity |
 |---|---:|---|
-| `H2_DUPLICATE` | 3 | notice |
-| `DESC_DUPLICATE` | 2 | warning |
-| `TITLE_DUPLICATE` | 2 | warning |
-| `TITLE_TOO_SHORT` | 2 | notice |
-| `BROKEN_INTERNAL_LINK` | 1 | critical |
-| `BROKEN_PAGE_4XX` | 1 | critical |
-| `CANONICAL_MISSING` | 1 | warning |
-| `DESC_MISSING` | 1 | warning |
-| `DESC_TOO_SHORT` | 1 | notice |
-| `H1_MULTIPLE` | 1 | warning |
-| `HTML_BLOAT` | 1 | notice |
-| `LARGE_HTML` | 1 | warning |
+| H2 is duplicated across multiple URLs | 3 | notice |
+| Duplicate meta description | 2 | warning |
+| Duplicate title element | 2 | warning |
+| Title falls below the configured length threshold | 2 | notice |
+| Internal link points to a 4xx URL | 1 | critical |
+| Page returns a 4xx response (broken page) | 1 | critical |
+| Indexable page has no canonical URL | 1 | warning |
+| Meta description is missing | 1 | warning |
+| Meta description falls below the configured length threshold | 1 | notice |
+| Multiple H1 headings on the page | 1 | warning |
+| HTML bloat: high document size relative to text content | 1 | notice |
+| HTML document is large in absolute terms or relative to the site | 1 | warning |
 
 **Internal linking**
 
@@ -49,13 +46,13 @@ _70 of 161 checks could run; the score is not comparable to a run with full evid
 
 Each check below describes more than half the crawled pages. That can be true -- a site really may have no meta description anywhere -- but it is also what a broken check looks like, and it is worth one minute of checking against the live site before the rest of this report is acted on.
 
-| Check | Pages | Share of crawl |
+| Issue | Pages | Share of crawl |
 |---|---:|---:|
-| `H2_DUPLICATE` | 3 | 75% |
+| H2 is duplicated across multiple URLs | 3 | 75% |
 
 ## 🔴 Critical (3)
 
-### `BROKEN_INTERNAL_LINK` — Internal link points to a 4xx URL (1)
+### Internal link points to a 4xx URL (1)
 
 | Destination | Status | Source page | Anchor | Position | XPath |
 |---|---:|---|---|---|---|
@@ -64,15 +61,15 @@ Each check below describes more than half the crawled pages. That can be true --
 
 > _How to fix:_ Update the link to the current URL or add an appropriate 301 redirect; if it appears in the footer or navigation, fix the shared template.
 
-### `BROKEN_PAGE_4XX` — Page returns a 4xx response (broken page) (1)
+### Page returns a 4xx response (broken page) (1)
 
 | URL | Details |
 |---|---|
-| https://example.com/old-page | status=Not Found, inlinks=4 |
+| https://example.com/old-page | Status: Not Found, Inlinks: 4 |
 
 > _How to fix:_ Restore the page or redirect it with a 301 to a relevant URL; remove or update links that point to it.
 
-### `TITLE_MISSING` — Title element is missing (1)
+### Title element is missing (1)
 
 - https://example.com/no-title
 
@@ -80,13 +77,13 @@ Each check below describes more than half the crawled pages. That can be true --
 
 ## 🟡 Warning (10)
 
-### `CANONICAL_MISSING` — Indexable page has no canonical URL (1)
+### Indexable page has no canonical URL (1)
 
 - https://example.com/no-title
 
 > _How to fix:_ Add a valid <link rel="canonical"> element.
 
-### `DESC_DUPLICATE` — Duplicate meta description (2)
+### Duplicate meta description (2)
 
 - **"A sample description over seventy characters that reliably meets the configured audit threshold."** — 2 URLs:
     - https://example.com/
@@ -94,13 +91,13 @@ Each check below describes more than half the crawled pages. That can be true --
 
 > _How to fix:_ Write a unique meta description for each page.
 
-### `DESC_MISSING` — Meta description is missing (1)
+### Meta description is missing (1)
 
 - https://example.com/no-title
 
 > _How to fix:_ Add a useful meta description, typically up to about 160 characters.
 
-### `H1_MULTIPLE` — Multiple H1 headings on the page (1)
+### Multiple H1 headings on the page (1)
 
 | URL | H1 text |
 |---|---|
@@ -108,7 +105,7 @@ Each check below describes more than half the crawled pages. That can be true --
 
 > _How to fix:_ Keep one primary H1 and demote the remaining headings to H2 or H3 as appropriate.
 
-### `LARGE_HTML` — HTML document is large in absolute terms or relative to the site (1)
+### HTML document is large in absolute terms or relative to the site (1)
 
 | URL | Size | × median | Rank |
 |---|---:|---:|---:|
@@ -116,23 +113,23 @@ Each check below describes more than half the crawled pages. That can be true --
 
 > _How to fix:_ Reduce HTML size by removing unnecessary markup, extracting inline styles or scripts, and avoiding embedded base64 assets.
 
-### `SLOW_RESPONSE` — Slow server response (1)
+### Slow server response (1)
 
 | URL | Details |
 |---|---|
-| https://example.com/no-title | response_time=2.0, max_s=1.5 |
+| https://example.com/no-title | Response time: 2.0, Max s: 1.5 |
 
 > _How to fix:_ Improve TTFB by profiling the application and origin, then optimizing caching and infrastructure.
 
-### `THIN_CONTENT` — Thin content (low word count) (1)
+### Thin content (low word count) (1)
 
 | URL | Details |
 |---|---|
-| https://example.com/page-b | word_count=50, threshold=200 |
+| https://example.com/page-b | Word count: 50, Threshold: 200 |
 
 > _How to fix:_ Add substantial, useful content or exclude the page from indexing when it has no standalone search value.
 
-### `TITLE_DUPLICATE` — Duplicate title element (2)
+### Duplicate title element (2)
 
 - **"Industrial Pumps Product A"** — 2 URLs:
     - https://example.com/page-a
@@ -142,46 +139,46 @@ Each check below describes more than half the crawled pages. That can be true --
 
 ## ⚪ Notice (8)
 
-### `DESC_TOO_SHORT` — Meta description falls below the configured length threshold (1)
+### Meta description falls below the configured length threshold (1)
 
 | URL | Details |
 |---|---|
-| https://example.com/page-a | length=7, min_chars=70 |
+| https://example.com/page-a | Length: 7, Min chars: 70 |
 
 > _How to fix:_ Expand the description with specific, useful page information.
 
-### `H2_DUPLICATE` — H2 is duplicated across multiple URLs (3)
+### H2 is duplicated across multiple URLs (3)
 
 | URL | Details |
 |---|---|
-| https://example.com/ | value=Section, duplicate_count=3 |
-| https://example.com/no-title | value=Section, duplicate_count=3 |
-| https://example.com/page-a | value=Section, duplicate_count=3 |
+| https://example.com/ | Value: Section, Duplicate count: 3 |
+| https://example.com/no-title | Value: Section, Duplicate count: 3 |
+| https://example.com/page-a | Value: Section, Duplicate count: 3 |
 
 > _How to fix:_ Use a unique, page-specific H2 on each URL, or accept it for a shared boilerplate subheading that is genuinely meant to repeat.
 
-### `HTML_BLOAT` — HTML bloat: high document size relative to text content (1)
+### HTML bloat: high document size relative to text content (1)
 
 | URL | Details |
 |---|---|
-| https://example.com/page-b | bytes_per_word=1600.0, site_median_bpw=375.0, word_count=50, size_bytes=80000 |
+| https://example.com/page-b | Bytes per word: 1600.0, Site median bpw: 375.0, Word count: 50, Size bytes: 80000 |
 
 > _How to fix:_ Reduce bytes per word by extracting styles and scripts, removing embedded base64 assets, and simplifying markup.
 
-### `LOW_TEXT_RATIO` — Low text-to-HTML ratio (1)
+### Low text-to-HTML ratio (1)
 
 | URL | Details |
 |---|---|
-| https://example.com/page-b | text_ratio=8.0, threshold=10 |
+| https://example.com/page-b | Text ratio: 8.0, Threshold: 10 |
 
 > _How to fix:_ Increase the proportion of meaningful visible content or reduce unnecessary markup.
 
-### `TITLE_TOO_SHORT` — Title falls below the configured length threshold (2)
+### Title falls below the configured length threshold (2)
 
 | URL | Details |
 |---|---|
-| https://example.com/page-a | title=Industrial Pumps Product A, length=26, min_chars=30 |
-| https://example.com/page-b | title=Industrial Pumps Product A, length=26, min_chars=30 |
+| https://example.com/page-a | Title: Industrial Pumps Product A, Length: 26, Min chars: 30 |
+| https://example.com/page-b | Title: Industrial Pumps Product A, Length: 26, Min chars: 30 |
 
 > _How to fix:_ Expand the title to an informative length without padding it with boilerplate.
 
@@ -194,97 +191,97 @@ Each check below describes more than half the crawled pages. That can be true --
 
 ## Appendix: skipped checks
 
-| Check | Reason |
+| Issue | Reason |
 |---|---|
-| `IMG_MISSING_ALT` | missing export: images_missing_alt |
-| `IMG_OVER_KB` | missing export: images_over_kb |
-| `IMG_MISSING_DIMENSIONS` | missing export: images_missing_size |
-| `MIXED_CONTENT` | missing export: security_mixed |
-| `MISSING_HSTS` | missing export: security_hsts |
-| `STRUCTURED_DATA_MISSING` | missing export: structured_data_missing |
-| `HREFLANG_ERROR` | missing export: hreflang |
-| `HREFLANG_BROKEN_TARGET` | missing export: all_hreflang |
-| `SITEMAP_URL_4XX_5XX` | missing export: sitemap_non_200 |
-| `SITEMAP_URL_3XX` | missing export: sitemap_redirects |
-| `SITEMAP_URL_NON_INDEXABLE` | missing export: sitemap_non_indexable |
-| `DESC_MULTIPLE` | no meta description count evidence (native crawl only) |
-| `H2_MISSING` | requirements.require_h2 is false; the check was not evaluated |
-| `H1_ALT_TEXT_ONLY` | no H1 alt-text evidence (native crawl only) |
-| `HEADING_BEFORE_H1` | no heading outline evidence (native crawl only) |
-| `HEADING_IN_PAGE_CHROME` | no heading outline evidence (native crawl only) |
-| `LINK_INSIDE_HEADING` | no link-placement evidence (native crawl only) |
-| `IMAGE_LINK_WITHOUT_TEXT` | no link-placement evidence (native crawl only) |
-| `META_KEYWORDS_PRESENT` | no Meta Keywords 1 column in Internal:All |
-| `CONTENT_IN_IFRAME` | no iframe inventory in this evidence |
-| `SCHEMA_VALIDATION_ERROR` | no Structured Data validation columns in Internal:All |
-| `STRUCTURED_DATA_PARSE_ERROR` | no JSON-LD found/parsed block counts (native crawl only) |
-| `READABILITY_DIFFICULT` | no Readability/Flesch column |
-| `LONG_SENTENCES` | no Average Words Per Sentence column |
-| `SPELLING_ERRORS` | no Spelling Errors column (enable spell-check in SF) |
-| `GRAMMAR_ERRORS` | no Grammar Errors column (enable grammar-check in SF) |
-| `HTTP_REFRESH_REDIRECT` | no Refresh response header evidence (native crawl only) |
-| `CANONICAL_MULTIPLE` | no Canonical Link Element 2 column in Internal:All |
-| `PAGINATION_LOOP` | no rel="next" column in Internal:All |
-| `UNLINKED_PAGINATION_SERIES` | no rel="next" column in Internal:All |
-| `PAGINATION_SEQUENCE_ERROR` | no rel="next" column in Internal:All |
-| `HTTP1_ONLY` | no HTTP Version column in Internal:All |
-| `AMPHTML_PRESENT` | no amphtml Link Element column in Internal:All |
-| `LOREM_IPSUM_PLACEHOLDER` | no Lorem Ipsum evidence (native crawl only) |
-| `UNSUPPORTED_PLUGIN` | no plugin-element evidence (native crawl only) |
-| `IMG_MISSING_ALT_ATTRIBUTE` | no per-image evidence (native crawl only) |
-| `IMG_ALT_TOO_LONG` | no per-image evidence (native crawl only) |
-| `AJAX_CRAWLING_SCHEME_URL` | no AJAX-scheme URL evidence (native crawl only) |
-| `AJAX_CRAWLING_SCHEME_META_FRAGMENT` | no <meta name="fragment"> evidence (native crawl only) |
-| `MISSING_CHARSET` | no Meta Charset column, so a page without a header charset cannot be distinguished from one declaring <meta charset> (needs a native seohead crawl or Custom Extraction in SF) |
-| `MISSING_DOCTYPE` | no Doctype column (needs a native seohead crawl or Custom Extraction in SF) |
-| `VIEWPORT_MISSING` | no Viewport column (needs a native seohead crawl or Custom Extraction in SF) |
-| `NO_COMPRESSION` | no Content-Encoding column (needs a native seohead crawl or Custom Extraction in SF) |
-| `TITLE_OUTSIDE_HEAD` | no element-position evidence (needs a native seohead crawl; Screaming Frog has no notion of this on its own) |
-| `DESC_OUTSIDE_HEAD` | no element-position evidence (needs a native seohead crawl; Screaming Frog has no notion of this on its own) |
-| `CANONICAL_OUTSIDE_HEAD` | no element-position evidence (needs a native seohead crawl; Screaming Frog has no notion of this on its own) |
-| `DIRECTIVES_OUTSIDE_HEAD` | no element-position evidence (needs a native seohead crawl; Screaming Frog has no notion of this on its own) |
-| `HREFLANG_OUTSIDE_HEAD` | no element-position evidence (needs a native seohead crawl; Screaming Frog has no notion of this on its own) |
-| `HEAD_MISSING` | no element-position evidence (needs a native seohead crawl; Screaming Frog has no notion of this on its own) |
-| `HEAD_MULTIPLE` | no element-position evidence (needs a native seohead crawl; Screaming Frog has no notion of this on its own) |
-| `BODY_MISSING` | no element-position evidence (needs a native seohead crawl; Screaming Frog has no notion of this on its own) |
-| `BODY_MULTIPLE` | no element-position evidence (needs a native seohead crawl; Screaming Frog has no notion of this on its own) |
-| `INVALID_HEAD_ELEMENT` | no element-position evidence (needs a native seohead crawl; Screaming Frog has no notion of this on its own) |
-| `HEAD_NOT_FIRST` | no element-position evidence (needs a native seohead crawl; Screaming Frog has no notion of this on its own) |
-| `OG_MISSING` | no Open Graph columns in Internal:All (enable OG extraction in SF) |
-| `REDIRECT_CHAIN` | no redirect data (Internal:All has no Redirect URL column) |
-| `REDIRECT_LOOP` | no redirect data (Internal:All has no Redirect URL column) |
-| `TITLE_MULTIPLE` | no titles_multiple export (export this SF filter to enable) |
-| `LINK_TO_5XX` | export inlinks_5xx not available |
-| `BROKEN_EXTERNAL_LINK` | export inlinks_5xx not available |
-| `INTERNAL_LINK_TO_REDIRECT` | export inlinks_3xx not available |
-| `EXTERNAL_LINK_TO_REDIRECT` | export inlinks_3xx not available |
-| `HREFLANG_INVALID_CODE` | no all_hreflang export (export Bulk Export -> Links -> All Hreflang) |
-| `HREFLANG_MULTIPLE_ENTRIES` | no all_hreflang export (export Bulk Export -> Links -> All Hreflang) |
-| `HREFLANG_MISSING_SELF_REFERENCE` | no all_hreflang export (export Bulk Export -> Links -> All Hreflang) |
-| `HREFLANG_MISSING_XDEFAULT` | no all_hreflang export (export Bulk Export -> Links -> All Hreflang) |
-| `HREFLANG_NOT_CANONICAL` | no all_hreflang export (export Bulk Export -> Links -> All Hreflang) |
-| `HREFLANG_MISSING_RETURN_LINK` | no all_hreflang export (export Bulk Export -> Links -> All Hreflang) |
-| `HREFLANG_INCONSISTENT_CONFIRMATION` | no all_hreflang export (export Bulk Export -> Links -> All Hreflang) |
-| `LOW_LINK_SCORE` | no all_inlinks export (needed for the complete internal edge list) |
-| `ONLY_NOFOLLOW_INLINKS` | no all_inlinks export (needed for the complete inlink list) |
-| `ONLY_NONINDEXABLE_SOURCE_INLINKS` | no all_inlinks export (needed for the complete inlink list) |
-| `DEEP_DISCOVERY_PATH` | no all_inlinks export (needed for the complete internal edge list) |
-| `INSECURE_SUBRESOURCE` | no all_inlinks export (needed for the resource inventory) |
-| `PAGINATION_MULTIPLE` | no all_inlinks export (needed for every rel="next"/rel="prev" declaration and the anchors beside them) |
-| `PAGINATION_URL_NOT_IN_ANCHOR` | no all_inlinks export (needed for every rel="next"/rel="prev" declaration and the anchors beside them) |
-| `DEEP_CLICK_DEPTH` | no all_inlinks export (needed for the complete internal edge list) |
-| `DUPLICATE_INTERNAL_LINK` | no all_inlinks export (needed for the complete internal edge list) |
-| `DOM_TOO_DEEP` | no stored HTML (input.html_store_dir not set) |
-| `DOM_TOO_MANY_NODES` | no stored HTML (input.html_store_dir not set) |
-| `DUPLICATE_BY_HASH` | SF native Hash column already covers this |
-| `NEAR_DUPLICATE` | no stored HTML (input.html_store_dir not set) |
-| `TITLE_TEMPLATED` | too few titles to assess templating |
-| `SITEMAP_NOT_IN_ROBOTS` | no sitemap URL to check (no export, no --sitemap, and live_recheck disabled) |
-| `ROBOTS_BLOCKS_RESOURCES` | no sitemap URL to check (no export, no --sitemap, and live_recheck disabled) |
-| `SITEMAP_FETCH_INCOMPLETE` | no sitemap URL to check (no export, no --sitemap, and live_recheck disabled) |
-| `SITEMAP_TOO_MANY_URLS` | no sitemap document was fetched to measure |
-| `SITEMAP_TOO_LARGE` | no sitemap document was fetched to measure |
-| `SITEMAP_URL_DUPLICATED` | no sitemap entries were fetched to compare |
-| `SITEMAP_STALE_LASTMOD` | no sitemap entries were fetched to compare |
-| `SITEMAP_DESYNC` | no sitemap URL set (no export and network disabled) |
+| Image is missing alt text | missing export: images_missing_alt |
+| Image exceeds the configured file-size threshold | missing export: images_over_kb |
+| Image is missing width and height attributes | missing export: images_missing_size |
+| Mixed content: HTTPS page loads resources over HTTP | missing export: security_mixed |
+| HSTS header is missing | missing export: security_hsts |
+| Structured data is missing | missing export: structured_data_missing |
+| Hreflang implementation error | missing export: hreflang |
+| Hreflang points to a redirecting or broken URL (3xx, 4xx, or 5xx) | missing export: all_hreflang |
+| Sitemap URL returns a 4xx or 5xx response | missing export: sitemap_non_200 |
+| Sitemap URL returns a 3xx response | missing export: sitemap_redirects |
+| Sitemap contains a non-indexable URL | missing export: sitemap_non_indexable |
+| More than one <meta name="description"> element is present | no meta description count evidence (native crawl only) |
+| Page has an H1 but no H2 headings | requirements.require_h2 is false; the check was not evaluated |
+| The H1 has no text of its own; its only content is an image's alt attribute | no H1 alt-text evidence (native crawl only) |
+| One or more headings appear before the page's first H1 in DOM order | no heading outline evidence (native crawl only) |
+| A heading sits in the page chrome (header, nav, sidebar or footer) rather than in the content | no heading outline evidence (native crawl only) |
+| A heading on the page is, or contains, a link to somewhere else | no link-placement evidence (native crawl only) |
+| An image link carries no anchor text and no alt text, so nothing says where it goes | no link-placement evidence (native crawl only) |
+| Obsolete meta keywords element is present | no Meta Keywords 1 column in Internal:All |
+| The page's content sits inside an iframe and is not attributed to this URL | no iframe inventory in this evidence |
+| Structured data validation errors | no Structured Data validation columns in Internal:All |
+| A JSON-LD block is present but did not parse as valid JSON | no JSON-LD found/parsed block counts (native crawl only) |
+| Text is difficult to read (low Flesch score) | no Readability/Flesch column |
+| Average sentence length is too high | no Average Words Per Sentence column |
+| Spelling errors detected | no Spelling Errors column (enable spell-check in SF) |
+| Grammar errors detected | no Grammar Errors column (enable grammar-check in SF) |
+| Redirect is implemented with an HTTP Refresh response header | no Refresh response header evidence (native crawl only) |
+| Page declares multiple canonical URLs | no Canonical Link Element 2 column in Internal:All |
+| A rel="next" pagination series loops back on itself | no rel="next" column in Internal:All |
+| A pagination series is reachable only by following rel="next", never by a hyperlink | no rel="next" column in Internal:All |
+| A rel="next" series breaks a page-number run it otherwise follows | no rel="next" column in Internal:All |
+| Response uses HTTP/1.x rather than HTTP/2 or newer | no HTTP Version column in Internal:All |
+| AMP version is declared | no amphtml Link Element column in Internal:All |
+| The Lorem Ipsum placeholder passage appears in the page's own content area | no Lorem Ipsum evidence (native crawl only) |
+| Page contains a legacy plugin-dependent element (<object>/<embed>/<applet>) | no plugin-element evidence (native crawl only) |
+| An <img> has no alt attribute at all (not even alt="") | no per-image evidence (native crawl only) |
+| An image's alt text exceeds the configured length threshold | no per-image evidence (native crawl only) |
+| The deprecated AJAX crawling scheme (#! / _escaped_fragment_) is still used by this page's URL or by URLs it links to | no AJAX-scheme URL evidence (native crawl only) |
+| Page declares <meta name="fragment"> -- the page-wide opt-in to the deprecated AJAX crawling scheme | no <meta name="fragment"> evidence (native crawl only) |
+| No character encoding declared via Content-Type or an early <meta> tag | no Meta Charset column, so a page without a header charset cannot be distinguished from one declaring <meta charset> (needs a native seohead crawl or Custom Extraction in SF) |
+| Document lacks a modern <!DOCTYPE html> declaration, triggering quirks mode | no Doctype column (needs a native seohead crawl or Custom Extraction in SF) |
+| No <meta name=viewport> tag with width or an initial-scale of at least 1 | no Viewport column (needs a native seohead crawl or Custom Extraction in SF) |
+| HTML response is served uncompressed above the size where gzip/br would help | no Content-Encoding column (needs a native seohead crawl or Custom Extraction in SF) |
+| The <title> element is outside <head> once the parser resolves the document | no element-position evidence (needs a native seohead crawl; Screaming Frog has no notion of this on its own) |
+| The meta description is outside <head> once the parser resolves the document | no element-position evidence (needs a native seohead crawl; Screaming Frog has no notion of this on its own) |
+| The canonical link is outside <head> once the parser resolves the document | no element-position evidence (needs a native seohead crawl; Screaming Frog has no notion of this on its own) |
+| A robots-directive meta tag is outside <head> once the parser resolves the document | no element-position evidence (needs a native seohead crawl; Screaming Frog has no notion of this on its own) |
+| An hreflang alternate link is outside <head> once the parser resolves the document | no element-position evidence (needs a native seohead crawl; Screaming Frog has no notion of this on its own) |
+| Document has no <head> element | no element-position evidence (needs a native seohead crawl; Screaming Frog has no notion of this on its own) |
+| Document has more than one <head> element | no element-position evidence (needs a native seohead crawl; Screaming Frog has no notion of this on its own) |
+| Document has no <body> element | no element-position evidence (needs a native seohead crawl; Screaming Frog has no notion of this on its own) |
+| Document has more than one <body> element | no element-position evidence (needs a native seohead crawl; Screaming Frog has no notion of this on its own) |
+| An element the head content model does not allow is written inside <head> | no element-position evidence (needs a native seohead crawl; Screaming Frog has no notion of this on its own) |
+| <head> is not the first element under <html> once the parser resolves the document | no element-position evidence (needs a native seohead crawl; Screaming Frog has no notion of this on its own) |
+| og:title is missing, so social previews may not render correctly | no Open Graph columns in Internal:All (enable OG extraction in SF) |
+| Redirect chain contains two or more hops | no redirect data (Internal:All has no Redirect URL column) |
+| Redirect loop detected | no redirect data (Internal:All has no Redirect URL column) |
+| Multiple <title> elements | no titles_multiple export (export this SF filter to enable) |
+| Internal link points to a 5xx URL | export inlinks_5xx not available |
+| External link points to a 4xx or 5xx URL | export inlinks_5xx not available |
+| Internal link points to a redirect (3xx) | export inlinks_3xx not available |
+| External link points to a redirect (3xx) | export inlinks_3xx not available |
+| Hreflang value is not a valid ISO 639-1 language / ISO 3166-1 region code | no all_hreflang export (export Bulk Export -> Links -> All Hreflang) |
+| The same hreflang value is declared more than once on the page | no all_hreflang export (export Bulk Export -> Links -> All Hreflang) |
+| Page declares hreflang alternates but does not reference itself | no all_hreflang export (export Bulk Export -> Links -> All Hreflang) |
+| Hreflang set has no x-default fallback | no all_hreflang export (export Bulk Export -> Links -> All Hreflang) |
+| Hreflang points to a URL that is not itself the canonical version | no all_hreflang export (export Bulk Export -> Links -> All Hreflang) |
+| Another page's hreflang points here, but this page does not point back | no all_hreflang export (export Bulk Export -> Links -> All Hreflang) |
+| This page declares a counterpart under a language and region code the counterpart does not confirm for itself | no all_hreflang export (export Bulk Export -> Links -> All Hreflang) |
+| Internal link score is far below the site median | no all_inlinks export (needed for the complete internal edge list) |
+| Every internal link to this page is nofollow | no all_inlinks export (needed for the complete inlink list) |
+| Every internal link to this page comes from a non-indexable source | no all_inlinks export (needed for the complete inlink list) |
+| The shortest hyperlink route from the start page exceeds the configured depth | no all_inlinks export (needed for the complete internal edge list) |
+| An HTTPS page loads a resource (image, script, stylesheet, ...) over plain HTTP | no all_inlinks export (needed for the resource inventory) |
+| The page declares more than one rel="next" (or more than one rel="prev") URL | no all_inlinks export (needed for every rel="next"/rel="prev" declaration and the anchors beside them) |
+| A rel="next"/rel="prev" URL is not also linked from the same page with an anchor | no all_inlinks export (needed for every rel="next"/rel="prev" declaration and the anchors beside them) |
+| The page is more clicks from the crawl's start URL than the configured floor | no all_inlinks export (needed for the complete internal edge list) |
+| The page repeats the same link -- same destination, same anchor text -- more than once | no all_inlinks export (needed for the complete internal edge list) |
+| DOM nesting is too deep | no stored HTML (input.html_store_dir not set) |
+| DOM contains too many nodes | no stored HTML (input.html_store_dir not set) |
+| Exact duplicate content (identical hash) | SF native Hash column already covers this |
+| Near-duplicate content | no stored HTML (input.html_store_dir not set) |
+| Templated titles share a common prefix or suffix across most pages | too few titles to assess templating |
+| robots.txt does not declare a Sitemap directive | no sitemap URL to check (no export, no --sitemap, and live_recheck disabled) |
+| robots.txt blocks JavaScript or CSS resources required for rendering | no sitemap URL to check (no export, no --sitemap, and live_recheck disabled) |
+| Some child sitemaps could not be fetched or parsed | no sitemap URL to check (no export, no --sitemap, and live_recheck disabled) |
+| Sitemap declares more URLs than the protocol allows | no sitemap document was fetched to measure |
+| Sitemap exceeds the protocol's uncompressed size limit | no sitemap document was fetched to measure |
+| URL is declared in more than one sitemap | no sitemap entries were fetched to compare |
+| Sitemap contains stale or boilerplate lastmod values | no sitemap entries were fetched to compare |
+| Sitemap and crawl URL sets are out of sync | no sitemap URL set (no export and network disabled) |
 
