@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import socket
 import sqlite3
 
 import httpx
 import pytest
 
+from seohead import cli
 from seohead.storage import ScanError, import_run
 from seohead.storage.native_scan import NativeScan
 from seohead.storage.status import scan_status
@@ -114,6 +116,18 @@ def test_legacy_import_reports_observed_pages_but_no_invented_frontier(legacy_ru
     }
     assert sum(result["committed_page_outcomes"].values()) == 2
     assert hashlib.sha256(path.read_bytes()).hexdigest() == before
+
+
+def test_cli_and_mcp_return_the_same_status_summary(tmp_path, capsys):
+    path = tmp_path / "scan.sqlite"
+    _native_status_fixture(path)
+
+    assert cli.main(["scan-status", "--input", str(path)]) == 0
+    command_result = json.loads(capsys.readouterr().out)
+    from seohead.servers.mcp_server import build_server
+
+    tool = build_server()._tool_manager.get_tool("seo_scan_status")
+    assert tool.fn(input_path=str(path)) == command_result
 
 
 @pytest.mark.parametrize(
