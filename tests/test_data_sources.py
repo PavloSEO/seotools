@@ -704,7 +704,7 @@ def test_dataforseo_network_error_does_not_retry_and_logs_the_lost_attempt(monke
         calls.append(request)
         raise urllib.error.URLError("simulated network failure")
 
-    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(dataforseo, "open_no_redirect", fake_urlopen)
 
     result = dataforseo.search_volume(
         ["buy apartment"], location_code=2840, country=None, env="prod"
@@ -745,7 +745,7 @@ def test_dataforseo_malformed_response_still_creates_a_receipt(monkeypatch, jour
         calls.append(request)
         return MalformedResponse()
 
-    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(dataforseo, "open_no_redirect", fake_urlopen)
 
     with pytest.raises(json.JSONDecodeError):
         dataforseo.search_volume(["buy apartment"], location_code=2840, country=None, env="prod")
