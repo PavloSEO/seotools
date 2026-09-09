@@ -43,13 +43,13 @@ def capture(
         source_document_id=source_document_id,
         representation=representation,
         parsed=parsed,
-        html=html,
     )
     language = structured_evidence.language_payload(
         page_url_id=page_url_id,
         source_document_id=source_document_id,
         representation=representation,
         parsed=parsed,
+        html=html,
     )
     items = [content_evidence.context_item(content), *structured_evidence.context_items(structured, language)]
     if extraction_rules is not None:
