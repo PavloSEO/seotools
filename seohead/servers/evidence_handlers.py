@@ -10,11 +10,14 @@ def scan_evidence(input_path: str, section: str = "capabilities", limit: int = 1
     from seohead.storage import open_scan
     if type(limit) is not int or type(offset) is not int or not 1 <= limit <= 10000 or offset < 0:
         raise ValueError("limit must be 1..10000 and offset nonnegative")
-    if section not in {"capabilities", "corpus", "structured", "routes", "resources", "timeline"}:
+    if section not in {"capabilities", "corpus", "structured", "routes", "resources", "timeline", "relations", "browser", "extraction"}:
         raise ValueError("unknown saved evidence section")
     con = open_scan(input_path, require_audit=False)
     try:
-        if section == "resources":
+        if section == "relations":
+            from seohead.storage.discovery_ledger import read
+            result = read(con, limit=limit, offset=offset)
+        elif section == "resources":
             from seohead.storage.resource_graph import read
             result = read(con, limit=limit, offset=offset)
         elif section == "timeline":
@@ -23,12 +26,17 @@ def scan_evidence(input_path: str, section: str = "capabilities", limit: int = 1
         elif section == "routes":
             from seohead.storage.rendered_routes import read
             result = read(con)
-        elif section == "corpus":
-            from seohead.storage.content_evidence import read
-            result = read(con)
-        elif section == "structured":
-            from seohead.storage.structured_evidence import read
-            result = read(con)
+        elif section in {"corpus", "structured", "browser", "extraction"}:
+            kinds = {
+                "corpus": ("content_evidence",),
+                "structured": ("structured_evidence", "language_evidence"),
+                "browser": ("browser_artifacts",),
+                "extraction": ("extraction_rule_evidence",),
+            }[section]
+            placeholders = ",".join("?" for _ in kinds)
+            total = con.execute(f"SELECT COUNT(*) FROM context_items WHERE kind IN ({placeholders})", kinds).fetchone()[0]
+            saved = con.execute(f"SELECT kind,item_key,payload_json,completeness,reason FROM context_items WHERE kind IN ({placeholders}) ORDER BY kind,item_key LIMIT ? OFFSET ?", (*kinds, limit, offset)).fetchall()
+            result = {"state": "recorded" if total else "unavailable", "reason": "" if total else "requested evidence was not retained", "total": total, "offset": offset, "limit": limit, "has_more": offset + len(saved) < total, "items": [{"kind": row["kind"], "key": row["item_key"], "state": row["completeness"], "reason": row["reason"], "observation": json.loads(row["payload_json"])} for row in saved]}
         else:
             row = con.execute("SELECT document_json FROM audit WHERE singleton=1").fetchone()
             if row is None:

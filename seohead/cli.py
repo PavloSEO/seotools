@@ -880,7 +880,7 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
     if cmd in {"scan-evidence", "scan-extract", "scan-requeue", "scan-import-urls"}:
         _source_flag(sub, "--scan", dest="input_path", help="existing SQLite artifact")
     if cmd == "scan-evidence":
-        sub.add_argument("--section", choices=("capabilities", "corpus", "structured", "routes", "resources", "timeline"))
+        sub.add_argument("--section", choices=("capabilities", "corpus", "structured", "routes", "resources", "timeline", "relations", "browser", "extraction"))
         sub.add_argument("--limit", type=int)
         sub.add_argument("--offset", type=int)
     if cmd == "scan-extract":

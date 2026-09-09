@@ -1144,7 +1144,7 @@ def build_server(profile: str = "full", progress_notifications: bool = False):  
         return _checked(handlers.tool_catalog(query, limit=limit, include_arguments=include_arguments))
 
     @mcp.tool(annotations=read_files, structured_output=True)
-    def seo_scan_evidence(input_path: str, section: Literal["capabilities", "corpus", "structured", "routes", "resources", "timeline"] = "capabilities", limit: int = 1000, offset: int = 0) -> dict[str, Any]:
+    def seo_scan_evidence(input_path: str, section: Literal["capabilities", "corpus", "structured", "routes", "resources", "timeline", "relations", "browser", "extraction"] = "capabilities", limit: int = 1000, offset: int = 0) -> dict[str, Any]:
         """Read captured evidence, resource windows or the event timeline without fetching or migration."""
         return _checked(handlers.scan_evidence(input_path, section=section, limit=limit, offset=offset))
 
