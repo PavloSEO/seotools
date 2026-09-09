@@ -1246,9 +1246,7 @@ def build_server(profile: str = "full", progress_notifications: bool = False):  
     ) -> dict[str, Any]:
         """Search complete source-derived tool metadata and load argument details only on request."""
         return _checked(
-            handlers.tool_catalog(
-                query=query, limit=limit, include_arguments=include_arguments
-            )
+            handlers.tool_catalog(query=query, limit=limit, include_arguments=include_arguments)
         )
 
     @mcp.tool(annotations=read_files, structured_output=True)

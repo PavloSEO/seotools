@@ -404,7 +404,9 @@ def test_documented_command_executes_or_at_least_still_parses(
         ["scan", "import-urls"],
     ):
         _seed_documented_body_scan(tmp_path, argv[argv.index("--scan") + 1])
-        (tmp_path / "review-urls.csv").write_text("url\nhttps://example.test/page\n", encoding="utf-8")
+        (tmp_path / "review-urls.csv").write_text(
+            "url\nhttps://example.test/page\n", encoding="utf-8"
+        )
     elif any(".sqlite" in value for value in argv) and not {"--scan-out", "--resume"} & set(argv):
         _seed_scan_inputs(tmp_path)
     if argv[:1] == ["report-build"] and "--project" in argv:

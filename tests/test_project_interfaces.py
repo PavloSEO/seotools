@@ -78,7 +78,9 @@ def test_project_resume_does_not_inject_new_crawl_arguments(tmp_path, monkeypatc
     monkeypatch.setattr("seohead.servers.scan_handlers.resume_scan", resume)
     monkeypatch.setattr(
         "seohead.servers.scan_handlers.resume_inputs",
-        lambda _path: {"settings": {"limits": {"max_urls": 50, "max_requests": 150, "max_crawl_seconds": 60}}},
+        lambda _path: {
+            "settings": {"limits": {"max_urls": 50, "max_requests": 150, "max_crawl_seconds": 60}}
+        },
     )
     assert handlers.crawl_site(project=str(project), resume="saved.sqlite")["ok"]
     assert captured["path"] == "saved.sqlite" and captured["url"] is None

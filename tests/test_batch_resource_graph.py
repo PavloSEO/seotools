@@ -242,7 +242,8 @@ def test_requeue_invalidation_discards_old_page_graph_and_refetches_shared_resou
         )
         invalidate_pages(scan.con, [first_id])
         remaining = scan.con.execute(
-            "SELECT state,reason FROM resource_graph_occurrences WHERE page_url_id=?", (lease.url_id,)
+            "SELECT state,reason FROM resource_graph_occurrences WHERE page_url_id=?",
+            (lease.url_id,),
         ).fetchone()
         fetch_count = scan.con.execute("SELECT COUNT(*) FROM resource_graph_fetches").fetchone()[0]
         old_context = scan.con.execute(

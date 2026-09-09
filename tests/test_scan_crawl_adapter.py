@@ -296,6 +296,9 @@ class _Scan:
                     )
                 )
 
+    def record_request_count(self, count):
+        self.requests_used = count
+
     def record_events(self, events):
         self.events = list(events.events)
 
