@@ -177,6 +177,18 @@ details (adaptive back-off, which checks come back `skipped` and why) and
 | `segment-diff` | Answers "which pages exist in one segment and not in another" from one crawl, using the site's own hreflang declarations as the authority. Mirrored paths are a fallback only where the site's declared pairs prove it mirrors them; a partially crawled target segment yields no absences at all, because a page nobody fetched is not a page that is missing. Reads a native crawl whose config declared `scope.segments`, not an SF export | — |
 | `crawl-describe-settings` | Lists every `crawl-site` config setting — dotted path, type, default, description, and whether it is results-affecting — generated from `seohead/crawl/settings.py`. Same source as `crawl-site --config-help`, reachable over MCP for an agent with no filesystem access | — |
 
+`rendering.mode=raw` remains static-only. When a fuller representation is
+enabled, `rendering.escalation.policy=sampled` is the default: it uses the
+configured per-pattern sample before deciding which evidence is worth fuller
+collection. `full` requests the fuller policy deliberately. Both remain bounded
+by render URL/time settings, and a route or corpus relation stays unknown when
+one representation was not completely captured.
+
+Render elapsed time is saved in the scan context across resume cycles. If a
+previous process died while an active finite render phase was running, the next
+cycle conservatively treats that budget as exhausted instead of resetting it and
+claiming the original time bound still applies.
+
 ```bash
 seohead crawl-site --url https://example.com/ --max-urls 200
 seohead compare-crawls --before old-audit.json --after new-audit.json
