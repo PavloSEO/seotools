@@ -245,9 +245,9 @@ def test_disabled_checks_are_distinct_from_skipped_checks_in_md(tmp_path):
     assert result["ok"], result
     text = target.read_text(encoding="utf-8")
     assert "## Disabled checks" in text
-    assert "BROKEN_PAGE_4XX" in text and "disabled in config" in text
+    assert "Page returns a 4xx response (broken page)" in text and "disabled in config" in text
     assert "## Unavailable checks" in text
-    assert "SF_LOG_ANALYZE" in text and "log file unavailable" in text
+    assert "Audit finding" in text and "log file unavailable" in text
     # The two sections must not merge into one list.
     assert text.index("## Disabled checks") != text.index("## Unavailable checks")
 
@@ -318,13 +318,13 @@ def test_csv_writes_scope_evidence_without_polluting_tracker_findings(tmp_path):
         },
         {
             "Evidence type": "check",
-            "Identifier": "BROKEN_PAGE_4XX",
+            "Identifier": "Page returns a 4xx response (broken page)",
             "Status": "disabled",
             "Reason": "disabled in config",
         },
         {
             "Evidence type": "check",
-            "Identifier": "SF_LOG_ANALYZE",
+            "Identifier": "Audit finding",
             "Status": "unavailable",
             "Reason": "log file unavailable",
         },
@@ -404,3 +404,284 @@ def test_docx_and_markdown_leave_none_page_fields_blank(tmp_path):
         "",
         "",
     ]
+
+
+# ── #660: client outputs must carry recorded evidence, not internal labels ──
+
+
+_CLIENT_EVIDENCE_AUDIT = {
+    "schema_version": "2.0",
+    "run": {"project": "example.test", "source": "https://example.test/"},
+    "summary": {
+        "totals": {"urls_crawled": 1, "issues_total": 1},
+        "by_severity": {"critical": 0, "warning": 1, "notice": 0},
+        "by_check": {"CANONICAL_MULTIPLE": 1},
+    },
+    "issues": [
+        {
+            "check": "CANONICAL_MULTIPLE",
+            "severity": "warning",
+            "message": "The page declares more than one canonical URL.",
+            "source": "Screaming Frog",
+            "target_url": "https://example.test/catalogue/",
+            "status_code": 200,
+            "details": {"canonical_count": 2},
+        }
+    ],
+    "pages": [],
+    "groups": [],
+}
+
+
+def test_client_outputs_replace_check_ids_with_a_recorded_reproduction(tmp_path):
+    """#660: human reports expose the observation, not the registry key."""
+    md_target = tmp_path / "client.md"
+    csv_target = tmp_path / "client.csv"
+    xlsx_target = tmp_path / "client.xlsx"
+    docx_target = tmp_path / "client.docx"
+
+    assert build_report(_CLIENT_EVIDENCE_AUDIT, fmt="md", path=str(md_target))["ok"]
+    assert build_report(_CLIENT_EVIDENCE_AUDIT, fmt="csv", path=str(csv_target))["ok"]
+    assert build_report(_CLIENT_EVIDENCE_AUDIT, fmt="xlsx", path=str(xlsx_target))["ok"]
+    assert build_report(_CLIENT_EVIDENCE_AUDIT, fmt="docx", path=str(docx_target))["ok"]
+
+    md = md_target.read_text(encoding="utf-8")
+    assert "CANONICAL_MULTIPLE" not in md
+    assert "Screaming Frog" not in md
+    assert "Page declares multiple canonical URLs" in md
+    assert "https://example.test/catalogue/ returned HTTP 200" in md
+
+    with csv_target.open(encoding="utf-8-sig", newline="") as fh:
+        rows = list(csv.reader(fh, delimiter=";"))
+    assert "Check" not in rows[0]
+    assert "Reproduction" in rows[0]
+    assert "CANONICAL_MULTIPLE" not in "\n".join(";".join(row) for row in rows)
+    assert "Screaming Frog" not in "\n".join(";".join(row) for row in rows)
+    assert "https://example.test/catalogue/ returned HTTP 200" in "\n".join(
+        ";".join(row) for row in rows
+    )
+
+    workbook = load_workbook(xlsx_target)
+    xlsx_text = "\n".join(
+        str(cell.value or "") for row in workbook["Findings"].iter_rows() for cell in row
+    )
+    assert "CANONICAL_MULTIPLE" not in xlsx_text
+    assert "Screaming Frog" not in xlsx_text
+    assert "Page declares multiple canonical URLs" in xlsx_text
+    assert "https://example.test/catalogue/ returned HTTP 200" in xlsx_text
+
+    from docx import Document
+
+    docx_text = "\n".join(paragraph.text for paragraph in Document(docx_target).paragraphs)
+    assert "CANONICAL_MULTIPLE" not in docx_text
+    assert "Screaming Frog" not in docx_text
+    assert "Page declares multiple canonical URLs" in docx_text
+    assert "https://example.test/catalogue/ returned HTTP 200" in docx_text
+
+
+def test_missing_reproduction_stays_visible_and_partial_warning_leads(tmp_path):
+    """A historic finding without primitive evidence is not silently made reproducible."""
+    doc = copy.deepcopy(_CLIENT_EVIDENCE_AUDIT)
+    doc["run"].update(
+        {
+            "crawl_partial": True,
+            "crawl_finish_reason": "url_limit",
+        }
+    )
+    doc["summary"]["health_score_scope"] = "1 of 100 URLs crawled"
+    doc["issues"][0].pop("target_url")
+    doc["issues"][0].pop("status_code")
+
+    target = tmp_path / "historic.md"
+    assert build_report(doc, fmt="md", path=str(target))["ok"]
+    text = target.read_text(encoding="utf-8")
+
+    assert "Reproduction unavailable from the saved audit." in text
+    assert text.index("Partial crawl") < text.index("Page declares multiple canonical URLs")
+
+
+def test_internal_producer_claim_does_not_replace_the_recorded_observation(tmp_path):
+    """A collector name is not evidence, but the URL/status remain available to the reader."""
+    doc = copy.deepcopy(_CLIENT_EVIDENCE_AUDIT)
+    doc["issues"][0]["message"] = "SEOHEAD found CANONICAL_MULTIPLE."
+
+    target = tmp_path / "internal-label.md"
+    assert build_report(doc, fmt="md", path=str(target))["ok"]
+    text = target.read_text(encoding="utf-8")
+
+    assert "SEOHEAD found" not in text
+    assert "CANONICAL_MULTIPLE" not in text
+    assert "https://example.test/catalogue/ returned HTTP 200" in text
+
+
+def test_real_title_and_unknown_uppercase_token_survive_client_projection(tmp_path):
+    """#660 only translates known internal wrappers; it never sanitizes site evidence."""
+    doc = copy.deepcopy(_CLIENT_EVIDENCE_AUDIT)
+    doc["issues"][0]["message"] = "SEOHEAD HTTP_API title is visible on the page."
+
+    target = tmp_path / "site-evidence.md"
+    assert build_report(doc, fmt="md", path=str(target))["ok"]
+    text = target.read_text(encoding="utf-8")
+
+    assert "SEOHEAD HTTP_API title is visible on the page." in text
+
+
+def test_known_identifier_inside_a_url_remains_copyable_evidence(tmp_path):
+    """Only known standalone identifiers are translated; URL bytes are evidence."""
+    doc = copy.deepcopy(_CLIENT_EVIDENCE_AUDIT)
+    doc["issues"][0]["message"] = "Inspect https://example.test/TITLE_MISSING"
+
+    target = tmp_path / "url-evidence.md"
+    assert build_report(doc, fmt="md", path=str(target))["ok"]
+    text = target.read_text(encoding="utf-8")
+
+    assert "https://example.test/TITLE_MISSING" in text
+
+
+def test_identifier_only_text_cannot_become_a_false_reproduction(tmp_path):
+    """A saved registry key is not a result when URL/status/details are absent."""
+    doc = copy.deepcopy(_CLIENT_EVIDENCE_AUDIT)
+    doc["issues"][0]["message"] = "CANONICAL_MULTIPLE"
+    doc["issues"][0].pop("status_code")
+    doc["issues"][0]["details"] = {}
+
+    target = tmp_path / "identifier-only.md"
+    assert build_report(doc, fmt="md", path=str(target))["ok"]
+    text = target.read_text(encoding="utf-8")
+
+    assert "Reproduction unavailable from the saved audit." in text
+    assert "At https://example.test/catalogue/" not in text
+
+
+def test_client_writers_keep_bounded_details_and_location_evidence(tmp_path):
+    """Primitive evidence is useful only if every human output retains it visibly."""
+    doc = copy.deepcopy(_CLIENT_EVIDENCE_AUDIT)
+    doc["issues"][0]["details"] = {
+        "missing_tags": ["description", "canonical"],
+        "structured": [{"selector": "meta[name=description]", "count": 2}],
+    }
+    doc["issues"][0]["locations"] = [
+        {
+            "source_url": "https://example.test/menu/",
+            "anchor": "Catalogue",
+            "link_position": "Navigation",
+            "link_path": "/html/body/nav/a[2]",
+        }
+    ]
+    md_target = tmp_path / "evidence.md"
+    xlsx_target = tmp_path / "evidence.xlsx"
+    docx_target = tmp_path / "evidence.docx"
+
+    assert build_report(doc, fmt="md", path=str(md_target))["ok"]
+    assert build_report(doc, fmt="xlsx", path=str(xlsx_target))["ok"]
+    assert build_report(doc, fmt="docx", path=str(docx_target))["ok"]
+
+    expected = "Source: https://example.test/menu/; Anchor: Catalogue; Position: Navigation; XPath: /html/body/nav/a[2]"
+    md = md_target.read_text(encoding="utf-8")
+    assert "Missing tags: description, canonical" in md
+    assert "Structured: Count: 2; Selector: meta[name=description]" in md
+    assert expected in md
+
+    xlsx_text = "\n".join(
+        str(cell.value or "")
+        for row in load_workbook(xlsx_target)["Findings"].iter_rows()
+        for cell in row
+    )
+    assert "Missing tags: description, canonical" in xlsx_text
+    assert "Structured: Count: 2; Selector: meta[name=description]" in xlsx_text
+    assert expected in xlsx_text
+
+    from docx import Document
+
+    docx_text = "\n".join(paragraph.text for paragraph in Document(docx_target).paragraphs)
+    assert "Missing tags: description, canonical" in docx_text
+    assert "Structured: Count: 2; Selector: meta[name=description]" in docx_text
+    assert expected in docx_text
+
+
+def test_failed_tool_labels_keep_distinct_measurement_names(tmp_path):
+    """A client needs to know which measurement failed without seeing handler names."""
+    doc = copy.deepcopy(_CLIENT_EVIDENCE_AUDIT)
+    doc["issues"] = []
+    doc["run"]["checks_skipped"] = [
+        {"id": "robots_check", "reason": "robots.txt did not answer"},
+        {"id": "schema_check", "reason": "markup was unavailable"},
+    ]
+    target = tmp_path / "failed-tools.md"
+    assert build_report(doc, fmt="md", path=str(target))["ok"]
+    text = target.read_text(encoding="utf-8")
+
+    assert "Robots check" in text
+    assert "Schema check" in text
+    assert "robots_check" not in text
+    assert "schema_check" not in text
+
+
+def test_failed_tool_reason_translates_known_internal_wrapper(tmp_path):
+    """Failure reasons remain useful without presenting a producer as the evidence."""
+    doc = copy.deepcopy(_CLIENT_EVIDENCE_AUDIT)
+    doc["issues"] = []
+    doc["run"]["checks_skipped"] = [
+        {
+            "id": "TITLE_MISSING",
+            "reason": "Screaming Frog did not return TITLE_MISSING because the export was absent.",
+        }
+    ]
+    target = tmp_path / "failed-reason.md"
+    assert build_report(doc, fmt="md", path=str(target))["ok"]
+    text = target.read_text(encoding="utf-8")
+
+    assert "Screaming Frog" not in text
+    assert "TITLE_MISSING" not in text
+    assert "Title element is missing" in text
+    assert "because the export was absent" in text
+
+
+def test_failed_reason_keeps_url_spans_while_translating_internal_wrapper(tmp_path):
+    """A producer name in a reason must never rewrite a copied evidence URL."""
+    doc = copy.deepcopy(_CLIENT_EVIDENCE_AUDIT)
+    doc["issues"] = []
+    doc["run"]["checks_skipped"] = [
+        {
+            "id": "TITLE_MISSING",
+            "reason": "Screaming Frog could not read https://seohead.tech/TITLE_MISSING.",
+        }
+    ]
+    target = tmp_path / "failed-reason-url.md"
+    assert build_report(doc, fmt="md", path=str(target))["ok"]
+    text = target.read_text(encoding="utf-8")
+
+    assert "The audit" in text
+    assert "https://seohead.tech/TITLE_MISSING" in text
+    assert "https://The audit.tech" not in text
+
+
+def test_mixed_and_nested_details_stay_visible_without_false_reproduction(tmp_path):
+    """Mixed list evidence is bounded and nested-only evidence remains unavailable."""
+    mixed = copy.deepcopy(_CLIENT_EVIDENCE_AUDIT)
+    mixed["issues"][0]["details"] = {
+        "attempts": [503, {"status": 503}, ["nested"]],
+    }
+    mixed_target = tmp_path / "mixed-details.md"
+    assert build_report(mixed, fmt="md", path=str(mixed_target))["ok"]
+    mixed_text = mixed_target.read_text(encoding="utf-8")
+    assert "Attempts: 503; Status: 503; 1 unsupported values omitted" in mixed_text
+
+    nested = copy.deepcopy(_CLIENT_EVIDENCE_AUDIT)
+    nested["issues"][0]["message"] = "CANONICAL_MULTIPLE"
+    nested["issues"][0].pop("status_code")
+    nested["issues"][0]["details"] = {"trace": [{"request": {"headers": {}}}]}
+    nested_target = tmp_path / "nested-details.md"
+    assert build_report(nested, fmt="md", path=str(nested_target))["ok"]
+    nested_text = nested_target.read_text(encoding="utf-8")
+    assert "Trace: Structured record retained in the saved audit" in nested_text
+    assert "Reproduction unavailable from the saved audit." in nested_text
+
+
+def test_reproduction_includes_the_recorded_defect_beyond_http_status(tmp_path):
+    target = tmp_path / "canonical.csv"
+    assert build_report(_CLIENT_EVIDENCE_AUDIT, fmt="csv", path=str(target))["ok"]
+    with target.open(encoding="utf-8-sig", newline="") as stream:
+        row = next(csv.DictReader(stream, delimiter=";"))
+    assert "Canonical count: 2" in row["Reproduction"]
+    assert "https://example.test/catalogue/" in row["Reproduction"]

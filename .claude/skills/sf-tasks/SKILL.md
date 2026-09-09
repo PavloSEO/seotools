@@ -65,9 +65,14 @@ effort estimates to assign.
    ```
    Through MCP, use the `sf_audit_tasks {json_path, out, config?}` tool.
 4. **Deliver the result.** `tasks.md` is a checklist organized by `P1/P2/P3` with
-   a "how to fix" field; for broken links, it includes a
-   `destination ← source · position · XPath` list. Discuss P1 first, estimate the
-   total scope (`summary.by_priority`), and attach `tasks.json` for the tracker.
+a "how to fix" field; for broken links, it includes a
+`destination ← source · position · XPath` list. Discuss P1 first, estimate the
+total scope (`summary.by_priority`), and attach `tasks.json` for the tracker.
+
+`tasks.json` keeps machine IDs for a tracker. `tasks.md` is reader-facing: its
+task title and reproduction must use the recorded URL/status/location rather
+than a registry ID or a collector name. If the saved audit has no such primitive
+evidence, state that reproduction is unavailable; do not create new network work.
 
 ## Decision points
 - **`group_by: check` vs. `group_by: issue`.** Grouping by check produces one task
@@ -98,6 +103,8 @@ effort estimates to assign.
   `broken_links[]` with source/position/XPath.
 - [ ] `tasks.md` is organized by `P1/P2/P3`, and P1 was discussed with the user
   first along with the total scope from `summary.by_priority`.
+- [ ] Every reader-facing task includes saved reproduction evidence or an honest
+  unavailable statement; the machine-only IDs remain in `tasks.json`.
 - [ ] `tasks.json` is attached for the tracker.
 
 ## Cost

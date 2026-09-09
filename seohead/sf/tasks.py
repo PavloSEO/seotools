@@ -12,6 +12,7 @@ import hashlib
 import os
 from typing import Any
 
+from ..reports.client_findings import reproduction
 from ..reports.facts import crawl_domain
 from .config import DEFAULT_CONFIG
 from .core.registry import check_meta
@@ -30,6 +31,28 @@ def _pipeline_cfg(config: dict[str, Any] | None) -> dict[str, Any]:
 def _task_id(check: str, key: str) -> str:
     digest = hashlib.sha1(f"{check}|{key}".encode(), usedforsecurity=False).hexdigest()[:8]
     return "TASK-" + digest
+
+
+def _reproductions(issues: list[dict[str, Any]], cap: int) -> list[str]:
+    """Keep recorded URLs/statuses for the human backlog without tool labels."""
+    seen: set[str] = set()
+    rows: list[str] = []
+    for issue in issues:
+        row = reproduction(
+            {
+                "url": issue.get("target_url"),
+                "status_code": issue.get("status_code"),
+                "locations": issue.get("locations"),
+                "details": issue.get("details"),
+                "text": issue.get("message"),
+            }
+        )
+        if row not in seen:
+            seen.add(row)
+            rows.append(row)
+        if len(rows) >= cap:
+            break
+    return rows
 
 
 def build_tasks(audit: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -139,6 +162,7 @@ def _group_by_check(issues, prio, effort, cap, loc_cap, min_occ) -> list[dict[st
             "occurrences": occurrences,
             "urls": unique_urls[:cap],
             "urls_truncated": max(0, len(unique_urls) - cap),
+            "reproductions": _reproductions(group, cap),
         }
         if check in LINK_CHECKS:
             links, total, truncated = _link_evidence(group, loc_cap)
@@ -175,6 +199,7 @@ def _per_issue(issues, prio, effort, cap, loc_cap, min_occ) -> list[dict[str, An
             "occurrences": issue.get("occurrences_count", 1),
             "urls": [issue["target_url"]] if issue.get("target_url") else [],
             "urls_truncated": 0,
+            "reproductions": _reproductions([issue], cap),
         }
         if issue["check"] in LINK_CHECKS:
             links, total, truncated = _link_evidence([issue], loc_cap)
@@ -272,12 +297,15 @@ def render_tasks_md(backlog: dict[str, Any]) -> str:
         lines.append(f"## {prio} ({len(by_prio[prio])})")
         lines.append("")
         for t in by_prio[prio]:
-            lines.append(
-                f"- [ ] **{_esc(t['title'])}** "
-                f"`{t['check']}` · {t['severity']} · effort: {t['effort']} · `{t['id']}`"
-            )
+            lines.append(f"- [ ] **{_esc(t['title'])}** · {t['severity']} · effort: {t['effort']}")
             if t.get("fix_hint"):
                 lines.append(f"    - _How to fix:_ {_esc(t['fix_hint'])}")
+            reproductions = t.get("reproductions") or []
+            if reproductions:
+                for item in reproductions[:15]:
+                    lines.append(f"    - Reproduction: {_esc(item)}")
+            else:
+                lines.append("    - Reproduction unavailable from the saved audit.")
             if t.get("broken_links"):
                 lines.append("    - Broken links (destination ← source · position · XPath):")
                 shown = t["broken_links"][:15]
