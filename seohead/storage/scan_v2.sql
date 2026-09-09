@@ -67,6 +67,7 @@ CREATE TABLE discovery_occurrences (
   relation TEXT NOT NULL,
   source_url_id INTEGER,
   source_document_id INTEGER,
+  source_response_id INTEGER,
   representation TEXT NOT NULL,
   carrier TEXT NOT NULL,
   raw_value TEXT NOT NULL,
@@ -74,11 +75,22 @@ CREATE TABLE discovery_occurrences (
   target_url_id INTEGER,
   depth INTEGER,
   outcome TEXT NOT NULL,
-  reason TEXT NOT NULL
+  reason TEXT NOT NULL,
+  attributes_json TEXT NOT NULL
 );
 
 CREATE INDEX discovery_occurrences_target
   ON discovery_occurrences(target_url_id, outcome);
+
+CREATE TABLE discovery_ledger_coverage (
+  source_document_id INTEGER NOT NULL,
+  representation TEXT NOT NULL,
+  captured INTEGER NOT NULL,
+  omitted INTEGER NOT NULL,
+  state TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  PRIMARY KEY(source_document_id, representation)
+);
 
 CREATE TABLE response_transport_meta (
   response_id INTEGER PRIMARY KEY,
