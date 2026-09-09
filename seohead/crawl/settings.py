@@ -257,6 +257,7 @@ DEFAULTS: dict[str, Any] = {
         },
     },
     "storage": {
+        "format_version": "scan.v1",
         "body_mode": "captured_entity_bytes",
         "max_body_bytes": 5 * 1024 * 1024,
         "max_body_store_bytes": 10 * 1024 * 1024 * 1024,
@@ -404,6 +405,7 @@ RESULTS_AFFECTING: frozenset[str] = frozenset(
         "cache.mode",
         "cache.invalidate",
         "storage.body_mode",
+        "storage.format_version",
         "resources.fetch",
         "resources.max_requests",
         "resources.max_response_bytes",
@@ -461,6 +463,7 @@ DESCRIPTIONS: dict[str, str] = {
     "resources.graph.max_redirects": "scan.v2 only: maximum redirects per declared resource.",
     "resources.graph.max_nesting": "scan.v2 only: CSS import/url nesting depth.",
     "storage.body_mode": "SQLite only: captured_entity_bytes retains fetched HTML/DOM; off retains metadata only.",
+    "storage.format_version": "Explicit scan storage format: scan.v1 (default) or scan.v2 for optional graph/event extensions.",
     "storage.max_body_bytes": "SQLite only: maximum decoded bytes retained for one complete body.",
     "storage.max_body_store_bytes": "SQLite only: total unique encoded body bytes retained per scan.",
     "storage.min_free_bytes": "SQLite only: filesystem reserve; low space interrupts collection with a checkpoint.",
@@ -828,6 +831,8 @@ def validate(config: dict[str, Any]) -> None:
             raise ConfigError("resources.graph.max_origins must be positive")
     if "storage" in config:
         storage = config["storage"]
+        if storage["format_version"] not in {"scan.v1", "scan.v2"}:
+            raise ConfigError("storage.format_version must be scan.v1 or scan.v2")
         if storage["body_mode"] not in {"off", "captured_entity_bytes"}:
             raise ConfigError("storage.body_mode must be off or captured_entity_bytes")
         for name in (

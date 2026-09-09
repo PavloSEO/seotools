@@ -60,3 +60,29 @@ CREATE TABLE resource_graph_fetches (
 );
 
 CREATE INDEX resource_graph_occurrences_url ON resource_graph_occurrences(resolved_url);
+
+CREATE TABLE response_transport_meta (
+  response_id INTEGER PRIMARY KEY,
+  protocol TEXT,
+  protocol_state TEXT NOT NULL,
+  total_seconds REAL,
+  dns_state TEXT NOT NULL,
+  connect_state TEXT NOT NULL,
+  tls_state TEXT NOT NULL,
+  ttfb_state TEXT NOT NULL
+);
+
+CREATE TABLE scan_events (
+  sequence INTEGER PRIMARY KEY CHECK(sequence > 0),
+  event_type TEXT NOT NULL,
+  occurred_at TEXT,
+  timestamp_state TEXT NOT NULL,
+  payload_json TEXT NOT NULL
+);
+
+CREATE TABLE scan_event_meta (
+  singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+  cap INTEGER NOT NULL,
+  captured INTEGER NOT NULL,
+  dropped INTEGER NOT NULL
+);

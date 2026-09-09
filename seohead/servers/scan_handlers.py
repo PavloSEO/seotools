@@ -267,6 +267,8 @@ def resume_inputs(scan_path: str) -> dict[str, Any]:
             settings["resources"] = copy.deepcopy(DEFAULTS["resources"])
         else:
             settings["resources"]["graph"] = copy.deepcopy(DEFAULTS["resources"]["graph"])
+    if "format_version" not in settings.get("storage", {}):
+        settings.setdefault("storage", {})["format_version"] = "scan.v1"
     if settings.get("http", {}).get("credential_headers"):
         # The artifact stores credential references redacted, by design, so the
         # settings read back from it are not the settings the interrupted run

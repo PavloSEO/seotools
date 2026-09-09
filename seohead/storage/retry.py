@@ -153,7 +153,7 @@ def _backup(path: Path, backup_path: Path) -> str:
     return _sha256(backup_path)
 
 
-def _upgrade(con: sqlite3.Connection) -> None:
+def upgrade_to_v2(con: sqlite3.Connection) -> None:
     version = con.execute("PRAGMA user_version").fetchone()[0]
     if version == V2_USER_VERSION:
         validate_v2(con, require_audit=False)
@@ -291,7 +291,7 @@ def requeue_scan(
         backup_sha256 = _backup(path, backup)
         con = _writer(path)
         con.execute("BEGIN IMMEDIATE")
-        _upgrade(con)
+        upgrade_to_v2(con)
         query = (
             "SELECT p.*,f.state AS frontier_state,f.queue_ordinal,u.url FROM pages p "
             "JOIN frontier f USING(url_id) JOIN urls u USING(url_id) WHERE f.state='done' AND "
@@ -383,7 +383,7 @@ def scan_import_urls(
         backup_sha256 = _backup(target, backup)
         con = _writer(target)
         con.execute("BEGIN IMMEDIATE")
-        _upgrade(con)
+        upgrade_to_v2(con)
         scan = con.execute("SELECT start_url,config_json FROM scan WHERE singleton=1").fetchone()
         config = json.loads(scan["config_json"])
         scope = Scope.from_config(config["scope"])

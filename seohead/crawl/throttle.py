@@ -55,6 +55,7 @@ class DispatchGate:
         clock: Callable[[], float] = time.monotonic,
         max_requests: int = 0,
         requests_used: int = 0,
+        event_callback: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> None:
         self._throttle = throttle
         self._sleeper = sleeper
@@ -69,6 +70,7 @@ class DispatchGate:
             raise ValueError("request count exceeds configured budget")
         self._max_requests = max_requests
         self._requests_used = requests_used
+        self._event_callback = event_callback
 
     @property
     def throttle(self) -> Throttle:
@@ -101,6 +103,15 @@ class DispatchGate:
             self._last_at = start_at
             self._requests_used += 1
             wait = start_at - now
+            if self._event_callback is not None:
+                self._event_callback(
+                    "throttle",
+                    {
+                        "delay_ms": round(self._throttle.delay * 1000),
+                        "concurrency": self._throttle.concurrency,
+                        "state": "dispatch",
+                    },
+                )
         if wait > 0:
             self._sleeper(wait)
 

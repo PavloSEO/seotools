@@ -149,6 +149,8 @@ def _native_config(value: Any, *, recorded: bool = False) -> dict[str, Any]:
                 expected.pop(name)
         if "resources" in config and "graph" not in config["resources"]:
             expected["resources"].pop("graph")
+        if "storage" in config and "format_version" not in config["storage"]:
+            expected["storage"].pop("format_version")
         if "rendering" in config and "rendered_links" not in config["rendering"]:
             expected["rendering"].pop("rendered_links")
         if "limits" in config and "max_requests" not in config["limits"]:
@@ -161,6 +163,7 @@ def _native_config(value: Any, *, recorded: bool = False) -> dict[str, Any]:
         validation_config["resources"].setdefault(
             "graph", copy.deepcopy(DEFAULTS["resources"]["graph"])
         )
+        validation_config["storage"].setdefault("format_version", "scan.v1")
         validation_config.setdefault("rendering", {})
         validation_config["rendering"].setdefault(
             "rendered_links", copy.deepcopy(DEFAULTS["rendering"]["rendered_links"])
@@ -191,6 +194,12 @@ def _resume_fingerprint(expected_config: Any, recorded_config: Any) -> str:
         and expected["resources"].get("graph") == DEFAULTS["resources"]["graph"]
     ):
         expected["resources"].pop("graph")
+    if (
+        "storage" in recorded
+        and "format_version" not in recorded["storage"]
+        and expected["storage"].get("format_version") == "scan.v1"
+    ):
+        expected["storage"].pop("format_version")
     if (
         "rendering" in recorded
         and "rendered_links" not in recorded["rendering"]
@@ -384,6 +393,44 @@ class NativeScan:
         self.con = connection
         self._lock_fd = lock_fd
         self.failpoint: Callable[[str], None] | None = None
+        self._event_sink = None
+        if self.con.execute("PRAGMA user_version").fetchone()[0] == 2:
+            from seohead.crawl.events import EventSink
+            from seohead.storage.events import append, ensure_schema
+
+            ensure_schema(self.con)
+            prior = self.con.execute("SELECT COALESCE(MAX(sequence),0) FROM scan_events").fetchone()[0]
+            self._event_sink = EventSink(writer=lambda event: append(self.con, event))
+            self._event_sink.events = [{}] * prior
+
+    def _event(self, event_type: str, payload: dict[str, Any]) -> None:
+        if self._event_sink is not None:
+            self._event_sink.emit(event_type, payload, occurred_at=None)
+
+    def _event_coverage(self) -> None:
+        if self._event_sink is not None:
+            from seohead.storage.events import set_coverage
+
+            set_coverage(self.con, self._event_sink.coverage())
+
+    def record_events(self, sink: Any) -> None:
+        """Persist bounded adapter events in one writer transaction after worker fold-back."""
+        if self._event_sink is None:
+            return
+        events = getattr(sink, "events", None)
+        dropped = getattr(sink, "dropped", None)
+        if not isinstance(events, list) or type(dropped) is not int or dropped < 0:
+            raise ScanError("event sink is invalid")
+        self._begin()
+        try:
+            for event in events:
+                self._event(event["event_type"], event["payload"])
+            self._event_sink.dropped += dropped
+            self._event_coverage()
+            self.con.commit()
+        except BaseException:
+            self._rollback()
+            raise
 
     @classmethod
     def create(
@@ -399,6 +446,7 @@ class NativeScan:
         limitations: Iterable[str] = (),
         retention: dict[str, Any] | None = None,
         initial_sitemaps: Iterable[tuple[str, str]] = (),
+        format_version: str = "scan.v1",
     ) -> NativeScan:
         """Create a no-clobber running scan with no audit and no body lanes."""
         _runtime()
@@ -417,6 +465,10 @@ class NativeScan:
         ):
             raise ScanError("native scan requires complete runtime version provenance")
         effective = _native_config(config)
+        if format_version not in {"scan.v1", "scan.v2"}:
+            raise ScanError("native scan format_version must be scan.v1 or scan.v2")
+        if effective["storage"]["format_version"] != format_version:
+            raise ScanError("native scan format selection differs from its effective configuration")
         initial_sitemaps = _bounded_items(initial_sitemaps, "selected sitemap roots", 5000)
         derived_fingerprint = crawl_config_fingerprint(effective)
         if config_fingerprint is not None and config_fingerprint != derived_fingerprint:
@@ -544,6 +596,16 @@ class NativeScan:
                         "reason": "",
                     },
                 )
+            if format_version == "scan.v2":
+                from .retry import upgrade_to_v2
+                from .resource_graph import ensure_schema as ensure_resource_graph
+                from .events import ensure_schema as ensure_events
+                from .transport import ensure_schema as ensure_transport
+
+                upgrade_to_v2(con)
+                ensure_resource_graph(con)
+                ensure_events(con)
+                ensure_transport(con)
             from .sitemaps import declare
 
             for ordinal, (sitemap_url, source) in enumerate(initial_sitemaps):
@@ -1556,7 +1618,12 @@ class NativeScan:
                     (url_id, next_ordinal, int(depth)),
                 )
                 added.append(Lease(url_id, url, int(depth), next_ordinal))
+                self._event(
+                    "queue",
+                    {"queue_ordinal": next_ordinal, "url_id": url_id, "depth": depth, "reason": "enqueue", "count": 1},
+                )
                 next_ordinal += 1
+            self._event_coverage()
             self.con.commit()
             return added
         except BaseException:
@@ -1597,6 +1664,12 @@ class NativeScan:
             self.con.executemany(
                 "UPDATE frontier SET state='inflight' WHERE url_id=?", [(x.url_id,) for x in leases]
             )
+            for lease in leases:
+                self._event(
+                    "queue",
+                    {"queue_ordinal": lease.queue_ordinal, "url_id": lease.url_id, "depth": lease.depth, "reason": "claimed", "count": 1},
+                )
+            self._event_coverage()
             self.con.commit()
             self._hit("after_claim")
             return leases
@@ -1618,6 +1691,8 @@ class NativeScan:
                 "SELECT COUNT(*) FROM frontier WHERE state='inflight'"
             ).fetchone()[0]
             self.con.execute("UPDATE frontier SET state='queued' WHERE state='inflight'")
+            self._event("checkpoint", {"state": "recovered", "queued": count, "inflight": 0})
+            self._event_coverage()
             self.con.commit()
             return count
         except BaseException:
@@ -2096,6 +2171,11 @@ class NativeScan:
                     "reason": "atomic page commit",
                 },
             )
+            self._event(
+                "checkpoint",
+                {"state": "page_committed", "queued": len(discovered), "inflight": 0},
+            )
+            self._event_coverage()
             self.con.execute(
                 "UPDATE scan SET evidence_revision=evidence_revision+1 WHERE singleton=1"
             )
@@ -2312,6 +2392,11 @@ class NativeScan:
                 (len(captures) if representation == "legacy_fragment" else 1,),
             )
             self._sync_corpus()
+            self._event(
+                "render",
+                {"url_id": page["url_id"], "representation": representation, "state": "stored"},
+            )
+            self._event_coverage()
             self._hit("before_render_commit")
             self.con.commit()
             return document_id
@@ -2411,6 +2496,8 @@ class NativeScan:
             runtime = self.resume_snapshot()["runtime"]
             runtime["throttle"]["requests_used"] = requests_used
             self._write_runtime(runtime, runtime["max_depth_reached"])
+            self._event("budget", {"kind": "http_requests", "limit": maximum, "used": requests_used})
+            self._event_coverage()
             self.con.commit()
         except BaseException:
             self._rollback()
@@ -2439,6 +2526,8 @@ class NativeScan:
                 "UPDATE scan SET lifecycle='interrupted', finish_reason=?, crawl_partial=1 WHERE singleton=1",
                 (reason,),
             )
+            self._event("stop", {"reason": reason})
+            self._event_coverage()
             self.con.commit()
         except BaseException:
             self._rollback()

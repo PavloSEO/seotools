@@ -14,6 +14,7 @@ import itertools
 import json
 import sqlite3
 import time
+from threading import Lock
 from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager, suppress
@@ -401,11 +402,21 @@ def crawl_to_scan(
         max_concurrency=settings["speed"]["concurrency"],
         adaptive=settings["speed"]["adaptive"],
     )
+    from seohead.crawl.events import EventSink
+
+    adapter_events = EventSink()
+    event_lock = Lock()
+
+    def emit_event(event_type, payload):
+        with event_lock:
+            adapter_events.emit(event_type, payload, occurred_at=None)
+
     dispatch_gate = _DispatchGate(
         throttle,
         sleeper,
         clock,
         max_requests=settings["limits"]["max_requests"],
+        event_callback=emit_event,
     )
     started = clock()
     timeouts = server_errors = max_depth = 0
@@ -435,6 +446,7 @@ def crawl_to_scan(
             runtime_versions=runtime_versions,
             limitations=limitations,
             initial_sitemaps=initial_sitemaps,
+            format_version=settings["storage"]["format_version"],
         )
     )
     with _client_context(settings, fetcher) as client, scan_context as scan:
@@ -621,6 +633,7 @@ def crawl_to_scan(
             if progress is not None:
                 progress(counts["pages"], counts["queued"] + counts["inflight"])
             if counts["pages"] >= limit:
+                emit_event("budget", {"kind": "urls", "limit": limit, "used": counts["pages"]})
                 if counts["queued"] or counts["inflight"]:
                     partial, finish_reason = True, "url_limit"
                     scan.interrupt(f"url limit reached ({limit})")
@@ -629,6 +642,7 @@ def crawl_to_scan(
                 settings["limits"]["max_crawl_seconds"]
                 and elapsed_before + clock() - started >= settings["limits"]["max_crawl_seconds"]
             ):
+                emit_event("budget", {"kind": "seconds", "limit": settings["limits"]["max_crawl_seconds"], "used": int(elapsed_before + clock() - started)})
                 partial, finish_reason = True, "duration_limit"
                 scan.interrupt("duration limit reached")
                 break
@@ -730,6 +744,11 @@ def crawl_to_scan(
                 actions.append((lease, blocked and robots_policy == "respect"))
 
             fetchable = [lease for lease, excluded in actions if not excluded]
+            for lease in fetchable:
+                emit_event(
+                    "request",
+                    {"queue_ordinal": lease.queue_ordinal, "url_id": lease.url_id, "attempt": 1, "method": "GET", "state": "dispatched"},
+                )
             with ThreadPoolExecutor(max_workers=max(1, len(fetchable))) as pool:
                 # Futures are consumed in claim order: the C writer's contiguous
                 # inflight-prefix rule then gives deterministic evidence order.
@@ -765,6 +784,21 @@ def crawl_to_scan(
                         _storage_failure(scan, exc)
                         raise
                     record.crawl_depth = lease.depth
+                    emit_event(
+                        "cache",
+                        {"queue_ordinal": lease.queue_ordinal, "url_id": lease.url_id, "state": record.cache_status or "network"},
+                    )
+                    if record.error_kind == "timeout":
+                        emit_event(
+                            "retry",
+                            {
+                                "queue_ordinal": lease.queue_ordinal,
+                                "url_id": lease.url_id,
+                                "attempt": 1,
+                                "reason": "timeout",
+                                "delay_ms": round(throttle.delay * 1000),
+                            },
+                        )
                     max_depth = max(max_depth, lease.depth)
                     if (
                         settings["discovery"]["resolve_redirect_destination"]
@@ -815,6 +849,10 @@ def crawl_to_scan(
                         or server_errors >= STOP_AFTER_CONSECUTIVE_FAILURES
                     )
                     if circuit_stopped:
+                        emit_event(
+                            "circuit",
+                            {"kind": "origin", "state": "stopped", "streak": max(timeouts, server_errors)},
+                        )
                         batch = _forms_only_batch(parsed, lease.url)
                     else:
                         batch = _DocumentBatch()
@@ -929,6 +967,7 @@ def crawl_to_scan(
                 wait=dispatch_gate.wait_turn,
                 clock=clock,
             )
+        scan.record_events(adapter_events)
         scan.record_request_count(dispatch_gate.requests_used)
         if start_page_gate is None:
             start_page_gate = retained_start_gate(scan, settings, content_area_config)
