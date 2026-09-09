@@ -17,6 +17,7 @@ from seohead import __version__
 from seohead.crawl.settings import load
 from seohead.crawl.sqlite_adapter import crawl_to_scan
 from seohead.storage import ScanError, open_scan
+from tests.evidence_contract_assertions import assert_saved_contract, semantic_audit
 
 # Synthetic fixture authored for this test; MIT project content, no third-party corpus.
 MIT_SYNTHETIC_HTML = b"""<!doctype html><html><head>
@@ -131,7 +132,9 @@ def _page_outcomes(path: Path, *, require_audit: bool = True) -> list[tuple]:
 def _audit_outcomes(path: Path) -> tuple[object, object]:
     with open_scan(path) as con:
         document = json.loads(con.execute("SELECT document_json FROM audit").fetchone()[0])
-    return document["pages"], document["issues"]
+        assert_saved_contract(document, con)
+    semantic = semantic_audit(document)
+    return semantic["pages"], semantic["issues"]
 
 
 def _forbid_network(monkeypatch, observed_html: list[str]) -> dict[str, int]:
@@ -284,5 +287,8 @@ def test_reanalysis_keeps_http_refresh_evidence_and_its_finding(tmp_path, monkey
     attempts = _forbid_network(monkeypatch, [])
     reanalyze_scan(str(source), str(output), producer_build="b" * 40)
     after = read_audit(output)
-    assert after["issues"] == before["issues"]
+    with open_scan(source) as source_con, open_scan(output) as output_con:
+        assert_saved_contract(before, source_con)
+        assert_saved_contract(after, output_con)
+    assert semantic_audit(after)["issues"] == semantic_audit(before)["issues"]
     assert attempts == {}

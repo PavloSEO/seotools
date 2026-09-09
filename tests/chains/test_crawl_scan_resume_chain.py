@@ -18,10 +18,11 @@ from collections import Counter
 import pytest
 
 from seohead.servers import handlers
-from seohead.storage import read_audit
+from seohead.storage import open_scan, read_audit
 from seohead.storage.native_scan import NativeScan
 from tests.chains import chain_site
 from tests.chains.chain_site import run_chain_site
+from tests.evidence_contract_assertions import assert_saved_contract, semantic_audit
 
 BUILD = "a" * 40
 
@@ -101,6 +102,13 @@ def _differences(left, right, path=""):
         yield path
 
 
+def _saved_semantic_audit(path):
+    with open_scan(path) as scan:
+        audit = read_audit(str(path))
+        assert_saved_contract(audit, scan)
+    return semantic_audit(audit)
+
+
 def test_a_killed_scan_crawl_resumed_fetches_every_url_once_and_audits_the_same(
     site, request_log, tmp_path
 ):
@@ -132,7 +140,7 @@ def test_a_killed_scan_crawl_resumed_fetches_every_url_once_and_audits_the_same(
 
     # Exactly one difference, and it is the one that must be there: an audit that matched
     # in every other field would leave a resumed run indistinguishable from a whole one.
-    assert set(_differences(read_audit(str(resumable)), read_audit(str(whole)))) == {
+    assert set(_differences(_saved_semantic_audit(resumable), _saved_semantic_audit(whole))) == {
         "/run/crawl_resumed"
     }
 
