@@ -449,7 +449,7 @@ class NativeScan:
         self.failpoint: Callable[[str], None] | None = None
         self._event_sink = None
         if self.con.execute("PRAGMA user_version").fetchone()[0] == 2:
-            from seohead.crawl.events import EventSink, MAX_EVENTS
+            from seohead.crawl.events import MAX_EVENTS, EventSink
             from seohead.storage.events import append, ensure_schema
 
             ensure_schema(self.con)
@@ -681,11 +681,11 @@ class NativeScan:
                     },
                 )
             if format_version == "scan.v2":
-                from .retry import upgrade_to_v2
-                from .resource_graph import ensure_schema as ensure_resource_graph
-                from .events import ensure_schema as ensure_events
-                from .transport import ensure_schema as ensure_transport
                 from .discovery_ledger import ensure_schema as ensure_discovery_ledger
+                from .events import ensure_schema as ensure_events
+                from .resource_graph import ensure_schema as ensure_resource_graph
+                from .retry import upgrade_to_v2
+                from .transport import ensure_schema as ensure_transport
 
                 upgrade_to_v2(con)
                 ensure_resource_graph(con)

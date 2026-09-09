@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from seohead.crawl.sqlite_adapter import _document_batch
 from seohead.crawl.settings import load
+from seohead.crawl.sqlite_adapter import _document_batch
 from seohead.storage.native_scan import NativeScan
 from seohead.storage.rendered_routes import read
 from tests.test_native_capture import _claim, _renderer

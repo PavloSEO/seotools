@@ -101,9 +101,8 @@ def scan_extract(
     limit: int = 100,
 ) -> dict[str, Any]:
     """Apply bounded declarative rules to retained bodies without a fetch or mutation."""
-    from seohead.storage import open_scan
+    from seohead.storage import ScanError, open_scan
     from seohead.storage.bodies import read_document
-    from seohead.storage import ScanError
     from seohead.tools.extraction_rules import evaluate, validate_rules
     from seohead.tools.parser import parse_html
 

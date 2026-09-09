@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import itertools
 import sys
 import threading
@@ -14,10 +15,8 @@ def show_banner(command: str, quiet: bool = False) -> None:
     """Print one startup line to stderr unless the caller explicitly requested quiet output."""
     if quiet:
         return
-    try:
+    with contextlib.suppress(OSError, ValueError):
         print(f"seohead: {command}", file=sys.stderr, flush=True)
-    except (OSError, ValueError):
-        pass
 
 
 class _ElapsedProgress(AbstractContextManager["_ElapsedProgress"]):
@@ -30,7 +29,7 @@ class _ElapsedProgress(AbstractContextManager["_ElapsedProgress"]):
         self._started = 0.0
         self._painted = False
 
-    def __enter__(self) -> "_ElapsedProgress":
+    def __enter__(self) -> _ElapsedProgress:
         stream = sys.stderr
         if not self.enabled or not bool(getattr(stream, "isatty", lambda: False)()):
             return self

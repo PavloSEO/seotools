@@ -6,7 +6,6 @@ import json
 import re
 import sqlite3
 import warnings
-from collections.abc import Iterable
 from io import BytesIO
 from typing import Any
 from urllib.parse import urljoin, urlsplit
@@ -425,8 +424,8 @@ def capture(
     if not settings["resources"]["fetch"]:
         return {"stored": 0, "fetched": 0, "excluded": 0, "failed": 0, "budget": 0}
     from seohead.crawl.collect import fetch_one
-    from seohead.crawl.sqlite_adapter import _headers
     from seohead.crawl.spider import Scope
+    from seohead.crawl.sqlite_adapter import _headers
     from seohead.crawl.throttle import RequestBudgetExhausted
 
     start_url = scan.con.execute("SELECT start_url FROM scan WHERE singleton=1").fetchone()[0]

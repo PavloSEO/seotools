@@ -81,7 +81,7 @@ def test_wrapped_fastmcp_tool_preserves_schema_annotations_and_meta():
     assert after.inputSchema == before.inputSchema
     assert after.outputSchema == before.outputSchema
     assert after.annotations == before.annotations
-    assert after._meta == before._meta
+    assert after.meta == before.meta
 
 
 class _Clock:

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import math
 import time
+from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
-from typing import Any, Callable
+from typing import Any
 
 MIN_INTERVAL_SECONDS = 0.5
 
@@ -34,7 +35,7 @@ class ProgressReporter(AbstractAsyncContextManager["ProgressReporter"]):
         self._last_sent: float | None = None
         self._closed = False
 
-    async def __aenter__(self) -> "ProgressReporter":
+    async def __aenter__(self) -> ProgressReporter:
         return self
 
     async def __aexit__(self, *_: object) -> None:
@@ -88,7 +89,7 @@ def install_progress(server: Any, *, enabled: bool = True) -> ProgressInstallati
     may omit this and retain synchronous function objects for unit-level compatibility.
     """
     installation = ProgressInstallation() if enabled else None
-    setattr(server, "_seohead_progress", installation)
+    server._seohead_progress = installation
     return installation
 
 

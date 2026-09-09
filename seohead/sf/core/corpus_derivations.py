@@ -252,7 +252,8 @@ def _language_derivations(
 
 def derive(con: Any, *, duplicate_threshold: float = 0.92) -> dict[str, Any]:
     """Return reproducible content/structured/i18n derivations from one scan connection."""
-    from seohead.storage.content_evidence import derive_duplicates, read as read_content
+    from seohead.storage.content_evidence import derive_duplicates
+    from seohead.storage.content_evidence import read as read_content
     from seohead.storage.structured_evidence import read as read_structured
 
     content = read_content(con)

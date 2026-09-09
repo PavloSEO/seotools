@@ -371,7 +371,7 @@ def derive_duplicates(
             implementation["version"],
             implementation["source_sha256"],
         )
-        exact.setdefault(key + (item["normalized_hash"],), set()).add(item["page_url_id"])
+        exact.setdefault((*key, item["normalized_hash"]), set()).add(item["page_url_id"])
     exact_groups = [
         {
             "representation": key[0],

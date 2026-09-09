@@ -72,6 +72,7 @@ def test_full_policy_renders_eligible_pages_without_sampling():
     result = render_escalation.escalate(
         records,
         {"mode": "js", "escalation": {"policy": "full", "max_render_urls": 2}},
+        representation_label="rendered",
         probe=lambda *_: pytest.fail("full policy must not probe"),
         render_fetch=lambda url: (
             seen.append(url) or {"ok": True, "html": "<title>Rendered</title>"}

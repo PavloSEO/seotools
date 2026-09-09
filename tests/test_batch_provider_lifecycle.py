@@ -12,7 +12,6 @@ from seohead.storage.native_scan import NativeScan
 from tests.test_native_capture import _claim
 from tests.test_scan_native import _metadata, _record, _runtime
 
-
 _SCOPE = "https://www.googleapis.com/auth/webmasters.readonly"
 
 
@@ -50,7 +49,11 @@ def test_gsc_connect_requires_private_file_and_never_returns_secret_values(tmp_p
     monkeypatch.setattr(
         oauth,
         "refresh_access_token",
-        lambda _provider: {"access_token": "synthetic-access-token", "scopes": [_SCOPE], "expires_in": 3600},
+        lambda _provider: {
+            "access_token": "synthetic-access-token",
+            "scopes": [_SCOPE],
+            "expires_in": 3600,
+        },
     )
     refreshed = oauth.manage_grant("gsc", "refresh")
     returned = json.dumps({"connected": connected, "refreshed": refreshed})
@@ -79,7 +82,9 @@ def test_gsc_uses_durable_refresh_only_after_bearer_lookup_fails(monkeypatch):
     result = gsc.search_analytics(
         "sc-domain:example.test",
         token=None,
-        fetcher=lambda payload, bearer: seen.update(payload=payload, bearer=bearer) or '{"rows": []}',
+        fetcher=lambda payload, bearer: (
+            seen.update(payload=payload, bearer=bearer) or '{"rows": []}'
+        ),
     )
 
     assert result["ok"] is True

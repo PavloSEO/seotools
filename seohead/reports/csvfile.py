@@ -21,7 +21,6 @@ from typing import Any
 def _scope_rows(summary: dict[str, Any]) -> list[list[Any]]:
     """Return run evidence separately from task-tracker finding rows (#574)."""
     from seohead.reports.client_findings import check_title
-
     from seohead.reports.evidence_summary import rows as evidence_rows
 
     rows: list[list[Any]] = evidence_rows(summary)

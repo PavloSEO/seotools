@@ -6,7 +6,7 @@ import urllib.request
 
 
 class _RefuseRedirects(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: N802 - stdlib hook name.
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
 
 

@@ -119,9 +119,7 @@ def test_native_render_commits_each_dom_then_discards_html(monkeypatch):
         }
 
     monkeypatch.setattr(render_tool, "render_document", fake_document)
-    escalation = run_render_escalation(
-        scan, result, _settings(**{"rendering.rendered_links.store": True})
-    )
+    run_render_escalation(scan, result, _settings(**{"rendering.rendered_links.store": True}))
 
     assert scan.preflight_calls >= 2
     assert seen["max_html_bytes"] == 5 * 1024 * 1024
@@ -165,7 +163,7 @@ def test_render_route_run_coverage_names_disabled_raw_and_budget(monkeypatch):
         "render_document",
         lambda url, *_a, **_k: {
             "ok": True,
-                "html": "<a href='/x'>x</a><a href='/new'>new</a>",
+            "html": "<a href='/x'>x</a><a href='/new'>new</a>",
             "renderer": _renderer(url),
             "final_url": url,
         },
