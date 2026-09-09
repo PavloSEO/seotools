@@ -902,6 +902,11 @@ class NativeScan:
         version = con.execute("PRAGMA user_version").fetchone()[0]
         v2 = version == 2
         if v2:
+            header_version = con.execute(
+                "SELECT format_version FROM scan WHERE singleton=1"
+            ).fetchone()
+            if header_version is None or header_version[0] != "scan.v2":
+                raise ScanError("scan user_version disagrees with its format_version")
             from .retry import validate_v2
 
             validate_v2(con, require_audit=False)

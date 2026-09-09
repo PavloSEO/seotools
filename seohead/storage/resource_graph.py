@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import time
 import warnings
 from collections.abc import Iterable
 from io import BytesIO
@@ -418,7 +419,7 @@ def capture(
     client: Any = None,
     fetcher: Any = None,
     wait: Any = None,
-    clock: Any = None,
+    clock: Any = time.monotonic,
 ) -> dict[str, int]:
     """Fetch deduplicated v2 declarations under resource-graph-specific budgets."""
     if scan.con.execute("PRAGMA user_version").fetchone()[0] != 2:
@@ -725,8 +726,6 @@ def _image_dimensions(body: bytes | None) -> tuple[int | None, int | None]:
 
 def _store_css_children(con: sqlite3.Connection, parent: Any, text: str, max_nesting: int) -> None:
     depth = parent["nesting_depth"] + 1
-    if depth > max_nesting:
-        return
     values: list[dict[str, Any]] = []
     _css(values, text, parent["resolved_url"], carrier="css")
     ordinal = con.execute(

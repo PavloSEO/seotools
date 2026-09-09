@@ -148,7 +148,7 @@ def test_unavailable_render_coverage_keeps_static_relation_unknown_and_rolls_bac
                 body_state="unavailable",
                 body_reason="fetch_failed",
                 route_coverage={
-                    "representation": "legacy_fragment",
+                    "representation": "rendered",
                     "observed": 0,
                     "omitted": 0,
                     "completeness": "unavailable",

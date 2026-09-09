@@ -22,11 +22,7 @@ def observations(
     parsed: dict[str, Any] | None, batch: Any, representation: str
 ) -> tuple[list[dict], dict]:
     """Return only parser-emitted eligible anchors; never admit or fetch a route."""
-    if (
-        not isinstance(parsed, dict)
-        or not isinstance(parsed.get("_raw_html"), str)
-        or not isinstance(parsed.get("links"), list)
-    ):
+    if not isinstance(parsed, dict) or not isinstance(parsed.get("links"), list):
         return [], {
             "representation": representation,
             "observed": 0,
@@ -102,7 +98,7 @@ def context_items(
         items.append(
             {
                 "kind": KIND,
-                "item_key": f"page:{page_url_id}:representation:{representation}:ordinal:{ordinal}",
+                "item_key": f"page:{page_url_id}:document:{document_id}:representation:{representation}:ordinal:{ordinal}",
                 "payload_version": OUTER_VERSION,
                 "payload_json": json.dumps(payload, sort_keys=True, separators=(",", ":")),
                 "completeness": "complete",
@@ -118,7 +114,7 @@ def context_items(
     items.append(
         {
             "kind": COVERAGE_KIND,
-            "item_key": f"page:{page_url_id}:representation:{representation}",
+            "item_key": f"page:{page_url_id}:document:{document_id}:representation:{representation}",
             "payload_version": OUTER_VERSION,
             "payload_json": json.dumps(payload, sort_keys=True, separators=(",", ":")),
             "completeness": coverage["completeness"],
@@ -193,10 +189,10 @@ def validate_context(con: Any, item: dict[str, Any], payload: Any) -> None:
             or item["reason"]
         ):
             raise ScanError("native rendered route ledger context is invalid")
-        if (
-            item["item_key"]
-            != f"page:{payload['page_url_id']}:representation:{payload['representation']}:ordinal:{payload['ordinal']}"
-        ):
+        if item["item_key"] not in {
+            f"page:{payload['page_url_id']}:representation:{payload['representation']}:ordinal:{payload['ordinal']}",
+            f"page:{payload['page_url_id']}:document:{payload['source_document_id']}:representation:{payload['representation']}:ordinal:{payload['ordinal']}",
+        }:
             raise ScanError("native rendered route ledger key is invalid")
     elif item["kind"] == COVERAGE_KIND:
         required = {
@@ -236,7 +232,10 @@ def validate_context(con: Any, item: dict[str, Any], payload: Any) -> None:
             or item["completeness"] != payload["completeness"]
             or item["reason"] != payload["reason"]
             or item["item_key"]
-            != f"page:{payload['page_url_id']}:representation:{payload['representation']}"
+            not in {
+                f"page:{payload['page_url_id']}:representation:{payload['representation']}",
+                f"page:{payload['page_url_id']}:document:{payload['source_document_id']}:representation:{payload['representation']}",
+            }
         ):
             raise ScanError("native rendered route coverage context is invalid")
     else:
@@ -268,13 +267,18 @@ def _validate_coverage_routes(con: Any, coverage: dict[str, Any]) -> None:
         "SELECT payload_json FROM context_items WHERE kind=? AND item_key LIKE ?",
         (
             KIND,
-            f"page:{coverage['page_url_id']}:representation:{coverage['representation']}:ordinal:%",
+            f"page:{coverage['page_url_id']}:%",
         ),
     ):
         try:
             route = json.loads(row[0])
         except (TypeError, ValueError) as exc:
             raise ScanError("native rendered route ledger context is invalid JSON") from exc
+        if (
+            route.get("source_document_id") != coverage["source_document_id"]
+            or route.get("representation") != coverage["representation"]
+        ):
+            continue
         if (
             route.get("page_url_id") != coverage["page_url_id"]
             or route.get("representation") != coverage["representation"]
@@ -296,14 +300,16 @@ def validate_ledger(con: Any) -> None:
         "SELECT kind,payload_json FROM context_items WHERE kind IN (?,?)", (KIND, COVERAGE_KIND)
     ):
         payload = json.loads(row["payload_json"])
-        key = (payload["page_url_id"], payload["representation"])
+        key = (payload["page_url_id"], payload["source_document_id"], payload["representation"])
         if row["kind"] == COVERAGE_KIND:
             coverage.append(payload)
         else:
             routes_without_coverage.add(key)
     for item in coverage:
         _validate_coverage_routes(con, item)
-        routes_without_coverage.discard((item["page_url_id"], item["representation"]))
+        routes_without_coverage.discard(
+            (item["page_url_id"], item["source_document_id"], item["representation"])
+        )
     if routes_without_coverage:
         raise ScanError("native rendered route occurrences lack coverage")
 

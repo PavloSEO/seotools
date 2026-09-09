@@ -289,11 +289,15 @@ class _Scan:
             if not entry["reason"]:
                 self.queue.append(
                     SimpleNamespace(
+                        url_id=len(self.queue) + 1,
                         url=entry["frontier_url"],
                         depth=entry["depth"],
                         queue_ordinal=len(self.queue),
                     )
                 )
+
+    def record_events(self, events):
+        self.events = list(events.events)
 
     def begin_collection(self):
         return None
