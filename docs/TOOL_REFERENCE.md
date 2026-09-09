@@ -6,7 +6,7 @@ Generated from the MCP tool definitions in `seohead/servers/mcp_server.py` and `
 python scripts/generate_tool_reference.py
 ```
 
-**67 core tools** (`seohead <command>` / `seo_<command>` on the MCP server) plus **5 crawl-audit tools** (`sf_<command>`, driven by `seohead sf ...`) — 72 in total.
+**68 core tools** (`seohead <command>` / `seo_<command>` on the MCP server) plus **5 crawl-audit tools** (`sf_<command>`, driven by `seohead sf ...`) — 73 in total.
 
 Every tool shares one contract: JSON in, JSON out. A target that could not be reached comes back as `{"ok": false, "error": "..."}` instead of raising, so an unreachable site is data, not a crash.
 
@@ -987,6 +987,18 @@ Read a bounded, paginated table view from one saved scan.
 | `offset` | `int` | `0` |
 | `limit` | `int` | `100` |
 | `max_bytes` | `int` | `1048576` |
+
+**Cost** — network: no · writes files: no · idempotent: yes · spends money: no
+
+### `scan-status`
+
+MCP name: `seo_scan_status`
+
+Summarize frontier work and committed page outcomes from one saved scan offline.
+
+| Argument | Type | Default |
+|---|---|---|
+| `input_path` | `str` | `required` |
 
 **Cost** — network: no · writes files: no · idempotent: yes · spends money: no
 

@@ -15,6 +15,7 @@ from seohead.storage.history import (
     prune_preview,
     snapshot_scan,
 )
+from seohead.storage.status import scan_status as _scan_status
 
 
 def _path(value: str, label: str) -> str:
@@ -42,6 +43,11 @@ def scan_inspect(
         limit=limit,
         max_bytes=max_bytes,
     )
+
+
+def scan_status(input_path: str) -> dict[str, Any]:
+    """Summarize saved frontier work and committed page outcomes offline."""
+    return _scan_status(_path(input_path, "input"))
 
 
 def scan_snapshot(input_path: str, out: str) -> dict[str, Any]:
