@@ -17,7 +17,12 @@ from collections.abc import Iterator
 from pathlib import Path
 
 SITE_DIR = Path(__file__).with_name("site")
-EXACT_FILES = {"/robots.txt", "/sitemap.xml", "/llms.txt", "/image.png"}
+EXACT_FILES = {
+    "/robots.txt": SITE_DIR / "robots.txt",
+    "/sitemap.xml": SITE_DIR / "sitemap.xml",
+    "/llms.txt": SITE_DIR / "llms.txt",
+    "/image.png": SITE_DIR / "image.png",
+}
 _ORIGIN_REWRITES = {"/robots.txt", "/sitemap.xml"}
 
 
@@ -35,9 +40,7 @@ class _FixtureHandler(http.server.SimpleHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
         if path in _ORIGIN_REWRITES:
             body = (
-                (SITE_DIR / path.lstrip("/"))
-                .read_bytes()
-                .replace(b"http://127.0.0.1", self._origin().encode())
+                EXACT_FILES[path].read_bytes().replace(b"http://127.0.0.1", self._origin().encode())
             )
             self.send_response(200)
             self.send_header("Content-Type", self.guess_type(path))
