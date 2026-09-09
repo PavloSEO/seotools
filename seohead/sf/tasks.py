@@ -55,6 +55,49 @@ def _reproductions(issues: list[dict[str, Any]], cap: int) -> list[str]:
     return rows
 
 
+def _evidence_references(
+    issues: list[dict[str, Any]], cap: int
+) -> tuple[list[dict[str, str]], int]:
+    """Carry only closed saved-observation references into the task contract.
+
+    Older SF/export audits often retain no scan UUID.  Their absence remains a
+    first-class unavailable reference instead of a synthetic issue locator or
+    an export path that a recipient cannot resolve.
+    """
+    rows: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str, str, str]] = set()
+    for issue in issues:
+        evidence = issue.get("evidence") if isinstance(issue.get("evidence"), dict) else {}
+        contract = evidence.get("contract") if isinstance(evidence.get("contract"), dict) else {}
+        if contract.get("state") in {"measured", "imported_projection"}:
+            record = {
+                "state": str(contract["state"]),
+                "id": str(contract.get("id") or ""),
+                "source_table": str(contract.get("source_table") or ""),
+                "observation_id": str(contract.get("observation_id") or ""),
+            }
+            if not all(record.values()):
+                record = {
+                    "state": "unavailable",
+                    "reason": "saved evidence reference is incomplete",
+                }
+        else:
+            record = {
+                "state": "unavailable",
+                "reason": str(
+                    contract.get("reason") or "no stable saved-evidence reference is present"
+                ),
+            }
+        key = tuple(
+            record.get(name, "")
+            for name in ("state", "id", "source_table", "observation_id", "reason")
+        )
+        if key not in seen:
+            seen.add(key)
+            rows.append(record)
+    return rows[:cap], max(0, len(rows) - cap)
+
+
 def build_tasks(audit: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
     """Build a task backlog from an ``audit.json`` dict (``AuditResult.to_json()``)."""
     cfg = _pipeline_cfg(config)
@@ -164,6 +207,9 @@ def _group_by_check(issues, prio, effort, cap, loc_cap, min_occ) -> list[dict[st
             "urls_truncated": max(0, len(unique_urls) - cap),
             "reproductions": _reproductions(group, cap),
         }
+        evidence, evidence_truncated = _evidence_references(group, cap)
+        task["evidence_references"] = evidence
+        task["evidence_references_truncated"] = evidence_truncated
         if check in LINK_CHECKS:
             links, total, truncated = _link_evidence(group, loc_cap)
             task["broken_links"] = links
@@ -201,6 +247,9 @@ def _per_issue(issues, prio, effort, cap, loc_cap, min_occ) -> list[dict[str, An
             "urls_truncated": 0,
             "reproductions": _reproductions([issue], cap),
         }
+        evidence, evidence_truncated = _evidence_references([issue], cap)
+        task["evidence_references"] = evidence
+        task["evidence_references_truncated"] = evidence_truncated
         if issue["check"] in LINK_CHECKS:
             links, total, truncated = _link_evidence([issue], loc_cap)
             task["broken_links"] = links
