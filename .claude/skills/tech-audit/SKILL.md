@@ -53,7 +53,9 @@ making the conclusion verifiable.
   input to that roadmap; the roadmap itself is `audit-roadmap`/`seo-deep-audit`.
 - The site is JavaScript-heavy and the real question is "does Google actually see
   the rendered content," not "what framework renders it" — signature detection on
-  the raw HTML cannot answer that; use `js-render-check`/`render-check` instead.
+  the raw HTML cannot answer that. Google recommends inspecting rendered HTML with
+  the Rich Results Test or URL Inspection Tool; use `js-render-check`/`render-check`
+  instead ([Google's JavaScript SEO basics](https://developers.google.com/search/docs/crawling-indexing/javascript/javascript-seo-basics)).
 - No live URL is reachable (local-only site, staging behind auth) — this skill
   needs one real HTTP request to the page; without it, fall back to manually
   reading the source per Degraded Mode below, or skip the check entirely.

@@ -42,7 +42,8 @@ HOW to rewrite it. This skill fills that gap.
 
 - [ ] `https://SITE/robots.txt` resolves with `200` (see step 1) — a 404/5xx
   is itself the finding, not a reason to stop, but note it before running the
-  heuristic checks below.
+  heuristic checks below. Google's robots parser temporarily treats a `5xx`
+  robots.txt response as a full disallow ([Google's robots specification](https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec)).
 - [ ] At least one of: an `sf-analyzer` `audit.json` with live 200-status
   pages, or a fetchable `sitemap.xml`, or a page list supplied by the user —
   without a reference set, "blocks live pages" cannot be checked, only
@@ -67,18 +68,20 @@ HOW to rewrite it. This skill fills that gap.
      pages and/or URLs from the sitemap. A conflict where a page appears in the sitemap but is
      blocked by `Disallow` is a red flag.
    - **Blocks rendering resources.** A `Disallow` for `*.js`, `*.css`, `/_next/`, `/static/`,
-     `/assets/`, `/wp-content/`, or `/wp-includes/` breaks rendering, so Google sees an empty
-     page. Severity: high.
+     `/assets/`, `/wp-content/`, or `/wp-includes/` can prevent Google from rendering or
+     analyzing a dependent page as expected ([Google's JavaScript SEO basics](https://developers.google.com/search/docs/crawling-indexing/javascript/javascript-seo-basics)).
+     Severity: high.
    - **Rules are too broad.** `Disallow: /*?` or `Disallow: /*?*` blocks EVERY URL with
      parameters. This often also blocks pagination (`/blog?page=2`), filters, and UTM landing
      pages. `Disallow: /` in the `*` group blocks the entire site; check whether it was left
      over from development or staging.
    - **Allow/Disallow conflicts.** An `Allow` and `Disallow` in the same group match overlapping
-     paths. State the rule clearly: the longer, more specific matching rule wins, not the rule
-     that appears first in the file.
+     paths. State the rule clearly: Google applies the longer, more specific matching rule, not
+     the rule that appears first ([Google's robots specification](https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec)).
    - **No `Sitemap:`** Add the sitemap's absolute URL.
-   - **`Crawl-delay`** Googlebot ignores it; for most sites it only causes harm by slowing down
-     crawling. Remove it unless there is a real need to throttle an aggressive bot.
+   - **`Crawl-delay`** Google does not support this directive in its robots parser
+     ([Google's robots specification](https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec)).
+     Do not present it as a Googlebot throttle; retain it only if another crawler needs it.
    - **Duplicates and typos.** Repeated `Disallow` directives, `Dissallow`/`Disalow`, `Useragent`
      without the hyphen, a relative `Sitemap:` URL (it must be absolute), and paths without a
      leading `/`.
@@ -131,7 +134,8 @@ review itself, not network I/O.
 - **The main rule to state in the conclusion:** `canonical` and `noindex` (meta/HTTP) control
   indexing, while `robots.txt` controls crawling ONLY. You cannot "remove a page from the index"
   with `Disallow`: a page blocked by robots.txt will not receive the `noindex` directive because
-  the bot cannot read it, and the URL may remain in search results without a snippet.
+  the bot cannot read it, and the URL may remain in search results without a snippet
+  ([Google's noindex guidance](https://developers.google.com/search/docs/crawling-indexing/block-indexing)).
 
 See also: `sf-analyzer`, the source of the 200-status page list and sitemap data; `sf-report` /
 `sf-tasks`, which place the discovered issues into the report and backlog.
