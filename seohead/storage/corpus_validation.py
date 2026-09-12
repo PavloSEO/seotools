@@ -166,6 +166,15 @@ def validate_corpus(
                 except UnicodeError as exc:
                     raise ScanError("serialized DOM contains invalid UTF-8") from exc
 
+    try:
+        config = _json(scan.get("config_json"), "scan configuration")
+    except ScanError:
+        config = {}
+    retain_no_store = bool(
+        isinstance(config, dict)
+        and isinstance(config.get("evidence"), dict)
+        and config["evidence"].get("retain_no_store_acknowledged") is True
+    )
     for row in _iter_rows(con, "SELECT * FROM responses"):
         _timestamp(row["requested_at"], "response requested_at")
         _timestamp(row["received_at"], "response received_at", nullable=True)
@@ -182,8 +191,13 @@ def validate_corpus(
         _state(row, document=False)
         if row["body_state"] == "complete" and (
             row["credentials_used"] != 0
-            or _has_no_store(row["response_headers_redacted_json"])
-            or _has_no_store(row["effective_headers_redacted_json"])
+            or (
+                not retain_no_store
+                and (
+                    _has_no_store(row["response_headers_redacted_json"])
+                    or _has_no_store(row["effective_headers_redacted_json"])
+                )
+            )
         ):
             raise ScanError("credentialed or no-store response cannot retain a complete body")
         source = row["source_response_id"]

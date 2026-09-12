@@ -63,7 +63,7 @@ seohead compare-crawls --before before.sqlite --after after.sqlite
 seohead sf tasks --json scan.sqlite --out tasks
 
 # retained native evidence only: create a new derived artifact without network replay
-seohead scan reanalyze --input old.sqlite --out derived.sqlite --producer-build SOURCE_SHA
+seohead scan reanalyze --scan old.sqlite --out derived.sqlite --producer-build SOURCE_SHA
 ```
 
 The scan supplies its internal saved audit to these routes. An adjacent
@@ -130,16 +130,16 @@ report their frontier as unavailable because they retain no native queue.
 
 ```bash
 seohead scan-list --directory . --limit 100
-seohead scan-inspect --input native.sqlite --table pages --offset 0 --limit 100 --max-bytes 1048576
-seohead scan-status --input native.sqlite
-seohead scan-rendered-routes --input native.sqlite
+seohead scan-inspect --scan native.sqlite --table pages --offset 0 --limit 100 --max-bytes 1048576
+seohead scan-status --scan native.sqlite
+seohead scan-rendered-routes --scan native.sqlite
 
 # --out is either a new filename or an existing directory; neither form overwrites
-seohead scan-snapshot --input native.sqlite --out snapshot.sqlite
-seohead scan-snapshot --input native.sqlite --out .
+seohead scan-snapshot --scan native.sqlite --out snapshot.sqlite
+seohead scan-snapshot --scan native.sqlite --out .
 
-seohead scan-pin --input native.sqlite
-seohead scan-pin --input native.sqlite --unpin
+seohead scan-pin --scan native.sqlite
+seohead scan-pin --scan native.sqlite --unpin
 
 # preview only: save this complete stdout JSON envelope and review it before applying
 seohead scan-prune --directory . > plan.json

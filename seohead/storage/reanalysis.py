@@ -6,6 +6,7 @@ import contextlib
 import hashlib
 import json
 import os
+import shutil
 import sqlite3
 import tempfile
 import time
@@ -14,6 +15,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
+
+from seohead import filesystem
 
 from . import ScanError, _dump, _insert, open_scan
 from .native_scan import (
@@ -39,11 +42,9 @@ def _writer(path: Path) -> NativeScan:
     if not os.path.lexists(path) or not path.is_file():
         raise ScanError("derived writer requires its temporary regular scan file")
     lock = path.with_name(path.name + ".writer.lock")
-    fd = os.open(lock, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    fd = filesystem.open_lock(lock)
     try:
-        import fcntl
-
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        filesystem.lock_exclusive(fd)
         con = NativeScan._connect_writer(path)
         return NativeScan(path, con, fd)
     except BaseException:
@@ -204,7 +205,7 @@ def derived_scan(
         page_count = source.execute("PRAGMA page_count").fetchone()[0]
         page_size = source.execute("PRAGMA page_size").fetchone()[0]
         required = page_count * page_size * 2 + SNAPSHOT_RESERVE_BYTES
-        free = os.statvfs(target.parent).f_bavail * os.statvfs(target.parent).f_frsize
+        free = shutil.disk_usage(target.parent).free
         if free < required:
             raise ScanError("insufficient free space for derived reanalysis backup")
         destination = sqlite3.connect(temporary)

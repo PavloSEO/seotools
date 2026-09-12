@@ -508,9 +508,24 @@ def render_markdown() -> str:
         "| Command | Accepted input forms | Notes |",
         "| --- | --- | --- |",
     ]
+    scan_commands = {
+        "scan-inspect",
+        "scan-status",
+        "scan-rendered-routes",
+        "scan-snapshot",
+        "scan-pin",
+        "scan-reanalyze",
+    }
+
+    def display_arguments(contract: CommandContract, form: InputForm) -> str:
+        return ", ".join(
+            "scan" if contract.command in scan_commands and argument == "input_path" else argument
+            for argument in form.arguments
+        )
+
     for contract in CONTRACTS:
         forms = "<br>".join(
-            f"{_KIND_LABELS[form.kind]} (`{', '.join(form.arguments)}`)"
+            f"{_KIND_LABELS[form.kind]} (`{display_arguments(contract, form)}`)"
             + (f"; requires `{', '.join(form.required_with)}`" if form.required_with else "")
             if form.arguments
             else _KIND_LABELS[form.kind]

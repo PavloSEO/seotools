@@ -257,6 +257,9 @@ DEFAULTS: dict[str, Any] = {
         },
     },
     "evidence": {
+        # A scan artifact is evidence, not a reusable HTTP cache. Retaining a
+        # no-store response still needs an explicit operator acknowledgement.
+        "retain_no_store_acknowledged": False,
         "content_area": {
             "include_selector": "",
             "root_selector": "",
@@ -430,6 +433,7 @@ RESULTS_AFFECTING: frozenset[str] = frozenset(
         "resources.graph.max_redirects",
         "resources.graph.max_nesting",
         "evidence.content_area.include_selector",
+        "evidence.retain_no_store_acknowledged",
         "evidence.content_area.root_selector",
         "evidence.content_area.exclude_tags",
         "evidence.content_area.exclude_selectors",
@@ -472,6 +476,10 @@ RESULTS_AFFECTING: frozenset[str] = frozenset(
 # --config-help and, eventually, an MCP "describe settings" tool (#23) — so the three cannot drift
 # into different descriptions of the same setting. A test fails if a DEFAULTS path has no entry here.
 DESCRIPTIONS: dict[str, str] = {
+    "evidence.retain_no_store_acknowledged": (
+        "Allow bounded SQLite body retention for anonymous responses carrying Cache-Control: "
+        "no-store; off by default and never permits credentialed response retention."
+    ),
     "evidence.content_area.include_selector": "Optional CSS selector for included main-content regions.",
     "evidence.content_area.root_selector": "Optional CSS root within which main content is extracted.",
     "evidence.content_area.exclude_tags": "HTML element names excluded from the saved main-content signature.",

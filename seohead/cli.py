@@ -13,6 +13,7 @@ to stdout. Exit codes are documented in one place: docs/USAGE.md's "Input conven
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import sys
 from typing import TYPE_CHECKING, Any
@@ -151,6 +152,77 @@ URL_COMMANDS = (
 # A zero wait races with `echo '{...}' | seohead parse`; an unlimited wait hangs a command launched
 # by a script or CI job whose pipe is open but empty. The latter occurred in a real site-audit run.
 STDIN_WAIT_SECONDS = 0.2
+
+_SCAN_PATH_COMMANDS = frozenset(
+    {
+        "scan-inspect",
+        "scan-status",
+        "scan-rendered-routes",
+        "scan-snapshot",
+        "scan-pin",
+        "scan-reanalyze",
+    }
+)
+
+
+def _is_json_object(value: str) -> bool:
+    """Whether a legacy-ambiguous value is an inline JSON object, not a path."""
+    try:
+        return isinstance(json.loads(value), dict)
+    except json.JSONDecodeError:
+        return False
+
+
+def _rewrite_deprecated_scan_flags(argv: list[str] | None) -> tuple[list[str] | None, list[str]]:
+    """Keep old saved-scan flags working without registering two ``--input`` meanings.
+
+    ``--input`` is JSON for every command.  The five scan readers used it as a
+    path before #701, so rewrite an old path-shaped value to ``--scan`` before
+    argparse sees it.  JSON objects retain the common meaning; ``--json-input``
+    is the explicit deprecated spelling for that same JSON value.
+    """
+    if argv is None:
+        argv = sys.argv[1:]
+    rewritten = list(argv)
+    warnings: list[str] = []
+    command = None
+    for index, token in enumerate(rewritten):
+        if token == "scan" and index + 1 < len(rewritten):
+            command = f"scan-{rewritten[index + 1]}"
+            continue
+        if token in _SCAN_PATH_COMMANDS:
+            command = token
+            continue
+        if not command or not command.startswith("scan-"):
+            continue
+        if token == "--json-input":
+            rewritten[index] = "--input"
+            warnings.append("--json-input is deprecated; use --input for inline JSON")
+        elif token.startswith("--json-input="):
+            rewritten[index] = "--input=" + token.removeprefix("--json-input=")
+            warnings.append("--json-input is deprecated; use --input for inline JSON")
+        elif command in _SCAN_PATH_COMMANDS and token == "--input" and index + 1 < len(rewritten):
+            value = rewritten[index + 1]
+            if not _is_json_object(value):
+                rewritten[index] = "--scan"
+                warnings.append("--input FILE is deprecated for scan artifacts; use --scan FILE")
+        elif command in _SCAN_PATH_COMMANDS and token.startswith("--input="):
+            value = token.removeprefix("--input=")
+            if not _is_json_object(value):
+                rewritten[index] = "--scan=" + token.removeprefix("--input=")
+                warnings.append("--input FILE is deprecated for scan artifacts; use --scan FILE")
+    return rewritten, list(dict.fromkeys(warnings))
+
+
+def _configure_windows_streams() -> None:
+    """Keep redirected CLI JSON UTF-8 on Windows' legacy console defaults."""
+    if sys.platform != "win32":
+        return
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            with contextlib.suppress(OSError, ValueError):
+                reconfigure(encoding="utf-8")
 
 
 def _stdin_has_data() -> bool:
@@ -881,12 +953,7 @@ def _read_donors(path: str) -> list[str]:
 
 
 def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
-    if cmd.startswith("scan-") and cmd != "scan-reanalyze":
-        sub.add_argument(
-            "--json-input", dest="input", help="JSON object mapped onto handler arguments"
-        )
-    else:
-        sub.add_argument("--input", help="JSON object mapped onto the handler arguments")
+    sub.add_argument("--input", help="JSON object mapped onto the handler arguments")
     if cmd == "scan-reanalyze":
         _source_flag(sub, "--source", dest="input_path", help="retained SQLite scan to read")
         sub.add_argument("--out", help="new derived SQLite file; never overwrites an existing file")
@@ -1225,8 +1292,8 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
         sub.add_argument("--offset", type=int)
         sub.add_argument("--limit", type=int)
         _source_flag(sub, "--project", help="project directory whose scans/ directory is listed")
-    if cmd in {"scan-inspect", "scan-status", "scan-rendered-routes", "scan-snapshot", "scan-pin"}:
-        _source_flag(sub, "--input", dest="input_path", required=False, help="scan SQLite file")
+    if cmd in _SCAN_PATH_COMMANDS:
+        _source_flag(sub, "--scan", dest="input_path", required=False, help="scan SQLite file")
     if cmd == "scan-inspect":
         sub.add_argument("--table")
         sub.add_argument("--offset", type=int)
@@ -1493,9 +1560,7 @@ def build_parser() -> argparse.ArgumentParser:
         "sf_args", nargs=argparse.REMAINDER, help="arguments forwarded to the sf-analyzer CLI"
     )
     reanalyze = scan_subs.add_parser("reanalyze", help="reanalyze retained inputs without network")
-    _source_flag(reanalyze, "--input", dest="input_path", required=True, help="source SQLite scan")
-    reanalyze.add_argument("--out", required=True, help="new derived SQLite scan")
-    reanalyze.add_argument("--producer-build", metavar="SHA", help="current analyzer source build")
+    _add_flags(reanalyze, "scan-reanalyze")
     mcp = subs.add_parser("mcp", help="run the MCP server (stdio)")
     mcp.add_argument(
         "--profile", choices=("full", "audit", "infra", "quick-check", "router"), default="full"
@@ -1507,8 +1572,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _configure_windows_streams()
     runlog.set_interface("cli")
+    argv, warnings = _rewrite_deprecated_scan_flags(argv)
     args = build_parser().parse_args(argv)
+    for warning in warnings:
+        print(f"warning: {warning}", file=sys.stderr)
     cmd = args.command
     if cmd == "scan":
         cmd = "scan-" + args.scan_command

@@ -154,7 +154,7 @@ def test_offline_saved_scan_operator_workflow(tmp_path, monkeypatch, capsys, fro
             capsys,
             "scan",
             "inspect",
-            "--input",
+            "--scan",
             str(source),
             "--table",
             "pages",
@@ -167,12 +167,12 @@ def test_offline_saved_scan_operator_workflow(tmp_path, monkeypatch, capsys, fro
         )
         assert inspected["rows"][0]["title"] == "Owned iframe fixture"
 
-        copied = _cli(capsys, "scan", "snapshot", "--input", str(source), "--out", str(snapshot))
+        copied = _cli(capsys, "scan", "snapshot", "--scan", str(source), "--out", str(snapshot))
         assert Path(copied["snapshot"]) == snapshot
         assert _audit_bytes(snapshot) == _audit_bytes(source)
 
-        assert _cli(capsys, "scan", "pin", "--input", str(snapshot))["pinned"] is True
-        assert _cli(capsys, "scan", "pin", "--input", str(snapshot), "--unpin")["pinned"] is False
+        assert _cli(capsys, "scan", "pin", "--scan", str(snapshot))["pinned"] is True
+        assert _cli(capsys, "scan", "pin", "--scan", str(snapshot), "--unpin")["pinned"] is False
         body = _cli(
             capsys,
             "scan",
@@ -190,7 +190,7 @@ def test_offline_saved_scan_operator_workflow(tmp_path, monkeypatch, capsys, fro
             capsys,
             "scan",
             "reanalyze",
-            "--input",
+            "--scan",
             str(source),
             "--out",
             str(derived),
@@ -203,7 +203,7 @@ def test_offline_saved_scan_operator_workflow(tmp_path, monkeypatch, capsys, fro
             assert_saved_contract(source_audit, source_con)
             assert_saved_contract(derived_audit, derived_con)
         assert semantic_audit(derived_audit)["issues"] == semantic_audit(source_audit)["issues"]
-        assert _cli(capsys, "scan", "inspect", "--input", str(derived))["rows"]
+        assert _cli(capsys, "scan", "inspect", "--scan", str(derived))["rows"]
         assert _cli(capsys, "scan", "list", "--directory", str(tmp_path))["total"] == 3
 
         for fmt in ("json", "md", "csv", "xlsx", "docx"):

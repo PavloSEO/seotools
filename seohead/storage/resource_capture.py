@@ -95,7 +95,13 @@ def commit_resource(
         scan._check_capture_disk_space(policy, byte_count)
         response_id = existing_response_id
         for event in outcome.captures:
-            observed_id, _ = store_response(scan.con, event, purpose=kind, policy=policy)
+            observed_id, _ = store_response(
+                scan.con,
+                event,
+                purpose=kind,
+                policy=policy,
+                retain_no_store=scan._retain_no_store_acknowledged(),
+            )
             if event.requested_url == url[0]:
                 response_id = observed_id
         scan._record_session_change(outcome.captures)

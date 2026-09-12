@@ -96,10 +96,19 @@ Before a single request leaves the machine, a resume refuses by name:
 | `refusing to resume one crawl as another` | a `--url` was passed and it is not the start URL the artifact records |
 | `already finished` / `already failed` | the artifact reached a terminal lifecycle; a finished scan is immutable |
 | `a resume cannot restore them` | the crawl used credential headers, which the artifact stores only redacted |
+| `a resume cannot restore them` | the crawl used a persistent browser profile, whose browser state is not stored |
 | `is a derived reanalysis artifact` | the file came from `scan reanalyze`, not from a crawl |
 
 Pass `--producer-build <sha>` to name the build explicitly when this checkout cannot be verified
 as the one that wrote the file.
+
+An ordinary `Set-Cookie` from a public site does not make the crawl credentialed. The resumed
+process starts a fresh anonymous cookie jar, records that fact in the scan provenance, and never
+stores a raw cookie value. This is different from operator-configured credential headers or a
+persistent browser profile, which remain refused because their access state cannot be restored.
+Older native scans whose old resume latch was caused by a saved redacted `Set-Cookie` observation
+are treated the same way only when their recorded configuration has neither of those access modes;
+an unexplained old latch remains refused.
 
 On exit, `crawl-site` prints one line to stderr saying which of the two happened:
 

@@ -867,7 +867,29 @@ def _extract_jsonld(soup: BeautifulSoup) -> tuple[list[Any], list[dict[str, Any]
     return out, invalid
 
 
-class _LiveBaseHrefScanner(HTMLParser):
+class _OpaqueTextHTMLParser(HTMLParser):
+    """Keep tag-shaped text opaque on Python versions before the scripting option.
+
+    These scanners consume start/end tags only, so treating RCDATA as opaque
+    text preserves their behavior without depending on newer stdlib keywords.
+    """
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in {
+            "script",
+            "style",
+            "xmp",
+            "iframe",
+            "noembed",
+            "noframes",
+            "noscript",
+            "title",
+            "textarea",
+        }:
+            self.set_cdata_mode(tag)
+
+
+class _LiveBaseHrefScanner(_OpaqueTextHTMLParser):
     """Finds the ``href`` of the first live ``<base>`` in raw HTML (issue #359).
 
     ``<template>`` content is an inert ``DocumentFragment`` (see
@@ -880,7 +902,7 @@ class _LiveBaseHrefScanner(HTMLParser):
     """
 
     def __init__(self) -> None:
-        super().__init__(convert_charrefs=True, scripting=True)
+        super().__init__(convert_charrefs=True)
         self.href: str | None = None
         self._template_depth = 0
 
@@ -897,6 +919,7 @@ class _LiveBaseHrefScanner(HTMLParser):
                 return
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        super().handle_starttag(tag, attrs)
         self._start(tag, attrs)
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
@@ -1005,14 +1028,13 @@ _ALLOWED_HEAD_TAGS = frozenset(
 )
 
 
-class _HeadElementScanner(HTMLParser):
+class _HeadElementScanner(_OpaqueTextHTMLParser):
     """Collects tokenizer-visible start tags written inside a document's <head>.
 
     Built on the stdlib tokenizer instead of a raw opening-tag regex so that
     text which merely *looks* like a tag never counts as one (issue #267):
     ``script``/``style`` are CDATA content, ``title`` is RCDATA content (both
-    handled by :class:`HTMLParser` itself), ``noscript`` is opaque with
-    ``scripting=True`` — matching a browser with JS enabled, the only case
+    handled as opaque text), ``noscript`` is also opaque — matching a browser with JS enabled, the only case
     that matters for what a crawler sees — and comments and quoted attribute
     values are simply outside the tokenizer's tag-name grammar. ``<template>``
     content is a separate, inert document fragment per the HTML content
@@ -1026,7 +1048,7 @@ class _HeadElementScanner(HTMLParser):
     """
 
     def __init__(self) -> None:
-        super().__init__(convert_charrefs=True, scripting=True)
+        super().__init__(convert_charrefs=True)
         self.found: list[str] = []
         self._seen: set[str] = set()
         self._in_head = False
@@ -1052,6 +1074,7 @@ class _HeadElementScanner(HTMLParser):
             self.found.append(tag)
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        super().handle_starttag(tag, attrs)
         self._start(tag)
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:

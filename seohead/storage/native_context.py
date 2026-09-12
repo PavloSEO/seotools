@@ -239,6 +239,24 @@ def validate_context(
         ):
             raise ScanError("native credential context is invalid")
         return
+    if item["kind"] == "anonymous_session":
+        if (
+            item["item_key"] != "run"
+            or item["completeness"] != "complete"
+            or item["reason"]
+            or payload != {"server_set_cookie": True}
+        ):
+            raise ScanError("native anonymous session context is invalid")
+        return
+    if item["kind"] == "anonymous_session_resume":
+        if (
+            item["item_key"] != "run"
+            or item["completeness"] != "complete"
+            or item["reason"]
+            or payload != {"fresh_session": True}
+        ):
+            raise ScanError("native anonymous session resume context is invalid")
+        return
     if item["kind"] == "native_commit":
         if (
             not item["item_key"].isascii()

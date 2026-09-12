@@ -39,33 +39,46 @@ Create the full set: Schema + Title + Description + OG tags for [URL/content]
 ### Steps
 
 1. **Identify the content and Schema types** — choose the primary type from the table below and add secondary types when needed.
-2. **Generate JSON-LD** — include required fields, optional enhancements, and a note about rich-result eligibility. State plainly when a type (FAQPage, HowTo) has no Google rich result to be eligible for — Schema.org validity and AI-extraction value are still worth generating the markup for, but do not present them as reaching a SERP feature.
+2. **Generate JSON-LD** — include required fields, optional enhancements, and a note about rich-result eligibility. State plainly when a feature has limited eligibility or has been removed from Google Search; do not present Schema.org validity as a promise of a SERP feature.
 3. **Validate and implement** — show where to insert the markup, how to test it, and what to monitor in Search Console.
 
+### Google rich-result status
+
+Google's [May 8, 2026 FAQ deprecation update](https://developers.google.com/search/updates#faq-deprecation)
+says that the FAQ rich result no longer appears in Google Search starting May 7, 2026. Google's
+[2023 FAQ and HowTo changes](https://developers.google.com/search/blog/2023/08/howto-faq-changes)
+remain the historical source for the removal of HowTo rich results. The repository's Google
+guidance review has a **2026-09-09** snapshot date; recheck the linked Google guidance before
+making a time-sensitive claim about feature availability. Correct markup is only eligible for a
+feature, not guaranteed to appear, under the [general structured-data guidelines](https://developers.google.com/search/docs/appearance/structured-data/sd-policies).
+
 ### Choosing a Schema Type
+
+For current feature-specific requirements, use the [Google Search Gallery](https://developers.google.com/search/docs/appearance/structured-data/search-gallery).
+The labels below identify possible appearances, never guaranteed display.
 
 | Content Type | Primary Schema | Additional Types | Rich Result |
 |-------------|----------------|---------------|-------------|
 | Blog post / article | Article / BlogPosting | FAQ, HowTo | Article rich result |
-| FAQ page | FAQPage | Article | No Google rich result since 7 May 2026; Schema.org validity and AI-extraction value only |
-| Guide / instructions | HowTo | Article, FAQ | No Google rich result; Schema.org validity and AI-extraction value only |
+| FAQ page | FAQPage | Article | No Google rich result since 7 May 2026 ([Google's May 8, 2026 FAQ deprecation update](https://developers.google.com/search/updates#faq-deprecation)) |
+| Guide / instructions | HowTo | Article, FAQ | HowTo rich results no longer appear ([Google FAQ/HowTo changes](https://developers.google.com/search/blog/2023/08/howto-faq-changes)) |
 | Product page | Product | Review, Offer, AggregateRating | Product with price/rating |
-| Service page | Service | FAQ, LocalBusiness | Service snippet |
-| Local business | LocalBusiness | Review, OpeningHoursSpecification | Local pack, Knowledge Panel |
+| Service page | Service | FAQ, LocalBusiness | No dedicated Google rich result |
+| Local business | LocalBusiness | Review, OpeningHoursSpecification | Feature eligibility does not guarantee a local pack or Knowledge Panel |
 | Recipe | Recipe | Video, AggregateRating | Recipe carousel |
 | Video | VideoObject | Article | Video carousel |
 | Event | Event | Offer, Organization | Event snippet |
-| Organization | Organization | ContactPoint, Logo | Knowledge Panel |
-| Person/author | Person | Organization | Knowledge Panel |
+| Organization | Organization | ContactPoint, Logo | No guaranteed Knowledge Panel |
+| Person/author | Person | Organization | No guaranteed Knowledge Panel |
 | Breadcrumbs | BreadcrumbList | (add to any Schema) | Breadcrumb trail |
-| Software/service | SoftwareApplication | Review, Offer | App snippet |
+| Software/service | SoftwareApplication | Review, Offer | No dedicated Google rich result |
 
 ### Implementation Priorities
 
 | Priority | Schema Types | Why |
 |-----------|------------|--------|
 | P0 — Always | Organization, BreadcrumbList, WebSite (SearchAction) | Foundation for every site |
-| P1 — Content | Article, FAQPage, HowTo | Article reaches a rich result; FAQPage/HowTo no longer do (Google retired both), but stay useful for AI extraction |
+| P1 — Content | Article, FAQPage, HowTo | Article may be eligible; FAQPage and HowTo no longer have a Google rich-result appearance ([Google's FAQ deprecation update](https://developers.google.com/search/updates#faq-deprecation); [Google's 2023 HowTo update](https://developers.google.com/search/blog/2023/08/howto-faq-changes)) |
 | P2 — Commerce | Product, Review, AggregateRating, Offer | Revenue-impacting rich results |
 | P3 — Authority | Person, SameAs, Speakable | E-E-A-T signals and AI citability |
 | P4 — Niche | Industry-specific (Recipe, Event, Course, etc.) | Niche rich results |
@@ -93,7 +106,7 @@ Create the full set: Schema + Title + Description + OG tags for [URL/content]
   ]
 }
 ```
-> Google retired the FAQ rich result on 7 May 2026. This markup keeps Schema.org validity and AI-extraction value; do not present it as a path to a SERP accordion.
+> Google retired the FAQ rich result on 7 May 2026 ([Google's May 8, 2026 FAQ deprecation update](https://developers.google.com/search/updates#faq-deprecation)). This markup is not a path to a Google SERP accordion.
 
 #### HowTo
 ```json
@@ -114,7 +127,7 @@ Create the full set: Schema + Title + Description + OG tags for [URL/content]
   ]
 }
 ```
-> Google removed the HowTo rich result. This markup keeps Schema.org validity and AI-extraction value; do not present it as a path to a SERP feature.
+> HowTo rich results no longer appear in Google Search ([Google FAQ/HowTo changes](https://developers.google.com/search/blog/2023/08/howto-faq-changes)). Do not present this markup as a path to a Google SERP feature.
 
 #### Article / BlogPosting
 ```json
@@ -155,7 +168,7 @@ Create the full set: Schema + Title + Description + OG tags for [URL/content]
   }
 }
 ```
-> Add `aggregateRating` and `review` only when the page actually contains visible user reviews.
+> Add `aggregateRating` and `review` only when the page actually contains visible user reviews ([Google's review-snippet guidance](https://developers.google.com/search/docs/appearance/structured-data/review-snippet)).
 
 #### LocalBusiness
 ```json
@@ -223,7 +236,7 @@ Create the full set: Schema + Title + Description + OG tags for [URL/content]
 - All URLs must be absolute (https://...)
 - Dates must use ISO 8601 format: `2025-11-15T10:00:00+03:00`
 - Remove placeholders before publishing
-- Schema content must match the visible content on the page; do not include hidden or inaccurate information
+- Schema content must match the visible content on the page; do not include hidden or inaccurate information ([Google's general structured-data guidelines](https://developers.google.com/search/docs/appearance/structured-data/sd-policies))
 - Insert it in `<head>` inside `<script type="application/ld+json">...</script>`
 
 ### Validation
@@ -236,11 +249,11 @@ Create the full set: Schema + Title + Description + OG tags for [URL/content]
 
 | Error | Consequence | Fix |
 |--------|------------|-------------|
-| Missing required field | Schema is ignored | Add all required fields |
-| Invalid date format | Warning and loss of the rich result | ISO 8601: `2026-03-15` |
-| aggregateRating without real reviews | Google penalty | Add only when visible reviews are present |
+| Missing required field | Not eligible for that rich result | Add all required fields ([Google's general structured-data guidelines](https://developers.google.com/search/docs/appearance/structured-data/sd-policies)) |
+| Invalid date format | May prevent rich-result eligibility | ISO 8601: `2026-03-15` ([Google's general structured-data guidelines](https://developers.google.com/search/docs/appearance/structured-data/sd-policies)) |
+| aggregateRating without real reviews | May make the page ineligible for a rich result and may lead to a structured data manual action | Add only when visible reviews are present ([Google's review-snippet guidance](https://developers.google.com/search/docs/appearance/structured-data/review-snippet) and [general structured-data guidelines](https://developers.google.com/search/docs/appearance/structured-data/sd-policies)) |
 | sameAs points to the same site | Warning | Use sameAs only for external profiles |
-| Article has no image | Loss of the article rich result | Add the image property |
+| Article has no image | A missing recommended property | Add the image property |
 
 ---
 

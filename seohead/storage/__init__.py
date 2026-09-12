@@ -976,14 +976,12 @@ def import_run(
         con = None
         check = open_scan(temporary)
         check.close()
-        with temporary.open("rb") as stream:
+        with temporary.open("r+b") as stream:
             os.fsync(stream.fileno())
         os.link(temporary, out)
-        directory_fd = os.open(out.parent, os.O_RDONLY)
-        try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
+        from seohead.filesystem import fsync_directory
+
+        fsync_directory(out.parent)
         return out
     except FileExistsError as exc:
         raise ScanError(exists_message) from exc

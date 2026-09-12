@@ -16,6 +16,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import urlsplit
 
+from seohead import filesystem
+
 from . import (
     APPLICATION_ID,
     MAX_RECORD_BYTES,
@@ -27,11 +29,6 @@ from . import (
 )
 
 UTC = timezone.utc
-
-try:
-    import fcntl
-except ImportError:  # pragma: no cover
-    fcntl = None  # type: ignore[assignment]
 
 _TABLE_COLUMNS = {
     "pages": "p.*, u.url",
@@ -74,40 +71,44 @@ def _lock_path(path: Path) -> Path:
 
 
 def _lock_is_active(path: Path) -> bool:
-    if fcntl is None:
-        raise ScanError("history operations require POSIX file locks")
+    try:
+        filesystem.require_locking()
+    except OSError as exc:
+        raise ScanError(str(exc)) from exc
     lock = _lock_path(path)
     if lock.is_symlink():
         raise ScanError("scan writer lock path must not be a symlink")
     if not os.path.lexists(lock):
         return False
-    fd = os.open(lock, os.O_RDWR | getattr(os, "O_NOFOLLOW", 0))
+    fd = filesystem.open_lock(lock, create=False)
     try:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
             raise ScanError("scan lock must be a regular unaliased file")
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            filesystem.lock_exclusive(fd)
         except OSError:
             return True
-        fcntl.flock(fd, fcntl.LOCK_UN)
+        filesystem.unlock(fd)
         return False
     finally:
         os.close(fd)
 
 
 def _hold_writer_lock(path: Path) -> int:
-    if fcntl is None:
-        raise ScanError("history operations require POSIX file locks")
+    try:
+        filesystem.require_locking()
+    except OSError as exc:
+        raise ScanError(str(exc)) from exc
     lock = _lock_path(path)
     if lock.is_symlink():
         raise ScanError("scan writer lock path must not be a symlink")
-    fd = os.open(lock, os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    fd = filesystem.open_lock(lock)
     try:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
             raise OSError("scan lock must be a regular unaliased file")
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        filesystem.lock_exclusive(fd)
         return fd
     except OSError as exc:
         os.close(fd)
@@ -430,7 +431,7 @@ def pin_scan(path: str | Path, pinned: bool) -> None:
     finally:
         if con is not None:
             con.close()
-        fcntl.flock(fd, fcntl.LOCK_UN)
+        filesystem.unlock(fd)
         os.close(fd)
 
 
@@ -571,5 +572,5 @@ def prune_apply(directory: str | Path, plan: dict) -> list[str]:
     finally:
         for fd in held:
             with contextlib.suppress(OSError):
-                fcntl.flock(fd, fcntl.LOCK_UN)
+                filesystem.unlock(fd)
                 os.close(fd)

@@ -485,9 +485,9 @@ def requeue_scan(
     finally:
         if con is not None:
             con.close()
-        import fcntl
+        from seohead.filesystem import unlock
 
-        fcntl.flock(lock, fcntl.LOCK_UN)
+        unlock(lock)
         os.close(lock)
 
 
@@ -595,7 +595,7 @@ def scan_import_urls(
     finally:
         if con is not None:
             con.close()
-        import fcntl
+        from seohead.filesystem import unlock
 
-        fcntl.flock(lock, fcntl.LOCK_UN)
+        unlock(lock)
         os.close(lock)

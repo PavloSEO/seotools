@@ -579,10 +579,12 @@ def fetch_one(
                 effective_status_code=record.status_code,
                 effective_headers=redact_headers(final_headers),
                 response_time=record.response_time,
+                # Server-set cookies establish an ordinary anonymous session.
+                # Configured Cookie headers are already credentialed and guarded
+                # through the redacted credential context instead.
                 session_changed=any(
                     name == "set-cookie" and value for name, value in header_pairs(final_headers)
-                )
-                or any(name == "cookie" and value for name, value in request_pairs),
+                ),
                 http_version=observed_protocol,
                 timing_state="partial" if record.response_time is not None else "unavailable",
             )

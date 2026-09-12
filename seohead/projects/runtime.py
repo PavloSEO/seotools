@@ -77,11 +77,9 @@ def write_document(
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(staged, root / name)
-        descriptor = os.open(root, os.O_RDONLY)
-        try:
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
+        from seohead.filesystem import fsync_directory
+
+        fsync_directory(root)
     finally:
         if staged:
             Path(staged).unlink(missing_ok=True)

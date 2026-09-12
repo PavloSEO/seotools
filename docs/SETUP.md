@@ -391,3 +391,9 @@ The image is a multi-stage build on `python:3.12-slim`, runs as non-root user `s
   server. Reports are files.
 - **No push deploy.** `git push` deploys nothing — there are no deploy
   workflows, hooks or scripts in this repo.
+
+## Platform-specific launch instructions
+
+See [Windows, Linux, and macOS](PLATFORMS.md) for explicit virtual-environment
+commands, MCP executable/argument configuration, Unicode paths, and native
+SQLite filesystem guarantees.

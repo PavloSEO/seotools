@@ -256,9 +256,7 @@ def test_retained_native_document_opens_through_validated_read_only_reader(tmp_p
         con.close()
 
 
-def test_native_credential_config_is_redacted_but_resume_verifies_the_live_secret(
-    tmp_path, monkeypatch
-):
+def test_native_credential_config_is_redacted_but_cannot_resume(tmp_path, monkeypatch):
     path = tmp_path / "scan.sqlite"
     secret_name = "SEOHEAD_NATIVE_CAPTURE_TOKEN"
     secret = "Bearer local-test-secret"
@@ -288,14 +286,11 @@ def test_native_credential_config_is_redacted_but_resume_verifies_the_live_secre
     reader.close()
 
     monkeypatch.setenv(secret_name, secret)
-    with NativeScan.open(path, expected_config=config):
-        pass
-    monkeypatch.setenv(secret_name, "Bearer changed-secret")
-    with pytest.raises(ScanError, match="credential context differs"):
+    with pytest.raises(ScanError, match="credentialed or persistent browser state"):
         NativeScan.open(path, expected_config=config)
 
 
-def test_session_changed_capture_marks_implicit_context_and_refuses_resume(tmp_path, monkeypatch):
+def test_configured_credential_context_refuses_resume(tmp_path, monkeypatch):
     path = tmp_path / "scan.sqlite"
     secret_name = "SEOHEAD_SESSION_CHANGED_TOKEN"
     monkeypatch.setenv(secret_name, "Bearer stable-secret")
@@ -313,7 +308,14 @@ def test_session_changed_capture_marks_implicit_context_and_refuses_resume(tmp_p
         scan.commit_page(
             lease,
             _record(),
-            captures=[_event(lease.url, session_changed=True)],
+            captures=[
+                _event(
+                    lease.url,
+                    session_changed=True,
+                    response_headers=(("x-seohead-redacted-headers", "set-cookie"),),
+                    effective_headers=(("x-seohead-redacted-headers", "set-cookie"),),
+                )
+            ],
             runtime=_runtime(),
         )
         context = json.loads(
@@ -323,7 +325,192 @@ def test_session_changed_capture_marks_implicit_context_and_refuses_resume(tmp_p
         )
         assert context["implicit_state"] is True
 
-    with pytest.raises(ScanError, match="implicit cookie or browser credential state"):
+    with pytest.raises(ScanError, match="credentialed or persistent browser state"):
+        NativeScan.open(path, expected_config=config)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "event_changes", "expected_state", "expected_reason"),
+    [
+        (
+            {},
+            {
+                "response_headers": (("cache-control", "no-store"),),
+                "effective_headers": (("cache-control", "no-store"),),
+            },
+            "omitted",
+            "cache_control_no_store",
+        ),
+        (
+            {"evidence.retain_no_store_acknowledged": True},
+            {
+                "response_headers": (("cache-control", "no-store"),),
+                "effective_headers": (("cache-control", "no-store"),),
+            },
+            "complete",
+            "none",
+        ),
+        (
+            {"evidence.retain_no_store_acknowledged": True},
+            {
+                "credentials_used": True,
+                "response_headers": (("cache-control", "no-store"),),
+                "effective_headers": (("cache-control", "no-store"),),
+            },
+            "omitted",
+            "credentialed",
+        ),
+    ],
+    ids=("default-omits", "acknowledged-retains", "credentialed-still-omits"),
+)
+def test_no_store_retention_requires_acknowledgement(
+    tmp_path, overrides, event_changes, expected_state, expected_reason
+):
+    path = tmp_path / "scan.sqlite"
+    with NativeScan.create(path, **_metadata(**overrides)) as scan:
+        lease = _claim(scan)
+        scan.commit_page(
+            lease,
+            _record(),
+            captures=[_event(lease.url, **event_changes)],
+            runtime=_runtime(),
+        )
+        state, reason = scan.con.execute("SELECT body_state,body_reason FROM responses").fetchone()
+        config = json.loads(scan.con.execute("SELECT config_json FROM scan").fetchone()[0])
+        retention = json.loads(scan.con.execute("SELECT retention_json FROM scan").fetchone()[0])
+
+    assert (state, reason) == (expected_state, expected_reason)
+    assert config["evidence"]["retain_no_store_acknowledged"] is (
+        overrides.get("evidence.retain_no_store_acknowledged", False)
+    )
+    assert set(retention) == {
+        "policy_version",
+        "body_mode",
+        "max_body_bytes",
+        "max_body_store_bytes",
+        "min_free_bytes",
+        "history_warning_bytes",
+        "automatic_delete",
+    }
+
+
+def test_anonymous_server_cookie_allows_resume_with_fresh_session_provenance(tmp_path):
+    path = tmp_path / "scan.sqlite"
+    config = load_config(overrides={"speed.min_delay_seconds": 0})
+    with NativeScan.create(path, **_metadata_for(config)) as scan:
+        lease = _claim(scan)
+        scan.commit_page(
+            lease,
+            _record(),
+            captures=[_event(lease.url, session_changed=True)],
+            runtime=_runtime(),
+        )
+    with NativeScan.open(path, expected_config=config) as scan:
+        provenance = json.loads(
+            scan.con.execute(
+                "SELECT payload_json FROM context_items "
+                "WHERE kind='anonymous_session_resume' AND item_key='run'"
+            ).fetchone()[0]
+        )
+        raw_context = "\n".join(
+            row[0] for row in scan.con.execute("SELECT payload_json FROM context_items")
+        )
+
+    assert provenance == {"fresh_session": True}
+    assert "PHPSESSID" not in raw_context
+    assert NativeScan.inspect(path)["counts"]["pages"] == 1
+
+
+def test_legacy_anonymous_cookie_latch_resumes_without_read_time_mutation(tmp_path):
+    path = tmp_path / "scan.sqlite"
+    config = load_config(overrides={"speed.min_delay_seconds": 0})
+    cookie_marker = (("x-seohead-redacted-headers", "set-cookie"),)
+    with NativeScan.create(path, **_metadata_for(config)) as scan:
+        lease = _claim(scan)
+        scan.commit_page(
+            lease,
+            _record(),
+            captures=[
+                _event(
+                    lease.url,
+                    response_headers=cookie_marker,
+                    effective_headers=cookie_marker,
+                )
+            ],
+            runtime=_runtime(),
+        )
+        context = json.loads(
+            scan.con.execute(
+                "SELECT payload_json FROM context_items "
+                "WHERE kind='credential_context' AND item_key='run'"
+            ).fetchone()[0]
+        )
+        context["implicit_state"] = True
+        scan.con.execute(
+            "UPDATE context_items SET payload_json=? "
+            "WHERE kind='credential_context' AND item_key='run'",
+            (json.dumps(context),),
+        )
+        scan.con.commit()
+
+    before = path.read_bytes()
+    assert NativeScan.inspect(path)["counts"]["pages"] == 1
+    with open_scan(path, require_audit=False):
+        pass
+    assert path.read_bytes() == before
+
+    with NativeScan.open(path, expected_config=config) as scan:
+        context = {
+            row[0]: json.loads(row[1])
+            for row in scan.con.execute(
+                "SELECT kind,payload_json FROM context_items WHERE item_key='run'"
+            )
+        }
+
+    assert context["anonymous_session"] == {"server_set_cookie": True}
+    assert context["anonymous_session_resume"] == {"fresh_session": True}
+    assert "PHPSESSID" not in json.dumps(context)
+    assert NativeScan.inspect(path)["counts"]["pages"] == 1
+
+
+def test_unexplained_legacy_implicit_latch_remains_refused(tmp_path):
+    path = tmp_path / "scan.sqlite"
+    config = load_config(overrides={"speed.min_delay_seconds": 0})
+    with NativeScan.create(path, **_metadata_for(config)) as scan:
+        lease = _claim(scan)
+        scan.commit_page(lease, _record(), captures=[_event(lease.url)], runtime=_runtime())
+        context = json.loads(
+            scan.con.execute(
+                "SELECT payload_json FROM context_items "
+                "WHERE kind='credential_context' AND item_key='run'"
+            ).fetchone()[0]
+        )
+        context["implicit_state"] = True
+        scan.con.execute(
+            "UPDATE context_items SET payload_json=? "
+            "WHERE kind='credential_context' AND item_key='run'",
+            (json.dumps(context),),
+        )
+        scan.con.commit()
+
+    with pytest.raises(ScanError, match="credentialed or persistent browser state"):
+        NativeScan.open(path, expected_config=config)
+
+
+def test_persistent_profile_context_refuses_resume(tmp_path):
+    path = tmp_path / "scan.sqlite"
+    config = load_config(
+        overrides={
+            "speed.min_delay_seconds": 0,
+            "rendering.browser.persistent_profile": True,
+            "rendering.browser.persistent_profile_dir": str(tmp_path / "profile"),
+        }
+    )
+    with NativeScan.create(path, **_metadata_for(config)) as scan:
+        lease = _claim(scan)
+        scan.commit_page(lease, _record(), captures=[_event(lease.url)], runtime=_runtime())
+
+    with pytest.raises(ScanError, match="credentialed or persistent browser state"):
         NativeScan.open(path, expected_config=config)
 
 

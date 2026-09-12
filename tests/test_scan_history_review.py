@@ -59,9 +59,7 @@ def test_snapshot_space_refusal_does_not_publish_an_output(tmp_path, monkeypatch
 
     source, output = tmp_path / "source.sqlite", tmp_path / "output.sqlite"
     _finished(source)
-    monkeypatch.setattr(
-        native_scan.os, "statvfs", lambda _: SimpleNamespace(f_bavail=0, f_frsize=1)
-    )
+    monkeypatch.setattr(native_scan.shutil, "disk_usage", lambda _: SimpleNamespace(free=0))
     with pytest.raises(ScanError, match="insufficient free space"):
         snapshot_scan(source, output)
     assert not output.exists()

@@ -136,6 +136,13 @@ def redirects_check(
 
 
 def sitemap_crawl(url: str | None = None, concurrency: int = 3) -> dict[str, Any]:
+    """Expand one sitemap, or discover one from a site root through robots.txt.
+
+    A root reads ``robots.txt`` first and uses its ``Sitemap:`` declarations;
+    when none are usable, it tries ``/sitemap.xml``.  The result is failed only
+    when no sitemap document can be parsed. Partial results keep ``ok: true``
+    and name failed sources in ``errors``.
+    """
     if not url:
         raise ValueError("url required")
     return sitemap.crawl(url, concurrency)

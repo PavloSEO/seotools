@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from seohead import filesystem
 from seohead.crawl.settings import (
     DEFAULTS,
 )
@@ -58,12 +59,6 @@ from seohead.storage.credential_context import (
     validate_recorded_credentials,
 )
 from seohead.storage.retention import policy_for_config, validate_policy
-
-try:  # Child C targets the supported macOS/Linux local-filesystem contract.
-    import fcntl
-except ImportError:  # pragma: no cover - platform contract, retained for a clear error.
-    fcntl = None  # type: ignore[assignment]
-
 
 _RUNTIME_KEYS = ("python", "sqlite", "httpx", "lxml", "beautifulsoup4")
 _BODY_TABLES = ("bodies", "responses", "documents", "resource_refs")
@@ -158,6 +153,8 @@ def _native_config(value: Any, *, recorded: bool = False) -> dict[str, Any]:
             expected["rendering"]["rendered_links"].pop("crawl")
         if "limits" in config and "max_requests" not in config["limits"]:
             expected["limits"].pop("max_requests")
+        if "evidence" in config and "retain_no_store_acknowledged" not in config["evidence"]:
+            expected["evidence"].pop("retain_no_store_acknowledged")
     require_fields(config, expected)
     validation_config = copy.deepcopy(config)
     if recorded:
@@ -174,6 +171,8 @@ def _native_config(value: Any, *, recorded: bool = False) -> dict[str, Any]:
         validation_config["rendering"]["rendered_links"].setdefault("crawl", False)
         validation_config.setdefault("limits", {})
         validation_config["limits"].setdefault("max_requests", 0)
+        validation_config.setdefault("evidence", {})
+        validation_config["evidence"].setdefault("retain_no_store_acknowledged", False)
     try:
         validate_crawl_config(
             validate_recorded_credentials(validation_config) if recorded else value
@@ -220,7 +219,48 @@ def _resume_fingerprint(expected_config: Any, recorded_config: Any) -> str:
         and expected["limits"].get("max_requests") == 0
     ):
         expected["limits"].pop("max_requests")
+    if (
+        "evidence" in recorded
+        and "retain_no_store_acknowledged" not in recorded["evidence"]
+        and expected["evidence"].get("retain_no_store_acknowledged") is False
+    ):
+        expected["evidence"].pop("retain_no_store_acknowledged")
     return crawl_config_fingerprint(expected)
+
+
+def _legacy_anonymous_session(config: dict[str, Any], reader: sqlite3.Connection) -> bool:
+    """Recognize the old Set-Cookie resume latch without trusting an ambiguous one."""
+    http = config.get("http")
+    browser = config.get("rendering", {}).get("browser")
+    if (
+        not isinstance(http, dict)
+        or http.get("credential_headers")
+        or not isinstance(browser, dict)
+        or browser.get("persistent_profile") is not False
+    ):
+        return False
+    from seohead.crawl.capture import REDACTED_NAMES_HEADER
+
+    for response in reader.execute(
+        "SELECT response_headers_redacted_json,effective_headers_redacted_json FROM responses "
+        "WHERE response_headers_redacted_json LIKE '%set-cookie%' "
+        "OR effective_headers_redacted_json LIKE '%set-cookie%'"
+    ):
+        for value in response:
+            try:
+                headers = json.loads(value)
+            except (TypeError, ValueError):
+                continue
+            if any(
+                isinstance(pair, list)
+                and len(pair) == 2
+                and pair[0] == REDACTED_NAMES_HEADER
+                and isinstance(pair[1], str)
+                and "set-cookie" in pair[1].split(",")
+                for pair in headers
+            ):
+                return True
+    return False
 
 
 _CONTENT_CAPTURE_FIELDS = {
@@ -430,16 +470,12 @@ def _bounded_items(
 
 
 def _fsync_file(path: Path) -> None:
-    with path.open("rb") as handle:
+    with path.open("r+b") as handle:
         os.fsync(handle.fileno())
 
 
 def _fsync_directory(directory: Path) -> None:
-    fd = os.open(directory, os.O_RDONLY)
-    try:
-        os.fsync(fd)
-    finally:
-        os.close(fd)
+    filesystem.fsync_directory(directory)
 
 
 class NativeScan:
@@ -537,8 +573,10 @@ class NativeScan:
     ) -> NativeScan:
         """Create a no-clobber running scan with no audit and no body lanes."""
         _runtime()
-        if fcntl is None:
-            raise ScanError("native scan writer requires POSIX advisory file locking")
+        try:
+            filesystem.require_locking()
+        except OSError as exc:
+            raise ScanError(str(exc)) from exc
         if not start_url or not isinstance(start_url, str):
             raise ScanError("native scan start_url is required")
         if (
@@ -674,9 +712,8 @@ class NativeScan:
                         "payload_json": _dump(
                             {
                                 "verifier": credential_verifier(config, scan_uuid),
-                                "implicit_state": bool(
-                                    config["rendering"]["browser"]["persistent_profile"]
-                                ),
+                                "implicit_state": bool(config["http"]["credential_headers"])
+                                or bool(config["rendering"]["browser"]["persistent_profile"]),
                             }
                         ),
                         "completeness": "complete",
@@ -735,8 +772,10 @@ class NativeScan:
         _allow_reanalysis: bool = False,
     ) -> NativeScan:
         path = Path(path).absolute()
-        if fcntl is None:
-            raise ScanError("native scan writer requires POSIX advisory file locking")
+        try:
+            filesystem.require_locking()
+        except OSError as exc:
+            raise ScanError(str(exc)) from exc
         if not os.path.lexists(path) or path.is_symlink() or not path.is_file():
             raise ScanError("native scan writer requires an existing regular scan file")
         if path.stat().st_nlink != 1:
@@ -746,7 +785,7 @@ class NativeScan:
         # contending with SQLite's own VFS locks (notably on macOS).
         lock_path = path.with_name(path.name + ".writer.lock")
         try:
-            fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+            fd = filesystem.open_lock(lock_path)
         except OSError as exc:
             raise ScanError(f"cannot acquire native scan writer lock: {exc}") from exc
         con: sqlite3.Connection | None = None
@@ -754,7 +793,7 @@ class NativeScan:
             if not stat.S_ISREG(os.fstat(fd).st_mode) or os.fstat(fd).st_nlink != 1:
                 raise ScanError("native scan writer lock must be a regular unaliased file")
             try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                filesystem.lock_exclusive(fd)
             except OSError as exc:
                 raise ScanError("native scan already has an active writer") from exc
             # This is intentionally before a rw connection: sqlite3.connect()
@@ -780,6 +819,7 @@ class NativeScan:
                 raise ScanError("native scan configuration differs; refusing unsafe resume")
             # Credential references/values never enter the artifact. A local,
             # per-scan verifier detects a changed explicit context on resume.
+            legacy_anonymous_session = False
             if expected_config is not None:
                 from . import open_scan
 
@@ -791,15 +831,27 @@ class NativeScan:
                         recorded = json.loads(row[0])
                         observed = reader.execute("SELECT 1 FROM responses LIMIT 1").fetchone()
                         if recorded["implicit_state"] and observed:
-                            raise ScanError(
-                                "implicit cookie or browser credential state cannot be restored; refusing unsafe resume"
+                            legacy_anonymous_session = _legacy_anonymous_session(
+                                json.loads(scan["config_json"]), reader
                             )
+                            if not legacy_anonymous_session:
+                                raise ScanError(
+                                    "credentialed or persistent browser state cannot be restored; "
+                                    "refusing unsafe resume"
+                                )
                         if recorded["verifier"] != credential_verifier(
                             expected_config, scan["scan_uuid"]
                         ):
                             raise ScanError("credential context differs; refusing unsafe resume")
             con = cls._connect_writer(path)
-            return cls(path, con, fd)
+            opened = cls(path, con, fd)
+            if expected_config is not None and row is not None and observed is not None:
+                anonymous_session = opened.con.execute(
+                    "SELECT 1 FROM context_items WHERE kind='anonymous_session' AND item_key='run'"
+                ).fetchone()
+                if anonymous_session is not None or legacy_anonymous_session:
+                    opened._record_anonymous_session_resume(inferred=legacy_anonymous_session)
+            return opened
         except BaseException:
             if con is not None:
                 con.close()
@@ -1293,7 +1345,7 @@ class NativeScan:
             self.con = None  # type: ignore[assignment]
         if getattr(self, "_lock_fd", None) is not None:
             with contextlib.suppress(OSError):
-                fcntl.flock(self._lock_fd, fcntl.LOCK_UN)  # type: ignore[union-attr]
+                filesystem.unlock(self._lock_fd)
             os.close(self._lock_fd)
             self._lock_fd = None  # type: ignore[assignment]
 
@@ -2096,6 +2148,7 @@ class NativeScan:
                         event,
                         purpose="page",
                         policy=policy,
+                        retain_no_store=self._retain_no_store_acknowledged(),
                         logical_url=event.requested_url,
                     )
                     if event.requested_url == lease.url:
@@ -2315,16 +2368,50 @@ class NativeScan:
 
     def _record_session_change(self, captures) -> None:
         if any(event.session_changed for event in captures):
-            row = self.con.execute(
-                "SELECT payload_json FROM context_items WHERE kind='credential_context' AND item_key='run'"
-            ).fetchone()
-            if row is not None:
-                payload = json.loads(row[0])
-                payload["implicit_state"] = True
-                self.con.execute(
-                    "UPDATE context_items SET payload_json=? WHERE kind='credential_context' AND item_key='run'",
-                    (_dump(payload),),
-                )
+            self._put_anonymous_session()
+
+    def _put_anonymous_session(self) -> None:
+        from .native_context import put_context
+
+        put_context(
+            self.con,
+            {
+                "kind": "anonymous_session",
+                "item_key": "run",
+                "payload_version": "scan_context.v1",
+                "payload_json": _dump({"server_set_cookie": True}),
+                "completeness": "complete",
+                "reason": "",
+            },
+        )
+
+    def _record_anonymous_session_resume(self, *, inferred: bool = False) -> None:
+        """Record a fresh anonymous cookie jar without retaining cookie data."""
+        from .native_context import put_context
+
+        self._begin()
+        try:
+            if inferred:
+                self._put_anonymous_session()
+            put_context(
+                self.con,
+                {
+                    "kind": "anonymous_session_resume",
+                    "item_key": "run",
+                    "payload_version": "scan_context.v1",
+                    "payload_json": _dump({"fresh_session": True}),
+                    "completeness": "complete",
+                    "reason": "",
+                },
+            )
+            self.con.commit()
+        except BaseException:
+            self._rollback()
+            raise
+
+    def _retain_no_store_acknowledged(self) -> bool:
+        config = json.loads(self.con.execute("SELECT config_json FROM scan").fetchone()[0])
+        return config.get("evidence", {}).get("retain_no_store_acknowledged") is True
 
     def preflight_capture(self) -> None:
         """Check the configured free-space reserve before scheduling a request."""
@@ -2423,6 +2510,7 @@ class NativeScan:
                     html=html,
                     renderer=renderer,
                     policy=policy,
+                    retain_no_store=self._retain_no_store_acknowledged(),
                     captured_at=captured_at,
                     body_state=body_state,
                     body_reason=body_reason,
@@ -2437,6 +2525,7 @@ class NativeScan:
                         event,
                         purpose="page",
                         policy=policy,
+                        retain_no_store=self._retain_no_store_acknowledged(),
                         logical_url=url,
                         representation="legacy_fragment",
                         renderer=renderer,
@@ -2914,7 +3003,7 @@ class NativeScan:
         required = (
             logical_size + observed_margin + max(0, reserve_bytes) + max(0, temp_margin_bytes)
         )
-        free = os.statvfs(target.parent).f_bavail * os.statvfs(target.parent).f_frsize
+        free = shutil.disk_usage(target.parent).free
         if free < required:
             raise ScanError(
                 f"insufficient free space for native snapshot: need {required} bytes, have {free}"
