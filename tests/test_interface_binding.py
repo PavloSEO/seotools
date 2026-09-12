@@ -257,7 +257,7 @@ def test_seo_crawl_site_forwards_sitemap_urls_and_config_to_the_handler():
 # seohead/ that is not one of these is core, whether or not it existed when this
 # test was written.
 INTERFACE_PACKAGES = {"servers"}
-INTERFACE_MODULES = {"cli.py"}
+INTERFACE_MODULES = {"cli.py", "__main__.py"}
 
 
 def _core_python_files() -> list[pathlib.Path]:
@@ -275,7 +275,7 @@ def _core_python_files() -> list[pathlib.Path]:
         path
         for path in package.rglob("*.py")
         if path.parts[path.parts.index("seohead") + 1] not in INTERFACE_PACKAGES
-        and path.name not in INTERFACE_MODULES
+        and path.relative_to(package).as_posix() not in INTERFACE_MODULES
         and "__pycache__" not in path.parts
     ]
 
