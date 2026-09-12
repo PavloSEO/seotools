@@ -153,6 +153,8 @@ def _native_config(value: Any, *, recorded: bool = False) -> dict[str, Any]:
             expected["rendering"]["rendered_links"].pop("crawl")
         if "limits" in config and "max_requests" not in config["limits"]:
             expected["limits"].pop("max_requests")
+        if "evidence" in config and "retain_no_store_acknowledged" not in config["evidence"]:
+            expected["evidence"].pop("retain_no_store_acknowledged")
     require_fields(config, expected)
     validation_config = copy.deepcopy(config)
     if recorded:
@@ -169,6 +171,8 @@ def _native_config(value: Any, *, recorded: bool = False) -> dict[str, Any]:
         validation_config["rendering"]["rendered_links"].setdefault("crawl", False)
         validation_config.setdefault("limits", {})
         validation_config["limits"].setdefault("max_requests", 0)
+        validation_config.setdefault("evidence", {})
+        validation_config["evidence"].setdefault("retain_no_store_acknowledged", False)
     try:
         validate_crawl_config(
             validate_recorded_credentials(validation_config) if recorded else value
@@ -215,6 +219,12 @@ def _resume_fingerprint(expected_config: Any, recorded_config: Any) -> str:
         and expected["limits"].get("max_requests") == 0
     ):
         expected["limits"].pop("max_requests")
+    if (
+        "evidence" in recorded
+        and "retain_no_store_acknowledged" not in recorded["evidence"]
+        and expected["evidence"].get("retain_no_store_acknowledged") is False
+    ):
+        expected["evidence"].pop("retain_no_store_acknowledged")
     return crawl_config_fingerprint(expected)
 
 
@@ -667,9 +677,8 @@ class NativeScan:
                         "payload_json": _dump(
                             {
                                 "verifier": credential_verifier(config, scan_uuid),
-                                "implicit_state": bool(
-                                    config["rendering"]["browser"]["persistent_profile"]
-                                ),
+                                "implicit_state": bool(config["http"]["credential_headers"])
+                                or bool(config["rendering"]["browser"]["persistent_profile"]),
                             }
                         ),
                         "completeness": "complete",
@@ -787,14 +796,22 @@ class NativeScan:
                         observed = reader.execute("SELECT 1 FROM responses LIMIT 1").fetchone()
                         if recorded["implicit_state"] and observed:
                             raise ScanError(
-                                "implicit cookie or browser credential state cannot be restored; refusing unsafe resume"
+                                "credentialed or persistent browser state cannot be restored; "
+                                "refusing unsafe resume"
                             )
                         if recorded["verifier"] != credential_verifier(
                             expected_config, scan["scan_uuid"]
                         ):
                             raise ScanError("credential context differs; refusing unsafe resume")
             con = cls._connect_writer(path)
-            return cls(path, con, fd)
+            opened = cls(path, con, fd)
+            if expected_config is not None and row is not None and observed is not None:
+                anonymous_session = opened.con.execute(
+                    "SELECT 1 FROM context_items WHERE kind='anonymous_session' AND item_key='run'"
+                ).fetchone()
+                if anonymous_session is not None:
+                    opened._record_anonymous_session_resume()
+            return opened
         except BaseException:
             if con is not None:
                 con.close()
@@ -2091,6 +2108,7 @@ class NativeScan:
                         event,
                         purpose="page",
                         policy=policy,
+                        retain_no_store=self._retain_no_store_acknowledged(),
                         logical_url=event.requested_url,
                     )
                     if event.requested_url == lease.url:
@@ -2310,16 +2328,45 @@ class NativeScan:
 
     def _record_session_change(self, captures) -> None:
         if any(event.session_changed for event in captures):
-            row = self.con.execute(
-                "SELECT payload_json FROM context_items WHERE kind='credential_context' AND item_key='run'"
-            ).fetchone()
-            if row is not None:
-                payload = json.loads(row[0])
-                payload["implicit_state"] = True
-                self.con.execute(
-                    "UPDATE context_items SET payload_json=? WHERE kind='credential_context' AND item_key='run'",
-                    (_dump(payload),),
-                )
+            from .native_context import put_context
+
+            put_context(
+                self.con,
+                {
+                    "kind": "anonymous_session",
+                    "item_key": "run",
+                    "payload_version": "scan_context.v1",
+                    "payload_json": _dump({"server_set_cookie": True}),
+                    "completeness": "complete",
+                    "reason": "",
+                },
+            )
+
+    def _record_anonymous_session_resume(self) -> None:
+        """Record a fresh anonymous cookie jar without retaining cookie data."""
+        from .native_context import put_context
+
+        self._begin()
+        try:
+            put_context(
+                self.con,
+                {
+                    "kind": "anonymous_session_resume",
+                    "item_key": "run",
+                    "payload_version": "scan_context.v1",
+                    "payload_json": _dump({"fresh_session": True}),
+                    "completeness": "complete",
+                    "reason": "",
+                },
+            )
+            self.con.commit()
+        except BaseException:
+            self._rollback()
+            raise
+
+    def _retain_no_store_acknowledged(self) -> bool:
+        config = json.loads(self.con.execute("SELECT config_json FROM scan").fetchone()[0])
+        return config.get("evidence", {}).get("retain_no_store_acknowledged") is True
 
     def preflight_capture(self) -> None:
         """Check the configured free-space reserve before scheduling a request."""
@@ -2418,6 +2465,7 @@ class NativeScan:
                     html=html,
                     renderer=renderer,
                     policy=policy,
+                    retain_no_store=self._retain_no_store_acknowledged(),
                     captured_at=captured_at,
                     body_state=body_state,
                     body_reason=body_reason,
@@ -2432,6 +2480,7 @@ class NativeScan:
                         event,
                         purpose="page",
                         policy=policy,
+                        retain_no_store=self._retain_no_store_acknowledged(),
                         logical_url=url,
                         representation="legacy_fragment",
                         renderer=renderer,

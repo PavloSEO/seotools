@@ -217,7 +217,11 @@ reading one as the operator's credential discarded 33 001 of 40 920 page bodies 
 public site with nothing configured at all. Redacted header lists keep the names of
 the headers redaction removed, under `x-seohead-redacted-headers` and never their
 values, so a retained response and a suppressed one are distinguishable in the
-artifact. A crawl reports how many fetched HTML page bodies it retained and the
+artifact. `evidence.retain_no_store_acknowledged=false` is the default: an anonymous
+`Cache-Control: no-store` response is omitted. Setting it to `true` explicitly permits
+the same bounded SQLite evidence retention and is recorded in the scan configuration and
+all derived artifacts; it never permits retention from `http.credential_headers` or a
+persistent browser profile. A crawl reports how many fetched HTML page bodies it retained and the
 reasons it dropped the rest in `html_bodies`, because a `partial` capability flag is
 the same word for one missing body and for four fifths of them. The same rule
 applies in the JavaScript rendering lane: a rendered DOM is credentialed when the run
@@ -277,8 +281,11 @@ payload is exactly `{"verifier": null|<64 lowercase hex>, "implicit_state": bool
 environment references and profile paths are redacted. Global `http.headers` refuses
 credential-bearing names; a legacy mapping is defensively redacted in any new
 manifest or effective-config snapshot. A changed explicit verifier
-refuses resume. Changed implicit cookie or browser-profile state cannot be resumed
-safely and is refused conservatively.
+refuses resume. Credentialed or persistent-browser state cannot be resumed safely and is
+refused conservatively. A server-set cookie from an otherwise anonymous
+crawl is recorded only as `anonymous_session`, never with its value. Its resume starts a
+fresh anonymous session and records `anonymous_session_resume`; it is allowed because it
+does not restore operator-supplied access.
 
 For legacy imports, the only populated `context_items` lane is
 `legacy_import_provenance`; it exports no restore checkpoint or equivalent resume

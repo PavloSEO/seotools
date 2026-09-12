@@ -166,6 +166,8 @@ def _state(
     purpose: str,
     policy: dict[str, Any],
     effective_headers: tuple[tuple[str, str], ...],
+    *,
+    retain_no_store: bool = False,
 ) -> tuple[str, str]:
     if event.body_state == "truncated" or event.body_reason == "truncated":
         return "truncated", "truncated"
@@ -176,7 +178,7 @@ def _state(
         return "unavailable", reason
     if event.credentials_used:
         return "omitted", "credentialed"
-    if _no_store(event.response_headers) or _no_store(effective_headers):
+    if (_no_store(event.response_headers) or _no_store(effective_headers)) and not retain_no_store:
         return "omitted", "cache_control_no_store"
     if policy["body_mode"] == "off":
         return "omitted", "not_enabled"
@@ -404,6 +406,7 @@ def store_response(
     *,
     purpose: str,
     policy: dict[str, Any],
+    retain_no_store: bool = False,
     logical_url: str | None = None,
     representation: str = "static",
     renderer: dict[str, Any] | None = None,
@@ -439,7 +442,9 @@ def store_response(
         raise ScanError("captured redirect response lacks an effective URL")
     request_url_id = _intern_url(con, event.requested_url)
     effective_url_id = _intern_url(con, event.effective_url) if event.effective_url else None
-    body_state, body_reason = _state(event, purpose, policy, effective_headers)
+    body_state, body_reason = _state(
+        event, purpose, policy, effective_headers, retain_no_store=retain_no_store
+    )
     if body_state == "complete" and effective_url_id is None:
         raise ScanError("complete captured response lacks an effective URL")
     body_sha = None
@@ -561,6 +566,7 @@ def store_rendered_document(
     html: bytes | str | None,
     renderer: dict[str, Any],
     policy: dict[str, Any],
+    retain_no_store: bool = False,
     captured_at: str,
     body_state: str = "complete",
     body_reason: str = "none",
@@ -581,7 +587,7 @@ def store_rendered_document(
     if stored_state == "complete":
         if credentials_used:
             stored_state, stored_reason = "omitted", "credentialed"
-        elif cache_control_no_store:
+        elif cache_control_no_store and not retain_no_store:
             stored_state, stored_reason = "omitted", "cache_control_no_store"
         elif policy["body_mode"] == "off":
             stored_state, stored_reason = "omitted", "not_enabled"
