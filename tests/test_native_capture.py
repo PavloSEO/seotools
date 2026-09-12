@@ -308,7 +308,14 @@ def test_configured_credential_context_refuses_resume(tmp_path, monkeypatch):
         scan.commit_page(
             lease,
             _record(),
-            captures=[_event(lease.url)],
+            captures=[
+                _event(
+                    lease.url,
+                    session_changed=True,
+                    response_headers=(("x-seohead-redacted-headers", "set-cookie"),),
+                    effective_headers=(("x-seohead-redacted-headers", "set-cookie"),),
+                )
+            ],
             runtime=_runtime(),
         )
         context = json.loads(
@@ -412,6 +419,82 @@ def test_anonymous_server_cookie_allows_resume_with_fresh_session_provenance(tmp
     assert provenance == {"fresh_session": True}
     assert "PHPSESSID" not in raw_context
     assert NativeScan.inspect(path)["counts"]["pages"] == 1
+
+
+def test_legacy_anonymous_cookie_latch_resumes_without_read_time_mutation(tmp_path):
+    path = tmp_path / "scan.sqlite"
+    config = load_config(overrides={"speed.min_delay_seconds": 0})
+    cookie_marker = (("x-seohead-redacted-headers", "set-cookie"),)
+    with NativeScan.create(path, **_metadata_for(config)) as scan:
+        lease = _claim(scan)
+        scan.commit_page(
+            lease,
+            _record(),
+            captures=[
+                _event(
+                    lease.url,
+                    response_headers=cookie_marker,
+                    effective_headers=cookie_marker,
+                )
+            ],
+            runtime=_runtime(),
+        )
+        context = json.loads(
+            scan.con.execute(
+                "SELECT payload_json FROM context_items "
+                "WHERE kind='credential_context' AND item_key='run'"
+            ).fetchone()[0]
+        )
+        context["implicit_state"] = True
+        scan.con.execute(
+            "UPDATE context_items SET payload_json=? "
+            "WHERE kind='credential_context' AND item_key='run'",
+            (json.dumps(context),),
+        )
+        scan.con.commit()
+
+    before = path.read_bytes()
+    assert NativeScan.inspect(path)["counts"]["pages"] == 1
+    with open_scan(path, require_audit=False):
+        pass
+    assert path.read_bytes() == before
+
+    with NativeScan.open(path, expected_config=config) as scan:
+        context = {
+            row[0]: json.loads(row[1])
+            for row in scan.con.execute(
+                "SELECT kind,payload_json FROM context_items WHERE item_key='run'"
+            )
+        }
+
+    assert context["anonymous_session"] == {"server_set_cookie": True}
+    assert context["anonymous_session_resume"] == {"fresh_session": True}
+    assert "PHPSESSID" not in json.dumps(context)
+    assert NativeScan.inspect(path)["counts"]["pages"] == 1
+
+
+def test_unexplained_legacy_implicit_latch_remains_refused(tmp_path):
+    path = tmp_path / "scan.sqlite"
+    config = load_config(overrides={"speed.min_delay_seconds": 0})
+    with NativeScan.create(path, **_metadata_for(config)) as scan:
+        lease = _claim(scan)
+        scan.commit_page(lease, _record(), captures=[_event(lease.url)], runtime=_runtime())
+        context = json.loads(
+            scan.con.execute(
+                "SELECT payload_json FROM context_items "
+                "WHERE kind='credential_context' AND item_key='run'"
+            ).fetchone()[0]
+        )
+        context["implicit_state"] = True
+        scan.con.execute(
+            "UPDATE context_items SET payload_json=? "
+            "WHERE kind='credential_context' AND item_key='run'",
+            (json.dumps(context),),
+        )
+        scan.con.commit()
+
+    with pytest.raises(ScanError, match="credentialed or persistent browser state"):
+        NativeScan.open(path, expected_config=config)
 
 
 def test_persistent_profile_context_refuses_resume(tmp_path):
