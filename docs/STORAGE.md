@@ -135,7 +135,7 @@ importer-version field because `scan.v1` has no such column.
 ## Offline reanalysis
 
 ```bash
-seohead scan reanalyze --input old.sqlite --out derived.sqlite --producer-build SOURCE_SHA
+seohead scan reanalyze --scan old.sqlite --out derived.sqlite --producer-build SOURCE_SHA
 ```
 
 Here `SOURCE_SHA` is the full lowercase Git SHA of the **current analyzer build**.

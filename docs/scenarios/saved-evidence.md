@@ -19,7 +19,7 @@ specialist uses it for a conclusion.
 ## 2. Extract only from retained complete bodies
 
 ```bash
-seohead scan extract --scan native.sqlite --json-input '{
+seohead scan extract --scan native.sqlite --input '{
   "rules":[
     {"id":"product-name","kind":"text","selector":"h1","operator":"matches","value":"Product *","max_matches":1}
   ]

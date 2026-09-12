@@ -27,7 +27,7 @@ and this decision makes no backend migration.
 | `parse` | Live URL (`url`)<br>URL list (`urls`) | — |
 | `crawl-site` | Live URL (`url`)<br>URL list (`urls`)<br>Local file (`urls_file`)<br>Scan artifact (`resume`)<br>Local configuration (`config`)<br>Project directory (`project`) | TXT, CSV, XLSX, or XML URL input; Resumes retained crawl evidence and continues network collection.; Defaults the target and scans/ path; explicit paths, legacy output and resume keep their route. |
 | `crawl-describe-settings` | No direct input | — |
-| `scan-reanalyze` | Scan artifact (`input_path`) | — |
+| `scan-reanalyze` | Scan artifact (`scan`) | — |
 | `log-scan` | Local directory (`run`) | — |
 | `compare-crawls` | Audit document (`before, after`) | Each path may be audit JSON or scan.v1. |
 | `crawl-enrich` | Audit document (`audit`); requires `external_csv`<br>Local file (`external_csv`); requires `audit` | — |
@@ -104,11 +104,11 @@ and this decision makes no backend migration.
 | `inspect-url` | Live URL (`url`)<br>Inline JSON (`checks`) | Optional bounded selection of closed investigation checks. |
 | `audit-workflow` | Project directory (`directory`)<br>Selector (`action`)<br>Live URL (`target`)<br>Audit document (`audit`) | status, start, prepare, or report.; Required only for action=start.; Required only for action=report. |
 | `tool-catalog` | Inline text (`query`) | Optional bounded discovery query. |
-| `scan-inspect` | Scan artifact (`input_path`) | — |
-| `scan-status` | Scan artifact (`input_path`) | — |
-| `scan-rendered-routes` | Scan artifact (`input_path`) | — |
-| `scan-snapshot` | Scan artifact (`input_path`) | — |
-| `scan-pin` | Scan artifact (`input_path`) | — |
+| `scan-inspect` | Scan artifact (`scan`) | — |
+| `scan-status` | Scan artifact (`scan`) | — |
+| `scan-rendered-routes` | Scan artifact (`scan`) | — |
+| `scan-snapshot` | Scan artifact (`scan`) | — |
+| `scan-pin` | Scan artifact (`scan`) | — |
 | `scan-prune` | Local directory (`directory`)<br>Local file (`plan`)<br>Project directory (`project`) | Defaults the directory to project scans/; apply remains explicit. |
 | `scan-body-diff` | Scan artifact (`left, right`)<br>Selector (`url`) | Selects the logical URL within both scans. |
 | `scan-evidence` | Scan artifact (`input_path`)<br>Selector (`section`) | capabilities, corpus, structured, routes, resources, or timeline. |
