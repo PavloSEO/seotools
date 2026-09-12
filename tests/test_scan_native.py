@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import sqlite3
 import subprocess
 import sys
@@ -68,6 +69,14 @@ def _link(source, destination, anchor=""):
         "target": "",
         "raw_href": "",
     }
+
+
+def test_resume_fingerprint_accepts_a_pre_acknowledgement_recorded_config():
+    current = load(overrides={"speed.min_delay_seconds": 0})
+    recorded = copy.deepcopy(current)
+    del recorded["evidence"]["retain_no_store_acknowledged"]
+
+    assert native_scan._resume_fingerprint(current, recorded) == fingerprint(recorded)
 
 
 def test_atomic_page_unit_and_idempotence(tmp_path):
