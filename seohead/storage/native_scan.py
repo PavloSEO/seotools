@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from seohead import filesystem
 from seohead.crawl.settings import (
     DEFAULTS,
 )
@@ -58,12 +59,6 @@ from seohead.storage.credential_context import (
     validate_recorded_credentials,
 )
 from seohead.storage.retention import policy_for_config, validate_policy
-
-try:  # Child C targets the supported macOS/Linux local-filesystem contract.
-    import fcntl
-except ImportError:  # pragma: no cover - platform contract, retained for a clear error.
-    fcntl = None  # type: ignore[assignment]
-
 
 _RUNTIME_KEYS = ("python", "sqlite", "httpx", "lxml", "beautifulsoup4")
 _BODY_TABLES = ("bodies", "responses", "documents", "resource_refs")
@@ -430,16 +425,12 @@ def _bounded_items(
 
 
 def _fsync_file(path: Path) -> None:
-    with path.open("rb") as handle:
+    with path.open("r+b") as handle:
         os.fsync(handle.fileno())
 
 
 def _fsync_directory(directory: Path) -> None:
-    fd = os.open(directory, os.O_RDONLY)
-    try:
-        os.fsync(fd)
-    finally:
-        os.close(fd)
+    filesystem.fsync_directory(directory)
 
 
 class NativeScan:
@@ -537,8 +528,10 @@ class NativeScan:
     ) -> NativeScan:
         """Create a no-clobber running scan with no audit and no body lanes."""
         _runtime()
-        if fcntl is None:
-            raise ScanError("native scan writer requires POSIX advisory file locking")
+        try:
+            filesystem.require_locking()
+        except OSError as exc:
+            raise ScanError(str(exc)) from exc
         if not start_url or not isinstance(start_url, str):
             raise ScanError("native scan start_url is required")
         if (
@@ -735,8 +728,10 @@ class NativeScan:
         _allow_reanalysis: bool = False,
     ) -> NativeScan:
         path = Path(path).absolute()
-        if fcntl is None:
-            raise ScanError("native scan writer requires POSIX advisory file locking")
+        try:
+            filesystem.require_locking()
+        except OSError as exc:
+            raise ScanError(str(exc)) from exc
         if not os.path.lexists(path) or path.is_symlink() or not path.is_file():
             raise ScanError("native scan writer requires an existing regular scan file")
         if path.stat().st_nlink != 1:
@@ -746,7 +741,7 @@ class NativeScan:
         # contending with SQLite's own VFS locks (notably on macOS).
         lock_path = path.with_name(path.name + ".writer.lock")
         try:
-            fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+            fd = filesystem.open_lock(lock_path)
         except OSError as exc:
             raise ScanError(f"cannot acquire native scan writer lock: {exc}") from exc
         con: sqlite3.Connection | None = None
@@ -754,7 +749,7 @@ class NativeScan:
             if not stat.S_ISREG(os.fstat(fd).st_mode) or os.fstat(fd).st_nlink != 1:
                 raise ScanError("native scan writer lock must be a regular unaliased file")
             try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                filesystem.lock_exclusive(fd)
             except OSError as exc:
                 raise ScanError("native scan already has an active writer") from exc
             # This is intentionally before a rw connection: sqlite3.connect()
@@ -1293,7 +1288,7 @@ class NativeScan:
             self.con = None  # type: ignore[assignment]
         if getattr(self, "_lock_fd", None) is not None:
             with contextlib.suppress(OSError):
-                fcntl.flock(self._lock_fd, fcntl.LOCK_UN)  # type: ignore[union-attr]
+                filesystem.unlock(self._lock_fd)
             os.close(self._lock_fd)
             self._lock_fd = None  # type: ignore[assignment]
 
@@ -2914,7 +2909,7 @@ class NativeScan:
         required = (
             logical_size + observed_margin + max(0, reserve_bytes) + max(0, temp_margin_bytes)
         )
-        free = os.statvfs(target.parent).f_bavail * os.statvfs(target.parent).f_frsize
+        free = shutil.disk_usage(target.parent).free
         if free < required:
             raise ScanError(
                 f"insufficient free space for native snapshot: need {required} bytes, have {free}"

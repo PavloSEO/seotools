@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import fcntl
 import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -10,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from seohead import __version__
+from seohead import __version__, filesystem
 from seohead.crawl.capture import CaptureEvent
 from seohead.crawl.collect import PageRecord
 from seohead.crawl.settings import fingerprint, load
@@ -172,11 +171,11 @@ def test_pin_refuses_active_writer_and_snapshot_is_wal_independent(tmp_path):
     lock = path.with_name(path.name + ".writer.lock")
     fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o600)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        filesystem.lock_exclusive(fd)
         with pytest.raises(ScanError, match="active writer"):
             pin_scan(path, True)
     finally:
-        fcntl.flock(fd, fcntl.LOCK_UN)
+        filesystem.unlock(fd)
         os.close(fd)
     target = tmp_path / "snapshot.sqlite"
     snapshot_scan(path, target)

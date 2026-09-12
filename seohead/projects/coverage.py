@@ -521,11 +521,9 @@ def _transaction(directory: str | Path, expected_revision: int | None):
                 stream.flush()
                 os.fsync(stream.fileno())
             os.replace(stage_name, root / "coverage.json")
-            directory_fd = os.open(root, os.O_RDONLY)
-            try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
+            from seohead.filesystem import fsync_directory
+
+            fsync_directory(root)
         finally:
             Path(stage_name).unlink(missing_ok=True)
     finally:

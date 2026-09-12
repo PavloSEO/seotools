@@ -57,10 +57,11 @@ def test_create_requires_non_result_config_fields_too(tmp_path):
 
 
 def test_unsupported_writer_platform_publishes_no_file(tmp_path, monkeypatch):
-    import seohead.storage.native_scan as native
+    from seohead import filesystem
 
-    monkeypatch.setattr(native, "fcntl", None)
-    with pytest.raises(ScanError, match="POSIX"):
+    monkeypatch.setattr(filesystem, "fcntl", None)
+    monkeypatch.setattr(filesystem, "msvcrt", None)
+    with pytest.raises(ScanError, match="file-lock backend"):
         NativeScan.create(tmp_path / "invalid.sqlite", **_metadata())
     assert not (tmp_path / "invalid.sqlite").exists()
 
