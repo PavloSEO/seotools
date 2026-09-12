@@ -8861,7 +8861,7 @@
           "template": null,
           "urls": []
         },
-        "source_hash": "cd37e41812bf09486ec5e12d7084e1b1dd7aee62bafe5cb46c445e8e2a137090",
+        "source_hash": "27ba72c2540e633405863c2a77e0096ea3221be86f65e964feb1f5794009bb2e",
         "title": "Saved evidence: inspect first, extract offline, mutate only with a backup"
       },
       "definitions": [
@@ -8881,7 +8881,7 @@
               "template": null,
               "urls": []
             },
-            "source_hash": "cd37e41812bf09486ec5e12d7084e1b1dd7aee62bafe5cb46c445e8e2a137090",
+            "source_hash": "27ba72c2540e633405863c2a77e0096ea3221be86f65e964feb1f5794009bb2e",
             "title": "Saved evidence: inspect first, extract offline, mutate only with a backup"
           },
           "observed_at": "2026-09-09T00:00:00Z"
@@ -9829,7 +9829,7 @@
           "template": null,
           "urls": []
         },
-        "source_hash": "4555886a1d5fdfcb37a52d4ded8223e1c2c19c63a687b63591a5b2ae67396fc4",
+        "source_hash": "ea2232787ec5428db36e431da8fdad09fe6689a36a7948f104f3656dcbe80d4c",
         "title": "seo-markup"
       },
       "definitions": [
@@ -9849,7 +9849,7 @@
               "template": null,
               "urls": []
             },
-            "source_hash": "4555886a1d5fdfcb37a52d4ded8223e1c2c19c63a687b63591a5b2ae67396fc4",
+            "source_hash": "ea2232787ec5428db36e431da8fdad09fe6689a36a7948f104f3656dcbe80d4c",
             "title": "seo-markup"
           },
           "observed_at": "2026-09-09T00:00:00Z"
@@ -10445,7 +10445,7 @@
           "template": null,
           "urls": []
         },
-        "source_hash": "970da139963928071004c16b129b80c846f1e17bece5f63d9e22912aecab42df",
+        "source_hash": "ed5bbf57ba8a0fe1904037c936a8769f6ae3d8666ad6fd0e26e120ad695cf8d8",
         "title": "robots-audit"
       },
       "definitions": [
@@ -10465,7 +10465,7 @@
               "template": null,
               "urls": []
             },
-            "source_hash": "970da139963928071004c16b129b80c846f1e17bece5f63d9e22912aecab42df",
+            "source_hash": "ed5bbf57ba8a0fe1904037c936a8769f6ae3d8666ad6fd0e26e120ad695cf8d8",
             "title": "robots-audit"
           },
           "observed_at": "2026-09-09T00:00:00Z"
@@ -10973,7 +10973,7 @@
           "template": null,
           "urls": []
         },
-        "source_hash": "fb26e9f787293177bd157be4eabeae02ca25d1fe91968afd43d91aee0c1b094c",
+        "source_hash": "e451aad9ed706d6015c1e8579da4ac43da1ecc307d6dd50dac55631ede564ca6",
         "title": "tech-audit"
       },
       "definitions": [
@@ -10993,7 +10993,7 @@
               "template": null,
               "urls": []
             },
-            "source_hash": "fb26e9f787293177bd157be4eabeae02ca25d1fe91968afd43d91aee0c1b094c",
+            "source_hash": "e451aad9ed706d6015c1e8579da4ac43da1ecc307d6dd50dac55631ede564ca6",
             "title": "tech-audit"
           },
           "observed_at": "2026-09-09T00:00:00Z"

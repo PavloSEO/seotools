@@ -47,7 +47,7 @@ jobs:
           cache: pip
       - run: python -m pip install -e ".[dev,mcp,reports]"
       - name: Verify OS locks, Unicode paths, native retry, and real stdio MCP
-        run: python -m pytest -q tests/test_platform_filesystem.py tests/test_platform_workflows.py tests/test_registration.py tests/test_interface_binding.py
+        run: python -m pytest -q tests/test_platform_filesystem.py tests/test_platform_workflows.py tests/test_registration.py tests/test_interface_binding.py tests/test_scan_history_cli.py
 
   contracts:
     runs-on: ubuntu-latest
@@ -111,20 +111,6 @@ jobs:
           assert {"seo_parse", "seo_site_audit", "sf_audit_run"} <= names
           print("registered MCP tools", len(names))
           PY
-
-  windows-cli:
-    name: Windows CLI encoding
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-          cache: pip
-      - run: python -m pip install --upgrade pip
-      - run: python -m pip install -e ".[dev,mcp,cluster,reports]"
-      # No PYTHONUTF8 override: this exercises the redirected Windows default.
-      - run: pytest tests/test_scan_history_cli.py -q
 
   package:
     runs-on: ubuntu-latest
