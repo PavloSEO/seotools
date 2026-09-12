@@ -69,6 +69,27 @@ def test_scan_json_input_and_deprecated_json_alias_are_unambiguous(monkeypatch, 
     assert capsys.readouterr().err.count("--json-input is deprecated") == 1
 
 
+def test_braced_legacy_scan_paths_rewrite_before_argument_parsing(monkeypatch, capsys):
+    received = []
+    monkeypatch.setitem(
+        handlers.HANDLERS,
+        "scan_status",
+        lambda **kwargs: received.append(kwargs) or {"ok": True},
+    )
+    legacy_path = "{archive}.sqlite"
+
+    for argv in (
+        ["scan-status", "--input", legacy_path],
+        ["scan-status", f"--input={legacy_path}"],
+        ["scan", "status", "--input", legacy_path],
+        ["scan", "status", f"--input={legacy_path}"],
+    ):
+        assert cli.main(argv) == 0
+
+    assert received == [{"input_path": legacy_path}] * 4
+    assert capsys.readouterr().err.count("--input FILE is deprecated") == 4
+
+
 def test_windows_stream_configuration_is_optional_and_utf8(monkeypatch):
     calls = []
 

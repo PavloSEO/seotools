@@ -165,6 +165,14 @@ _SCAN_PATH_COMMANDS = frozenset(
 )
 
 
+def _is_json_object(value: str) -> bool:
+    """Whether a legacy-ambiguous value is an inline JSON object, not a path."""
+    try:
+        return isinstance(json.loads(value), dict)
+    except json.JSONDecodeError:
+        return False
+
+
 def _rewrite_deprecated_scan_flags(argv: list[str] | None) -> tuple[list[str] | None, list[str]]:
     """Keep old saved-scan flags working without registering two ``--input`` meanings.
 
@@ -194,13 +202,13 @@ def _rewrite_deprecated_scan_flags(argv: list[str] | None) -> tuple[list[str] | 
             rewritten[index] = "--input=" + token.removeprefix("--json-input=")
             warnings.append("--json-input is deprecated; use --input for inline JSON")
         elif command in _SCAN_PATH_COMMANDS and token == "--input" and index + 1 < len(rewritten):
-            value = rewritten[index + 1].lstrip()
-            if not value.startswith("{"):
+            value = rewritten[index + 1]
+            if not _is_json_object(value):
                 rewritten[index] = "--scan"
                 warnings.append("--input FILE is deprecated for scan artifacts; use --scan FILE")
         elif command in _SCAN_PATH_COMMANDS and token.startswith("--input="):
-            value = token.removeprefix("--input=").lstrip()
-            if not value.startswith("{"):
+            value = token.removeprefix("--input=")
+            if not _is_json_object(value):
                 rewritten[index] = "--scan=" + token.removeprefix("--input=")
                 warnings.append("--input FILE is deprecated for scan artifacts; use --scan FILE")
     return rewritten, list(dict.fromkeys(warnings))
