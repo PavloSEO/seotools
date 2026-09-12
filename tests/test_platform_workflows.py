@@ -122,3 +122,19 @@ def test_real_stdio_mcp_starts_and_lists_router_tools():
             assert not result.isError
 
     asyncio.run(run())
+
+
+def test_parser_supports_older_htmlparser_constructor(monkeypatch):
+    from html.parser import HTMLParser
+
+    from seohead.tools.parser import document_base_url, invalid_head_elements
+
+    original = HTMLParser.__init__
+
+    def legacy_init(self, *, convert_charrefs=True):
+        original(self, convert_charrefs=convert_charrefs)
+
+    monkeypatch.setattr(HTMLParser, "__init__", legacy_init)
+    html = '<head><noscript><base href="https://ignored.test/"><div>hidden</div></noscript><title><p>literal</p></title><base href="/assets/"><div>visible</div></head>'
+    assert invalid_head_elements(html) == ["div"]
+    assert document_base_url(html, "https://example.test/") == "https://example.test/assets/"
