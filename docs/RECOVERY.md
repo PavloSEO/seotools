@@ -106,6 +106,9 @@ An ordinary `Set-Cookie` from a public site does not make the crawl credentialed
 process starts a fresh anonymous cookie jar, records that fact in the scan provenance, and never
 stores a raw cookie value. This is different from operator-configured credential headers or a
 persistent browser profile, which remain refused because their access state cannot be restored.
+Older native scans whose old resume latch was caused by a saved redacted `Set-Cookie` observation
+are treated the same way only when their recorded configuration has neither of those access modes;
+an unexplained old latch remains refused.
 
 On exit, `crawl-site` prints one line to stderr saying which of the two happened:
 

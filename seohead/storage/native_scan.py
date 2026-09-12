@@ -233,6 +233,41 @@ def _resume_fingerprint(expected_config: Any, recorded_config: Any) -> str:
     return crawl_config_fingerprint(expected)
 
 
+def _legacy_anonymous_session(config: dict[str, Any], reader: sqlite3.Connection) -> bool:
+    """Recognize the old Set-Cookie resume latch without trusting an ambiguous one."""
+    http = config.get("http")
+    browser = config.get("rendering", {}).get("browser")
+    if (
+        not isinstance(http, dict)
+        or http.get("credential_headers")
+        or not isinstance(browser, dict)
+        or browser.get("persistent_profile") is not False
+    ):
+        return False
+    from seohead.crawl.capture import REDACTED_NAMES_HEADER
+
+    for response in reader.execute(
+        "SELECT response_headers_redacted_json,effective_headers_redacted_json FROM responses "
+        "WHERE response_headers_redacted_json LIKE '%set-cookie%' "
+        "OR effective_headers_redacted_json LIKE '%set-cookie%'"
+    ):
+        for value in response:
+            try:
+                headers = json.loads(value)
+            except (TypeError, ValueError):
+                continue
+            if any(
+                isinstance(pair, list)
+                and len(pair) == 2
+                and pair[0] == REDACTED_NAMES_HEADER
+                and isinstance(pair[1], str)
+                and "set-cookie" in pair[1].split(",")
+                for pair in headers
+            ):
+                return True
+    return False
+
+
 _CONTENT_CAPTURE_FIELDS = {
     "html",
     "parsed",
@@ -789,6 +824,7 @@ class NativeScan:
                 raise ScanError("native scan configuration differs; refusing unsafe resume")
             # Credential references/values never enter the artifact. A local,
             # per-scan verifier detects a changed explicit context on resume.
+            legacy_anonymous_session = False
             if expected_config is not None:
                 from . import open_scan
 
@@ -800,10 +836,14 @@ class NativeScan:
                         recorded = json.loads(row[0])
                         observed = reader.execute("SELECT 1 FROM responses LIMIT 1").fetchone()
                         if recorded["implicit_state"] and observed:
-                            raise ScanError(
-                                "credentialed or persistent browser state cannot be restored; "
-                                "refusing unsafe resume"
+                            legacy_anonymous_session = _legacy_anonymous_session(
+                                json.loads(scan["config_json"]), reader
                             )
+                            if not legacy_anonymous_session:
+                                raise ScanError(
+                                    "credentialed or persistent browser state cannot be restored; "
+                                    "refusing unsafe resume"
+                                )
                         if recorded["verifier"] != credential_verifier(
                             expected_config, scan["scan_uuid"]
                         ):
@@ -814,8 +854,8 @@ class NativeScan:
                 anonymous_session = opened.con.execute(
                     "SELECT 1 FROM context_items WHERE kind='anonymous_session' AND item_key='run'"
                 ).fetchone()
-                if anonymous_session is not None:
-                    opened._record_anonymous_session_resume()
+                if anonymous_session is not None or legacy_anonymous_session:
+                    opened._record_anonymous_session_resume(inferred=legacy_anonymous_session)
             return opened
         except BaseException:
             if con is not None:
@@ -2333,26 +2373,31 @@ class NativeScan:
 
     def _record_session_change(self, captures) -> None:
         if any(event.session_changed for event in captures):
-            from .native_context import put_context
+            self._put_anonymous_session()
 
-            put_context(
-                self.con,
-                {
-                    "kind": "anonymous_session",
-                    "item_key": "run",
-                    "payload_version": "scan_context.v1",
-                    "payload_json": _dump({"server_set_cookie": True}),
-                    "completeness": "complete",
-                    "reason": "",
-                },
-            )
+    def _put_anonymous_session(self) -> None:
+        from .native_context import put_context
 
-    def _record_anonymous_session_resume(self) -> None:
+        put_context(
+            self.con,
+            {
+                "kind": "anonymous_session",
+                "item_key": "run",
+                "payload_version": "scan_context.v1",
+                "payload_json": _dump({"server_set_cookie": True}),
+                "completeness": "complete",
+                "reason": "",
+            },
+        )
+
+    def _record_anonymous_session_resume(self, *, inferred: bool = False) -> None:
         """Record a fresh anonymous cookie jar without retaining cookie data."""
         from .native_context import put_context
 
         self._begin()
         try:
+            if inferred:
+                self._put_anonymous_session()
             put_context(
                 self.con,
                 {
