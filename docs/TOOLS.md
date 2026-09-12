@@ -103,7 +103,7 @@ the report says `http_version_measurable: false`.
 | `redirects-generate` | Ready redirect rules from URL pairs: Apache (rewrite/redirect), nginx, a custom format | writes to stdout |
 | `links-check` | Broken links on a page; `--internal-only` — own links only | — |
 | `robots-check` | Parse robots.txt and test specific paths for a specific user-agent | — |
-| `sitemap-crawl` | Walk a sitemap (index/urlset, `.txt`, gzip), verify response codes | — |
+| `sitemap-crawl` | Walk a sitemap (index/urlset, `.txt`, gzip), or discover it from a site root through `robots.txt` then `/sitemap.xml`; verify response codes | — |
 | `soft404-check` | Soft 404: requests a deliberately non-existent URL; a 200 answer means the page lies to the robot about its status | requests a non-existent URL |
 | `hreflang-check` | hreflang annotations: x-default, self-reference, duplicates, malformed language codes | — |
 
@@ -226,18 +226,18 @@ without deleting its scan. The exact arguments and defaults are in the generated
 seohead scan-list --directory . --limit 100
 
 # inspect a whitelisted table with a smaller total row-payload budget
-seohead scan-inspect --input native.sqlite --table documents --limit 100 --max-bytes 1048576
+seohead scan-inspect --scan native.sqlite --table documents --limit 100 --max-bytes 1048576
 
 # inspect operational state without retrying, requeueing, or reading retained bodies
-seohead scan-status --input native.sqlite
+seohead scan-status --scan native.sqlite
 
 # no-clobber snapshot: either a new filename or an existing directory
-seohead scan-snapshot --input native.sqlite --out snapshot.sqlite
-seohead scan-snapshot --input native.sqlite --out .
+seohead scan-snapshot --scan native.sqlite --out snapshot.sqlite
+seohead scan-snapshot --scan native.sqlite --out .
 
 # pin before retaining a comparison baseline; use --unpin to reverse only the pin
-seohead scan-pin --input native.sqlite
-seohead scan-pin --input native.sqlite --unpin
+seohead scan-pin --scan native.sqlite
+seohead scan-pin --scan native.sqlite --unpin
 
 # inspect the JSON preview, then retain its stdout envelope for explicit review
 seohead scan-prune --directory . > plan.json
@@ -247,7 +247,7 @@ seohead scan-body-diff --left before.sqlite --right after.sqlite --url https://e
 
 # read retained evidence or make an ad-hoc offline extraction; neither fetches a URL
 seohead scan evidence --scan native.sqlite --section structured
-seohead scan extract --scan native.sqlite --json-input '{"rules":[{"id":"product-name","kind":"text","selector":"h1","operator":"matches","value":"Product *","max_matches":1}]}'
+seohead scan extract --scan native.sqlite --input '{"rules":[{"id":"product-name","kind":"text","selector":"h1","operator":"matches","value":"Product *","max_matches":1}]}'
 ```
 
 The default retention plan selects only scans that are finished, unpinned,

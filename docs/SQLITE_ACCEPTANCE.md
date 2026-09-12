@@ -50,13 +50,13 @@ Run these local operations in the artifact directory.
 
 ```bash
 seohead scan list --directory . --limit 100
-seohead scan inspect --input native.sqlite --table pages --offset 0 --limit 100 --max-bytes 1048576
+seohead scan inspect --scan native.sqlite --table pages --offset 0 --limit 100 --max-bytes 1048576
 
 # A no-clobber Backup-API copy.
-seohead scan snapshot --input native.sqlite --out snapshot.sqlite
+seohead scan snapshot --scan native.sqlite --out snapshot.sqlite
 
 # Reanalyze retained native evidence without a network request.
-seohead scan reanalyze --input old.sqlite --out derived.sqlite --producer-build SOURCE_SHA
+seohead scan reanalyze --scan old.sqlite --out derived.sqlite --producer-build SOURCE_SHA
 ```
 
 Reanalysis creates a new parented artifact. It preserves capture scope and records
@@ -77,8 +77,8 @@ seohead compare-crawls --before before.sqlite --after after.sqlite
 
 # Pin a selected baseline. The container hash changes; the saved audit and
 # evidence revision do not. A pin is only ever lifted explicitly.
-seohead scan pin --input native.sqlite
-seohead scan pin --input native.sqlite --unpin
+seohead scan pin --scan native.sqlite
+seohead scan pin --scan native.sqlite --unpin
 
 # Preview first and preserve exactly the emitted JSON envelope for review.
 seohead scan prune --directory . > plan.json

@@ -14,6 +14,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from seohead import cli
 from seohead.cli import COMMANDS
 from seohead.servers.handlers import HANDLERS
 
@@ -62,3 +63,24 @@ def test_cli_command_names_are_well_formed():
     """Allow only lowercase letters, digits, and hyphens for reliable normalization."""
     bad = [c for c in COMMANDS if not re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", c)]
     assert not bad, f"malformed command names: {bad}"
+
+
+def test_input_is_json_and_scan_is_the_only_saved_artifact_flag():
+    """#701: parser registration may never give --input two incompatible meanings."""
+    parser = cli.build_parser()
+    stack = [parser]
+    actions = []
+    while stack:
+        current = stack.pop()
+        for action in current._actions:
+            actions.append(action)
+            choices = getattr(action, "choices", None)
+            if isinstance(choices, dict):
+                stack.extend(choices.values())
+
+    assert not [
+        action
+        for action in actions
+        if "--input" in action.option_strings and action.dest == "input_path"
+    ]
+    assert sum("--scan" in action.option_strings for action in actions) >= 6

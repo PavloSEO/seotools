@@ -423,7 +423,9 @@ def crawl(
     """Recursively crawl a sitemap tree starting at *url*.
 
     Follows sitemap-index documents down to their child sitemaps and collects
-    every ``<url>`` entry, de-duplicating by normalized ``loc``. Child sitemaps
+    every ``<url>`` entry, de-duplicating by normalized ``loc``. A site-root
+    URL first reads ``robots.txt`` for ``Sitemap:`` directives, then tries the
+    conventional ``/sitemap.xml`` fallback when none are usable. Child sitemaps
     within a level are fetched in parallel using up to *concurrency* threads.
 
     Transport, HTTP and parse failures are recorded in the returned ``errors``
@@ -461,8 +463,11 @@ def crawl(
 
     concurrency = max(1, int(concurrency))
     visited: set[str] = set()
-    queued: set[str] = {root}
-    frontier: list[str] = [root]
+    root_parts = urlsplit(root)
+    discover_from_root = root_parts.path in ("", "/") and not root_parts.query
+    queued: set[str] = set()
+    frontier: list[str] = []
+    source_of: dict[str, str] = {}
 
     sitemaps: list[dict] = []
     errors: list[dict] = []
@@ -474,6 +479,14 @@ def crawl(
     duplicate_sources: dict[str, list[str]] = {}
     all_urls: list[dict] = []
     truncated = False
+    parsed_documents = 0
+    discovery_errors: list[dict] = []
+
+    def enqueue(target: str, source: str) -> None:
+        if target not in visited and target not in queued:
+            frontier.append(target)
+            queued.add(target)
+            source_of[target] = source
 
     def process(target: str) -> dict:
         """Fetch and parse one sitemap; return a result record (no shared state)."""
@@ -505,6 +518,29 @@ def crawl(
         closing(_StreamingDeduper(sink)) if sink is not None else nullcontext() as streaming,
         ThreadPoolExecutor(max_workers=concurrency) as pool,
     ):
+        if discover_from_root:
+            robots_url = urlunsplit((root_parts.scheme, root_parts.netloc, "/robots.txt", "", ""))
+            discovered: list[str] = []
+            try:
+                from seohead.tools.robots import parse_robots
+
+                parsed_robots = parse_robots(_fetch(client, robots_url).decode("utf-8", "replace"))
+                for declared in parsed_robots["sitemaps"]:
+                    try:
+                        discovered.append(normalize_url(urljoin(root, declared)))
+                    except ValueError as exc:
+                        discovery_errors.append({"url": declared, "error": str(exc)})
+            except Exception as exc:
+                discovery_errors.append({"url": robots_url, "error": _err_message(exc)})
+            for target in dict.fromkeys(discovered):
+                enqueue(target, "robots.txt")
+            if not frontier:
+                fallback = urlunsplit(
+                    (root_parts.scheme, root_parts.netloc, "/sitemap.xml", "", "")
+                )
+                enqueue(fallback, "sitemap.xml fallback")
+        else:
+            enqueue(root, "explicit")
         while frontier and not truncated:
             if len(visited) >= MAX_SITEMAPS:
                 truncated = True
@@ -534,10 +570,12 @@ def crawl(
 
                 parsed = result["parsed"]
                 if parsed["type"] == "index":
+                    parsed_documents += 1
                     children = parsed["sitemaps"]
                     sitemaps.append(
                         {
                             "url": target,
+                            "source": source_of.get(target, "sitemap index"),
                             "type": "index",
                             "count": len(children),
                             "bytes": result.get("bytes", 0),
@@ -549,10 +587,9 @@ def crawl(
                             norm = normalize_url(child["loc"])
                         except ValueError:
                             continue
-                        if norm not in visited and norm not in queued:
-                            frontier.append(norm)
-                            queued.add(norm)
+                        enqueue(norm, target)
                 elif parsed["type"] in ("urlset", "text"):
+                    parsed_documents += 1
                     added = 0
                     for entry in parsed["urls"]:
                         try:
@@ -597,6 +634,7 @@ def crawl(
                     sitemaps.append(
                         {
                             "url": target,
+                            "source": source_of.get(target, "sitemap index"),
                             "type": parsed["type"],
                             # Added to the run after de-duplication and the global budget.
                             "count": added,
@@ -611,8 +649,10 @@ def crawl(
 
     count = streaming.count if streaming is not None else len(all_urls)
     duplicate_count = streaming.duplicates if streaming is not None else len(duplicates)
+    if not parsed_documents and discovery_errors:
+        errors = [*discovery_errors, *errors]
     result = {
-        "ok": True,
+        "ok": bool(parsed_documents),
         "root": root,
         "count": count,
         "urls": [] if sink is not None else all_urls,
@@ -622,6 +662,11 @@ def crawl(
         "errors": errors,
         "truncated": truncated,
     }
+    if discover_from_root:
+        result["discovery"] = {
+            "robots_url": urlunsplit((root_parts.scheme, root_parts.netloc, "/robots.txt", "", "")),
+            "fallback": urlunsplit((root_parts.scheme, root_parts.netloc, "/sitemap.xml", "", "")),
+        }
     if sink is not None:
         result["duplicate_count"] = duplicate_count
     return result

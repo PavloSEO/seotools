@@ -112,6 +112,20 @@ jobs:
           print("registered MCP tools", len(names))
           PY
 
+  windows-cli:
+    name: Windows CLI encoding
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e ".[dev,mcp,cluster,reports]"
+      # No PYTHONUTF8 override: this exercises the redirected Windows default.
+      - run: pytest tests/test_scan_history_cli.py -q
+
   package:
     runs-on: ubuntu-latest
     steps:

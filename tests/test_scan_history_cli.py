@@ -39,6 +39,70 @@ def test_flat_and_nested_scan_status_share_the_same_input_path(monkeypatch, caps
     assert capsys.readouterr().out.count('"ok": true') == 2
 
 
+def test_scan_artifacts_use_common_scan_flag_and_legacy_path_warns_once(monkeypatch, capsys):
+    received = []
+    monkeypatch.setitem(
+        handlers.HANDLERS,
+        "scan_status",
+        lambda **kwargs: received.append(kwargs) or {"ok": True},
+    )
+
+    assert cli.main(["scan-status", "--scan", "saved.sqlite"]) == 0
+    assert cli.main(["scan-status", "--input", "old.sqlite"]) == 0
+
+    assert received == [{"input_path": "saved.sqlite"}, {"input_path": "old.sqlite"}]
+    assert capsys.readouterr().err.count("--input FILE is deprecated") == 1
+
+
+def test_scan_json_input_and_deprecated_json_alias_are_unambiguous(monkeypatch, capsys):
+    received = []
+    monkeypatch.setitem(
+        handlers.HANDLERS,
+        "scan_status",
+        lambda **kwargs: received.append(kwargs) or {"ok": True},
+    )
+
+    assert cli.main(["scan-status", "--input", '{"input_path":"json.sqlite"}']) == 0
+    assert cli.main(["scan-status", "--json-input", '{"input_path":"old-json.sqlite"}']) == 0
+
+    assert received == [{"input_path": "json.sqlite"}, {"input_path": "old-json.sqlite"}]
+    assert capsys.readouterr().err.count("--json-input is deprecated") == 1
+
+
+def test_windows_stream_configuration_is_optional_and_utf8(monkeypatch):
+    calls = []
+
+    class Stream:
+        def reconfigure(self, **kwargs):
+            calls.append(kwargs)
+
+    monkeypatch.setattr(cli.sys, "platform", "win32")
+    monkeypatch.setattr(cli.sys, "stdout", Stream())
+    monkeypatch.setattr(cli.sys, "stderr", Stream())
+
+    cli._configure_windows_streams()
+
+    assert calls == [{"encoding": "utf-8"}, {"encoding": "utf-8"}]
+
+
+def test_project_new_preserves_a_spaced_non_ascii_directory_in_cli_json(tmp_path, capsys):
+    directory = (
+        tmp_path
+        / "\u043f\u0440\u043e\u0435\u043a\u0442 \u0441 \u043f\u0440\u043e\u0431\u0435\u043b\u043e\u043c"
+    )
+
+    assert (
+        cli.main(
+            ["project-new", "--directory", str(directory), "--target", "https://example.test/"]
+        )
+        == 0
+    )
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["path"] == str(directory)
+    assert directory.is_dir()
+
+
 def test_flat_scan_body_diff_and_prune_apply_forward_explicit_arguments(monkeypatch, capsys):
     calls = []
     monkeypatch.setitem(
