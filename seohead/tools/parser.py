@@ -874,17 +874,19 @@ class _OpaqueTextHTMLParser(HTMLParser):
     text preserves their behavior without depending on newer stdlib keywords.
     """
 
-    CDATA_CONTENT_ELEMENTS = (
-        "script",
-        "style",
-        "xmp",
-        "iframe",
-        "noembed",
-        "noframes",
-        "noscript",
-        "title",
-        "textarea",
-    )
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in {
+            "script",
+            "style",
+            "xmp",
+            "iframe",
+            "noembed",
+            "noframes",
+            "noscript",
+            "title",
+            "textarea",
+        }:
+            self.set_cdata_mode(tag)
 
 
 class _LiveBaseHrefScanner(_OpaqueTextHTMLParser):
@@ -917,6 +919,7 @@ class _LiveBaseHrefScanner(_OpaqueTextHTMLParser):
                 return
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        super().handle_starttag(tag, attrs)
         self._start(tag, attrs)
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
@@ -1071,6 +1074,7 @@ class _HeadElementScanner(_OpaqueTextHTMLParser):
             self.found.append(tag)
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        super().handle_starttag(tag, attrs)
         self._start(tag)
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
