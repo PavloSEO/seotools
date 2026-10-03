@@ -588,12 +588,52 @@ def aggregate_coverage(directory: str, primary: dict) -> dict:
             by_kind={},
             items=[],
             views={key: [] for key in primary.get("views", {})},
+            coverage=None,
             reason="one or more site checklists are not initialized",
         )
         return result
     result["counts"] = {
         key: sum(site["checklist"]["counts"][key] for site in sites) for key in primary["counts"]
     }
+    if "coverage" in primary:
+        axes = {}
+        for name in primary["coverage"]:
+            merged = dict(primary["coverage"][name])
+            for site in sites[1:]:
+                axis = site["checklist"]["coverage"][name]
+                for key in ("numerator", "denominator", "measured_urls"):
+                    if key in merged and key in axis:
+                        merged[key] = (
+                            None
+                            if merged[key] is None or axis[key] is None
+                            else merged[key] + axis[key]
+                        )
+                for key in ("excluded", "pending_exclusion", "not_agreed", "unfinished"):
+                    if key in merged:
+                        merged[key] += axis[key]
+                for key in ("unverified_measurements",):
+                    if key in merged:
+                        merged[key] += axis[key]
+                if "population_kind" in merged and (
+                    axis["population_kind"] != merged["population_kind"]
+                    or axis["population_name"] != merged["population_name"]
+                ):
+                    merged["population_kind"] = "mixed"
+                    merged["population_name"] = None
+                if axis["state"] != "measured" or not merged.get("denominator"):
+                    merged["state"] = "unknown" if not merged.get("denominator") else "partial"
+                    merged["reason"] = (
+                        "one or more site checklists cannot justify the denominator"
+                        if not merged.get("denominator")
+                        else "one or more site checklists report a partial or unknown state"
+                    )
+            axes[name] = merged
+        result["coverage"] = axes
+        result["exclusions"] = [
+            {**entry, "id": "site:" + site["project_uuid"] + "/" + entry["id"]}
+            for site in sites
+            for entry in site["checklist"].get("exclusions", [])
+        ]
     result["by_kind"] = {
         kind: {
             key: sum(site["checklist"]["by_kind"][kind][key] for site in sites)

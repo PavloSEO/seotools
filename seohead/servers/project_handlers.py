@@ -48,10 +48,15 @@ def project_facts(
 
 
 def project_checklist_init(
-    directory: str, template: dict | None = None, expected_revision: int | None = None
+    directory: str,
+    template: dict | None = None,
+    expected_revision: int | None = None,
+    plan: dict | None = None,
 ) -> dict[str, Any]:
     """Create or reconcile a project's local checklist without running any item."""
-    return initialize_coverage(directory, template=template, expected_revision=expected_revision)
+    return initialize_coverage(
+        directory, template=template, expected_revision=expected_revision, plan=plan
+    )
 
 
 def project_checklist_update(directory: str, item: dict, expected_revision: int) -> dict[str, Any]:

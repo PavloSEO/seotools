@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from .coverage import _text
+from .coverage import URL_ENUMERATION_LIMIT, _text
 
 
 def artifact_path(root: Path, value: Any) -> Path:
@@ -117,6 +117,8 @@ def _saved_check(root: Path, definition: dict, value: Any) -> dict:
                 else "measured population in the saved scan; not a census of the whole site",
                 "population": len(pages),
                 "requested_urls": len(requested),
+                "urls": sorted(pages)[:URL_ENUMERATION_LIMIT],
+                "urls_enumerated": len(pages) <= URL_ENUMERATION_LIMIT,
                 "crawl_partial": bool(scan["crawl_partial"]),
                 "corpus_partial": bool(scan["corpus_partial"]),
             },
@@ -133,6 +135,7 @@ def validate_record(root: Path, definition: dict, record: Any) -> dict:
         "status",
         "reason",
         "artifact",
+        "evidence",
         "reviewer",
         "review",
         "signoff",
@@ -155,9 +158,18 @@ def validate_record(root: Path, definition: dict, record: Any) -> dict:
         return result
     if status == "not_applicable":
         # Applicability is an explicit specialist decision, never inferred from missing data.
-        if set(record) - {"status", "reason", "reviewer"}:
-            raise ValueError("applicability review requires reason and reviewer only")
+        if set(record) - {"status", "reason", "reviewer", "artifact", "evidence"}:
+            raise ValueError("applicability review records reason, reviewer and evidence basis")
         result["reviewer"] = _text(record.get("reviewer"), "reviewer", 128)
+        if "artifact" in record:
+            path = artifact_path(root, record["artifact"])
+            if path.stat().st_size == 0:
+                raise ValueError("empty artifact cannot support an applicability decision")
+            result.update(artifact=record["artifact"], sha256=_digest(path))
+        if "evidence" in record:
+            result["evidence"] = _text(record["evidence"], "exclusion evidence", 512)
+        if "artifact" not in result and "evidence" not in result:
+            raise ValueError("applicability review requires an inspectable evidence basis")
         return result
     kind = definition["execution_kind"]
     if kind == "automatic":

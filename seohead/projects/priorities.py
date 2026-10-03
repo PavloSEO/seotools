@@ -8,7 +8,16 @@ from importlib import resources
 from typing import Any
 
 from .catalogue import load_catalogue
-from .coverage import FORMAT_V2, _hash, _now, _read, _set, _transaction, coverage_status
+from .coverage import (
+    FORMAT,
+    FORMAT_V2,
+    _hash,
+    _now,
+    _read,
+    _set,
+    _transaction,
+    coverage_status,
+)
 from .workspace import _load
 
 _PRIORITIES = {"P0", "P1", "P2"}
@@ -206,14 +215,15 @@ def project_priorities(
                         "priority_origin": decision["after"]["priority_origin"],
                     },
                 )
-        writable["format"] = FORMAT_V2
-        writable["version"] = 2
         writable["priority_policy"] = {
             "applications": [
                 *history,
                 {"applied_at": _now(), "receipt": current_receipt},
             ]
         }
+        if writable["format"] == FORMAT:
+            writable["format"] = FORMAT_V2
+            writable["version"] = 2
         result["applied"] = True
         result["decisions"] = current_decisions
         result["policy_hash"] = current_receipt["policy_hash"]

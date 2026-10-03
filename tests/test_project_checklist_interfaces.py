@@ -128,7 +128,12 @@ def test_mcp_checklist_tools_forward_data_without_execution(monkeypatch):
     )
 
     assert captured == {
-        "init": {"directory": "project", "template": None, "expected_revision": 0},
+        "init": {
+            "directory": "project",
+            "template": None,
+            "expected_revision": 0,
+            "plan": None,
+        },
         "update": {
             "directory": "project",
             "item": {"id": "custom:copy-review"},

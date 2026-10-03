@@ -286,6 +286,11 @@ COMMAND_CONTRACTS: tuple[CommandContract, ...] = (
         "project_checklist_init",
         _form("project_directory", "directory"),
         _form("inline_json", "template", note="Optional reusable data-only checklist template."),
+        _form(
+            "inline_json",
+            "plan",
+            note="Optional agreed scope plan fixing the URL-population and task denominators.",
+        ),
     ),
     _command(
         "project-checklist-update",
@@ -301,7 +306,8 @@ COMMAND_CONTRACTS: tuple[CommandContract, ...] = (
         _form(
             "inline_json",
             "record",
-            note="Requires expected_revision; records supplied evidence only.",
+            note="Requires expected_revision; records supplied evidence only; "
+            "not_applicable needs reason, reviewer and an evidence basis.",
         ),
     ),
     _command(

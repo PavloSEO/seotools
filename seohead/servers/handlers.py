@@ -3046,11 +3046,14 @@ def project_facts(
 
 
 def project_checklist_init(
-    directory: str, template: dict | None = None, expected_revision: int | None = None
+    directory: str,
+    template: dict | None = None,
+    expected_revision: int | None = None,
+    plan: dict | None = None,
 ) -> dict[str, Any]:
     from seohead.servers.project_handlers import project_checklist_init as core
 
-    return core(directory, template=template, expected_revision=expected_revision)
+    return core(directory, template=template, expected_revision=expected_revision, plan=plan)
 
 
 def project_checklist_update(directory: str, item: dict, expected_revision: int) -> dict[str, Any]:

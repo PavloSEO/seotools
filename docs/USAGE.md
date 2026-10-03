@@ -101,7 +101,7 @@ seohead project checklist-record \
   --directory ./example-project \
   --item-id skill:workflow/control \
   --expected-revision 1 \
-  --input '{"record":{"status":"not_applicable","reason":"The work is a scoped follow-up, not an unscoped audit","reviewer":"Specialist"}}'
+  --input '{"record":{"status":"not_applicable","reason":"The work is a scoped follow-up, not an unscoped audit","reviewer":"Specialist","evidence":"Agreed scope memo 2026-10-01"}}'
 ```
 
 `project-checklist-update` and `project-checklist-record` receive their structured

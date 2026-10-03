@@ -24,9 +24,9 @@ data, not an accident.
 | `project-open` | Validate and open a saved project without rewriting it | no |
 | `project-status` | Show scan history and explicit pending checklist/preparation states | no |
 | `project-facts` | Preview or record the project's stack facts; `--detect` fetches the target once after robots.txt, and an unavailable or ambiguous detection leaves the fact absent with its reason | only with `--detect` |
-| `project-checklist-init` | Initialize or reconcile a local checklist from the built-in catalogue and an optional data-only template; does not execute items | no |
+| `project-checklist-init` | Initialize or reconcile a local checklist from the built-in catalogue, an optional data-only template, and an optional agreed scope `plan` that fixes the URL-population and task denominators; does not execute items | no |
 | `project-checklist-update` | Add or edit one checklist definition with an expected revision; does not execute it | no |
-| `project-checklist-record` | Validate and record supplied evidence for one item with an expected revision; does not execute it | no |
+| `project-checklist-record` | Validate and record supplied evidence for one item with an expected revision; a `not_applicable` exclusion needs reason, reviewer and an inspectable evidence basis; does not execute it | no |
 | `project-priorities` | Preview saved-fact work order; an explicit expected-revision apply preserves operator decisions and never changes technical severity | no |
 | `project-policy` | Preview or explicitly save the bounded crawl/admission policy; applying it requires the current policy revision | no |
 | `project-prepare` | Runs the declared bounded preparation path: checklist initialization, a policy-bounded crawl, supplied competitor workspace setup, and an inspectable initial plan | yes |

@@ -1072,14 +1072,31 @@ Initialize or reconcile a local checklist without executing a check, skill, or s
 | `directory` | `str` | `required` |
 | `template` | `dict | None` | `None` |
 | `expected_revision` | `int | None` | `None` |
+| `plan` | `dict | None` | `None` |
 
 **Cost** — network: no · writes files: yes · idempotent: no · spends money: no
 
 **Behavior and failure modes**
 
-template is an optional data-only ``seohead.checklist-template.v1`` document. The result
-returns the current state, revision, counts, views and items; use that revision for a
-later conditional write. This never makes a network request.
+template is an optional data-only ``seohead.checklist-template.v1`` document. plan is an
+optional agreed audit scope {reviewer, population, tasks}: population declares kind
+(``complete_set``, ``sample`` or ``unknown``), size or enumerated urls, a provenance
+``source``, an optional ``name`` and ``reason``, and optional per-``templates``
+populations; ``unknown`` keeps the URL denominator null with a reason. Template
+populations are agreed sub-populations of the site population: enumerated
+template URLs must belong to an enumerated site set, and declared template
+membership can never exceed the agreed site size; incoherent plans are refused
+rather than trimmed. tasks is
+``{kind: all_agreed}`` or a sourced ``{kind: selection, ids, source}`` naming the agreed
+checklist items; items outside a selection stay visible as ``not_agreed`` outside every
+denominator. A size-only population cannot verify measured-URL membership, so its
+numerator counts only enumerated URLs. Recording a plan upgrades the checklist to
+``seohead.coverage.v3`` and appends to the retained plan history; an identical
+agreement is an idempotent no-op, while a changed agreement starts a new revision and
+stale-marks evidence recorded under an earlier agreement instead of shrinking
+denominators. The result
+returns the current state, revision, counts, coverage axes, views and items; use that
+revision for a later conditional write. This never makes a network request.
 
 ### `project-checklist-update`
 
@@ -1120,7 +1137,10 @@ Record supplied evidence for one checklist item without executing its operation.
 
 expected_revision prevents an overwrite of newer checklist history. The record is
 validated against the item's scope and evidence contract, then the returned status names
-remaining, blocked and manual-review work. This never makes a network request.
+remaining, blocked and manual-review work. A ``not_applicable`` record is a reviewed
+exclusion: it requires a reason, a reviewer and an inspectable evidence basis (a
+project-relative ``artifact`` or an explicit ``evidence`` reference); anything else stays
+``pending_exclusion`` inside the denominator. This never makes a network request.
 
 ### `project-priorities`
 

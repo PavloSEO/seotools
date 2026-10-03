@@ -100,14 +100,19 @@ def test_ecommerce_history_and_completion_axes(project, monkeypatch):
     assert row(status, "custom:product-review")["definition_versions"] == 2
     assert row(status, "custom:product-review")["attempts"] == 1
     assert not row(status, "custom:product-auto")["stale"]
-    record(
+    status = record(
         project,
         "custom:product-review",
         status="not_applicable",
         reason="Purchase flow is out of the agreed scope",
         reviewer="Specialist",
+        evidence="Agreed scope change order 2026-09-30",
     )
-    assert coverage_status(project)["counts"]["remaining"] == initial
+    assert status["counts"]["remaining"] == initial
+    reviewed = row(status, "custom:product-review")
+    assert reviewed["applicability"] == "excluded"
+    assert reviewed["exclusion"]["basis"] == {"evidence": "Agreed scope change order 2026-09-30"}
+    assert status["coverage"]["audit_tasks"]["excluded"] == 1
     assert project_status(project)["checklist"] == coverage_status(project)
 
 
@@ -306,7 +311,9 @@ def test_disable_and_order_do_not_erase_history(project):
     result = edit(project, id="custom:x", enabled=False, order=999)
     assert result["counts"]["disabled"] == 1
     assert row(result, "custom:x")["attempts"] == 1
-    assert "custom:x" not in result["views"]["remaining"]
+    assert "custom:x" in result["views"]["remaining"]
+    assert row(result, "custom:x")["applicability"] == "pending_exclusion"
+    assert "custom:x" in result["views"]["pending_exclusion"]
 
 
 def test_new_catalogue_entry_is_pending_before_reconcile(project, monkeypatch):
@@ -417,5 +424,6 @@ def test_removed_builtin_can_be_explicitly_disabled_without_losing_history(proje
     monkeypatch.setattr(coverage, "load_catalogue", lambda: catalogue)
     status = edit(project, id=item_id, enabled=False)
     assert row(status, item_id)["attempts"] == 1
-    assert item_id not in status["views"]["remaining"]
+    assert row(status, item_id)["applicability"] == "pending_exclusion"
+    assert item_id in status["views"]["pending_exclusion"]
     assert status["counts"]["disabled"] == 1

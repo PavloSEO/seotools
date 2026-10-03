@@ -89,9 +89,9 @@ and this decision makes no backend migration.
 | `project-open` | Project directory (`directory`) | — |
 | `project-status` | Project directory (`directory`) | — |
 | `project-facts` | Project directory (`directory`)<br>Inline JSON (`facts`) | detect fetches the project's own target once after robots.txt; it is never implicit.; Operator-entered facts; preview by default, recorded with apply. |
-| `project-checklist-init` | Project directory (`directory`)<br>Inline JSON (`template`) | Optional reusable data-only checklist template. |
+| `project-checklist-init` | Project directory (`directory`)<br>Inline JSON (`template`)<br>Inline JSON (`plan`) | Optional reusable data-only checklist template.; Optional agreed scope plan fixing the URL-population and task denominators. |
 | `project-checklist-update` | Project directory (`directory`)<br>Inline JSON (`item`) | Requires expected_revision for optimistic concurrency. |
-| `project-checklist-record` | Project directory (`directory`)<br>Selector (`item_id`)<br>Inline JSON (`record`) | Requires expected_revision; records supplied evidence only. |
+| `project-checklist-record` | Project directory (`directory`)<br>Selector (`item_id`)<br>Inline JSON (`record`) | Requires expected_revision; records supplied evidence only; not_applicable needs reason, reviewer and an evidence basis. |
 | `project-priorities` | Project directory (`directory`)<br>Inline JSON (`policy`) | Optional data-only priority policy; preview by default. Apply requires expected_revision. |
 | `project-policy` | Project directory (`directory`)<br>Inline JSON (`policy`) | Optional data-only policy; preview by default. Apply requires expected_revision. |
 | `project-prepare` | Project directory (`directory`)<br>Inline JSON (`template`)<br>Inline JSON (`competitors`) | Optional data-only project template.; Optional bounded competitor inputs. |

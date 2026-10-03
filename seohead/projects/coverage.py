@@ -18,7 +18,9 @@ from .workspace import _facts, _load, _target
 
 FORMAT = "seohead.coverage.v1"
 FORMAT_V2 = "seohead.coverage.v2"
+FORMAT_V3 = "seohead.coverage.v3"
 MAX_BYTES = 32 * 1024 * 1024
+URL_ENUMERATION_LIMIT = 10000
 _ID = re.compile(
     r"(?:check:[A-Z][A-Z0-9_]*|skill:(?:workflow|general)/[a-z0-9_-]+|scenario:[a-z0-9_-]+|custom:[a-z][a-z0-9._/-]{0,127})\Z"
 )
@@ -59,6 +61,23 @@ def _identifier(value: Any) -> str:
     return value
 
 
+def _urls(urls: Any, site: str, label: str) -> list[str]:
+    if not isinstance(urls, list) or len(urls) > URL_ENUMERATION_LIMIT:
+        raise ValueError(f"{label} must be a bounded list")
+    from urllib.parse import urlsplit
+
+    from seohead.recon.net import normalize_url
+
+    for url in urls:
+        if not isinstance(url, str) or len(url) > 2048 or normalize_url(url) != url:
+            raise ValueError(f"{label} must be normalized absolute URLs")
+        if urlsplit(url).netloc != urlsplit(site).netloc:
+            raise ValueError(f"{label} belongs to another site")
+    if len(set(urls)) != len(urls):
+        raise ValueError(f"duplicate URL in {label}")
+    return urls
+
+
 def _scope(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict) or set(value) != {"site", "template", "urls"}:
         raise ValueError("scope requires site, template and urls")
@@ -66,21 +85,132 @@ def _scope(value: Any) -> dict[str, Any]:
     template = value["template"]
     if template is not None:
         _text(template, "template", 128)
-    urls = value["urls"]
-    if not isinstance(urls, list) or len(urls) > 10000:
-        raise ValueError("scope urls must be a bounded list")
-    from urllib.parse import urlsplit
+    return {"site": site, "template": template, "urls": _urls(value["urls"], site, "scope urls")}
 
-    from seohead.recon.net import normalize_url
 
-    for url in urls:
-        if not isinstance(url, str) or len(url) > 2048 or normalize_url(url) != url:
-            raise ValueError("scope urls must be normalized absolute URLs")
-        if urlsplit(url).netloc != urlsplit(site).netloc:
-            raise ValueError("scope URL belongs to another site")
-    if len(set(urls)) != len(urls):
-        raise ValueError("duplicate scope URL")
-    return {"site": site, "template": template, "urls": urls}
+def _population(value: Any, site: str, *, nested: bool = False) -> dict[str, Any]:
+    """Validate one agreed URL population against the project site identity."""
+    required = {"kind", "size", "urls", "name", "source", "reason"}
+    if not nested:
+        required |= {"templates"}
+    if not isinstance(value, dict) or set(value) != required:
+        raise ValueError("population has unsupported fields")
+    kind = value["kind"]
+    kinds = {"complete_set", "sample"} if nested else {"complete_set", "sample", "unknown"}
+    if kind not in kinds:
+        raise ValueError(
+            "population kind must be complete_set, sample" + ("" if nested else " or unknown")
+        )
+    urls = _urls(value["urls"], site, "population urls")
+    size = value["size"]
+    name = value["name"]
+    if kind == "unknown":
+        if size is not None or urls or name is not None:
+            raise ValueError("an unknown population has no size, urls or name")
+        _text(value["reason"], "unknown population reason", 512)
+    else:
+        if urls:
+            if size is not None and size != len(urls):
+                raise ValueError("population size disagrees with its enumerated urls")
+            size = len(urls)
+        if type(size) is not int or not 1 <= size <= 1_000_000_000:
+            raise ValueError("population size must be a positive bounded integer")
+        if kind == "sample":
+            _text(name, "sample name", 128)
+        elif name is not None:
+            raise ValueError("only a sample population is named")
+        if value["reason"] is not None:
+            _text(value["reason"], "population reason", 512)
+    _text(value["source"], "population source", 512)
+    result = {
+        "kind": kind,
+        "size": size,
+        "urls": urls,
+        "name": name,
+        "source": value["source"],
+        "reason": value["reason"],
+    }
+    if not nested:
+        templates = value["templates"]
+        if templates is None:
+            templates = {}
+        if not isinstance(templates, dict) or len(templates) > 100:
+            raise ValueError("population templates must be a bounded object")
+        result["templates"] = {
+            _text(key, "template population name", 128): _population(entry, site, nested=True)
+            for key, entry in templates.items()
+        }
+        if size is not None:
+            members = set(urls)
+            for template_name, entry in result["templates"].items():
+                if urls and not set(entry["urls"]) <= members:
+                    raise ValueError(
+                        f"template population {template_name!r} declares URLs outside "
+                        "the enumerated site population"
+                    )
+                if entry["size"] > size:
+                    raise ValueError(
+                        f"template population {template_name!r} is larger than the "
+                        "agreed site population"
+                    )
+                members |= set(entry["urls"])
+            if len(members) > size:
+                raise ValueError(
+                    "template populations declare more URLs than the agreed site population"
+                )
+    return result
+
+
+def _tasks(value: Any) -> dict[str, Any]:
+    """Validate the agreed task set: the whole checklist or a sourced item selection."""
+    if value is None or value == {"kind": "all_agreed"}:
+        return {"kind": "all_agreed"}
+    if not isinstance(value, dict) or set(value) != {"kind", "ids", "source"}:
+        raise ValueError("task agreement is all_agreed or a sourced selection of item ids")
+    if value["kind"] != "selection":
+        raise ValueError("task agreement kind must be all_agreed or selection")
+    ids = value["ids"]
+    if not isinstance(ids, list) or not ids or len(ids) > 10000:
+        raise ValueError("task selection must be a nonempty bounded list")
+    for item_id in ids:
+        _identifier(item_id)
+    if len(set(ids)) != len(ids):
+        raise ValueError("duplicate agreed task id")
+    _text(value["source"], "task selection source", 512)
+    return {"kind": "selection", "ids": sorted(ids), "source": value["source"]}
+
+
+def _plan(value: Any, site: str) -> dict[str, Any]:
+    """Validate the agreed audit scope recorded for a checklist."""
+    if (
+        not isinstance(value, dict)
+        or not {"reviewer", "population"} <= set(value)
+        or set(value) - {"reviewer", "population", "tasks"}
+    ):
+        raise ValueError("plan requires reviewer and population")
+    return {
+        "reviewer": _text(value["reviewer"], "plan reviewer", 128),
+        "population": _population(value["population"], site),
+        "tasks": _tasks(value.get("tasks")),
+    }
+
+
+def _stored_plan(value: Any, site: str) -> dict[str, Any]:
+    if (
+        not isinstance(value, dict)
+        or not {"recorded_at", "revision", "reviewer", "site", "population"} <= set(value)
+        or set(value) - {"recorded_at", "revision", "reviewer", "site", "population", "tasks"}
+    ):
+        raise ValueError("invalid audit scope plan")
+    _text(value["recorded_at"], "plan recording time", 128)
+    if type(value["revision"]) is not int or value["revision"] < 1:
+        raise ValueError("invalid plan revision")
+    _text(value["reviewer"], "plan reviewer", 128)
+    if value["site"] != site:
+        raise ValueError("plan site identity does not match the project")
+    _population(value["population"], site)
+    value["tasks"] = _tasks(value.get("tasks"))
+    return value
 
 
 def _definition(value: Any, catalogue: dict, *, historical: bool = False) -> dict:
@@ -333,11 +463,29 @@ def _read(root: Path, project: dict) -> dict | None:
         if document["format"] == FORMAT
         else {"format", "version", "project_uuid", "revision", "items", "priority_policy"}
         if document["format"] == FORMAT_V2
+        else {
+            "format",
+            "version",
+            "project_uuid",
+            "revision",
+            "items",
+            "priority_policy",
+        }
+        if document["format"] == FORMAT_V3
         else None
     )
-    if set(document) != expected_keys or type(document["version"]) is not int:
+    if expected_keys is None or type(document["version"]) is not int:
         raise ValueError("unsupported coverage document shape")
-    if document["version"] != (1 if document["format"] == FORMAT else 2):
+    if document["format"] == FORMAT_V3:
+        extra = set(document) - expected_keys
+        if extra not in ({"plan"}, {"plans"}):
+            raise ValueError("unsupported coverage document shape")
+        if "plan" in document:
+            # Normalize the single-plan v3 shape into the append-only history.
+            document["plans"] = [document.pop("plan")]
+    elif set(document) != expected_keys:
+        raise ValueError("unsupported coverage document shape")
+    if document["version"] != ({FORMAT: 1, FORMAT_V2: 2, FORMAT_V3: 3}[document["format"]]):
         raise ValueError("unsupported coverage version")
     if document["project_uuid"] != project["project_uuid"]:
         raise ValueError("coverage project UUID mismatch")
@@ -382,7 +530,7 @@ def _read(root: Path, project: dict) -> dict | None:
             hashes[_completion_hash(version["definition"])] = version["definition"]
         for record in item["records"]:
             _record_shape(record, hashes)
-    if document["format"] == FORMAT_V2:
+    if document["format"] in {FORMAT_V2, FORMAT_V3}:
         policy = document["priority_policy"]
         if (
             not isinstance(policy, dict)
@@ -395,6 +543,16 @@ def _read(root: Path, project: dict) -> dict | None:
                 raise ValueError("invalid priority policy application")
             _application_time(application["applied_at"])
             _priority_receipt(application["receipt"], set(document["items"]))
+    if document["format"] == FORMAT_V3:
+        plans = document["plans"]
+        if not isinstance(plans, list) or not plans or len(plans) > 10000:
+            raise ValueError("invalid audit scope plan history")
+        revision = 0
+        for entry in plans:
+            _stored_plan(entry, project["site"]["target"])
+            if entry["revision"] <= revision:
+                raise ValueError("audit scope plan revisions must increase")
+            revision = entry["revision"]
     _dependencies(document["items"])
     return document
 
@@ -417,6 +575,8 @@ def _record_shape(record: Any, definition_hashes: dict) -> None:
         "observed_at",
         "definition_hash",
         "recorded_at",
+        "evidence",
+        "revision",
     }
     if (
         not isinstance(record, dict)
@@ -434,6 +594,10 @@ def _record_shape(record: Any, definition_hashes: dict) -> None:
         raise ValueError("invalid execution history status")
     _text(record["reason"], "record reason")
     _text(record["recorded_at"], "record timestamp", 128)
+    if "evidence" in record:
+        _text(record["evidence"], "exclusion evidence", 512)
+    if "revision" in record and (type(record["revision"]) is not int or record["revision"] < 1):
+        raise ValueError("invalid record revision")
     if (
         not isinstance(record["definition_hash"], str)
         or record["definition_hash"] not in definition_hashes
@@ -595,9 +759,12 @@ def _builtin(item_id: str, entry: dict, order: int, site: str) -> dict:
 
 
 def initialize_coverage(
-    directory: str | Path, template: dict | None = None, expected_revision: int | None = None
+    directory: str | Path,
+    template: dict | None = None,
+    expected_revision: int | None = None,
+    plan: dict | None = None,
 ) -> dict:
-    """Initialize or reconcile built-ins and optionally apply a reusable data-only template."""
+    """Initialize or reconcile built-ins, apply a template, and record the agreed audit scope."""
     catalogue = load_catalogue()
     if template is not None and (
         not isinstance(template, dict)
@@ -628,6 +795,28 @@ def initialize_coverage(
             seen.add(value.get("id"))
             previous = items.get(value.get("id"), {}).get("definition")
             _set(items, _custom(value, project["site"]["target"], catalogue, previous))
+        if plan is not None:
+            stored = _plan(plan, project["site"]["target"])
+            if stored["tasks"]["kind"] == "selection" and any(
+                item_id not in items for item_id in stored["tasks"]["ids"]
+            ):
+                raise ValueError("agreed task ids must exist in the reconciled checklist")
+            document["format"] = FORMAT_V3
+            document["version"] = 3
+            document.setdefault("priority_policy", {"applications": []})
+            agreement = {**stored, "site": project["site"]["target"]}
+            current = (document.get("plans") or [None])[-1]
+            if current is None or any(
+                current.get(key) != value for key, value in agreement.items()
+            ):
+                document.setdefault("plans", []).append(
+                    {
+                        **stored,
+                        "recorded_at": _now(),
+                        "revision": document["revision"] + 1,
+                        "site": project["site"]["target"],
+                    }
+                )
     return coverage_status(directory)
 
 
@@ -670,7 +859,7 @@ def record_execution(
         current = next(row for row in view["items"] if row["id"] == item_id)
         if record.get("status") == "succeeded" and current["blocked_by"]:
             raise ValueError("dependencies are not complete")
-        if not item["definition"]["enabled"]:
+        if not item["definition"]["enabled"] and record.get("status") != "not_applicable":
             raise ValueError("item is disabled")
         if record.get("status") == "succeeded":
             _definition(item["definition"], load_catalogue())
@@ -686,9 +875,146 @@ def record_execution(
                 **validated,
                 "definition_hash": _completion_hash(item["definition"]),
                 "recorded_at": _now(),
+                "revision": document["revision"] + 1,
             }
         )
     return coverage_status(directory)
+
+
+def _disposition(item: dict, record: dict, stale_reason: str) -> tuple[str, dict | None]:
+    """Resolve an item as agreed-applicable, reviewed-excluded, or pending a decision."""
+    if record and record["status"] == "not_applicable":
+        if stale_reason:
+            return "pending_exclusion", {
+                "reason": "exclusion record is stale; review and record the decision again"
+            }
+        basis = {}
+        if "artifact" in record:
+            basis["artifact"] = record["artifact"]
+            basis["sha256"] = record.get("sha256")
+        if "evidence" in record:
+            basis["evidence"] = record["evidence"]
+        if basis:
+            return "excluded", {
+                "reason": record["reason"],
+                "reviewer": record.get("reviewer"),
+                "basis": basis,
+                "recorded_at": record["recorded_at"],
+                "revision": record.get("revision"),
+            }
+        return "pending_exclusion", {
+            "reason": "exclusion record lacks a verifiable evidence basis; review and record again"
+        }
+    if not item["definition"]["enabled"]:
+        return "pending_exclusion", {
+            "reason": "disabled without a reviewed exclusion; it stays inside the agreed denominator"
+        }
+    return "applicable", None
+
+
+def _measured_urls(row: dict) -> tuple[set[str], bool]:
+    """Return the URL set a fresh automatic measurement covered, and whether it is complete."""
+    measurement = row["measurement"] or {}
+    urls = measurement.get("urls")
+    if isinstance(urls, list):
+        return set(urls), bool(measurement.get("urls_enumerated", True))
+    scope_urls = (row["scope"] or {}).get("urls") or []
+    if scope_urls:
+        return set(scope_urls), True
+    return set(), not measurement.get("population")
+
+
+def _eligibility(row: dict, population: dict | None) -> set[str] | None:
+    """Return the agreed eligible URL set for a row, or None when membership is unverifiable."""
+    if not population or population["kind"] == "unknown":
+        return None
+    template = row["scope"]["template"]
+    entry = population.get("templates", {}).get(template) if template else None
+    if entry is not None:
+        return set(entry["urls"]) if entry["urls"] else None
+    if population["urls"]:
+        return set(population["urls"])
+    # A size-only population cannot verify that an observed URL belongs to it.
+    return None
+
+
+def _task_axis(rows: list[dict], basis: str) -> dict:
+    excluded = sum(row["applicability"] == "excluded" for row in rows)
+    pending = sum(row["applicability"] == "pending_exclusion" for row in rows)
+    not_agreed = sum(row["applicability"] == "not_agreed" for row in rows)
+    denominator_rows = [
+        row for row in rows if row["applicability"] in {"applicable", "pending_exclusion"}
+    ]
+    numerator = sum(row["complete"] for row in denominator_rows)
+    denominator = len(denominator_rows)
+    return {
+        "basis": basis,
+        "numerator": numerator,
+        "denominator": denominator,
+        "excluded": excluded,
+        "pending_exclusion": pending,
+        "not_agreed": not_agreed,
+        "unfinished": denominator - numerator,
+        "state": "measured" if denominator else "unknown",
+        "reason": "enumerated checklist task set"
+        if denominator
+        else "no agreed applicable tasks remain in this set; the ratio is undefined, not 100%",
+    }
+
+
+def _url_axis(ordered: list[dict], plan: dict | None) -> dict:
+    population = (plan or {}).get("population")
+    measured_urls: set[str] = set()
+    counted_urls: set[str] = set()
+    unverified = 0
+    for row in ordered:
+        if (
+            row["execution_kind"] != "automatic"
+            or row["applicability"] == "excluded"
+            or row["state"] != "run"
+        ):
+            continue
+        observed, fully_enumerated = _measured_urls(row)
+        measured_urls |= observed
+        eligible = _eligibility(row, population)
+        if eligible is not None:
+            counted_urls |= observed & eligible
+        if eligible is None or not fully_enumerated:
+            unverified += 1
+    reason = ""
+    if not plan:
+        state = "unknown"
+        numerator = denominator = None
+        reason = "no agreed URL population is recorded for this checklist"
+    elif population["kind"] == "unknown":
+        state = "unknown"
+        numerator = denominator = None
+        reason = population["reason"]
+    else:
+        denominator = population["size"]
+        numerator = len(counted_urls)
+        state = "measured" if not unverified else "partial"
+        if unverified:
+            reason = (
+                f"{unverified} measurement(s) cannot be verified against the agreed "
+                "population; numerator counts only verified eligible URLs"
+            )
+        elif population["kind"] == "sample":
+            reason = "measured against the named sample, not the full site population"
+        else:
+            reason = "measured against the agreed site population"
+    return {
+        "basis": "eligible URLs covered by fresh check measurements over the agreed eligible "
+        "URL population",
+        "numerator": numerator,
+        "denominator": denominator,
+        "measured_urls": len(measured_urls),
+        "unverified_measurements": unverified,
+        "population_kind": population["kind"] if population else None,
+        "population_name": population.get("name") if population else None,
+        "state": state,
+        "reason": reason,
+    }
 
 
 def _status(root: Path, document: dict, catalogue: dict, project: dict | None = None) -> dict:
@@ -699,8 +1025,14 @@ def _status(root: Path, document: dict, catalogue: dict, project: dict | None = 
     for order, (item_id, entry) in enumerate(catalogue.items()):
         if item_id not in document["items"]:
             _set(document["items"], _builtin(item_id, entry, order, project["site"]["target"]))
+    plans = document.get("plans") or []
+    plan = plans[-1] if plans else None
+    plan_revision = plan["revision"] if plan else 0
+    agreement = (plan or {}).get("tasks") or {"kind": "all_agreed"}
+    agreed = set(agreement["ids"]) if agreement["kind"] == "selection" else None
     rows = {}
     digests = {}
+    exclusions = []
     for item_id, item in document["items"].items():
         definition = item["definition"]
         record = item["records"][-1] if item["records"] else {}
@@ -708,17 +1040,40 @@ def _status(root: Path, document: dict, catalogue: dict, project: dict | None = 
             item_id not in catalogue
             or definition["source_hash"] != catalogue[item_id]["definition_hash"]
         )
-        stale_reason = "source definition changed or was removed" if source_stale else ""
+        stale_reason = ""
         if record and record["definition_hash"] != _completion_hash(definition):
             stale_reason = "item definition changed"
-        if record and not stale_reason:
+        elif record:
             stale_reason = evidence_stale(root, record, catalogue, digests)
+        if (
+            record
+            and not stale_reason
+            and plan_revision
+            and (record.get("revision") or 0) < plan_revision
+        ):
+            stale_reason = "execution predates the current agreed audit scope"
+        if source_stale and (not record or record["status"] != "not_applicable"):
+            # A success cannot outlive the source meaning it measured, but a
+            # reviewed exclusion stays resolvable across catalogue churn.
+            stale_reason = stale_reason or "source definition changed or was removed"
         state = "not_run"
         if record and not stale_reason:
             if record["status"] == "not_applicable":
                 state = "not_applicable"
             elif record["status"] == "succeeded":
                 state = "run"
+        if agreed is not None and item_id not in agreed:
+            applicability, applicability_detail = "not_agreed", None
+        else:
+            applicability, applicability_detail = _disposition(item, record, stale_reason)
+        if applicability == "excluded":
+            exclusions.append({"id": item_id, **applicability_detail})
+        measurement = record.get("measurement") or {}
+        partial_measurement = (
+            definition["execution_kind"] == "automatic"
+            and not definition["scope"]["urls"]
+            and measurement.get("state") == "limited"
+        )
         rows[item_id] = {
             "id": item_id,
             "title": definition["title"],
@@ -731,12 +1086,21 @@ def _status(root: Path, document: dict, catalogue: dict, project: dict | None = 
             "enabled": definition["enabled"],
             "execution_kind": definition["execution_kind"],
             "state": state,
-            "stale": bool(stale_reason),
+            "applicability": applicability,
+            "applicability_reason": applicability_detail["reason"]
+            if applicability == "pending_exclusion"
+            else "outside the agreed task selection"
+            if applicability == "not_agreed"
+            else None,
+            "exclusion": applicability_detail if applicability == "excluded" else None,
+            "stale": bool(stale_reason) or source_stale,
             "reason": stale_reason or record.get("reason") or "not attempted",
             "attempt_status": record.get("status", "not_run"),
             "measurement": record.get("measurement"),
             "blocked_by": [],
-            "complete": state in {"run", "not_applicable"} and definition["enabled"],
+            "complete": state == "run"
+            and applicability == "applicable"
+            and not partial_measurement,
             "definition_versions": len(item["definitions"]),
             "attempts": len(item["records"]),
         }
@@ -745,54 +1109,71 @@ def _status(root: Path, document: dict, catalogue: dict, project: dict | None = 
     def resolve(item_id):
         if item_id in visited:
             return
+        row = rows[item_id]
         for dep in document["items"][item_id]["definition"]["dependencies"]:
             resolve(dep)
-            if not rows[dep]["complete"]:
-                rows[item_id]["blocked_by"].append(dep)
-        if rows[item_id]["blocked_by"]:
-            rows[item_id]["complete"] = False
+            if row["applicability"] in {"excluded", "not_agreed"}:
+                continue
+            if (
+                rows[dep]["applicability"] in {"applicable", "pending_exclusion"}
+                and not rows[dep]["complete"]
+            ):
+                row["blocked_by"].append(dep)
+        if row["blocked_by"]:
+            row["complete"] = False
         visited.add(item_id)
 
     for item_id in rows:
         resolve(item_id)
     ordered = sorted(rows.values(), key=lambda row: (row["order"], row["id"]))
-    active = [row for row in ordered if row["enabled"]]
+    denominator_rows = [
+        row for row in ordered if row["applicability"] in {"applicable", "pending_exclusion"}
+    ]
     counts = {
-        name: sum(row["state"] == name for row in active)
+        name: sum(row["state"] == name for row in denominator_rows)
         for name in ("run", "not_applicable", "not_run")
     }
     counts.update(
-        total=len(active),
-        disabled=len(ordered) - len(active),
-        complete=sum(row["complete"] for row in active),
-        stale=sum(row["stale"] for row in active),
+        total=len(denominator_rows),
+        disabled=sum(not row["enabled"] for row in ordered),
+        excluded=len(exclusions),
+        pending_exclusion=sum(row["applicability"] == "pending_exclusion" for row in ordered),
+        not_agreed=sum(row["applicability"] == "not_agreed" for row in ordered),
+        complete=sum(row["complete"] for row in denominator_rows),
+        stale=sum(row["stale"] for row in denominator_rows),
     )
     counts["remaining"] = counts["total"] - counts["complete"]
     views = {
         "running": [
-            row["id"] for row in active if row["attempt_status"] == "running" and not row["stale"]
+            row["id"]
+            for row in denominator_rows
+            if row["attempt_status"] == "running" and not row["stale"]
         ],
         "blocked": [
             row["id"]
-            for row in active
+            for row in denominator_rows
             if row["blocked_by"] or row["attempt_status"] in {"failed", "unavailable"}
         ],
         "waiting_for_manual_review": [
             row["id"]
-            for row in active
+            for row in denominator_rows
             if not row["complete"] and row["execution_kind"] in {"manual", "deliverable"}
         ],
         "deliverable_ready": [
             row["id"]
-            for row in active
+            for row in denominator_rows
             if row["complete"] and row["state"] == "run" and row["execution_kind"] == "deliverable"
         ],
-        "remaining": [row["id"] for row in active if not row["complete"]],
+        "pending_exclusion": [
+            row["id"] for row in ordered if row["applicability"] == "pending_exclusion"
+        ],
+        "not_agreed": [row["id"] for row in ordered if row["applicability"] == "not_agreed"],
+        "remaining": [row["id"] for row in denominator_rows if not row["complete"]],
     }
     by_kind = {
         kind: {
-            "total": sum(row["kind"] == kind for row in active),
-            "complete": sum(row["kind"] == kind and row["complete"] for row in active),
+            "total": sum(row["kind"] == kind for row in denominator_rows),
+            "complete": sum(row["kind"] == kind and row["complete"] for row in denominator_rows),
         }
         for kind in ("check", "skill", "scenario", "custom")
     }
@@ -816,6 +1197,32 @@ def _status(root: Path, document: dict, catalogue: dict, project: dict | None = 
             if current_facts == latest_policy["receipt"]["facts"]
             else "changed_since_application"
         )
+    coverage = {
+        "audit_tasks": _task_axis(
+            ordered, "applicable audit tasks completed over the agreed applicable task set"
+        ),
+        "checks": _task_axis(
+            [row for row in ordered if row["execution_kind"] == "automatic"],
+            "applicable automatic checks completed over the agreed applicable check set",
+        ),
+        "manual_review": _task_axis(
+            [row for row in ordered if row["execution_kind"] == "manual"],
+            "manual-review tasks completed over the agreed applicable manual-review set",
+        ),
+        "deliverable_review": _task_axis(
+            [row for row in ordered if row["execution_kind"] == "deliverable"],
+            "approved deliverables over the agreed applicable deliverable set",
+        ),
+        "url_population": _url_axis(ordered, plan),
+    }
+    coverage["checks"]["measured_urls"] = coverage["url_population"]["measured_urls"]
+    tasks = coverage["audit_tasks"]
+    url_population = coverage["url_population"]
+    population_finished = (
+        url_population["state"] == "measured"
+        and bool(url_population["denominator"])
+        and url_population["numerator"] == url_population["denominator"]
+    )
     return {
         "state": "initialized",
         "revision": document["revision"],
@@ -824,13 +1231,20 @@ def _status(root: Path, document: dict, catalogue: dict, project: dict | None = 
         "by_kind": by_kind,
         "views": views,
         "items": ordered,
+        "coverage": coverage,
+        "plan": plan,
+        "plan_history": plans[:-1],
+        "exclusions": exclusions,
         "priority_policy": {
             "state": "applied" if latest_policy else "not_applied",
             "policy_hash": latest_policy["receipt"]["policy_hash"] if latest_policy else None,
             "applied_at": latest_policy["applied_at"] if latest_policy else None,
             "facts_state": saved_facts_state,
         },
-        "complete": bool(active) and counts["remaining"] == 0,
+        "complete": bool(tasks["denominator"])
+        and tasks["unfinished"] == 0
+        and tasks["pending_exclusion"] == 0
+        and population_finished,
     }
 
 
