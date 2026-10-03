@@ -109,6 +109,39 @@ and one finding from the second:
 }
 ```
 
+## Check an explicit pagination or filter policy
+
+The audit can also compare matching URLs with a site's declared canonical policy. It never decides
+that pagination or a filter should use a particular canonical by default. Configure URL regexes
+and an expected target in `crawl.json` under `analysis.canonical_policy`, or in the SF
+`config.json` at the top level. For example, a project may require `/catalog/page/2/` to
+self-canonicalize while a color-filter URL points to the category landing page:
+
+```json
+{
+  "canonical_policy": {
+    "pagination": [
+      {"pattern": "/catalog/page/[2-9][0-9]*/?$", "policy": "self"}
+    ],
+    "filters": [
+      {
+        "pattern": "[?&]color=",
+        "policy": "landing",
+        "target": "https://shop.example.test/catalog/"
+      }
+    ]
+  }
+}
+```
+
+The native-crawl form wraps that object in `analysis`. Patterns are searched against absolute source
+URLs; within each category, the first matching rule wins. A first-page or landing policy requires
+an explicit target. `PAGINATION_CANONICAL_POLICY` and `FILTER_CANONICAL_POLICY` are separate
+findings and include source, declared canonical, expected canonical, selected policy, and matched
+pattern. Empty policy lists are skipped as unmeasured, and a target missing from the crawl keeps
+that category unavailable. Check #824 owns canonical-target response status and broad homepage
+canonical groups.
+
 ## What it costs
 
 - One request per crawled page. Nothing is fetched twice, and nothing is fetched off-host.
@@ -117,9 +150,10 @@ and one finding from the second:
 
 ## What it cannot answer
 
-- **Whether the canonical points at the right page.** "Present and absolute" is structural.
-  Whether `/product/blue-widget` should defer to `/product/widget` is a person's call about
-  what the two pages are for.
+- **Whether the canonical points at the right page when no project policy is declared.**
+  "Present and absolute" is structural. Whether `/product/blue-widget` should defer to
+  `/product/widget` is a person's call about what the two pages are for; these policy checks
+  compare against the URLs the operator configured and do not choose the strategy.
 - **Whether Google honours it.** A canonical is a hint. Nothing in this loop reads the index,
   so it cannot tell you which URL was actually selected.
 - **A canonical injected by JavaScript.** The crawl reads the served HTML. If the tag is added

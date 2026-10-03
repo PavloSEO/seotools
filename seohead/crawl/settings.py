@@ -118,7 +118,7 @@ DEFAULTS: dict[str, Any] = {
     },
     # Post-crawl grouping is distinct from scope.segments: scope controls
     # discovery, while analysis rules classify already collected evidence.
-    "analysis": {"segments": []},
+    "analysis": {"segments": [], "canonical_policy": {"pagination": [], "filters": []}},
     "sitemaps": {
         # Seed the crawl from the sitemap declared in robots.txt (the
         # ``Sitemap:`` directive) when no explicit sitemap URL is given.
@@ -376,6 +376,8 @@ RESULTS_AFFECTING: frozenset[str] = frozenset(
         "scope.segments",
         "scope.segments_only",
         "analysis.segments",
+        "analysis.canonical_policy.pagination",
+        "analysis.canonical_policy.filters",
         # Seeding from the sitemap changes which URLs are fetched at all.
         "sitemaps.auto_discover",
         "discovery.hyperlinks.store",
@@ -533,6 +535,16 @@ DESCRIPTIONS: dict[str, str] = {
     "analysis.segments": (
         "Post-crawl segment rules: [{'name': ..., 'rules': [{'op': 'eq|prefix|contains|regex|in|segment', "
         "'field': ..., 'value': ...}]}]. Rules may use page fields or another segment."
+    ),
+    "analysis.canonical_policy.pagination": (
+        "Ordered URL-regex policies for paginated pages: [{'pattern': ..., 'policy': "
+        "'self|first_page|landing', 'target': absolute URL}]. Non-self policies require an "
+        "explicit target; the first matching rule wins. Empty means unmeasured, not a finding."
+    ),
+    "analysis.canonical_policy.filters": (
+        "Ordered URL-regex policies for configured filter pages: [{'pattern': ..., 'policy': "
+        "'self|landing', 'target': absolute URL}]. Landing policies require an explicit target; "
+        "the first matching rule wins. Empty means unmeasured, not a finding."
     ),
     "sitemaps.auto_discover": (
         "Seed the crawl from the sitemap declared in robots.txt when no explicit "
@@ -954,6 +966,14 @@ def validate(config: dict[str, Any]) -> None:
     _validate_segments(config["scope"])
     if not isinstance(config["analysis"]["segments"], list):
         raise ConfigError("analysis.segments must be a list")
+    from seohead.canonical_policy import validate_canonical_policy
+
+    try:
+        validate_canonical_policy(
+            config["analysis"]["canonical_policy"], path="analysis.canonical_policy"
+        )
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from exc
     _validate_http_headers(config["http"])
     _validate_credential_headers(config["http"])
     _validate_rendering(config["rendering"])

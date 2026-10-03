@@ -17,15 +17,15 @@ here is written about *our own* behaviour.
 |---|---:|---|
 | check | 125 | a registry check finds it |
 | tool | 33 | a command outside the crawl registry finds it |
-| partial | 17 | we find part of it; the missing part is stated |
-| gap | 9 | we should find it and do not |
+| partial | 18 | we find part of it; the missing part is stated |
+| gap | 8 | we should find it and do not |
 | out of scope | 136 | a decision, with its reason |
 | **total** | **320** | |
 
 108 of the out-of-scope entries are two whole categories declined as single
 decisions — accessibility and AMP, each explained in its own section below. Of the
-remaining 212 issues, **158 are found today**, 17 are
-found in part, 9 are gaps worth closing, and
+remaining 212 issues, **158 are found today**, 18 are
+found in part, 8 are gaps worth closing, and
 28 need something we have decided not to build.
 
 A gap is not a defect. It is a named, deliberate absence — which is the only kind worth
@@ -74,7 +74,7 @@ having, because the alternative is an absence nobody has noticed.
 |---|---|---|---|
 | Multiple Slashes | check | `URL_MULTIPLE_SLASHES` |  |
 | Contains A Space | check | `URL_CONTAINS_SPACE` |  |
-| Broken Bookmark | gap | — | fragment targets are not resolved against the destination page |
+| Broken Bookmark | partial | `BROKEN_BOOKMARK` | measured on retained native scans only: SF exports and legacy imports keep no destination DOM inventory, and scroll-to-text directives are named skips, not element targets |
 | Non ASCII Characters | check | `URL_NON_ASCII` |  |
 | Uppercase | check | `URL_UPPERCASE` |  |
 | Repetitive Path | check | `URL_REPETITIVE_PATH` |  |

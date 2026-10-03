@@ -18,6 +18,34 @@ seohead report-build --audit audit.json --format docx --out client.docx
 `--limit` caps the pages parsed (default 25); URLs come from the sitemap
 unless `--urls` is given. Any format: `xlsx`, `docx`, `csv`, `md`, `json`.
 
+Field Core Web Vitals require an explicit CrUX record. `crux-report --url` measures
+one URL; `--origin` is a separate aggregate over the origin, never a substitute
+for missing URL data. Use `--form-factor PHONE` or `DESKTOP` for a device class;
+without it CrUX aggregates all form factors. A bounded URL sample accepts
+`--urls`, `--max-samples` (1–25) and optional `--cache-dir` with
+`--cache-max-age-hours`. Provider responses and CLI saved-evidence inputs are
+capped at 2 MiB; private cache entries are capped at 64 KiB. An oversized or
+corrupt cache is reported unavailable without an implicit Google retry. Saved
+samples with missing or repeated URL records are rejected before audit collection.
+These are Google API reads, subject to its quota.
+
+CrUX p75 uses the [official field thresholds](https://web.dev/articles/defining-core-web-vitals-thresholds):
+LCP 2500/4000 ms, INP 200/500 ms and CLS 0.1/0.25. Missing metrics, an
+ineligible record and provider failures are unavailable, never passing.
+PSI/Lighthouse lab measurements remain separate.
+
+The sequence is `crux-report --url <page> --form-factor PHONE`, save its JSON
+output locally, then pass that file to `site-audit --url <origin>
+--crux-evidence <file> --report md --out <report.md>`. Requesting CrUX is an
+explicit provider read; rendering the saved evidence is offline.
+
+`site-audit --crux-evidence` consumes saved CrUX JSON or a restricted
+`provider-collect` artifact locally; it does not query Google. The audit JSON
+retains field scope, period, policy and partialness, and report evidence coverage
+shows available as well as unavailable metrics. Supplying origin data labels an
+origin aggregate; it never makes each audited URL pass. Keep provider artifacts
+and client URLs outside the public repository.
+
 ## Native SQLite crawl (default for a URL crawl)
 
 ```bash
@@ -146,6 +174,10 @@ seohead scan-prune --directory . > plan.json
 
 # compare retained, compatible evidence only; no network request and no SEO score
 seohead scan-body-diff --left before.sqlite --right after.sqlite --url https://example.com/ --text
+
+# broken bookmarks: resolve every retained link fragment against the retained
+# destination document; missing or incomplete bodies stay named skips, never findings
+seohead scan-fragment-links --scan native.sqlite --state missing --limit 50
 ```
 
 `scan snapshot` assigns a directory output a no-clobber
@@ -157,7 +189,9 @@ same host/configuration. It never automatically selects `crawl_partial` or
 every candidate and its current retention rank before deleting anything.
 
 Each flat form also has a nested `scan` equivalent: `scan list`, `scan inspect`,
-`scan status`, `scan snapshot`, `scan pin`, `scan prune`, and `scan body-diff`.
+`scan status`, `scan snapshot`, `scan pin`, `scan prune`, `scan body-diff`,
+`scan evidence`, `scan extract`, `scan fragment-links`, `scan requeue`, and
+`scan import-urls`.
 
 `scan pin` takes the artifact's writer lock and uses SQLite DELETE journal mode.
 It changes only the pin bit: the SQLite file hash changes, while the saved audit,
@@ -267,7 +301,7 @@ Money rules for this layer: [GOTCHAS.md](GOTCHAS.md).
 ## MCP server
 
 ```bash
-seohead mcp        # stdio server, all 95 seo_* tools + 5 sf_* audit tools
+seohead mcp        # stdio server, all 97 seo_* tools + 5 sf_* audit tools
 ```
 
 Client config (`.mcp.json` in this repo does exactly this):

@@ -108,7 +108,13 @@ CATEGORIES: dict[str, list[Entry]] = {
     "URL": [
         _c("Multiple Slashes", "URL_MULTIPLE_SLASHES"),
         _c("Contains A Space", "URL_CONTAINS_SPACE"),
-        _g("Broken Bookmark", "fragment targets are not resolved against the destination page"),
+        _p(
+            "Broken Bookmark",
+            "measured on retained native scans only: SF exports and legacy imports keep no "
+            "destination DOM inventory, and scroll-to-text directives are named skips, not "
+            "element targets",
+            "BROKEN_BOOKMARK",
+        ),
         _c("Non ASCII Characters", "URL_NON_ASCII"),
         _c("Uppercase", "URL_UPPERCASE"),
         _c("Repetitive Path", "URL_REPETITIVE_PATH"),

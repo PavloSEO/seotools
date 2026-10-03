@@ -197,7 +197,7 @@ def test_documented_product_counts_match_the_registries():
     provenance = (ROOT / "PROVENANCE.md").read_text(encoding="utf-8")
     assert len(COMMANDS) == len(HANDLERS)
     assert len(_sf_tool_names()) == 5
-    assert len(CHECKS) == 162
+    assert len(CHECKS) == 165
     assert len(TECHNICAL_SKILLS) == 24
     assert len(PACKAGED_SKILLS) == 7
     assert (

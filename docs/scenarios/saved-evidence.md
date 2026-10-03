@@ -31,7 +31,19 @@ response keeps counts and reports a rule as unavailable when an oversized or
 capped candidate cannot be safely matched. This ad-hoc result is not written
 back to the scan.
 
-## 3. Review mutations separately
+## 3. Resolve retained fragment links
+
+```bash
+seohead scan fragment-links --scan native.sqlite --state missing --limit 50
+```
+
+A `#fragment` is broken when the retained destination document contains no
+matching element — not when the destination URL fails to load. Static and
+rendered bodies are checked independently, and a destination that was never
+retained (or was retained truncated, non-HTML, or failed) is a named skip,
+never a broken bookmark.
+
+## 4. Review mutations separately
 
 `scan-requeue` and `scan-import-urls` are explicit mutation boundaries. They
 do not run because an evidence read happened, and each requires a newly created
@@ -45,8 +57,10 @@ verified backup destination after the restricted selection has been reviewed.
 
 ## Covers
 
-Saved evidence is a reader and operator-control workflow; it does not add a
-separate SF issue-catalogue finding.
+- **URL** — Broken Bookmark
+
+Saved evidence is otherwise a reader and operator-control workflow; it does
+not add a separate SF issue-catalogue finding.
 
 ## What it cannot answer
 

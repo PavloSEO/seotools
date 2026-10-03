@@ -265,6 +265,18 @@ CHECKS: dict[str, dict[str, Any]] = {
         "message": "Canonical points to a different URL",
         "fix": "Confirm that cross-canonicalization is intentional and that the target is the preferred version.",
     },
+    "PAGINATION_CANONICAL_POLICY": {
+        "severity": "warning",
+        "source": "SF-derived",
+        "message": "Paginated URL canonical does not match the configured project policy",
+        "fix": "Review the canonical against the configured pagination policy; the expected target is included in the evidence.",
+    },
+    "FILTER_CANONICAL_POLICY": {
+        "severity": "warning",
+        "source": "SF-derived",
+        "message": "Filtered URL canonical does not match the configured project policy",
+        "fix": "Review the canonical against the configured filter policy; the expected target is included in the evidence.",
+    },
     "CANONICAL_NON_INDEXABLE": {
         "severity": "warning",
         "source": "SF-derived",
@@ -1101,6 +1113,14 @@ CHECKS: dict[str, dict[str, Any]] = {
         "fix": "Serve the page itself over HTTPS; an HTTPS form action does not protect "
         "input typed on an HTTP page.",
     },
+    "BROKEN_BOOKMARK": {
+        "severity": "warning",
+        "source": "crawl:fragment_links",
+        "message": "Link fragment identifies no element on the destination page",
+        "fix": "Point the href at an element id or <a name> that exists in the "
+        "destination document, or add the missing target; a different query "
+        "string is a different document.",
+    },
 }
 
 
@@ -1132,6 +1152,8 @@ def check_meta(check_id: str) -> dict[str, Any]:
 # covers the entries declared here. Checks absent from this map rely on their
 # own evidence guards; this map does not provide a universal inline-skip gate.
 CHECK_REQUIRES: dict[str, tuple[str, ...]] = {
+    "PAGINATION_CANONICAL_POLICY": ("internal_all",),
+    "FILTER_CANONICAL_POLICY": ("internal_all",),
     "IMG_MISSING_ALT": ("images_missing_alt",),
     "IMG_OVER_KB": ("images_over_kb",),
     "IMG_MISSING_DIMENSIONS": ("images_missing_size",),

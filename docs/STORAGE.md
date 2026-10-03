@@ -106,6 +106,32 @@ Static comparisons also support retained JS/CSS responses. A page's active raw
 inventory takes precedence over later diagnostic responses, and rendered DOM
 comparisons require compatible recorded renderer settings and transforms.
 
+`scan fragment-links` validates one artifact, then evaluates every
+fragment-bearing `<a href>` in retained complete HTML/DOM documents — same-page
+`#target` anchors and cross-page `/page#target` links alike. The fragment is
+matched the way the WHATWG scroll-to-the-fragment algorithm resolves it: the
+serialized fragment against element ids and legacy `<a name>` targets first,
+then the percent-decoded, UTF-8-decoded value against both (`+` stays a
+literal plus, malformed escapes pass through, invalid UTF-8 becomes U+FFFD),
+then the `top` fallback; an empty `#` resolves to the document top. Static, rendered and legacy-fragment representations are
+evaluated independently — an id that exists only in rendered DOM resolves the
+rendered link, never the static one. Relative hrefs resolve against the
+recorded effective `<base href>`; stored redirect and final-URL hops are
+followed inside the retained corpus; a different query string is a different
+document. Each occurrence is `resolved`, `missing` (the only state that can
+become a `BROKEN_BOOKMARK` finding) or `skipped` with a named reason: a
+destination absent from the scan, a non-HTML, truncated, omitted, failed or
+budget-exhausted body, an unsupported URL scheme, an href the URL resolver
+refuses, or an unverifiable `#:~:` text directive is always a named skip,
+never a broken bookmark. Inert
+`<template>` content contributes neither anchors nor targets. Results are
+deterministically ordered by page ordinal, representation and in-document
+anchor order, and paginated with `offset`/`limit` plus `total`/`returned`/
+`next_offset`; the coverage block says when extraction or result caps omitted
+evidence or occurrences ended in named skips (counted per reason in
+`skip_reasons`), so a partial inventory can never read as a complete one. No
+destination is fetched and the artifact is not modified.
+
 A scan made partial only by recovery of a truncated JSONL tail cannot be represented
 faithfully by these three files when its unchanged audit says the crawl was complete.
 That export is refused; use the original SQLite artifact, which keeps the recovery

@@ -20,7 +20,7 @@ from seohead.data_sources.yandex_webmaster import OPERATIONS as _WEBMASTER_OPERA
 from seohead.tools.external_join import join_external_data, orphan_urls
 
 EVIDENCE_FORMAT = "seohead.provider-evidence.v1"
-_STATES = {"complete", "partial", "failed", "skipped"}
+_STATES = {"complete", "partial", "failed", "skipped", "no_field_data", "not_configured"}
 _REGISTRY: dict[str, dict[str, Any]] = {
     "arsenkin": {
         "credential_components": ["api_token"],
@@ -47,6 +47,7 @@ _REGISTRY: dict[str, dict[str, Any]] = {
         "credential_components": ["api_key"],
         "access": "read_only",
         "operations": ["current", "history"],
+        "cost_mode": "free_within_quota",
         "quota_mode": "Google Cloud API quota",
         "privacy_class": "aggregate",
     },
@@ -239,7 +240,7 @@ def _evidence(
         "provider": provider,
         "operation": operation,
         "retrieved_at": _now(),
-        "period": request.get("period") or result.get("period"),
+        "period": request.get("period") or result.get("period") or result.get("collection_period"),
         "dimensions": request.get("dimensions") or result.get("dimensions") or [],
         "filters": _redacted_filters(request.get("filters")),
         "target_reference": _reference(

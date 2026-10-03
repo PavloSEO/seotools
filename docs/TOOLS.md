@@ -281,6 +281,7 @@ without deleting its scan. The exact arguments and defaults are in the generated
 | `scan-body-diff` | Compares matching retained body hashes from two validated scans; optional text output is bounded and only applies to compatible textual evidence. A changed body is not an SEO score or verdict. | — |
 | `scan-evidence` | Reads one bounded saved-evidence section: capabilities, corpus, structured data, rendered routes, resources, or timeline. It never fetches or replays a scan. | — |
 | `scan-extract` | Applies closed declarative extraction rules to retained complete bodies only. It is offline, body-retention limited, and does not persist the ad-hoc result. | — |
+| `scan-fragment-links` | Evaluates every fragment-bearing `a[href]` in retained complete HTML/DOM and reports whether each `#fragment` identifies a target in the retained destination document (WHATWG scroll-to-the-fragment matching: serialized fragment against ids and `<a name>` first, then the percent/UTF-8-decoded value against both, then `top`). Static and rendered representations are measured independently; missing, truncated, unsupported or budget-exhausted bodies stay named skips, never broken findings. It never fetches a destination. | — |
 | `scan-requeue` | Requeues a restricted saved URL/page selection only after creating a mandatory verified backup. | writes artifact and backup |
 | `scan-import-urls` | Imports an explicit local URL list into a saved scan only after creating a mandatory verified backup. | writes artifact and backup |
 
@@ -371,7 +372,7 @@ priority adjustment. It never changes a technical finding's severity. See the
 | `wayback-history` | Every Internet Archive snapshot of a URL: when it changed, what status it returned, what MIME type it was | free, no key |
 | `crtsh-subdomains` | Hosts named in public TLS certificates for a domain — subdomains nothing links to | free, no key |
 | `gsc-query` | Search Console: clicks, impressions, position and CTR per query or page, plus Google's own indexing verdict for one URL | free; needs OAuth against a property you own |
-| `crux-report` | Core Web Vitals as real Chrome users measured them, at origin or URL level | free; needs a Google Cloud API key |
+| `crux-report` | CrUX current-window field LCP/INP/CLS p75 with official threshold findings, URL/origin and form-factor scope, collection dates; optional bounded URL sample/cache | free within Google API quota; needs a Google Cloud API key |
 | `indexnow-submit` | Push changed URLs to Bing, Yandex, Naver and Seznam. **Google has not joined IndexNow** | free; needs a self-generated key hosted on the site |
 
 ```bash
@@ -486,7 +487,7 @@ seohead sf tasks --json report/audit.json                            # backlog f
 Note: `sf tasks` takes the audit path via the required `--json` flag, not as
 a positional argument (`seohead/sf/cli.py`).
 
-**162 checks**: 12 critical, 75 warnings, 75 notices. Sources: SF exports,
+**165 checks**: 12 critical, 78 warnings, 75 notices. Sources: SF exports,
 derived metrics, inlink exports, the sitemap module, and heuristics.
 
 **Two modes.** A crawls by itself through the SF CLI (license required). B
@@ -520,7 +521,7 @@ echo '{"url":"https://example.com"}' | seohead parse
 tool must not knock where it was not asked to.
 
 **MCP.** The same set under the `seo_*` names plus the `sf_*` audit tools
-(95 + 5):
+(97 + 5):
 
 ```bash
 seohead mcp        # stdio
@@ -528,7 +529,7 @@ seohead mcp        # stdio
 
 ## Where to go next
 - [TOOL_REFERENCE.md](TOOL_REFERENCE.md) — every tool's arguments, types, defaults, cost, and failure modes, generated from the MCP definitions
-- [CHECKS.md](CHECKS.md) — the 162 checks the SF crawl audit runs, generated from the registry
+- [CHECKS.md](CHECKS.md) — the 165 checks the SF crawl audit runs, generated from the registry
 - [ARCHITECTURE.md](ARCHITECTURE.md) — layers, invariants, where new code goes
 - [SKILLS.md](SKILLS.md) — which skill drives which tool
 - [DECISIONS.md](DECISIONS.md) — why it was decided this way and not another

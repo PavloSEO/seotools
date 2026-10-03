@@ -271,14 +271,15 @@ WORKFLOWS: tuple[WorkflowRow, ...] = (
         workflow="field-vitals",
         use_case="Core Web Vitals as real users measured them — CrUX field data at origin or URL level",
         providers=(_reg("crux"),),
-        surface=("crux-report", "provider-collect"),
+        surface=("crux-report", "provider-collect", "site-audit"),
         status="supported",
         auth="Google Cloud API key",
         cost_quota="Free within Google API quotas",
         privacy="aggregate",
         limitations=(
-            "Field metrics exist only where Chrome has enough real-user traffic; a "
-            "target with too little data returns ok with empty metrics, not an error"
+            "Field p75 verdicts require an eligible CrUX current record and valid collection "
+            "period; no data or missing metrics are unavailable, not passing. Site-audit "
+            "consumes explicitly supplied evidence and never calls CrUX automatically"
         ),
         csv_fallback="no provider CSV join; CrUX has no user-export path here",
     ),

@@ -1102,7 +1102,11 @@ def _audit_crawl_result(
     exports.found = list(evidence["found"])
     exports.missing = list(evidence["missing"])
 
-    ctx = AuditContext(exports, load_config(None))
+    audit_config = load_config(None)
+    # Canonical expectations are project policy in the native crawl config;
+    # pass them into the same SF-derived rule pipeline used for exports.
+    audit_config["canonical_policy"] = settings["analysis"]["canonical_policy"]
+    ctx = AuditContext(exports, audit_config)
     # Where this crawl actually began. A native crawl knows; nothing else does,
     # and pages.crawl_depth is not a substitute -- a sitemap-seeded crawl records
     # 0 for every seeded URL, so the click-depth walk would start from an
@@ -1383,6 +1387,61 @@ def _audit_crawl_result(
             ):
                 ctx.add("PROTOCOL_RELATIVE_LINK", target_url=item["target_url"], details=item)
 
+    # A broken bookmark is not a link-status problem: the fragment resolves
+    # inside the retained destination document, which only a native scan keeps
+    # (issue #827). The evaluation is read-only and offline -- nothing is
+    # fetched to answer it, and missing or incomplete bodies stay skipped
+    # rather than becoming findings.
+    from seohead.storage import fragment_links
+
+    fragment_evaluation: dict[str, Any] | None = None
+    if stored_scan is not None:
+        storage = settings.get("storage")
+        body_limit = storage.get("max_body_bytes") if isinstance(storage, dict) else None
+        if type(body_limit) is not int or body_limit <= 0:
+            body_limit = fragment_links.DEFAULT_MAX_DECODED_BYTES
+        fragment_evaluation = fragment_links.evaluate(stored_scan.con, max_decoded_bytes=body_limit)
+        fragment_states = fragment_evaluation["states"]
+        if fragment_evaluation["coverage"]["source_documents_evaluated"]:
+            bookmark_findings = fragment_links.findings(fragment_evaluation)
+            for item in bookmark_findings:
+                ctx.add(
+                    "BROKEN_BOOKMARK",
+                    target_url=item["target_url"],
+                    occurrences_count=item["occurrences_count"],
+                    locations=item["locations"],
+                    details={
+                        "fragment": item["fragment"],
+                        "decoded_fragment": item["decoded_fragment"],
+                        "destination_representation": item["destination_representation"],
+                        "locations_omitted": item["locations_omitted"],
+                        "occurrences_skipped": fragment_states["skipped"],
+                        "coverage": fragment_evaluation["coverage"]["state"],
+                    },
+                )
+            if not bookmark_findings and fragment_evaluation["coverage"]["state"] != "complete":
+                # Evaluated sources but no finding to fire, while part of the
+                # anchors went unanswered (skipped destinations, unavailable
+                # lanes, unresolvable hrefs, capped or truncated inventories):
+                # silent here would read as a clean pass the partial evidence
+                # cannot support.
+                ctx.skip(
+                    "BROKEN_BOOKMARK",
+                    "fragment evidence is partial; summary.fragment_links names "
+                    "each skipped occurrence and unavailable source",
+                )
+        else:
+            ctx.skip(
+                "BROKEN_BOOKMARK",
+                "scan retains no complete HTML document for fragment resolution",
+            )
+    else:
+        ctx.skip(
+            "BROKEN_BOOKMARK",
+            "input retains no HTML/DOM bodies; fragment targets are measured "
+            "only from a native retained scan",
+        )
+
     audit = aggregate(
         ctx,
         {
@@ -1426,6 +1485,12 @@ def _audit_crawl_result(
         if settings["scope"]["segments"] or analysis_segments
         else {}
     )
+    if fragment_evaluation is not None:
+        audit["summary"]["fragment_links"] = {
+            "analysis": fragment_evaluation["analysis"],
+            "states": fragment_evaluation["states"],
+            "coverage": fragment_evaluation["coverage"],
+        }
 
     if stored_scan is not None:
         from seohead.sf.core.evidence_contract import attach_contract, attach_saved_corpus
@@ -1643,6 +1708,7 @@ def site_audit(
     concurrency: int = 5,
     render: bool = False,
     skip: list[str] | None = None,
+    crux_evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not url:
         raise ValueError("url required (site home page)")
@@ -1656,6 +1722,7 @@ def site_audit(
         render=bool(render),
         skip=skip,
         tools=HANDLERS,
+        crux_evidence=crux_evidence,
     )
 
 
@@ -2812,8 +2879,12 @@ def gsc_query(
 def crux_report(
     url: str | None = None,
     origin: str | None = None,
+    urls: list[str] | None = None,
     form_factor: str | None = None,
     metrics: list[str] | None = None,
+    max_samples: int = 25,
+    cache_dir: str | None = None,
+    cache_max_age_hours: float = 24,
 ) -> dict[str, Any]:
     """Field Core Web Vitals (LCP, INP, CLS) as real Chrome users experienced them, at the 75th
     percentile — the honest counterpart to a synthesized lab score (see `render-check` and
@@ -2821,6 +2892,18 @@ def crux_report(
     """
     from seohead.data_sources import crux as core
 
+    if urls is not None:
+        if url or origin or metrics:
+            raise ValueError("urls cannot be combined with url, origin, or metrics")
+        return core.sample_urls(
+            urls,
+            form_factor=form_factor,
+            max_samples=max_samples,
+            cache_dir=cache_dir,
+            cache_max_age_hours=cache_max_age_hours,
+        )
+    if cache_dir or max_samples != 25 or cache_max_age_hours != 24:
+        raise ValueError("sample budget and cache options require urls")
     return core.query(url=url, origin=origin, form_factor=form_factor, metrics=metrics)
 
 
@@ -3355,6 +3438,18 @@ def scan_extract(
     return core(input_path, rules, url=url, representation=representation, limit=limit)
 
 
+def scan_fragment_links(
+    input_path: str,
+    offset: int = 0,
+    limit: int = 100,
+    state: str | None = None,
+    representation: str | None = None,
+) -> dict[str, Any]:
+    from seohead.servers.evidence_handlers import scan_fragment_links as core
+
+    return core(input_path, offset=offset, limit=limit, state=state, representation=representation)
+
+
 def scan_requeue(
     input_path: str, where: str, backup_path: str, from_scan: str | None = None
 ) -> dict[str, Any]:
@@ -3437,6 +3532,7 @@ _RAW_HANDLERS = {
     "scan_rendered_routes": scan_rendered_routes,
     "scan_evidence": scan_evidence,
     "scan_extract": scan_extract,
+    "scan_fragment_links": scan_fragment_links,
     "scan_requeue": scan_requeue,
     "scan_import_urls": scan_import_urls,
     "scan_snapshot": scan_snapshot,

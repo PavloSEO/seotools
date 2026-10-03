@@ -16,6 +16,7 @@ import argparse
 import contextlib
 import json
 import sys
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from seohead import __version__, runlog
@@ -23,6 +24,8 @@ from seohead import __version__, runlog
 if TYPE_CHECKING:  # imported for the annotation only; the CLI keeps its imports lazy
     from seohead.crawl.progress import CrawlProgress
 from seohead.servers import handlers
+
+MAX_CRUX_EVIDENCE_BYTES = 2 * 1024 * 1024
 
 # command -> handler kwarg builder. Each maps CLI namespace + --input dict -> kwargs.
 COMMANDS = (
@@ -120,6 +123,7 @@ COMMANDS = (
     "tool-catalog",
     "scan-evidence",
     "scan-extract",
+    "scan-fragment-links",
     "scan-requeue",
     "scan-import-urls",
 )
@@ -308,10 +312,17 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
             value = getattr(args, flag, None)
             if value is not None:
                 kw[flag] = value
-    elif cmd in {"scan-evidence", "scan-extract", "scan-requeue", "scan-import-urls"}:
+    elif cmd in {
+        "scan-evidence",
+        "scan-extract",
+        "scan-fragment-links",
+        "scan-requeue",
+        "scan-import-urls",
+    }:
         for name in (
             "input_path",
             "section",
+            "state",
             "limit",
             "offset",
             "where",
@@ -495,6 +506,12 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
             kw["render"] = True
         if getattr(args, "skip", None):
             kw["skip"] = _split_list(args.skip)
+        if getattr(args, "crux_evidence", None):
+            with Path(args.crux_evidence).open("rb") as stream:
+                content = stream.read(MAX_CRUX_EVIDENCE_BYTES + 1)
+            if len(content) > MAX_CRUX_EVIDENCE_BYTES:
+                raise ValueError("CrUX evidence file exceeds the 2 MiB input limit")
+            kw["crux_evidence"] = json.loads(content.decode("utf-8"))
         if getattr(args, "report", None):
             kw["_report"] = args.report
             kw["_out"] = getattr(args, "out", None)
@@ -638,10 +655,16 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
             kw["url"] = args.url
         if getattr(args, "origin", None):
             kw["origin"] = args.origin
+        if getattr(args, "urls", None):
+            kw["urls"] = _split_list(args.urls)
         if getattr(args, "form_factor", None):
             kw["form_factor"] = args.form_factor
         if getattr(args, "metrics", None):
             kw["metrics"] = _split_list(args.metrics)
+        for name in ("max_samples", "cache_dir", "cache_max_age_hours"):
+            value = getattr(args, name, None)
+            if value is not None:
+                kw[name] = value
     if cmd == "indexnow-submit":
         if getattr(args, "urls", None):
             kw["urls"] = _split_list(args.urls)
@@ -1016,8 +1039,27 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
             help="verify bot identities with forward-confirmed reverse DNS "
             "(performs network lookups)",
         )
-    if cmd in {"scan-evidence", "scan-extract", "scan-requeue", "scan-import-urls"}:
+    if cmd in {
+        "scan-evidence",
+        "scan-extract",
+        "scan-fragment-links",
+        "scan-requeue",
+        "scan-import-urls",
+    }:
         _source_flag(sub, "--scan", dest="input_path", help="existing SQLite artifact")
+    if cmd == "scan-fragment-links":
+        sub.add_argument(
+            "--state",
+            choices=("resolved", "missing", "skipped"),
+            help="occurrence state filter",
+        )
+        sub.add_argument(
+            "--representation",
+            choices=("static", "rendered", "legacy_fragment"),
+            help="source representation filter",
+        )
+        sub.add_argument("--offset", type=int)
+        sub.add_argument("--limit", type=int)
     if cmd == "scan-evidence":
         sub.add_argument(
             "--section",
@@ -1185,6 +1227,10 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
         )
         sub.add_argument("--skip", help="comma-separated tools to skip")
         sub.add_argument(
+            "--crux-evidence",
+            help="local JSON output from crux-report or restricted provider artifact; no Google call",
+        )
+        sub.add_argument(
             "--report",
             choices=("xlsx", "docx", "csv", "md", "json"),
             help="build a report in this format after the audit",
@@ -1270,10 +1316,16 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
     if cmd == "crux-report":
         _source_flag(sub, "--url", help="page URL to report on")
         _source_flag(sub, "--origin", help="origin to report on, instead of a single URL")
+        _source_flag(sub, "--urls", help="explicit comma-separated URLs for bounded field samples")
         sub.add_argument(
             "--form-factor", dest="form_factor", choices=("PHONE", "DESKTOP", "TABLET")
         )
         sub.add_argument("--metrics", help="comma-separated CrUX metric names")
+        sub.add_argument("--max-samples", type=int, help="maximum sampled URLs, 1..25 (default 25)")
+        sub.add_argument("--cache-dir", help="explicit private local CrUX cache directory")
+        sub.add_argument(
+            "--cache-max-age-hours", type=float, help="cache freshness limit (default 24 hours)"
+        )
     if cmd == "indexnow-submit":
         _source_flag(sub, "--urls", help="comma-separated URLs to submit")
         sub.add_argument("--host", help="host the submitted URLs and key belong to")
@@ -1583,6 +1635,11 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
 # (#13 onward) has added or will add lives in --config instead, so --help stays short as the
 # surface grows. This note is the pointer from one to the other.
 CRAWL_SITE_HELP_NOTE = "More crawler settings: seohead crawl-site --config-help."
+SCAN_FRAGMENT_LINKS_HELP_NOTE = (
+    "Measures only retained complete HTML/DOM from the saved scan; missing, "
+    "truncated or otherwise incomplete evidence stays skipped/unavailable and "
+    "is never reported as a broken fragment. No network access."
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1590,7 +1647,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--version", action="version", version=f"seohead {__version__}")
     subs = p.add_subparsers(dest="command", metavar="<command>")
     for cmd in COMMANDS:
-        epilog = CRAWL_SITE_HELP_NOTE if cmd == "crawl-site" else None
+        epilog = (
+            CRAWL_SITE_HELP_NOTE
+            if cmd == "crawl-site"
+            else SCAN_FRAGMENT_LINKS_HELP_NOTE
+            if cmd == "scan-fragment-links"
+            else None
+        )
         sp = subs.add_parser(cmd, help=f"run the {cmd} tool", epilog=epilog)
         _add_flags(sp, cmd)
     scan = subs.add_parser("scan", help="saved SQLite scan history")
@@ -1606,6 +1669,7 @@ def build_parser() -> argparse.ArgumentParser:
         "body-diff",
         "evidence",
         "extract",
+        "fragment-links",
         "requeue",
         "import-urls",
     ):

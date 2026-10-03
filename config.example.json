@@ -108,6 +108,10 @@
     "require_structured_data": false,
     "require_og": false
   },
+  "canonical_policy": {
+    "pagination": [],
+    "filters": []
+  },
   "live_recheck": {
     "enabled": false,
     "use": "auto",

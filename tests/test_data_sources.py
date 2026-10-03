@@ -2040,7 +2040,7 @@ def test_crux_query_parses_a_recorded_response():
     body = json.dumps(
         {
             "record": {
-                "key": {"formFactor": "PHONE"},
+                "key": {"url": "https://example.com/", "formFactor": "PHONE"},
                 "collectionPeriod": {"firstDate": {"year": 2026, "month": 1, "day": 1}},
                 "metrics": {
                     "largest_contentful_paint": {"percentiles": {"p75": 2100}},
@@ -2049,7 +2049,12 @@ def test_crux_query_parses_a_recorded_response():
             }
         }
     )
-    result = crux.query(url="https://example.com/", api_key="fake-key", fetcher=lambda p, k: body)
+    result = crux.query(
+        url="https://example.com/",
+        form_factor="PHONE",
+        api_key="fake-key",
+        fetcher=lambda p, k: body,
+    )
     assert result["ok"] is True
     assert result["form_factor"] == "PHONE"
     assert result["metrics"]["largest_contentful_paint"]["p75"] == 2100
@@ -2060,12 +2065,12 @@ def test_crux_query_404_means_no_data_not_a_failure():
         raise _make_http_error(404, json.dumps({"error": {"message": "not found"}}))
 
     result = crux.query(origin="https://tiny-site.example", api_key="fake-key", fetcher=fetcher)
-    assert result == {
-        "ok": True,
-        "target": "https://tiny-site.example",
-        "metrics": {},
-        "note": "no CrUX data",
-    }
+    assert result["ok"] is True
+    assert result["state"] == "no_field_data"
+    assert result["target"] == "https://tiny-site.example"
+    assert result["target_kind"] == "origin"
+    assert result["metrics"] == {}
+    assert result["assessment"]["overall"] == "unavailable"
 
 
 def test_crux_query_requires_exactly_one_of_url_or_origin():

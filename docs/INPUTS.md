@@ -116,6 +116,7 @@ and this decision makes no backend migration.
 | `scan-body-diff` | Scan artifact (`left, right`)<br>Selector (`url`) | Selects the logical URL within both scans. |
 | `scan-evidence` | Scan artifact (`input_path`)<br>Selector (`section`) | capabilities, corpus, structured, routes, resources, or timeline. |
 | `scan-extract` | Scan artifact (`input_path`)<br>Inline JSON (`rules`)<br>Selector (`url`) | Closed declarative rules over retained complete bodies.; Optional exact logical URL. |
+| `scan-fragment-links` | Scan artifact (`input_path`)<br>Selector (`state`)<br>Selector (`representation`) | Optional resolved, missing, or skipped occurrence filter.; Optional static, rendered, or legacy_fragment source filter. |
 | `scan-requeue` | Scan artifact (`input_path`)<br>Selector (`where`)<br>Local file (`backup_path`)<br>Scan artifact (`from_scan`) | Restricted saved URL/page predicate.; Mandatory new verified backup destination.; Optional alternate saved selection source. |
 | `scan-import-urls` | Scan artifact (`input_path`)<br>Local file (`urls_file`)<br>Local file (`backup_path`) | Explicit TXT, CSV, XLSX, or XML URL source.; Mandatory new verified backup destination. |
 | `sf run` | Live URL (`crawl`)<br>Local file (`load_crawl`)<br>Local file (`crawl_list`)<br>Local directory (`exports_dir`)<br>Local configuration (`config`) | Saved .seospider crawl; requires licensed SF CLI; URL-list file for licensed SF live traversal |

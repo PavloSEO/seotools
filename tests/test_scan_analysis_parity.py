@@ -93,6 +93,96 @@ def _audit(result, settings, *, stored_scan=None, stored_sitemap=None, sitemap_s
     )
 
 
+def _drop_retained_only_checks(audit: dict) -> dict:
+    """Remove checks whose evidence exists only inside the retained artifact.
+
+    ``BROKEN_BOOKMARK`` (#827) resolves link fragments inside retained
+    destination bodies: the SQL path carries them, the legacy graph keeps no
+    bodies at all, so the check can only ever diverge by construction. Dropping
+    it -- issues, skip declarations, coverage rows and their dependent totals --
+    keeps this test measuring the shared-evidence parity it exists for.
+    """
+    retained_only = {"BROKEN_BOOKMARK"}
+    document = copy.deepcopy(audit)
+    summary = document.get("summary") if isinstance(document.get("summary"), dict) else {}
+    summary.pop("fragment_links", None)
+
+    removed_ids = {
+        issue["id"] for issue in document.get("issues", []) if issue.get("check") in retained_only
+    }
+    issues = [
+        issue for issue in document.get("issues", []) if issue.get("check") not in retained_only
+    ]
+    id_map = {}
+    for n, issue in enumerate(issues, start=1):
+        new_id = f"ISSUE-{n:06d}"
+        id_map[issue.get("id")] = new_id
+        issue["id"] = new_id
+    document["issues"] = issues
+    for page in document.get("pages", []):
+        page["issue_ids"] = [
+            id_map.get(issue_id, issue_id)
+            for issue_id in page.get("issue_ids", [])
+            if issue_id not in removed_ids
+        ]
+        page["issues"] = [c for c in page.get("issues", []) if c not in retained_only]
+
+    run = document.get("run") if isinstance(document.get("run"), dict) else {}
+    for key in ("checks_skipped", "checks_disabled"):
+        if isinstance(run.get(key), list):
+            run[key] = [row for row in run[key] if row.get("id") not in retained_only]
+
+    totals = summary.get("totals") if isinstance(summary.get("totals"), dict) else None
+    if totals is not None:
+        totals["issues_total"] = len(issues)
+    if isinstance(summary.get("by_check"), dict):
+        summary["by_check"] = {
+            check: count
+            for check, count in summary["by_check"].items()
+            if check not in retained_only
+        }
+    if isinstance(summary.get("by_severity"), dict):
+        from collections import Counter
+
+        by_severity = Counter(issue.get("severity") for issue in issues)
+        summary["by_severity"] = {
+            level: by_severity.get(level, 0) for level in ("critical", "warning", "notice")
+        }
+    if isinstance(summary.get("implausible_checks"), list):
+        summary["implausible_checks"] = [
+            row for row in summary["implausible_checks"] if row.get("check") not in retained_only
+        ]
+    coverage = summary.get("check_coverage")
+    if isinstance(coverage, dict):
+        for key in ("checks_disabled_ids", "checks_silent_ids"):
+            if isinstance(coverage.get(key), list):
+                coverage[key] = [i for i in coverage[key] if i not in retained_only]
+        if removed_ids and coverage.get("checks_fired"):
+            coverage["checks_fired"] -= 1
+        skipped_id_set = {s.get("id") for s in run.get("checks_skipped") or []}
+        disabled_id_set = set(coverage.get("checks_disabled_ids") or [])
+        fired_id_set = {issue.get("check") for issue in issues}
+        coverage["checks_skipped"] = len(skipped_id_set - disabled_id_set - fired_id_set)
+        coverage["checks_silent"] = len(coverage.get("checks_silent_ids") or [])
+        coverage["checks_disabled"] = len(coverage.get("checks_disabled_ids") or [])
+        if coverage.get("checks_total"):
+            coverage["checks_total"] -= 1
+        available = (
+            coverage["checks_total"]
+            - coverage.get("checks_skipped", 0)
+            - coverage.get("checks_disabled", 0)
+        )
+        coverage["coverage"] = (
+            round(available / coverage["checks_total"], 3) if coverage["checks_total"] else None
+        )
+    # Score and its basis strings are pure derivations of the issue severity
+    # counts and coverage numbers recomputed above; once those agree the
+    # derived values cannot disagree, so they add nothing to this comparison.
+    for key in ("health_score", "health_score_basis", "health_score_reason"):
+        summary.pop(key, None)
+    return document
+
+
 def _outcome(audit):
     """The whole audit contract except the report clock and measured response durations.
 
@@ -116,7 +206,7 @@ def _outcome(audit):
             return [normalize(item) for item in value]
         return value
 
-    result = semantic_audit(audit)
+    result = _drop_retained_only_checks(semantic_audit(audit))
     result["run"].pop("generated_at")
     return normalize(result)
 

@@ -610,6 +610,7 @@ def build_server(profile: str = "full", progress_notifications: bool = False):  
         concurrency: int = 5,
         render: bool = False,
         skip: list[str] | None = None,
+        crux_evidence: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Run the whole live toolkit over one site and return a single audit document
         (schema seohead.site-audit/1). Site-level tools run once (domain profile, CDN and
@@ -620,10 +621,18 @@ def build_server(profile: str = "full", progress_notifications: bool = False):  
         document says so explicitly, because severity here is a rule, not a measurement.
         A tool that fails does NOT fail the audit: it lands in summary.tools_failed with
         its reason, so silence is never mistaken for a clean result. Feed the returned
-        document straight into seo_report_build."""
+        document straight into seo_report_build. Optional crux_evidence is an already
+        collected CrUX current record or bounded sample; no Google request occurs here.
+        URL and origin field scopes remain distinct from Lighthouse lab results."""
         return _checked(
             handlers.site_audit(
-                url=url, urls=urls, limit=limit, concurrency=concurrency, render=render, skip=skip
+                url=url,
+                urls=urls,
+                limit=limit,
+                concurrency=concurrency,
+                render=render,
+                skip=skip,
+                crux_evidence=crux_evidence,
             )
         )
 
@@ -1058,20 +1067,34 @@ def build_server(profile: str = "full", progress_notifications: bool = False):  
             )
         )
 
-    @mcp.tool(annotations=fetch, structured_output=True)
+    @mcp.tool(annotations=create_files_from_web, structured_output=True)
     def seo_crux_report(
         url: str | None = None,
         origin: str | None = None,
+        urls: list[str] | None = None,
         form_factor: str | None = None,
         metrics: list[str] | None = None,
+        max_samples: int = 25,
+        cache_dir: str | None = None,
+        cache_max_age_hours: float = 24,
     ) -> dict[str, Any]:
         """Field Core Web Vitals (LCP, INP, CLS) as real Chrome users experienced them, at the
         75th percentile — the honest counterpart to seo_render_check's synthesized-score-free
         design (issue #59). Pass exactly one of url/origin. Requires a Chrome UX Report API key.
-        A target with too little real-user traffic is not an error; CrUX has nothing to report
-        for it, which comes back here as an empty metrics object."""
+        No eligible field record and missing metrics remain unavailable. Optional urls samples
+        at most 25 targets; cache_dir enables an explicit local cache. Never substitutes
+        Lighthouse lab metrics for CrUX field data."""
         return _checked(
-            handlers.crux_report(url=url, origin=origin, form_factor=form_factor, metrics=metrics)
+            handlers.crux_report(
+                url=url,
+                origin=origin,
+                urls=urls,
+                form_factor=form_factor,
+                metrics=metrics,
+                max_samples=max_samples,
+                cache_dir=cache_dir,
+                cache_max_age_hours=cache_max_age_hours,
+            )
         )
 
     @mcp.tool(annotations=submit, structured_output=True)
@@ -1437,6 +1460,31 @@ def build_server(profile: str = "full", progress_notifications: bool = False):  
                 url=url,
                 representation=representation,
                 limit=limit,
+            )
+        )
+
+    @mcp.tool(annotations=read_files, structured_output=True)
+    def seo_scan_fragment_links(
+        input_path: str,
+        state: Literal["resolved", "missing", "skipped"] | None = None,
+        representation: Literal["static", "rendered", "legacy_fragment"] | None = None,
+        offset: int = 0,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        """Evaluate every retained fragment anchor offline and page the results.
+
+        Only complete retained HTML/DOM is measured: a missing, truncated,
+        unsupported, failed or budget-exhausted body is a named skipped
+        occurrence or unavailable source, never a broken fragment. Nothing is
+        fetched and the artifact is not modified.
+        """
+        return _checked(
+            handlers.scan_fragment_links(
+                input_path=input_path,
+                offset=offset,
+                limit=limit,
+                state=state,
+                representation=representation,
             )
         )
 

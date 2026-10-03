@@ -145,6 +145,14 @@ def run_audit(
     # Declared-missing evidence is skipped before any check runs, so a check
     # that never fired cannot be mistaken for a check that found nothing.
     ctx.skip_unsupported(set(exports.frames))
+    # Fragment targets are resolved inside the retained destination document
+    # (issue #827); an export keeps no destination DOM inventory, so the check
+    # must be named unavailable rather than silently land in "ran clean".
+    ctx.skip(
+        "BROKEN_BOOKMARK",
+        "export input retains no HTML/DOM bodies; fragment targets are measured "
+        "only from a native retained scan",
+    )
 
     run_rules(ctx)
     run_inlinks(ctx)

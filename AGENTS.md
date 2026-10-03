@@ -42,7 +42,7 @@ seohead/
   tools/          live page, content, image, log, and structured-data tools
   recon/          domain and infrastructure reconnaissance
   crawl/          native site collector (crawl-site) — no Screaming Frog required
-  sf/             Screaming Frog export runner and 162-check analyzer, shared with crawl/'s output
+  sf/             Screaming Frog export runner and 165-check analyzer, shared with crawl/'s output
   audit/          bounded sitemap-based evidence orchestration
   reports/        XLSX, DOCX, CSV, Markdown, and JSON formatting
   data_sources/   optional demand, SERP, and traffic providers

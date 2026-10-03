@@ -13,6 +13,7 @@ import urllib.parse
 from collections import OrderedDict, defaultdict
 from typing import Any
 
+from seohead.canonical_policy import matching_canonical_rule
 from seohead.tools.parser import robots_directives, uses_ajax_crawling_scheme
 
 from .context import AuditContext
@@ -83,6 +84,45 @@ def _skip_for_body_unavailable(ctx: AuditContext, check_id: str, pages: list[Pag
             f"{count} page(s) with an oversized, unparsed HTML body "
             "-- this metadata was never measured",
         )
+
+
+def _canonical_policy_target_is_fetched(ctx: AuditContext, url: str) -> bool:
+    """Whether this exact policy URL has a response row in Internal:All.
+
+    The general URL index folds trailing slashes for link matching. A declared
+    policy target is stricter: a slashless redirect does not prove that its
+    distinct slash target was fetched. Rows without a status are placeholders,
+    not target-access evidence.
+    """
+    try:
+        target = urllib.parse.urlsplit(url)
+    except ValueError:
+        return False
+    target_path = target.path or "/"
+    target_identity = (
+        target.scheme.lower(),
+        target.netloc.lower(),
+        target_path,
+        target.query,
+        target.fragment,
+    )
+    for page in ctx.pages_by_norm.get(norm_url(url), []):
+        if page.status_code is None:
+            continue
+        try:
+            candidate = urllib.parse.urlsplit(page.url)
+        except ValueError:
+            continue
+        candidate_identity = (
+            candidate.scheme.lower(),
+            candidate.netloc.lower(),
+            candidate.path or "/",
+            candidate.query,
+            candidate.fragment,
+        )
+        if candidate_identity == target_identity:
+            return True
+    return False
 
 
 def _has_column(ctx: AuditContext, field: str) -> bool:
@@ -624,6 +664,86 @@ def check_canonical_directives(ctx: AuditContext) -> None:
             )
     if not has_meta_keywords:
         ctx.skip("META_KEYWORDS_PRESENT", "no Meta Keywords 1 column in Internal:All")
+
+
+def check_canonical_policy(ctx: AuditContext) -> None:
+    """Compare configured pagination/filter canonicals with fetched URL evidence.
+
+    An empty policy is explicitly unmeasured. If any matched source's declared
+    or expected target is absent from Internal:All, withhold that category's
+    findings: an unfetched target cannot establish the policy relationship.
+    """
+    policy = ctx.config.get("canonical_policy", {})
+    for category, check_id in (
+        ("pagination", "PAGINATION_CANONICAL_POLICY"),
+        ("filters", "FILTER_CANONICAL_POLICY"),
+    ):
+        if not ctx.enabled(check_id):
+            continue
+        rules = policy.get(category, [])
+        if not rules:
+            ctx.skip(check_id, f"no {category} canonical policy configured")
+            continue
+        if not _has_column(ctx, "canonical"):
+            ctx.skip(check_id, "no Canonical column in Internal:All")
+            continue
+
+        candidates: list[tuple[Page, dict[str, Any], str, str | None]] = []
+        unavailable: list[tuple[str, str]] = []
+        for page in ctx.html_pages():
+            rule = matching_canonical_rule(policy, category, page.url)
+            if rule is None:
+                continue
+            if _body_unavailable(_rec(page)):
+                unavailable.append((page.url, "source HTML body unavailable"))
+                continue
+            expected = page.url if rule["policy"] == "self" else rule["target"]
+            canonical = _rec(page).get("canonical") or None
+            if not _canonical_policy_target_is_fetched(ctx, expected):
+                unavailable.append(
+                    (page.url, f"expected target absent from crawl evidence: {expected}")
+                )
+                continue
+            if canonical and not _canonical_policy_target_is_fetched(ctx, canonical):
+                unavailable.append(
+                    (page.url, f"declared canonical absent from crawl evidence: {canonical}")
+                )
+                continue
+            candidates.append((page, rule, expected, canonical))
+
+        if not candidates and not unavailable:
+            ctx.skip(check_id, f"no crawled URLs matched the configured {category} patterns")
+            continue
+        if unavailable:
+            examples = "; ".join(f"{source}: {reason}" for source, reason in unavailable[:3])
+            ctx.skip(
+                check_id,
+                f"canonical policy evidence unavailable for {len(unavailable)} "
+                f"matched URL(s); examples: {examples}",
+            )
+            continue
+
+        for page, rule, expected, canonical in candidates:
+            if canonical and norm_url(canonical) == norm_url(expected):
+                continue
+            ctx.add(
+                check_id,
+                target_url=page.url,
+                details={
+                    "canonical_policy": {
+                        "source_url": page.url,
+                        "declared_canonical_url": canonical,
+                        "expected_canonical_url": expected,
+                        "policy": rule["policy"],
+                        "matched_pattern": rule["pattern"],
+                    }
+                },
+                evidence={
+                    "frame": "Internal:All",
+                    "canonical_column": "Canonical Link Element 1",
+                    "expected_target_in_crawl": True,
+                },
+            )
 
 
 # --------------------------------------------------------------------------
@@ -2094,6 +2214,7 @@ ALL_CHECKS = [
     check_heading_outline,
     check_link_placement,
     check_canonical_directives,
+    check_canonical_policy,
     check_content,
     check_url_and_perf,
     check_schema,

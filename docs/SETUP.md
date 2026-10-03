@@ -230,6 +230,45 @@ seohead crawl-site --url https://example.com/ --config crawl.json
 }
 ```
 
+### Site-specific canonical policy
+
+Pagination and filter canonicals are checked only when a project supplies patterns and an
+expected policy. There is no default rule that paginated or filtered URLs must self-canonicalize
+or point to another page. For a native crawl, add `analysis.canonical_policy` to `crawl.json`:
+
+```json
+{
+  "analysis": {
+    "canonical_policy": {
+      "pagination": [
+        {"pattern": "/catalog/page/[2-9][0-9]*/?$", "policy": "self"},
+        {
+          "pattern": "/archive/page/[2-9][0-9]*/?$",
+          "policy": "first_page",
+          "target": "https://shop.example.test/archive/"
+        }
+      ],
+      "filters": [
+        {
+          "pattern": "[?&]color=",
+          "policy": "landing",
+          "target": "https://shop.example.test/catalog/"
+        }
+      ]
+    }
+  }
+}
+```
+
+Patterns are regular expressions searched against each absolute source URL. Rules are ordered and
+the first match wins. Pagination policies accept `self`, `first_page`, or `landing`; filter
+policies accept `self` or `landing`. Non-self policies require an explicit absolute target URL.
+The expected target must appear in the crawl evidence; when a canonical is declared, its target
+must also appear. Otherwise the corresponding check is reported as skipped. The same
+`canonical_policy` object can be placed at the top level of the SF `config.json` used with
+`sf run --exports-dir`. The checks compare URL
+policy only; destination status and site-wide homepage groups are covered separately by #824.
+
 Resolution order is defaults, then the file, then environment variables, then explicit command-line
 arguments — the most local statement of intent wins.
 

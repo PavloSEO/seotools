@@ -138,6 +138,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "require_structured_data": False,
         "require_og": False,
     },
+    # Empty by default: pagination/filter canonicals are site policy, not a
+    # universal rule. The first matching URL regex in each list wins.
+    "canonical_policy": {"pagination": [], "filters": []},
     "live_recheck": {
         "enabled": False,
         "use": "auto",  # auto | advertools | stdlib
@@ -238,6 +241,7 @@ def validate_config(cfg: dict[str, Any]) -> None:
     in the number (issue #211) and the report still validates against
     nothing.
     """
+    from seohead.canonical_policy import validate_canonical_policy
     from seohead.sf.core.registry import CHECKS
 
     errors: list[str] = []
@@ -269,6 +273,11 @@ def validate_config(cfg: dict[str, Any]) -> None:
             errors.append(f"scoring.weights[{severity!r}] is {weight!r}; must be a number")
         elif not math.isfinite(weight) or weight < 0:
             errors.append(f"scoring.weights[{severity!r}] is {weight!r}; must be finite and >= 0")
+
+    try:
+        validate_canonical_policy(cfg.get("canonical_policy", {}))
+    except ValueError as exc:
+        errors.append(str(exc))
 
     if errors:
         raise ConfigError("; ".join(errors))

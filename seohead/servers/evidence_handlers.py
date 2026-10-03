@@ -163,3 +163,50 @@ def scan_extract(
         }
     finally:
         con.close()
+
+
+def scan_fragment_links(
+    input_path: str,
+    *,
+    offset: int = 0,
+    limit: int = 100,
+    state: str | None = None,
+    representation: str | None = None,
+) -> dict[str, Any]:
+    """Evaluate fragment anchors over retained complete HTML/DOM, offline.
+
+    Only ``body_state='complete'`` HTML documents are measured; a missing,
+    truncated, unsupported, failed or budget-exhausted body is reported as a
+    named ``skipped`` occurrence or unavailable source -- never as a broken
+    fragment.
+    """
+    from seohead.storage import open_scan
+    from seohead.storage.fragment_links import evaluate, paginate
+
+    if type(limit) is not int or type(offset) is not int or not 1 <= limit <= 10_000 or offset < 0:
+        raise ValueError("limit must be 1..10000 and offset nonnegative")
+    if state is not None and state not in {"resolved", "missing", "skipped"}:
+        raise ValueError("state must be resolved, missing or skipped")
+    if representation is not None and representation not in {
+        "static",
+        "rendered",
+        "legacy_fragment",
+    }:
+        raise ValueError("representation must be static, rendered or legacy_fragment")
+    con = open_scan(input_path, require_audit=False)
+    try:
+        result = paginate(
+            evaluate(con),
+            offset=offset,
+            limit=limit,
+            state=state,
+            representation=representation,
+        )
+        result["ok"] = True
+        result["scope"] = (
+            "retained complete HTML/DOM only; missing or incomplete evidence "
+            "is skipped by name, never reported as a broken fragment"
+        )
+        return result
+    finally:
+        con.close()

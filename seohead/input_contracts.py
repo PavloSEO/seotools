@@ -442,6 +442,21 @@ COMMAND_CONTRACTS: tuple[CommandContract, ...] = (
         _form("selector", "url", note="Optional exact logical URL."),
     ),
     _command(
+        "scan-fragment-links",
+        "scan_fragment_links",
+        _form("scan_artifact", "input_path"),
+        _form(
+            "selector",
+            "state",
+            note="Optional resolved, missing, or skipped occurrence filter.",
+        ),
+        _form(
+            "selector",
+            "representation",
+            note="Optional static, rendered, or legacy_fragment source filter.",
+        ),
+    ),
+    _command(
         "scan-requeue",
         "scan_requeue",
         _form("scan_artifact", "input_path"),

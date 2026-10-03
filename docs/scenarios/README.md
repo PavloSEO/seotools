@@ -1,7 +1,7 @@
 # Usage scenarios
 
-The rest of the documentation lists what this toolkit *has*: 95 commands, 100 callable tools,
-162 checks, 30 workflow skills, each described on its own. This directory describes what it
+The rest of the documentation lists what this toolkit *has*: 97 commands, 102 callable tools,
+165 checks, 30 workflow skills, each described on its own. This directory describes what it
 **does** — the chains that run several of them in order and end in something a person can act on.
 
 The distinction matters. One command is a measurement. A chain is a deliverable:
