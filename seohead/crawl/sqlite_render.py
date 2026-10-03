@@ -44,13 +44,24 @@ def _policy_facts(settings: dict[str, Any], target_url: str) -> dict[str, bool]:
 
 
 def _unknown_renderer(target_url: str, settings: dict[str, Any]) -> dict[str, Any]:
-    """Record an unsuccessful renderer attempt without inventing its identity."""
+    """Record an unsuccessful renderer attempt without inventing its identity.
+
+    The attempt never produced a browser, so ``engine`` honestly stays
+    ``unknown`` -- the *requested* engine is recorded next to it instead, with
+    the same effective viewport and page-concurrency a successful renderer
+    record would carry.
+    """
     browser = settings["rendering"]["browser"]
-    viewport_name = browser["viewport"]
-    from seohead.tools.render import VIEWPORT_PRESETS
+    from seohead.tools.render import VIEWPORT_PRESETS, resolve_viewport
+
+    try:
+        viewport = resolve_viewport(browser)
+    except ValueError:
+        viewport = dict(VIEWPORT_PRESETS.get(browser["viewport"], VIEWPORT_PRESETS["desktop"]))
 
     return {
         "engine": "unknown",
+        "requested_engine": f"playwright-{browser['engine']}",
         "engine_version": "unknown",
         "navigation": {
             "requested_url": target_url,
@@ -59,7 +70,7 @@ def _unknown_renderer(target_url: str, settings: dict[str, Any]) -> dict[str, An
             "timeout_seconds": float(settings["http"]["timeout_seconds"]),
         },
         "settings": {
-            "viewport": dict(VIEWPORT_PRESETS[viewport_name]),
+            "viewport": viewport,
             "device_pixel_ratio": float(browser["device_pixel_ratio"]),
             "mobile_emulation": bool(browser["mobile_emulation"]),
             "touch_emulation": bool(browser["touch_emulation"]),
@@ -75,6 +86,7 @@ def _unknown_renderer(target_url: str, settings: dict[str, Any]) -> dict[str, An
             "flatten_iframes_applied": 0,
         },
         "policy": _policy_facts(settings, target_url),
+        "page_concurrency": int(browser.get("page_concurrency") or 1),
     }
 
 
@@ -244,6 +256,7 @@ def _legacy_fetch(
     scan: Any,
     max_parse_bytes: int,
     request_gate: Callable[[], None] | None = None,
+    proxy_route=None,
 ) -> dict[str, Any]:
     """Fetch an opted-in escaped fragment and retain its actual response."""
     from seohead.crawl.capture import now_utc
@@ -261,10 +274,13 @@ def _legacy_fetch(
     extra_headers.update(
         resolve_credential_headers(settings["http"]["credential_headers"], host) or {}
     )
+    from seohead.recon.net import crawl_transport_options
+
     client, _http2 = http_client(
         settings["http"]["timeout_seconds"],
         follow_redirects=False,
         headers={"User-Agent": settings["http"]["user_agent"]},
+        **crawl_transport_options(proxy_route),
     )
     try:
         record, parsed = fetch_one(
@@ -311,6 +327,7 @@ def run_render_escalation(
     settings: dict[str, Any],
     *,
     request_gate: Callable[[], None] | None = None,
+    proxy_route=None,
 ) -> Any:
     """Run selective rendering and store each attempted representation promptly.
 
@@ -456,6 +473,7 @@ def run_render_escalation(
             user_agent=settings["http"]["user_agent"],
             max_html_bytes=max_parse_bytes,
             policy_facts=_policy_facts(settings, target),
+            proxy_route=proxy_route,
             **gate_kwargs,
             **artifact_kwargs,
         )
@@ -463,35 +481,49 @@ def run_render_escalation(
         return fetched
 
     if mode == "js":
-
-        def probe(target: str) -> dict[str, Any]:
+        # The probe's unit is split so a concurrent run keeps every SQLite
+        # touch on the orchestrator thread: probe_prepare does the disk
+        # preflight and reads the retained static body (or commits its
+        # absence and skips the fetch), probe does only the browser fetch on
+        # a worker, and probe_apply commits the probe DOM and computes the
+        # verdict back on the orchestrator thread. Sequential runs call the
+        # same three hooks back-to-back, so nothing about the stored shape
+        # changes.
+        def probe_prepare(target: str) -> Any:
             scan.preflight_capture()
             try:
                 raw_html = _static_html(scan, target, max_retained_bytes)
             except Exception:
                 raw_html = ""
-            if not raw_html:
-                commit_render(
-                    target,
-                    None,
+            if raw_html:
+                return raw_html
+            commit_render(
+                target,
+                None,
+                html=None,
+                renderer=_unknown_renderer(target, settings),
+                captured_at=_now(),
+                body_state="unavailable",
+                body_reason="not_in_corpus",
+                content_capture=_content_capture(
                     html=None,
-                    renderer=_unknown_renderer(target, settings),
-                    captured_at=_now(),
-                    body_state="unavailable",
-                    body_reason="not_in_corpus",
-                    content_capture=_content_capture(
-                        html=None,
-                        parsed=None,
-                        settings=settings,
-                        unavailable_reason="retained static body is unavailable",
-                    ),
-                )
-                return {
+                    parsed=None,
+                    settings=settings,
+                    unavailable_reason="retained static body is unavailable",
+                ),
+            )
+            return {
+                "verdict": {
                     "ok": False,
                     "needs_escalation": False,
                     "reason": "retained static body is unavailable",
                 }
-            fetched = fetch_browser(target)
+            }
+
+        def probe(target: str) -> dict[str, Any]:
+            return fetch_browser(target)
+
+        def probe_apply(target: str, raw_html: Any, fetched: dict[str, Any]) -> dict[str, Any]:
             renderer = fetched.get("renderer")
             if not isinstance(renderer, dict):
                 renderer = _unknown_renderer(target, settings)
@@ -532,44 +564,65 @@ def run_render_escalation(
                     unavailable_reason="rendered probe was not parsed for content evidence",
                 ),
             )
-            raw = render_tool._snapshot(raw_html, target)
+            raw = render_tool._snapshot(str(raw_html or ""), target)
             rendered_html = str(fetched.get("html") or "")
             final_url = str(fetched.get("final_url") or target)
             rendered = render_tool._snapshot(rendered_html, final_url)
-            shell = render_tool.detect_empty_shell(raw_html)
-            findings = render_tool.compare(raw, rendered, raw_html, shell)
+            shell = render_tool.detect_empty_shell(str(raw_html or ""))
+            findings = render_tool.compare(raw, rendered, str(raw_html or ""), shell)
             return {
                 "ok": True,
                 "needs_escalation": findings != [render_tool.ALL_CLEAR],
                 "empty_shell": shell,
             }
 
-        def render_fetch(target: str) -> dict[str, Any]:
+        def render_prepare(target: str) -> None:
             scan.preflight_capture()
+
+        def render_fetch(target: str) -> dict[str, Any]:
             return fetch_browser(target)
 
         representation = "rendered"
     else:
-
-        def probe(target: str) -> dict[str, Any]:
+        # The legacy probe never fetches: it only reads the retained static
+        # body and computes its verdict, so it is a prepare that returns a
+        # terminal verdict and a probe that must never be scheduled.
+        def probe_prepare(target: str) -> Any:
             scan.preflight_capture()
             try:
                 html = _static_html(scan, target, max_retained_bytes)
             except Exception:
                 html = ""
             return {
-                "ok": bool(html),
-                "needs_escalation": render_tool.legacy_fragment_target(target, html) is not None,
-                "empty_shell": render_tool.detect_empty_shell(html),
+                "verdict": {
+                    "ok": bool(html),
+                    "needs_escalation": render_tool.legacy_fragment_target(target, html)
+                    is not None,
+                    "empty_shell": render_tool.detect_empty_shell(html),
+                }
             }
 
-        def render_fetch(target: str) -> dict[str, Any]:
+        def probe(_target: str) -> dict[str, Any]:
+            # Unreachable: a legacy probe always resolves inside
+            # probe_prepare. A defensive failure, never a fabricated verdict.
+            return {"ok": False, "error": "legacy probe was not prepared"}
+
+        pending_html: dict[str, str] = {}
+
+        def render_prepare(target: str) -> None:
             scan.preflight_capture()
             try:
-                html = _static_html(scan, target, max_retained_bytes)
+                pending_html[target] = _static_html(scan, target, max_retained_bytes)
             except Exception:
+                pending_html[target] = ""
+
+        def render_fetch(target: str) -> dict[str, Any]:
+            html = pending_html.pop(target, "")
+            if not html:
                 return {"ok": False, "url": target, "error": "raw document unavailable"}
             legacy_kwargs = {"request_gate": request_gate} if request_gate is not None else {}
+            if proxy_route is not None:
+                legacy_kwargs["proxy_route"] = proxy_route
             return _legacy_fetch(target, html, settings, scan, max_parse_bytes, **legacy_kwargs)
 
         representation = "legacy_fragment"
@@ -744,6 +797,9 @@ def run_render_escalation(
                 render_fetch=render_fetch,
                 representation_label=representation,
                 render_consumer=consume,
+                probe_prepare=probe_prepare,
+                probe_apply=probe_apply if mode == "js" else None,
+                render_prepare=render_prepare,
             )
         finally:
             save_render_elapsed(False)

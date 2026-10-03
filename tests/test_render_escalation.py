@@ -6,7 +6,11 @@ whole file runs with no network and no browser.
 
 from __future__ import annotations
 
+import contextlib
+import threading
 from dataclasses import dataclass
+
+import pytest
 
 from seohead.crawl import settings as crawl_config
 from seohead.crawl.render_escalation import (
@@ -153,13 +157,22 @@ def test_gate_works_with_no_html_at_all():
 # ── escalate() ───────────────────────────────────────────────────────────────
 
 
-def _config(mode="js", sample_per_pattern=1, max_render_urls=100, max_render_seconds=0):
+def _config(
+    mode="js",
+    sample_per_pattern=1,
+    max_render_urls=100,
+    max_render_seconds=0,
+    page_concurrency=1,
+    policy="sampled",
+):
     resolved = crawl_config.load(
         overrides={
             "rendering.mode": mode,
+            "rendering.escalation.policy": policy,
             "rendering.escalation.sample_per_pattern": sample_per_pattern,
             "rendering.escalation.max_render_urls": max_render_urls,
             "rendering.escalation.max_render_seconds": max_render_seconds,
+            "rendering.browser.page_concurrency": page_concurrency,
         }
     )
     return resolved["rendering"]
@@ -834,3 +847,279 @@ def test_a_probe_that_reached_a_negative_verdict_still_counts_as_probed(monkeypa
     assert escalated.patterns_unprobed == []
     assert escalated.patterns_unprobed_reasons == {}
     assert escalated.patterns_escalated == []
+
+
+# ── rendering.browser.page_concurrency (#744) ────────────────────────────────
+
+
+class _OverlapTracker:
+    """Fake fetch unit that proves a real concurrency bound.
+
+    Every call parks on a barrier of ``parties``, so exactly that many fetches
+    must be in flight for any one to finish: a sequential run times the barrier
+    out and fails the test, while ``max_active`` records any overrun past the
+    configured bound.
+    """
+
+    def __init__(self, parties: int) -> None:
+        self._barrier = threading.Barrier(parties)
+        self._lock = threading.Lock()
+        self.active = 0
+        self.max_active = 0
+        self.calls: list[str] = []
+
+    def fetch(self, url: str) -> dict:
+        with self._lock:
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+            self.calls.append(url)
+        with contextlib.suppress(threading.BrokenBarrierError):
+            self._barrier.wait(timeout=10)
+        with self._lock:
+            self.active -= 1
+        return {"ok": True, "html": "<html><body>full</body></html>", "final_url": url}
+
+    def probe(self, url: str) -> dict:
+        self.fetch(url)
+        return {"ok": True, "needs_escalation": False}
+
+
+def _no_render_threads() -> list[threading.Thread]:
+    return [t for t in threading.enumerate() if t.name.startswith("seohead-render")]
+
+
+def test_concurrency_one_never_builds_a_pool_and_fetches_on_the_caller_thread(
+    monkeypatch,
+):
+    """Sequential is the backward-compatible default: no executor may even be
+    constructed, and every fetch runs on the calling thread -- the behaviour a
+    run before #744 produced."""
+    monkeypatch.setattr(
+        "seohead.crawl.render_escalation.ThreadPoolExecutor",
+        lambda *_a, **_k: (_ for _ in ()).throw(
+            AssertionError("page_concurrency=1 must not create a pool")
+        ),
+    )
+    owner = threading.get_ident()
+    fetch_threads: list[int] = []
+    pages = [_Page(f"https://example.com/blog/{i}") for i in range(3)]
+
+    result = escalate(
+        pages,
+        _config(),
+        probe=lambda _u: {"ok": True, "needs_escalation": True},
+        render_fetch=lambda u: (
+            fetch_threads.append(threading.get_ident())
+            or {"ok": True, "html": "<html><body>x</body></html>", "final_url": u}
+        ),
+        representation_label="rendered",
+    )
+
+    assert result.render_page_concurrency == 1
+    assert result.render_requests == 3
+    assert set(fetch_threads) == {owner}
+
+
+def test_the_configured_bound_is_never_exceeded_and_results_apply_in_order():
+    """Six pages of one escalated pattern under a bound of 2: the barrier in
+    the fake forces genuine overlap, so max_active reaching exactly 2 proves
+    the bound engaged, while every URL is still applied in submission order
+    on the orchestrator thread."""
+    pages = [_Page(f"https://example.com/blog/{i}") for i in range(6)]
+    tracker = _OverlapTracker(parties=2)
+
+    result = escalate(
+        pages,
+        _config(page_concurrency=2),
+        probe=lambda _u: {"ok": True, "needs_escalation": True},
+        render_fetch=tracker.fetch,
+        representation_label="rendered",
+    )
+
+    assert result.render_page_concurrency == 2
+    assert result.render_requests == 6
+    assert tracker.max_active == 2
+    assert sorted(tracker.calls) == sorted(p.url for p in pages)
+    # Applied on the calling thread in submission order, not completion order.
+    assert list(result.rendered) == [p.url for p in pages]
+    assert _no_render_threads() == []
+
+
+def test_the_probe_phase_is_bounded_by_the_same_setting():
+    """Probes are browser fetches too: four distinct patterns, bound 2 -- the
+    probe pool must not run ahead of the render bound."""
+    pages = [
+        _Page("https://example.com/blog/1"),
+        _Page("https://example.com/docs/1"),
+        _Page("https://example.com/product/1"),
+        _Page("https://example.com/category/1"),
+    ]
+    tracker = _OverlapTracker(parties=2)
+
+    result = escalate(
+        pages,
+        _config(page_concurrency=2),
+        probe=tracker.probe,
+        render_fetch=lambda _u: (_ for _ in ()).throw(AssertionError("no pattern may escalate")),
+        representation_label="rendered",
+    )
+
+    assert result.probe_requests == 4
+    assert tracker.max_active == 2
+    assert result.patterns_escalated == []
+    assert _no_render_threads() == []
+
+
+def test_full_policy_renders_every_eligible_page_under_the_bound():
+    """policy=full skips probing entirely, but page concurrency, the URL
+    budget, and the eligibility filter still apply."""
+    pages = []
+    for i in range(4):
+        page = _Page(f"https://example.com/item/{i}")
+        page.is_html = True
+        page.status_code = 200
+        pages.append(page)
+    skipped = _Page("https://example.com/asset.bin")  # not HTML -- never a render job
+    pages.append(skipped)
+    tracker = _OverlapTracker(parties=2)
+
+    result = escalate(
+        pages,
+        _config(page_concurrency=2, policy="full"),
+        probe=lambda _u: (_ for _ in ()).throw(AssertionError("full policy never probes")),
+        render_fetch=tracker.fetch,
+        representation_label="rendered",
+    )
+
+    assert result.probe_requests == 0
+    assert result.patterns_sampled == 0
+    assert result.render_requests == 4
+    assert tracker.max_active == 2
+    assert skipped.url not in result.representations
+    assert skipped.url not in result.rendered
+
+
+def test_the_deadline_stops_new_submissions_while_in_flight_jobs_are_applied():
+    """The fake clock jumps past the deadline inside the first render. The
+    windowed loop must wait out and apply the jobs it already submitted --
+    their evidence is real -- while never scheduling the four still queued."""
+    pages = [_Page(f"https://example.com/blog/{i}") for i in range(6)]
+    clock_seconds = [0.0]
+    started: list[str] = []
+
+    def render_fetch(url):
+        started.append(url)
+        clock_seconds[0] += 10.0
+        return {"ok": True, "html": "<html></html>", "final_url": url}
+
+    result = escalate(
+        pages,
+        _config(max_render_seconds=1, page_concurrency=2),
+        probe=lambda _u: {"ok": True, "needs_escalation": True},
+        render_fetch=render_fetch,
+        representation_label="rendered",
+        clock=lambda: clock_seconds[0],
+    )
+
+    assert sorted(started) == sorted(p.url for p in pages[:2])
+    assert result.render_requests == 2
+    assert result.time_budget_exhausted is True
+    assert result.patterns_partially_rendered == ["https://example.com/blog/*"]
+    # The two in-flight pages earned the rendered representation; the rest stay
+    # honestly static rather than claiming a fetch that never ran.
+    assert all(result.representations[p.url] == "rendered" for p in pages[:2])
+    assert all(result.representations[p.url] == "static" for p in pages[2:])
+    assert _no_render_threads() == []
+
+
+def test_a_worker_failure_propagates_after_the_pool_unwinds():
+    """A render_fetch that raises is a caller bug or a driver crash, not a
+    render verdict: it must propagate rather than be folded into ok:False.
+    At most the submitted window can have started, and teardown must leave no
+    worker thread alive."""
+    pages = [_Page(f"https://example.com/blog/{i}") for i in range(8)]
+    started: list[str] = []
+
+    def render_fetch(url):
+        started.append(url)
+        raise RuntimeError("renderer crashed")
+
+    with pytest.raises(RuntimeError, match="renderer crashed"):
+        escalate(
+            pages,
+            _config(page_concurrency=3),
+            probe=lambda _u: {"ok": True, "needs_escalation": True},
+            render_fetch=render_fetch,
+            representation_label="rendered",
+        )
+
+    assert len(started) <= 3
+    assert _no_render_threads() == []
+
+
+def test_an_interrupted_batch_waits_out_jobs_already_started():
+    """KeyboardInterrupt in one worker must still let its in-flight sibling
+    finish -- shutdown(wait=True) is what keeps a half-closed context or
+    client from outliving the call."""
+    pages = [_Page(f"https://example.com/blog/{i}") for i in range(5)]
+    completed: list[str] = []
+    started: list[str] = []
+    sibling_running = threading.Event()
+
+    def render_fetch(url):
+        started.append(url)
+        if url == pages[0].url:
+            sibling_running.wait(timeout=10)
+            raise KeyboardInterrupt
+        sibling_running.set()
+        completed.append(url)
+        return {"ok": True, "html": "<html></html>", "final_url": url}
+
+    with pytest.raises(KeyboardInterrupt):
+        escalate(
+            pages,
+            _config(page_concurrency=2),
+            probe=lambda _u: {"ok": True, "needs_escalation": True},
+            render_fetch=render_fetch,
+            representation_label="rendered",
+        )
+
+    assert sorted(completed) == sorted(u for u in started if u != pages[0].url)
+    assert _no_render_threads() == []
+
+
+def test_the_probe_uses_the_same_engine_viewport_and_emulation_as_the_render(
+    monkeypatch,
+):
+    """A pattern must not be escalated by a browser configured differently
+    from the one that produces its evidence: #744's engine, viewport pair and
+    emulation flags all reach the probe the handler binds."""
+    from seohead.crawl.spider import SpiderResult
+    from seohead.servers import handlers
+    from seohead.tools import render as render_tool
+
+    probed_with: dict = {}
+
+    def fake_render_check(target, **kwargs):
+        probed_with.update(kwargs)
+        return {"ok": True, "js_dependent": False, "empty_shell": None}
+
+    monkeypatch.setattr(render_tool, "render_check", fake_render_check)
+    settings = crawl_config.load(
+        overrides={
+            "rendering.mode": "js",
+            "rendering.browser.engine": "webkit",
+            "rendering.browser.viewport_width": 800,
+            "rendering.browser.viewport_height": 600,
+            "rendering.browser.touch_emulation": True,
+        }
+    )
+    result = SpiderResult()
+    result.pages = [_Page("https://example.com/app/1")]
+
+    handlers._run_render_escalation(result, settings["rendering"], settings)
+
+    assert probed_with["engine"] == "webkit"
+    assert probed_with["viewport_size"] == {"width": 800, "height": 600}
+    assert probed_with["touch_emulation"] is True
+    assert probed_with["mobile_emulation"] is False

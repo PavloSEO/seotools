@@ -94,6 +94,7 @@ def _fetch(
     retries: int = 2,
     *,
     request_gate: Callable[[], None] | None = None,
+    proxy_route=None,
 ) -> bytes | None:
     if not url.lower().startswith(("http://", "https://")):  # no file://, ftp://, etc.
         return None
@@ -109,7 +110,11 @@ def _fetch(
                 # The hook runs for every automatic redirect; each retry owns
                 # a fresh client and therefore reserves a fresh request turn.
                 options["event_hooks"] = {"request": [lambda _request: request_gate()]}
-            client, _http2_capable = http_client(timeout, **options)
+            from seohead.recon.net import crawl_transport_options
+
+            client, _http2_capable = http_client(
+                timeout, **crawl_transport_options(proxy_route), **options
+            )
             data = bytearray()
             with client, client.stream("GET", url) as response:
                 response.raise_for_status()
@@ -141,6 +146,7 @@ def _parse_sitemap_bytes(
     source: str = "",
     truncated: list[str] | None = None,
     request_gate: Callable[[], None] | None = None,
+    proxy_route=None,
 ) -> list[dict[str, Any]]:
     """Return [{loc, lastmod}], recursing through <sitemapindex> with guards.
 
@@ -201,6 +207,8 @@ def _parse_sitemap_bytes(
                 continue
             seen.add(loc)
             fetch_kwargs = {"request_gate": request_gate} if request_gate is not None else {}
+            if proxy_route is not None:
+                fetch_kwargs["proxy_route"] = proxy_route
             child = _fetch(loc, user_agent, timeout, **fetch_kwargs)
             if child:
                 out.extend(
@@ -216,6 +224,7 @@ def _parse_sitemap_bytes(
                         loc,
                         truncated,
                         request_gate,
+                        proxy_route,
                     )
                 )
             elif failures is not None:
@@ -422,6 +431,7 @@ def run_sitemap(
     crawl_partial: bool = False,
     *,
     request_gate: Callable[[], None] | None = None,
+    proxy_route=None,
 ) -> dict[str, Any]:
     """``sitemap_urls``, when given, is every discovered sitemap root the caller wants
     audited (#311) -- auto-discovery can find more than one independent ``Sitemap:``
@@ -491,6 +501,8 @@ def run_sitemap(
 
     if network_attempted:
         fetch_kwargs = {"request_gate": request_gate} if request_gate is not None else {}
+        if proxy_route is not None:
+            fetch_kwargs["proxy_route"] = proxy_route
         robots = _fetch(f"{base}/robots.txt", ua, timeout, **fetch_kwargs)
         if robots is not None:
             robots_text = robots.decode("utf-8", "replace")
@@ -541,6 +553,7 @@ def run_sitemap(
                         source=sm_url,
                         truncated=depth_truncated,
                         request_gate=request_gate,
+                        proxy_route=proxy_route,
                     )
                 )
             else:

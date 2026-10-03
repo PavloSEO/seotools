@@ -57,32 +57,188 @@ def _rec(page: Page) -> dict[str, Any]:
 
 
 def _body_unavailable(rec: dict[str, Any]) -> bool:
-    """Whether this row's HTML body was too large to parse (#243).
+    """Whether this row's HTML body was not parsed or retained.
 
     A blank title/description/h1/canonical on such a row means "never measured",
     not "observed absent" -- the same distinction ``_has_column`` draws for a
-    column missing from the whole export, but here it is one row at a time.
+    column missing from the whole export, but here it is one row at a time. The
+    marker covers both the existing size limit and an explicit crawl media-type
+    filter.
     """
     return bool(rec.get("body_unavailable"))
 
 
-def _skip_for_body_unavailable(ctx: AuditContext, check_id: str, pages: list[Page]) -> None:
-    """Name, once, why some pages contribute no finding to ``check_id``.
-
-    ``ctx.add`` already retracts a check-id's skip the moment that check fires for
-    real evidence elsewhere (see ``AuditContext.add``), so on a crawl where the
-    check also finds a genuinely missing value on another page this reason is
-    superseded by that finding rather than sitting beside it -- the check plainly
-    did run. Only when every candidate page for this check turns out to be
-    unavailable does the reason stand as the audit's account of why it is silent.
-    """
-    count = sum(1 for p in pages if _body_unavailable(_rec(p)))
-    if count:
-        ctx.skip(
-            check_id,
+def _body_unavailable_reason(pages: list[Page]) -> str | None:
+    reasons: dict[str, int] = {}
+    for page in pages:
+        reason = str(_rec(page).get("body_unavailable") or "")
+        if reason:
+            reasons[reason] = reasons.get(reason, 0) + 1
+    count = sum(reasons.values())
+    if set(reasons) == {"oversized"}:
+        return (
             f"{count} page(s) with an oversized, unparsed HTML body "
-            "-- this metadata was never measured",
+            "-- this metadata was never measured"
         )
+    elif count:
+        labels = {
+            "excluded_by_media_type": "excluded by media type",
+            "not_included_by_media_type": "not included by media type",
+            "media_type_unavailable": "missing or malformed Content-Type",
+            "oversized": "oversized HTML body",
+        }
+        summary = ", ".join(
+            f"{labels.get(reason, reason)}: {amount}" for reason, amount in sorted(reasons.items())
+        )
+        return f"{count} page(s) were not parsed ({summary}); this metadata was never measured"
+    return None
+
+
+def _skip_for_body_unavailable(ctx: AuditContext, check_id: str, pages: list[Page]) -> None:
+    """Name why unparsed HTML cannot contribute a verdict to ``check_id``."""
+    reason = _body_unavailable_reason(pages)
+    if reason:
+        ctx.skip(check_id, reason)
+
+
+# A blank parser-derived column is not a negative result when HTML was not
+# parsed. Keep this inventory next to the shared unavailable-body policy so
+# new on-page rules can be checked against it during review. Checks that also
+# have evidence elsewhere retain their normal verdict: AuditContext.add
+# retracts a check's skip when that check actually fires.
+_BODY_DERIVED_INDEXABLE_CHECKS = (
+    "NON_INDEXABLE_LINKED",
+    "TITLE_MISSING",
+    "TITLE_TOO_LONG",
+    "TITLE_TOO_SHORT",
+    "TITLE_EQUALS_H1",
+    "TITLE_DUPLICATE",
+    "DESC_MULTIPLE",
+    "DESC_MISSING",
+    "DESC_TOO_LONG",
+    "DESC_TOO_SHORT",
+    "DESC_DUPLICATE",
+    "H1_MISSING",
+    "H1_MULTIPLE",
+    "H1_TOO_LONG",
+    "H1_DUPLICATE",
+    "H1_ALT_TEXT_ONLY",
+    "H2_MISSING",
+    "H2_TOO_LONG",
+    "H2_DUPLICATE",
+    "TITLE_OUTSIDE_HEAD",
+    "DESC_OUTSIDE_HEAD",
+    "CANONICAL_MISSING",
+    "HEADING_BEFORE_H1",
+    "HEADING_IN_PAGE_CHROME",
+    "HEADING_SKIP",
+    "LINK_INSIDE_HEADING",
+    "IMAGE_LINK_WITHOUT_TEXT",
+    "NO_INTERNAL_OUTLINKS",
+    "HIGH_OUTLINKS",
+    "HIGH_EXTERNAL_OUTLINKS",
+    "URL_HAS_PARAMS",
+    "CONTENT_IN_IFRAME",
+    "THIN_CONTENT",
+    "LOW_TEXT_RATIO",
+    "HTML_BLOAT",
+    "TITLE_TEMPLATED",
+    "NEAR_DUPLICATE",
+    "OG_MISSING",
+)
+
+_BODY_DERIVED_HTML_CHECKS = (
+    "CANONICALISED",
+    "CANONICAL_NON_INDEXABLE",
+    "CANONICAL_RELATIVE",
+    "CANONICAL_FRAGMENT",
+    "CANONICAL_CHAIN",
+    "CANONICAL_TO_REDIRECT",
+    "UNLINKED_CANONICAL",
+    "DIRECTIVES_OUTSIDE_HEAD",
+    "NOINDEX",
+    "NOFOLLOW_PAGE",
+    "NOARCHIVE",
+    "NOSNIPPET",
+    "NOIMAGEINDEX",
+    "NOTRANSLATE",
+    "UNAVAILABLE_AFTER",
+    "HREFLANG_OUTSIDE_HEAD",
+    "META_REFRESH_REDIRECT",
+    "CANONICAL_OUTSIDE_HEAD",
+    "STRUCTURED_DATA_PARSE_ERROR",
+    "LOREM_IPSUM_PLACEHOLDER",
+    "UNSUPPORTED_PLUGIN",
+    "IMG_MISSING_ALT_ATTRIBUTE",
+    "IMG_ALT_TOO_LONG",
+    "AJAX_CRAWLING_SCHEME_URL",
+    "AJAX_CRAWLING_SCHEME_META_FRAGMENT",
+    "HREFLANG_BROKEN_TARGET",
+    "HREFLANG_INVALID_CODE",
+    "HREFLANG_MULTIPLE_ENTRIES",
+    "HREFLANG_MISSING_SELF_REFERENCE",
+    "HREFLANG_MISSING_XDEFAULT",
+    "HREFLANG_NOT_CANONICAL",
+    "HREFLANG_MISSING_RETURN_LINK",
+    "BROKEN_INTERNAL_LINK",
+    "LINK_TO_5XX",
+    "INTERNAL_LINK_TO_REDIRECT",
+    "BROKEN_EXTERNAL_LINK",
+    "EXTERNAL_LINK_TO_REDIRECT",
+    "GENERIC_ANCHOR_TEXT",
+    "LOW_LINK_SCORE",
+    "ONLY_NOFOLLOW_INLINKS",
+    "ONLY_NONINDEXABLE_SOURCE_INLINKS",
+    "DEEP_DISCOVERY_PATH",
+    "DEEP_CLICK_DEPTH",
+    "DUPLICATE_INTERNAL_LINK",
+    "INSECURE_SUBRESOURCE",
+    "PAGINATION_MULTIPLE",
+    "PAGINATION_URL_NOT_IN_ANCHOR",
+    "PAGINATION_SEQUENCE_ERROR",
+    "PAGINATION_LOOP",
+    "UNLINKED_PAGINATION_SERIES",
+    "PAGINATION_NONINDEXABLE",
+    "MISSING_DOCTYPE",
+    "VIEWPORT_MISSING",
+    "HEAD_MISSING",
+    "HEAD_MULTIPLE",
+    "BODY_MISSING",
+    "BODY_MULTIPLE",
+    "INVALID_HEAD_ELEMENT",
+    "HEAD_NOT_FIRST",
+)
+
+
+def _declare_unparsed_body_skips(ctx: AuditContext) -> None:
+    populations = (
+        (_BODY_DERIVED_INDEXABLE_CHECKS, ctx.indexable_html_pages()),
+        (_BODY_DERIVED_HTML_CHECKS, ctx.html_pages()),
+    )
+    for check_ids, pages in populations:
+        unparsed = [page for page in pages if _body_unavailable(_rec(page))]
+        reason = _body_unavailable_reason(unparsed)
+        if reason:
+            for check_id in check_ids:
+                if not ctx.enabled(check_id):
+                    continue
+                if check_id == "H2_MISSING" and not ctx.requirements.get("require_h2", False):
+                    continue
+                if check_id == "CANONICAL_MISSING" and not ctx.requirements.get(
+                    "require_canonical", True
+                ):
+                    continue
+                ctx.skip(check_id, reason)
+    charset_pages = [
+        page
+        for page in ctx.html_pages()
+        if not (page.content_type and _CHARSET_IN_HEADER_RE.search(page.content_type))
+    ]
+    charset_reason = _body_unavailable_reason(
+        [page for page in charset_pages if _body_unavailable(_rec(page))]
+    )
+    if charset_reason and ctx.enabled("MISSING_CHARSET"):
+        ctx.skip("MISSING_CHARSET", charset_reason)
 
 
 def _has_column(ctx: AuditContext, field: str) -> bool:
@@ -647,6 +803,8 @@ def check_content(ctx: AuditContext) -> None:
     has_text_ratio = False
     for page in ctx.indexable_html_pages():
         rec = _rec(page)
+        if _body_unavailable(rec):
+            continue
         wc = rec.get("word_count")
         if wc is not None and wc < t["thin_content_words"]:
             # A page can be below the threshold for two different reasons, and
@@ -717,7 +875,12 @@ def check_url_and_perf(ctx: AuditContext) -> None:
                 target_url=url,
                 details={"length": len(url), "max_chars": t["url_max_chars"]},
             )
-        if "?" in url and page.is_indexable and not rec.get("canonical"):
+        if (
+            "?" in url
+            and page.is_indexable
+            and not rec.get("canonical")
+            and not _body_unavailable(rec)
+        ):
             ctx.add("URL_HAS_PARAMS", target_url=url)
         if NON_ASCII.search(path):
             ctx.add("URL_NON_ASCII", target_url=url)
@@ -1537,6 +1700,8 @@ def check_links_extra(ctx: AuditContext) -> None:
     t = ctx.thresholds
     for page in ctx.indexable_html_pages():
         rec = _rec(page)
+        if _body_unavailable(rec):
+            continue
         # The Outlinks column counts internal links only; External Outlinks is
         # a separate count, not a subset. Subtracting one from the other made
         # any page with more external than internal links read as having no
@@ -1635,7 +1800,7 @@ def check_charset(ctx: AuditContext) -> None:
     for page in pages:
         header_charset = bool(page.content_type and _CHARSET_IN_HEADER_RE.search(page.content_type))
         meta_charset = bool(_rec(page).get("meta_charset"))
-        if not header_charset and not meta_charset:
+        if not header_charset and not meta_charset and not _body_unavailable(_rec(page)):
             ctx.add(
                 "MISSING_CHARSET", target_url=page.url, details={"content_type": page.content_type}
             )
@@ -1654,6 +1819,8 @@ def check_doctype(ctx: AuditContext) -> None:
         )
         return
     for page in pages:
+        if _body_unavailable(_rec(page)):
+            continue
         raw = _rec(page).get("doctype")
         if not raw:
             ctx.add("MISSING_DOCTYPE", target_url=page.url, details={"reason": "no doctype"})
@@ -1679,6 +1846,8 @@ def check_viewport(ctx: AuditContext) -> None:
         )
         return
     for page in pages:
+        if _body_unavailable(_rec(page)):
+            continue
         content = _rec(page).get("viewport")
         if not content:
             ctx.add(
@@ -1820,6 +1989,8 @@ def check_document_skeleton(ctx: AuditContext) -> None:
         return
     for page in ctx.html_pages():
         rec = _rec(page)
+        if _body_unavailable(rec):
+            continue
         head_count = rec.get("head_count") or 0
         body_count = rec.get("body_count") or 0
         if head_count == 0:
@@ -1854,6 +2025,8 @@ def check_native_page_evidence(ctx: AuditContext) -> None:
     has_images = _has_column(ctx, "images_total")
     for page in ctx.html_pages():
         rec = _rec(page)
+        if _body_unavailable(rec):
+            continue
         if has_lorem:
             occurrences = rec.get("lorem_ipsum_count") or 0
             if occurrences > 0:
@@ -1959,6 +2132,8 @@ def check_og(ctx: AuditContext) -> None:
         return
     for page in pages:
         rec = _rec(page)
+        if _body_unavailable(rec):
+            continue
         if rec.get("og_title"):
             continue
         missing = [
@@ -2130,5 +2305,6 @@ def run_rules(ctx: AuditContext) -> None:
     if ctx.internal_df is None:
         ctx.skip("INTERNAL_ALL", "Internal:All export not loaded")
         return
+    _declare_unparsed_body_skips(ctx)
     for check in ALL_CHECKS:
         check(ctx)

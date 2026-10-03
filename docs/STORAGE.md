@@ -230,7 +230,11 @@ reuse a persistent browser profile, never because the browser carried back a coo
 the site itself set to a same-origin subresource. A crawl reports how many rendered
 DOMs it retained and the reasons it dropped the rest in `rendered_bodies`, for the
 same reason `html_bodies` exists -- both counts are derived from the artifact, so a
-finished scan still answers the question afterwards. Native SQLite mode requires
+finished scan still answers the question afterwards. Every rendered document's
+`renderer` provenance records the requested and effective engine, its reported
+version, the effective viewport and the configured page concurrency -- a failed
+attempt records what was requested with `engine: "unknown"` rather than inventing a
+successful render. Native SQLite mode requires
 `cache.mode=off` before collection; it never changes or deletes the old directory
 cache, which remains part of the directory workflow.
 
@@ -536,6 +540,16 @@ body policy; responses disabled by policy, credentials, `no-store`, media type,
 size or store budget keep a named omission instead. The raw start-page HTML is
 read from that retained static document for the rendering gate. A legacy three-file
 import cannot recreate discarded bodies, response provenance or native resume state.
+
+In URL mode, `scope.include_extensions` and `scope.exclude_extensions` record
+pre-request frontier decisions while keeping the referring `links` rows. The
+response media filters record a per-URL decision after headers arrive; a filtered
+response retains its status, media type, headers and redirect evidence while its
+entity is omitted. `pages.body_unavailable` carries the media filter reason so
+body-derived audit checks remain `skipped`. The saved crawl config includes all
+four filter lists, so a resume with changed rules is refused before reusing its
+frontier. The `resources.fetch` lane remains separately governed by its own MIME
+and byte budgets.
 
 The collector keeps only its bounded worker batch and page observations in
 Python; page/link/form records, seen identities, queue, query variants and

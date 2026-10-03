@@ -31,6 +31,8 @@ COMMANDS = (
     "crawl-describe-settings",
     "scan-reanalyze",
     "log-scan",
+    "crawl-diagnose",
+    "crawl-diagnose-export",
     "compare-crawls",
     "crawl-enrich",
     "crawl-import",
@@ -512,6 +514,16 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
             kw["run"] = args.run
         if getattr(args, "images_dir", None):
             kw["images_dir"] = args.images_dir
+    elif cmd == "crawl-diagnose":
+        for name in ("scan", "run", "max_decisions"):
+            value = getattr(args, name, None)
+            if value is not None:
+                kw[name] = value
+    elif cmd == "crawl-diagnose-export":
+        for name in ("scan", "run", "max_decisions", "export"):
+            value = getattr(args, name, None)
+            if value is not None:
+                kw[name] = value
     elif cmd == "compare-crawls":
         if getattr(args, "before", None):
             kw["before"] = args.before
@@ -1341,6 +1353,16 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
             help="an images-download output directory, so a recorded size can be compared "
             "against the file on disk",
         )
+    if cmd in ("crawl-diagnose", "crawl-diagnose-export"):
+        _source_flag(sub, "--scan", help="saved native scan.v1/v2 SQLite artifact")
+        _source_flag(sub, "--run", help="legacy crawl output directory with audit.json")
+        sub.add_argument(
+            "--max-decisions", type=int, default=20, help="decision sample size (1..20)"
+        )
+        if cmd == "crawl-diagnose-export":
+            sub.add_argument(
+                "--export", help="write a new redacted JSON diagnostic file (never overwrite)"
+            )
     if cmd == "compare-crawls":
         # See the log-scan comment above: `required=True` here would reject a JSON-only
         # `--input '{"before": ..., "after": ...}'` call the same way (#218). compare_crawls
@@ -1725,6 +1747,30 @@ def main(argv: list[str] | None = None) -> int:
             # states is in the JSON on stdout as ``partial``/``finish_reason``, and a
             # caller that asked for silence is a pipeline reading that, not a terminal.
             _print_crawl_outcome(result)
+        if cmd in ("crawl-diagnose", "crawl-diagnose-export") and not quiet:
+            observed = result["observed"]
+            pages = observed["page_records"]
+            shown = f"{pages} URL records" if pages is not None else "unknown URL record count"
+            elapsed = observed["elapsed_seconds"]
+            duration = (
+                f"{elapsed:.1f} s" if isinstance(elapsed, (int, float)) else "unknown duration"
+            )
+            print(
+                f"crawl-diagnose: {shown}; site total unknown; "
+                f"elapsed={duration}; finish={result['source']['finish_reason'] or 'unknown'}",
+                file=sys.stderr,
+            )
+            for finding in result["diagnoses"]:
+                print(
+                    f"  {finding['code']}: {finding['conclusion']} Next: {finding['next_step']}",
+                    file=sys.stderr,
+                )
+            for decision in result["decisions"]["sample"]:
+                print(
+                    f"  decision #{decision['decision_id']}: {decision['reason']} "
+                    f"url={decision['url']!r} depth={decision['depth']}",
+                    file=sys.stderr,
+                )
         if report_fmt and isinstance(result, dict) and result.get("ok"):
             # Build an optional report from the in-memory audit result. This keeps the structured
             # document identical while avoiding a manual JSON handoff between two commands.

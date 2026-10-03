@@ -104,6 +104,50 @@ def test_render_body_off_keeps_accepted_page_and_omitted_document(tmp_path):
     }
 
 
+def test_render_commit_preserves_bounded_page_concurrency_in_document(tmp_path):
+    path = tmp_path / "scan.sqlite"
+    with NativeScan.create(path, **_metadata(**{"rendering.browser.page_concurrency": 2})) as scan:
+        lease = _static_page(scan)
+        renderer = _renderer(lease.url)
+        renderer["page_concurrency"] = 2
+        document_id = scan.commit_render(
+            lease.url,
+            _rendered_record(lease.url),
+            html="<html><body>rendered</body></html>",
+            renderer=renderer,
+            captured_at="2026-10-03T00:00:00Z",
+        )
+        saved = scan.con.execute(
+            "SELECT renderer_json FROM documents WHERE document_id=?", (document_id,)
+        ).fetchone()[0]
+        assert json.loads(saved)["page_concurrency"] == 2
+        assert (
+            json.loads(scan.con.execute("SELECT config_json FROM scan").fetchone()[0])["rendering"][
+                "browser"
+            ]["page_concurrency"]
+            == 2
+        )
+
+
+@pytest.mark.parametrize("invalid", [0, 17, True, 2.5])
+def test_render_commit_rejects_invalid_page_concurrency_atomically(tmp_path, invalid):
+    path = tmp_path / "scan.sqlite"
+    with NativeScan.create(path, **_metadata()) as scan:
+        lease = _static_page(scan)
+        renderer = _renderer(lease.url)
+        renderer["page_concurrency"] = invalid
+        before = scan.con.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+        with pytest.raises(ScanError, match="page_concurrency"):
+            scan.commit_render(
+                lease.url,
+                _rendered_record(lease.url),
+                html="<html><body>rendered</body></html>",
+                renderer=renderer,
+                captured_at="2026-10-03T00:00:00Z",
+            )
+        assert scan.con.execute("SELECT COUNT(*) FROM documents").fetchone()[0] == before
+
+
 def test_render_keeps_raw_and_rendered_edge_occurrences_and_invalidates_audit(tmp_path):
     path = tmp_path / "scan.sqlite"
     with NativeScan.create(path, **_metadata()) as scan:

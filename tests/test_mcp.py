@@ -243,6 +243,55 @@ def test_crawl_site_explicit_override_changes_only_that_setting(monkeypatch):
         assert forwarded[key] is None
 
 
+def test_crawl_site_forwards_the_rendering_browser_overrides(monkeypatch):
+    """#744: MCP and CLI share one handler, so the engine/viewport/concurrency
+    keys must arrive as the same dotted-path overrides a --set run builds --
+    no separate MCP-side setting surface."""
+    from seohead.crawl import settings as crawl_config
+
+    received = []
+
+    def fake_crawl_site(**kwargs):
+        received.append(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr("seohead.servers.handlers.crawl_site", fake_crawl_site)
+    tool = next(
+        tool for tool in build_server()._tool_manager.list_tools() if tool.name == "seo_crawl_site"
+    )
+    overrides = {
+        "rendering.browser.engine": "webkit",
+        "rendering.browser.viewport_width": 1440,
+        "rendering.browser.viewport_height": 900,
+        "rendering.browser.page_concurrency": 2,
+    }
+
+    asyncio.run(tool.run({"url": "https://example.test/", "overrides": overrides}))
+
+    forwarded = received[0]
+    assert forwarded["overrides"] == overrides
+    browser = crawl_config.load(overrides=forwarded["overrides"])["rendering"]["browser"]
+    assert browser["engine"] == "webkit"
+    assert (browser["viewport_width"], browser["viewport_height"]) == (1440, 900)
+    assert browser["page_concurrency"] == 2
+
+
+def test_crawl_describe_settings_exposes_file_type_filter_paths():
+    tool = build_server()._tool_manager.get_tool("seo_crawl_describe_settings")
+
+    result = asyncio.run(tool.run({}))
+
+    rows = {row["path"]: row for row in result["settings"]}
+    for path in (
+        "scope.include_extensions",
+        "scope.exclude_extensions",
+        "scope.include_media_types",
+        "scope.exclude_media_types",
+    ):
+        assert rows[path]["results_affecting"] is True
+        assert rows[path]["description"]
+
+
 def test_render_check_mcp_forwards_explicit_identity(monkeypatch):
     """#670: the local MCP surface cannot strand the mobile identity in the CLI."""
     received = []

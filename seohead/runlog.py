@@ -96,7 +96,12 @@ def _redact(value: Any) -> Any:
             shown.append(f"…+{len(value) - 10} more")
         return shown
     if isinstance(value, dict):
-        return {k: _redact(v) for k, v in value.items()}
+        return {
+            k: "[redacted]"
+            if isinstance(k, str) and k.lower() in {"http.proxy", "proxy", "proxy_url"}
+            else _redact(v)
+            for k, v in value.items()
+        }
     if isinstance(value, (bool, int, float, type(None))):
         return value
     if isinstance(value, os.PathLike):
@@ -120,7 +125,9 @@ def safe_arguments(arguments: dict[str, Any] | None) -> dict[str, Any]:
     """
     out: dict[str, Any] = {}
     for name, value in (arguments or {}).items():
-        if any(hint in name.lower() for hint in SECRET_HINTS):
+        if name.lower() in {"http.proxy", "proxy", "proxy_url"} or any(
+            hint in name.lower() for hint in SECRET_HINTS
+        ):
             out[name] = "[redacted]"
         else:
             out[name] = _redact(value)

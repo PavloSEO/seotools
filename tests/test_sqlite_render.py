@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
+import threading
 from types import SimpleNamespace
 
 from seohead.crawl.collect import PageRecord
@@ -452,3 +454,170 @@ def test_native_legacy_fragment_keeps_escaped_navigation_as_response_provenance(
 
     assert escalation.representations[target] == "legacy_fragment"
     assert (document[0], document[1], navigation) == ("legacy_fragment", target, escaped)
+
+
+def test_native_render_bounds_browser_workers_and_commits_on_the_calling_thread(
+    monkeypatch,
+):
+    """#744: rendering.browser.page_concurrency must bound browser fetches --
+    the barrier in the fake forces genuine overlap, so max_active reaching
+    exactly 2 proves the bound engaged -- while every SQLite touch (preflight,
+    commit_render) stays on the orchestrator thread."""
+    from seohead.crawl import sqlite_render
+    from seohead.tools import render as render_tool
+
+    pages = [
+        PageRecord(
+            url=f"https://example.test/item/{i}",
+            content_type="text/html",
+            title="Raw",
+            word_count=100,
+            status_code=200,
+            crawl_depth=1,
+        )
+        for i in range(4)
+    ]
+    result = SimpleNamespace(pages=pages, links=[])
+    scan = _Scan()
+    owner = threading.get_ident()
+
+    barrier = threading.Barrier(2)
+    lock = threading.Lock()
+    state = {"active": 0, "max_active": 0}
+    fetch_threads: set[int] = set()
+    sqlite_threads: set[int] = set()
+
+    def fake_document(url, *_args, **_kwargs):
+        with lock:
+            state["active"] += 1
+            state["max_active"] = max(state["max_active"], state["active"])
+            fetch_threads.add(threading.get_ident())
+        with contextlib.suppress(threading.BrokenBarrierError):
+            barrier.wait(timeout=10)
+        with lock:
+            state["active"] -= 1
+        return {
+            "ok": True,
+            "url": url,
+            "final_url": url,
+            "html": "<html><head><title>DOM</title></head><body>" + "word " * 60 + "</body></html>",
+            "renderer": _renderer(url),
+        }
+
+    real_commit = _Scan.commit_render
+    real_preflight = _Scan.preflight_capture
+
+    def commit_render(self, url, record, **kwargs):
+        sqlite_threads.add(threading.get_ident())
+        return real_commit(self, url, record, **kwargs)
+
+    def preflight_capture(self):
+        sqlite_threads.add(threading.get_ident())
+        return real_preflight(self)
+
+    monkeypatch.setattr(_Scan, "commit_render", commit_render)
+    monkeypatch.setattr(_Scan, "preflight_capture", preflight_capture)
+    monkeypatch.setattr(render_tool, "render_document", fake_document)
+    # policy=full needs no static body read, so _static_html is never reached.
+    monkeypatch.setattr(
+        sqlite_render,
+        "_static_html",
+        lambda *_a: (_ for _ in ()).throw(AssertionError("full policy never reads")),
+    )
+
+    escalation = run_render_escalation(
+        scan,
+        result,
+        _settings(
+            **{
+                "rendering.escalation.policy": "full",
+                "rendering.escalation.max_render_urls": 10,
+                "rendering.browser.page_concurrency": 2,
+            }
+        ),
+    )
+
+    assert escalation.render_page_concurrency == 2
+    assert escalation.render_requests == 4
+    assert state["max_active"] == 2
+    assert fetch_threads and owner not in fetch_threads
+    assert sqlite_threads == {owner}
+    assert all(escalation.representations[p.url] == "rendered" for p in pages)
+    assert not [t for t in threading.enumerate() if t.name.startswith("seohead-render")]
+
+
+def test_concurrent_rendered_route_admission_dedupes_through_the_frontier(monkeypatch, tmp_path):
+    """#744: two rendered pages discover the same rendered-only route. The
+    commits land sequentially on the orchestrator thread even though the
+    fetches overlapped, so apply_candidates admits /new-route exactly once."""
+    from seohead.servers.scan_handlers import _rebuild_page_result
+    from seohead.tools import render as render_tool
+
+    root = "https://example.test/"
+    body = "word " * 60
+    responses = {
+        root + "robots.txt": _Response(200, "User-agent: *\nAllow: /\n"),
+        root: _Response(
+            200,
+            f"<html><head><title>Home</title></head><body>"
+            f"<a href='/item/1'>i1</a><a href='/item/2'>i2</a>{body}</body></html>",
+        ),
+        root + "item/1": _Response(
+            200, f"<html><head><title>Item 1</title></head><body>{body}</body></html>"
+        ),
+        root + "item/2": _Response(
+            200, f"<html><head><title>Item 2</title></head><body>{body}</body></html>"
+        ),
+    }
+    path = tmp_path / "scan.sqlite"
+    settings = _settings(
+        **{
+            "rendering.escalation.policy": "full",
+            "rendering.escalation.max_render_urls": 10,
+            "rendering.browser.page_concurrency": 2,
+            "rendering.rendered_links.crawl": True,
+            "rendering.rendered_links.store": True,
+        }
+    )
+    crawl_to_scan(
+        root,
+        scan_out=str(path),
+        settings=settings,
+        producer_version="test",
+        producer_revision="a" * 40,
+        runtime_versions={
+            "python": "test",
+            "sqlite": "test",
+            "httpx": "test",
+            "lxml": "test",
+            "beautifulsoup4": "test",
+        },
+        fetcher=responses.__getitem__,
+        sleeper=lambda _seconds: None,
+    )
+    rendered_html = (
+        "<html><head><title>DOM</title></head><body>"
+        "<a href='/new-route'>new</a>" + body + "</body></html>"
+    )
+    monkeypatch.setattr(
+        render_tool,
+        "render_document",
+        lambda url, *_a, **_k: {
+            "ok": True,
+            "url": url,
+            "final_url": url,
+            "html": rendered_html,
+            "renderer": _renderer(url),
+        },
+    )
+
+    with NativeScan.open(path) as scan:
+        result = _rebuild_page_result(scan)
+        escalation = run_render_escalation(scan, result, settings)
+        rows = scan.con.execute(
+            "SELECT u.url,f.state FROM frontier f JOIN urls u USING(url_id) WHERE u.url=?",
+            ("https://example.test/new-route",),
+        ).fetchall()
+
+    assert escalation.render_requests == 3
+    assert [tuple(row) for row in rows] == [("https://example.test/new-route", "queued")]

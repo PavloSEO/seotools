@@ -597,7 +597,10 @@ def _validate_import_metadata(con, scan: dict, audit: dict) -> None:
     if _has_negative_page_counts(con):
         raise ScanError("invalid negative PageRecord count")
     if con.execute(
-        "SELECT 1 FROM pages WHERE content_frames_same_origin > content_frames OR body_unavailable NOT IN ('','oversized') LIMIT 1"
+        "SELECT 1 FROM pages WHERE content_frames_same_origin > content_frames "
+        "OR body_unavailable NOT IN "
+        "('','oversized','excluded_by_media_type','not_included_by_media_type',"
+        "'media_type_unavailable') LIMIT 1"
     ).fetchone():
         raise ScanError("invalid frame counts or body_unavailable state")
     count, low, high = con.execute(

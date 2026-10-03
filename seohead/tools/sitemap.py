@@ -419,6 +419,7 @@ def crawl(
     *,
     sink: Callable[[dict], None] | None = None,
     request_gate: Callable[[], None] | None = None,
+    proxy_route=None,
 ) -> dict:
     """Recursively crawl a sitemap tree starting at *url*.
 
@@ -512,7 +513,11 @@ def crawl(
         # the gate here rather than in _fetch means redirects reserve the same
         # turn as the selected root and nested sitemap documents.
         options["event_hooks"] = {"request": [lambda _request: request_gate()]}
-    client, _http2_capable = http_client(TIMEOUT_S, **options)
+    from seohead.recon.net import crawl_transport_options
+
+    client, _http2_capable = http_client(
+        TIMEOUT_S, **crawl_transport_options(proxy_route), **options
+    )
     with (
         client,
         closing(_StreamingDeduper(sink)) if sink is not None else nullcontext() as streaming,

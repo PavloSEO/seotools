@@ -28,12 +28,22 @@ than no audit.
 **3. Turn rendering on selectively, not everywhere.** In the crawler config:
 
 ```json
-{"rendering": {"mode": "js", "escalation": {"sample_per_pattern": 2, "max_render_urls": 30}}}
+{"rendering": {"mode": "js", "escalation": {"sample_per_pattern": 2, "max_render_urls": 30},
+               "browser": {"engine": "chromium", "page_concurrency": 2}}}
 ```
 
 Two URLs per detected template pattern are probed raw-versus-rendered; only patterns that
 actually differ are escalated. Rendering every page of a 3000-URL site to find the one template
 that hydrates its links costs an order of magnitude more for the same answer.
+
+`browser.engine` chooses the headless engine — `chromium` (the default), `firefox` or
+`webkit`; an uninstalled browser fails with an install hint, never a silent fallback.
+`browser.viewport_width`/`viewport_height` replace the `desktop`/`mobile` preset's
+dimensions with an exact pixel pair (set both, 1–16384), and `browser.page_concurrency`
+bounds how many browser fetches run at once — independently of the crawl's HTTP politeness
+concurrency, with 1 keeping the older sequential behaviour. The probe and the full render of
+a run always share the same engine, viewport and emulation flags, and the effective values
+are recorded per rendered page.
 
 ```bash
 seohead crawl-site --url https://example.com --config ./crawl.json --out-dir ./run
@@ -99,7 +109,8 @@ request per page as usual.
 
 ## What it cannot answer
 
-- **What Google actually rendered.** This is a headless Chromium, not Googlebot's renderer, on
+- **What Google actually rendered.** This is a headless browser — Chromium by default, or
+  Firefox/WebKit when configured — not Googlebot's renderer, on
   a different schedule with different budgets. It answers "is this content JS-dependent",
   which is the actionable half.
 - **Whether rendering delay costs rankings.** Nobody outside Google can measure that.

@@ -92,6 +92,21 @@ COMMAND_CONTRACTS: tuple[CommandContract, ...] = (
     _command("scan-reanalyze", "scan_reanalyze", _form("scan_artifact", "input_path")),
     _command("log-scan", "log_scan", _form("legacy_directory", "run")),
     _command(
+        "crawl-diagnose",
+        "crawl_diagnose",
+        _form("scan_artifact", "scan"),
+        _form("legacy_directory", "run"),
+        note="Choose one retained source; diagnosis is offline and read-only.",
+    ),
+    _command(
+        "crawl-diagnose-export",
+        "crawl_diagnose_export",
+        _form("scan_artifact", "scan", required_with=("export",)),
+        _form("legacy_directory", "run", required_with=("export",)),
+        _form("local_file", "export"),
+        note="Choose one retained source and a new redacted export destination; refuses overwrite.",
+    ),
+    _command(
         "compare-crawls",
         "compare_crawls",
         _form("audit_document", "before", "after", note="Each path may be audit JSON or scan.v1."),

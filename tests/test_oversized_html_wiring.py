@@ -32,9 +32,14 @@ UNMEASURED_NATIVE_FIELDS = {
 
 
 class FakeResponse:
-    def __init__(self, text: str, status_code: int = 200):
+    def __init__(
+        self,
+        text: str,
+        status_code: int = 200,
+        content_type: str = "text/html; charset=utf-8",
+    ):
         self.status_code = status_code
-        self.headers = {"content-type": "text/html; charset=utf-8"}
+        self.headers = {"content-type": content_type}
         self.text = text
         self.content = text.encode("utf-8")
 
@@ -54,18 +59,30 @@ COMPLIANT_HTML = (
 BLANK_HTML = "<html><head></head><body>hi</body></html>"
 
 
-def _run(urls_and_html: dict[str, str], max_response_bytes: int) -> AuditContext:
+def _run(
+    urls_and_html: dict[str, str],
+    max_response_bytes: int,
+    *,
+    body_unavailable: str | None = None,
+    content_type: str = "text/html; charset=utf-8",
+    requirements: dict | None = None,
+) -> AuditContext:
     result = collect_urls(
         list(urls_and_html),
-        fetcher=lambda url: FakeResponse(urls_and_html[url]),
+        fetcher=lambda url: FakeResponse(urls_and_html[url], content_type=content_type),
         max_response_bytes=max_response_bytes,
     )
+    if body_unavailable:
+        for record in result.pages:
+            record.body_unavailable = body_unavailable
     evidence = build_evidence(result)
     exports = LoadedExports()
     exports.frames.update(evidence["frames"])
     exports.found = list(evidence["found"])
     exports.missing = list(evidence["missing"])
-    ctx = AuditContext(exports, load_config(None))
+    config = load_config(None)
+    config["requirements"].update(requirements or {})
+    ctx = AuditContext(exports, config)
     ctx.skip_unsupported(set(exports.frames))
     run_rules(ctx)
     return ctx
@@ -150,6 +167,73 @@ def test_native_unprojected_fields_are_named_skips_even_with_a_mixed_body_popula
     skipped = {item.id: item.reason for item in ctx.skipped if item.id in UNMEASURED_NATIVE_FIELDS}
     assert set(skipped) == UNMEASURED_NATIVE_FIELDS
     assert all("Internal:All" in reason for reason in skipped.values())
+
+
+BODY_DERIVED_CHECKS = {
+    "TITLE_TOO_LONG",
+    "TITLE_TOO_SHORT",
+    "TITLE_EQUALS_H1",
+    "DESC_MULTIPLE",
+    "DESC_TOO_LONG",
+    "DESC_TOO_SHORT",
+    "H1_MULTIPLE",
+    "H1_TOO_LONG",
+    "H2_MISSING",
+    "H2_TOO_LONG",
+    "TITLE_DUPLICATE",
+    "DESC_DUPLICATE",
+    "H1_DUPLICATE",
+    "H2_DUPLICATE",
+    "CANONICALISED",
+    "CANONICAL_NON_INDEXABLE",
+    "META_REFRESH_REDIRECT",
+    "CONTENT_IN_IFRAME",
+    "THIN_CONTENT",
+    "LOW_TEXT_RATIO",
+    "HTML_BLOAT",
+    "STRUCTURED_DATA_PARSE_ERROR",
+    "MISSING_DOCTYPE",
+    "VIEWPORT_MISSING",
+    "HEAD_MISSING",
+    "BODY_MISSING",
+    "NO_INTERNAL_OUTLINKS",
+    "URL_HAS_PARAMS",
+    "NON_INDEXABLE_LINKED",
+    "PAGINATION_NONINDEXABLE",
+    "OG_MISSING",
+}
+
+
+def test_filtered_html_body_derived_checks_are_unavailable_not_silent_or_clean():
+    url = "https://example.com/filtered?sort=price"
+    ctx = _run(
+        {url: COMPLIANT_HTML},
+        max_response_bytes=50,
+        body_unavailable="excluded_by_media_type",
+        requirements={"require_h2": True},
+    )
+
+    record = next(page for page in ctx.pages if page.url == url).metrics["_record"]
+    assert record["body_unavailable"] == "excluded_by_media_type"
+    assert not [issue for issue in ctx.issues if issue.check in BODY_DERIVED_CHECKS]
+
+    skipped = {item.id: item.reason for item in ctx.skipped if item.id in BODY_DERIVED_CHECKS}
+    assert skipped.keys() >= BODY_DERIVED_CHECKS
+    assert all("excluded by media type" in skipped[check] for check in BODY_DERIVED_CHECKS)
+
+
+def test_missing_charset_uses_header_evidence_when_filtered_html_has_no_body():
+    url = "https://example.com/filtered-no-header-charset"
+    ctx = _run(
+        {url: COMPLIANT_HTML},
+        max_response_bytes=50,
+        body_unavailable="excluded_by_media_type",
+        content_type="text/html",
+    )
+
+    assert not [issue for issue in ctx.issues if issue.check == "MISSING_CHARSET"]
+    skipped = next(item for item in ctx.skipped if item.id == "MISSING_CHARSET")
+    assert "excluded by media type" in skipped.reason
 
 
 @pytest.mark.parametrize(

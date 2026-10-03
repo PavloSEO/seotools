@@ -21,6 +21,7 @@ def load_sitemaps(
     settings: dict[str, Any],
     result: dict[str, Any],
     request_gate: Callable[[], None] | None = None,
+    proxy_route=None,
 ) -> None:
     selected = scan.sitemap_roots()
     if settings["sitemaps"]["auto_discover"] and not any(
@@ -64,6 +65,7 @@ def load_sitemaps(
         read_sitemap_summary=lambda sid: scan.read_context("sitemap_fetch_summary", f"url:{sid}"),
         read_sitemap_members=scan.iter_sitemap_members,
         request_gate=request_gate,
+        proxy_route=proxy_route,
     )
     if pending:
         emit_seeds(pending)

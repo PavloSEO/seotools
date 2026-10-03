@@ -61,6 +61,16 @@ from seohead.storage.credential_context import (
 from seohead.storage.retention import policy_for_config, validate_policy
 
 _RUNTIME_KEYS = ("python", "sqlite", "httpx", "lxml", "beautifulsoup4")
+_OPTIONAL_BROWSER_SETTINGS = (
+    "transport",
+    "remote_protocol",
+    "remote_endpoint_env",
+    "remote_playwright_version",
+    "engine",
+    "viewport_width",
+    "viewport_height",
+    "page_concurrency",
+)
 _BODY_TABLES = ("bodies", "responses", "documents", "resource_refs")
 _NATIVE_CONTEXT = {"native_commit", "robots_blocked_url"}
 _LINK_KEYS = {
@@ -152,18 +162,16 @@ def _native_config(value: Any, *, recorded: bool = False) -> dict[str, Any]:
         elif "rendering" in config and "crawl" not in config["rendering"]["rendered_links"]:
             expected["rendering"]["rendered_links"].pop("crawl")
         if "rendering" in config and "browser" in config["rendering"]:
-            for name in (
-                "transport",
-                "remote_protocol",
-                "remote_endpoint_env",
-                "remote_playwright_version",
-            ):
+            for name in _OPTIONAL_BROWSER_SETTINGS:
                 if name not in config["rendering"]["browser"]:
                     expected["rendering"]["browser"].pop(name)
         if "limits" in config and "max_requests" not in config["limits"]:
             expected["limits"].pop("max_requests")
         if "evidence" in config and "retain_no_store_acknowledged" not in config["evidence"]:
             expected["evidence"].pop("retain_no_store_acknowledged")
+        for key in ("proxy", "proxy_allow_private", "proxy_identity", "proxy_authenticated"):
+            if key not in config.get("http", {}):
+                expected["http"].pop(key)
     require_fields(config, expected)
     validation_config = copy.deepcopy(config)
     if recorded:
@@ -178,12 +186,7 @@ def _native_config(value: Any, *, recorded: bool = False) -> dict[str, Any]:
             "rendered_links", copy.deepcopy(DEFAULTS["rendering"]["rendered_links"])
         )
         validation_config["rendering"]["rendered_links"].setdefault("crawl", False)
-        for name in (
-            "transport",
-            "remote_protocol",
-            "remote_endpoint_env",
-            "remote_playwright_version",
-        ):
+        for name in _OPTIONAL_BROWSER_SETTINGS:
             validation_config["rendering"]["browser"].setdefault(
                 name, DEFAULTS["rendering"]["browser"][name]
             )
@@ -191,6 +194,10 @@ def _native_config(value: Any, *, recorded: bool = False) -> dict[str, Any]:
         validation_config["limits"].setdefault("max_requests", 0)
         validation_config.setdefault("evidence", {})
         validation_config["evidence"].setdefault("retain_no_store_acknowledged", False)
+        validation_config.setdefault("http", {})
+        validation_config["http"].update(
+            proxy="", proxy_allow_private=False, proxy_identity="", proxy_authenticated=False
+        )
     try:
         validate_crawl_config(
             validate_recorded_credentials(validation_config) if recorded else value
@@ -232,12 +239,7 @@ def _resume_fingerprint(expected_config: Any, recorded_config: Any) -> str:
     ):
         expected["rendering"]["rendered_links"].pop("crawl")
     if "rendering" in recorded and "browser" in recorded["rendering"]:
-        for name in (
-            "transport",
-            "remote_protocol",
-            "remote_endpoint_env",
-            "remote_playwright_version",
-        ):
+        for name in _OPTIONAL_BROWSER_SETTINGS:
             if (
                 name not in recorded["rendering"]["browser"]
                 and expected["rendering"]["browser"].get(name)
@@ -256,6 +258,12 @@ def _resume_fingerprint(expected_config: Any, recorded_config: Any) -> str:
         and expected["evidence"].get("retain_no_store_acknowledged") is False
     ):
         expected["evidence"].pop("retain_no_store_acknowledged")
+    for key in ("proxy", "proxy_allow_private", "proxy_identity", "proxy_authenticated"):
+        if (
+            key not in recorded.get("http", {})
+            and expected.get("http", {}).get(key) == DEFAULTS["http"][key]
+        ):
+            expected["http"].pop(key)
     return crawl_config_fingerprint(expected)
 
 
@@ -1235,7 +1243,14 @@ class NativeScan:
                 raise ScanError("native scan page is missing a current PageRecord evidence field")
             if page["content_frames_same_origin"] > page["content_frames"] or page[
                 "body_unavailable"
-            ] not in (None, "", "oversized"):
+            ] not in {
+                None,
+                "",
+                "oversized",
+                "excluded_by_media_type",
+                "not_included_by_media_type",
+                "media_type_unavailable",
+            }:
                 raise ScanError("native scan page scalar/body marker is invalid")
             try:
                 alternates = json.loads(page["hreflang_json"] or "[]")
@@ -1911,7 +1926,13 @@ class NativeScan:
                 raise ScanError(f"pages.{name}: expected a nonnegative integer")
         if record.get("content_frames_same_origin", 0) > record.get("content_frames", 0):
             raise ScanError("pages.content_frames_same_origin exceeds content_frames")
-        if record.get("body_unavailable") not in {"", "oversized"}:
+        if record.get("body_unavailable") not in {
+            "",
+            "oversized",
+            "excluded_by_media_type",
+            "not_included_by_media_type",
+            "media_type_unavailable",
+        }:
             raise ScanError("pages.body_unavailable has an unknown marker")
         page_ordinal = self.con.execute("SELECT COUNT(*) FROM pages").fetchone()[0]
         if self.con.execute("PRAGMA user_version").fetchone()[0] == 2:

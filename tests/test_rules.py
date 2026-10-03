@@ -160,6 +160,26 @@ def test_body_unavailable_row_withholds_the_four_findings_with_a_named_skip(tmp_
         assert reason and "1 page" in reason  # a real, named reason
 
 
+def test_media_filtered_html_withholds_missing_metadata_and_names_the_filter(tmp_path):
+    row = [
+        _URL,
+        "text/html; charset=utf-8",
+        "200",
+        "Indexable",
+        "",
+        "",
+        "",
+        "",
+        "not_included_by_media_type",
+    ]
+    result = _audit_with(tmp_path, _BODY_UNAVAILABLE_COLS, row)
+
+    assert not {issue.check for issue in result.issues} & _FOUR_MISSING_CHECKS
+    skipped = {item.id: item.reason for item in result.skipped if item.id in _FOUR_MISSING_CHECKS}
+    assert set(skipped) == _FOUR_MISSING_CHECKS
+    assert all("media type" in reason for reason in skipped.values())
+
+
 def test_body_unavailable_column_present_but_blank_still_fires(tmp_path):
     """A blank ``Body Unavailable`` cell means the body WAS parsed -- unaffected."""
     row = [_URL, "text/html", "200", "Indexable", "", "", "", "", ""]

@@ -254,6 +254,11 @@ def resume_inputs(scan_path: str) -> dict[str, Any]:
             f"(finish reason: {header['finish_reason']}); there is nothing left to resume"
         )
     settings = json.loads(header["config_json"])
+    if settings.get("http", {}).get("proxy"):
+        raise ValueError(
+            "proxied scans cannot be resumed from redacted route settings; start a new scan "
+            "with the original proxy configuration"
+        )
     if "max_requests" not in settings.get("limits", {}):
         # Pre-budget artifacts made no total-attempt promise. Keep that recorded
         # semantics on resume instead of silently applying a later default.
@@ -333,6 +338,7 @@ def crawl_site_scan(
     sitemap: str | None = None,
     producer_build: str | None = None,
     progress: Callable[[int, int], None] | None = None,
+    proxy_route=None,
 ) -> dict[str, Any]:
     """Collect a native scan, then audit its SQL graph with finite page/output bounds.
 
@@ -361,6 +367,7 @@ def crawl_site_scan(
             settings=settings,
             result=sitemap_seed,
             request_gate=request_gate,
+            proxy_route=proxy_route,
         )
 
     from seohead.crawl.sqlite_adapter import crawl_to_scan
@@ -376,6 +383,7 @@ def crawl_site_scan(
         initial_sitemaps=initial_sitemaps(sitemap),
         seed_loader=seed_loader,
         progress=progress,
+        proxy_route=proxy_route,
     )
     if (
         settings.get("rendering", {}).get("rendered_links", {}).get("crawl", False)
@@ -397,6 +405,7 @@ def crawl_site_scan(
                     request_gate=run.dispatch_gate.wait_turn
                     if run.dispatch_gate is not None
                     else None,
+                    proxy_route=proxy_route,
                 )
                 queued_before = rendered_scan.resume_snapshot()["counts"]["queued"]
             if not queued_before or run.partial:
@@ -410,6 +419,7 @@ def crawl_site_scan(
                 producer_revision=producer_revision,
                 runtime_versions=runtime_versions,
                 progress=progress,
+                proxy_route=proxy_route,
             )
             render_cycles += 1
             run = replace(run, start_page_gate=initial_start_page_gate)
@@ -484,6 +494,7 @@ def crawl_site_scan(
                     stored_scan=scan,
                     stored_sitemap=reconciliation,
                     dispatch_gate=run.dispatch_gate,
+                    proxy_route=proxy_route,
                 )
 
             if settings.get("rendering", {}).get("mode", "raw") != "raw":

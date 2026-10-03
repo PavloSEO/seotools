@@ -26,6 +26,7 @@ from collections import deque
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from pathlib import PurePosixPath
 from typing import Any
 from urllib.parse import urldefrag, urljoin, urlsplit, urlunsplit
 
@@ -47,6 +48,11 @@ from seohead.crawl.throttle import MAX_DELAY_S, DispatchGate, Throttle
 from seohead.models import ParsedRobots
 from seohead.recon.net import UA, http_client, normalize_url, registrable_domain
 from seohead.tools.robots import is_allowed, match_path, parse_robots, politeness_delay
+
+_MEDIA_TYPE_TOKEN = re.compile(r"[a-z0-9!#$%&'+\-.^_`|~]+\Z")
+_MEDIA_TYPE_FILTER_REASONS = frozenset(
+    {"excluded_by_media_type", "not_included_by_media_type", "media_type_unavailable"}
+)
 
 MAX_DEPTH_CEILING = 20
 ROBOTS_TOKEN = "SEOHEAD-Tools"
@@ -430,6 +436,10 @@ class Scope:
     internal: str = "host"
     include_patterns: tuple[re.Pattern[str], ...] = ()
     exclude_patterns: tuple[re.Pattern[str], ...] = ()
+    include_extensions: frozenset[str] = frozenset()
+    exclude_extensions: frozenset[str] = frozenset()
+    include_media_types: tuple[str, ...] = ()
+    exclude_media_types: tuple[str, ...] = ()
     exclude_hosts: frozenset[str] = frozenset()
     segments: tuple[SegmentRule, ...] = ()
     segments_only: frozenset[str] = frozenset()
@@ -441,6 +451,18 @@ class Scope:
             internal=scope.get("internal", "host"),
             include_patterns=tuple(re.compile(p) for p in scope.get("include_patterns") or ()),
             exclude_patterns=tuple(re.compile(p) for p in scope.get("exclude_patterns") or ()),
+            include_extensions=frozenset(
+                value.removeprefix(".").lower() for value in scope.get("include_extensions") or ()
+            ),
+            exclude_extensions=frozenset(
+                value.removeprefix(".").lower() for value in scope.get("exclude_extensions") or ()
+            ),
+            include_media_types=tuple(
+                value.lower() for value in scope.get("include_media_types") or ()
+            ),
+            exclude_media_types=tuple(
+                value.lower() for value in scope.get("exclude_media_types") or ()
+            ),
             exclude_hosts=frozenset(
                 host.lower().lstrip(".") for host in scope.get("exclude_hosts") or ()
             ),
@@ -493,6 +515,42 @@ class Scope:
             return "not_included_by_pattern"
         if self.segments_only and self.segment_for(url) not in self.segments_only:
             return "outside_segment"
+        suffix = PurePosixPath(urlsplit(url).path).suffix
+        extension = suffix[1:].lower() if suffix else ""
+        if extension and extension in self.exclude_extensions:
+            return "excluded_by_extension"
+        if self.include_extensions and extension not in self.include_extensions:
+            return "not_included_by_extension"
+        return ""
+
+    def response_media_rejection(self, content_type: str) -> str:
+        """Return a body-filter reason for a response Content-Type, if any.
+
+        This is separate from ``rejection``: suffixes are checked before a
+        request, while a response media type exists only after the server
+        answers. Missing or malformed types remain eligible unless an
+        allowlist makes a positive type match necessary.
+        """
+        media_type = (content_type or "").split(";", 1)[0].strip().lower()
+        if not media_type or media_type.count("/") != 1:
+            return "media_type_unavailable" if self.include_media_types else ""
+        major, minor = media_type.split("/", 1)
+        if not _MEDIA_TYPE_TOKEN.fullmatch(major) or not _MEDIA_TYPE_TOKEN.fullmatch(minor):
+            return "media_type_unavailable" if self.include_media_types else ""
+
+        def matches(pattern: str) -> bool:
+            return (
+                media_type.startswith(pattern[:-1])
+                if pattern.endswith("/*")
+                else media_type == pattern
+            )
+
+        if any(matches(pattern) for pattern in self.exclude_media_types):
+            return "excluded_by_media_type"
+        if self.include_media_types and not any(
+            matches(pattern) for pattern in self.include_media_types
+        ):
+            return "not_included_by_media_type"
         return ""
 
 
@@ -648,6 +706,7 @@ def crawl_site(
     capture_link_attributes: bool = False,
     dispatch_gate: DispatchGate | None = None,
     progress: Callable[[int, int], None] | None = None,
+    proxy_route: Any = None,
 ) -> SpiderResult:
     """Crawl one host breadth-first from ``start_url``, within ``scope``.
 
@@ -813,8 +872,13 @@ def crawl_site(
             # follow_redirects on, a 301 is recorded as a 200 carrying the
             # target's title and body, the Location is never seen, and redirect
             # auditing is impossible — the old and new URL become duplicates.
+            from seohead.recon.net import crawl_transport_options
+
             client, _ = http_client(
-                timeout, follow_redirects=False, headers={"User-Agent": user_agent or UA}
+                timeout,
+                follow_redirects=False,
+                headers={"User-Agent": user_agent or UA},
+                **crawl_transport_options(proxy_route),
             )
             stack.callback(client.close)
 
@@ -1058,6 +1122,8 @@ def crawl_site(
         ) -> bool:
             """Bookkeeping shared by every fetched page. Returns True to stop the crawl."""
             nonlocal consecutive_timeouts, consecutive_server_errors
+            if record.body_unavailable in _MEDIA_TYPE_FILTER_REASONS:
+                exclude(record.body_unavailable, url)
             record_evidence(url, depth, record, parsed)
 
             consecutive_timeouts, consecutive_server_errors = _fold_failure_streaks(
@@ -1129,6 +1195,7 @@ def crawl_site(
                         parse_options=parse_options,
                         cache=cache,
                         wait=dispatch_gate.wait_turn,
+                        response_filter=rules.response_media_rejection,
                     )
                 except KeyboardInterrupt:
                     # Not processed: put it back so a resume retries it rather
@@ -1160,6 +1227,7 @@ def crawl_site(
                     parse_options=parse_options,
                     cache=cache,
                     wait=gate.wait_turn,
+                    response_filter=rules.response_media_rejection,
                 )
                 return url, depth, record, parsed
 

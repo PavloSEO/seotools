@@ -37,6 +37,26 @@ def test_set_reaches_a_setting_that_has_no_flag_of_its_own():
     assert crawl_config.load(overrides=kw["overrides"])["speed"]["concurrency"] == 4
 
 
+def test_set_reaches_the_rendering_browser_settings():
+    """Engine, the custom viewport pair, and page concurrency are --config
+    settings only: this proves the single --set door reaches all of them and
+    that load() accepts the resolved values."""
+    kw = _kwargs(
+        "--set",
+        "rendering.browser.engine=webkit",
+        "--set",
+        "rendering.browser.viewport_width=800",
+        "--set",
+        "rendering.browser.viewport_height=600",
+        "--set",
+        "rendering.browser.page_concurrency=3",
+    )
+    browser = crawl_config.load(overrides=kw["overrides"])["rendering"]["browser"]
+    assert browser["engine"] == "webkit"
+    assert (browser["viewport_width"], browser["viewport_height"]) == (800, 600)
+    assert browser["page_concurrency"] == 3
+
+
 @pytest.mark.parametrize(
     "assignment,expected",
     [
@@ -45,6 +65,8 @@ def test_set_reaches_a_setting_that_has_no_flag_of_its_own():
         ("sitemaps.auto_discover=true", True),
         ("sitemaps.auto_discover=no", False),
         ("scope.include_patterns=/blog/,/docs/", ["/blog/", "/docs/"]),
+        ("scope.include_extensions=.html,.pdf", [".html", ".pdf"]),
+        ("scope.include_media_types=text/html,image/*", ["text/html", "image/*"]),
         ("http.user_agent=Example/1.0", "Example/1.0"),
     ],
 )

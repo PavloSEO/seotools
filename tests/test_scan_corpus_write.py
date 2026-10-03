@@ -149,9 +149,20 @@ def test_rendered_dom_is_utf8_serialized_with_provenance_and_body_deduplication(
     assert provenance["navigation_transform"] == "direct"
     assert provenance["flattened_iframes"] is True
     assert provenance["capture_limitations"] == []
+    assert provenance["page_concurrency"] == 1
     assert "persistent_profile_dir" not in provenance["settings"]
     assert con.execute("SELECT COUNT(*) FROM bodies").fetchone()[0] == 1
     validate_corpus(con, {"source_kind": "native"}, _policy())
+
+    # Pre-#744 scans have no page-concurrency field; readers still accept their
+    # historical renderer document without treating it as malformed.
+    provenance.pop("page_concurrency")
+    con.execute(
+        "UPDATE documents SET renderer_json=? WHERE document_id=?",
+        (json.dumps(provenance), document_id),
+    )
+    validate_corpus(con, {"source_kind": "native"}, _policy())
+    assert read_document(con, document_id, max_decoded_bytes=1024) == "<html>same</html>"
 
 
 @pytest.mark.parametrize(

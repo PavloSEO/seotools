@@ -79,6 +79,23 @@ def test_resume_fingerprint_accepts_a_pre_acknowledgement_recorded_config():
     assert native_scan._resume_fingerprint(current, recorded) == fingerprint(recorded)
 
 
+def test_old_scan_browser_defaults_remain_readable_without_rewriting_fingerprint():
+    current = load(overrides={"speed.min_delay_seconds": 0})
+    recorded = copy.deepcopy(current)
+    for name in ("engine", "viewport_width", "viewport_height", "page_concurrency"):
+        del recorded["rendering"]["browser"][name]
+
+    assert native_scan._native_config(recorded, recorded=True) == recorded
+    assert native_scan._resume_fingerprint(current, recorded) == fingerprint(recorded)
+    changed = load(
+        overrides={
+            "speed.min_delay_seconds": 0,
+            "rendering.browser.page_concurrency": 2,
+        }
+    )
+    assert native_scan._resume_fingerprint(changed, recorded) != fingerprint(recorded)
+
+
 def test_atomic_page_unit_and_idempotence(tmp_path):
     path = tmp_path / "scan.sqlite"
     with NativeScan.create(path, **_metadata()) as scan:

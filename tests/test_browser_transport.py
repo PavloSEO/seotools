@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 
 import pytest
 
@@ -166,6 +167,29 @@ def test_remote_document_connects_without_launch_and_keeps_pinned_routes(monkeyp
     assert "synthetic" not in str(result)
 
 
+def test_remote_nondefault_engine_custom_viewport_and_concurrency(monkeypatch, fake_stack):
+    config = _remote(monkeypatch)
+    playwright = sys.modules["playwright.sync_api"].sync_playwright()
+    monkeypatch.setattr(playwright, "firefox", fake_stack["chromium"], raising=False)
+    monkeypatch.setattr(
+        fake_stack["chromium"],
+        "connect",
+        lambda _endpoint, **_kw: fake_stack["browser"],
+        raising=False,
+    )
+    rendering = _rendering_config(
+        **config, engine="firefox", viewport_width=420, viewport_height=700, page_concurrency=2
+    )
+    result = render.render_document("https://example.com/", rendering)
+    assert result["ok"] is True
+    assert result["renderer"]["engine"] == "playwright-firefox"
+    assert result["renderer"]["settings"]["viewport"] == {"width": 420, "height": 700}
+    assert result["renderer"]["page_concurrency"] == 2
+    assert result["renderer"]["transport"]["mode"] == "remote"
+    assert fake_stack["context"].options["viewport"] == {"width": 420, "height": 700}
+    assert fake_stack["chromium"].launch_calls == []
+
+
 def test_remote_render_check_uses_same_transport_and_never_falls_back(monkeypatch):
     raw = "<html><head><title>Test</title></head><body>" + "word " * 80 + "</body></html>"
     stack = _install_stack(monkeypatch, raw, raw + "<p>rendered</p>")
@@ -181,6 +205,30 @@ def test_remote_render_check_uses_same_transport_and_never_falls_back(monkeypatc
     assert result["ok"] is True
     assert result["browser_transport"]["mode"] == "remote"
     assert len(calls) == 1 and stack["chromium"].launch_calls == []
+
+
+def test_remote_probe_keeps_engine_custom_size_and_touch_policy(monkeypatch):
+    raw = "<html><head><title>Test</title></head><body>" + "word " * 80 + "</body></html>"
+    stack = _install_stack(monkeypatch, raw, raw + "<p>rendered</p>")
+    playwright = sys.modules["playwright.sync_api"].sync_playwright()
+    monkeypatch.setattr(playwright, "firefox", stack["chromium"], raising=False)
+    monkeypatch.setattr(
+        stack["chromium"], "connect", lambda _endpoint, **_kw: stack["browser"], raising=False
+    )
+    result = render.render_check(
+        "https://example.com/",
+        engine="firefox",
+        viewport_size={"width": 420, "height": 700},
+        mobile_emulation=False,
+        touch_emulation=True,
+        transport_config=_remote(monkeypatch),
+    )
+    assert result["ok"] is True
+    assert result["browser_transport"]["mode"] == "remote"
+    assert stack["context"].options["viewport"] == {"width": 420, "height": 700}
+    assert stack["context"].options["has_touch"] is True
+    assert "is_mobile" not in stack["context"].options
+    assert stack["chromium"].launch_calls == []
 
 
 def test_remote_probe_missing_route_capability_is_unavailable(monkeypatch):

@@ -10,6 +10,8 @@ import sqlite3
 import zlib
 from email.message import Message
 
+from seohead.crawl.settings import MAX_RENDER_PAGE_CONCURRENCY
+
 from . import ScanError
 
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
@@ -45,7 +47,7 @@ def _renderer(document: dict[str, object], con=None) -> dict[str, object]:
     }
     if (
         not isinstance(value, dict)
-        or set(value) != required
+        or set(value) not in (required, required | {"page_concurrency"})
         or type(value["engine"]) is not str
         or type(value["engine_version"]) is not str
         or not isinstance(value["settings"], dict)
@@ -55,6 +57,11 @@ def _renderer(document: dict[str, object], con=None) -> dict[str, object]:
         or value["navigation_transform"] not in {"direct", "legacy_escaped_fragment", "unknown"}
     ):
         raise ScanError("rendered document renderer provenance is invalid")
+    if "page_concurrency" in value and (
+        type(value["page_concurrency"]) is not int
+        or not 1 <= value["page_concurrency"] <= MAX_RENDER_PAGE_CONCURRENCY
+    ):
+        raise ScanError("rendered page_concurrency provenance is invalid")
     if (
         representation == "legacy_fragment"
         and value["navigation_transform"] != "legacy_escaped_fragment"

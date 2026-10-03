@@ -168,16 +168,19 @@ def _resource_observations(record, parsed, captures, settings):
 
 @contextmanager
 def _client_context(
-    settings: dict[str, Any], fetcher: Callable[[str], Any] | None
+    settings: dict[str, Any], fetcher: Callable[[str], Any] | None, proxy_route=None
 ) -> Iterator[Any]:
     """The same guarded, no-follow client used by the legacy spider."""
     if fetcher is not None:
         yield None
         return
+    from seohead.recon.net import crawl_transport_options
+
     client, _http2 = http_client(
         settings["http"]["timeout_seconds"],
         follow_redirects=False,
         headers={"User-Agent": settings["http"]["user_agent"] or UA},
+        **crawl_transport_options(proxy_route),
     )
     try:
         yield client
@@ -371,6 +374,7 @@ def crawl_to_scan(
     sleeper: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
     progress: Callable[[int, int], None] | None = None,
+    proxy_route=None,
 ) -> ScanRun:
     """Collect a cache-off native crawl into one explicit scan artifact.
 
@@ -449,7 +453,7 @@ def crawl_to_scan(
             format_version=settings["storage"]["format_version"],
         )
     )
-    with _client_context(settings, fetcher) as client, scan_context as scan:
+    with _client_context(settings, fetcher, proxy_route) as client, scan_context as scan:
         scan.preflight_capture()
         snapshot = scan.resume_snapshot()
         seeded = (
@@ -721,6 +725,7 @@ def crawl_to_scan(
                     parse_options=options,
                     cache=None,
                     wait=gate.wait_turn,
+                    response_filter=scope.response_media_rejection,
                     **capture_options,
                 )
                 return lease, result, captures
@@ -901,6 +906,19 @@ def crawl_to_scan(
                         batch.partial_reasons.extend(links_batch.partial_reasons)
                         batch.route_observations.extend(links_batch.route_observations)
                         batch.route_coverage = links_batch.route_coverage
+                    if record.body_unavailable in {
+                        "excluded_by_media_type",
+                        "not_included_by_media_type",
+                        "media_type_unavailable",
+                    }:
+                        batch.decisions.append(
+                            {
+                                "url": record.url,
+                                "reason": record.body_unavailable,
+                                "source": record.url,
+                                "depth": lease.depth,
+                            }
+                        )
                     try:
                         if (
                             record.is_html

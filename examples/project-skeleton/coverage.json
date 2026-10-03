@@ -8773,7 +8773,7 @@
           "template": null,
           "urls": []
         },
-        "source_hash": "9e4236745e891500a919121db4dbc58cbcc86752e1b858f816335e838968587e",
+        "source_hash": "c2fd34158228796ff5ca9c226a4cb570ad55ce2d3961c1538b6d3dcdcc341a56",
         "title": "Scenario 35 \u2014 Rendering: does a crawler see what a visitor sees"
       },
       "definitions": [
@@ -8793,7 +8793,7 @@
               "template": null,
               "urls": []
             },
-            "source_hash": "9e4236745e891500a919121db4dbc58cbcc86752e1b858f816335e838968587e",
+            "source_hash": "c2fd34158228796ff5ca9c226a4cb570ad55ce2d3961c1538b6d3dcdcc341a56",
             "title": "Scenario 35 \u2014 Rendering: does a crawler see what a visitor sees"
           },
           "observed_at": "2026-09-09T00:00:00Z"

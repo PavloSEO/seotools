@@ -26,6 +26,7 @@ def capture_resources(
     sleeper=time.sleep,
     throttle: Throttle | None = None,
     dispatch_gate: DispatchGate | None = None,
+    proxy_route=None,
 ):
     """Resolve resource references without making them crawl frontier entries."""
     if not settings.get("resources", {}).get("fetch"):
@@ -82,7 +83,11 @@ def capture_resources(
             raise ResourceStop("total crawl duration exhausted")
         scan.preflight_capture()
 
-    context = nullcontext(client) if client is not None else _client_context(settings, fetcher)
+    context = (
+        nullcontext(client)
+        if client is not None
+        else _client_context(settings, fetcher, proxy_route)
+    )
     with context as active_client:
         while True:
             candidate = scan.con.execute(

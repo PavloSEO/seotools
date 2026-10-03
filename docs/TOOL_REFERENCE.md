@@ -6,7 +6,7 @@ Generated from the MCP tool definitions in `seohead/servers/mcp_server.py` and `
 python scripts/generate_tool_reference.py
 ```
 
-**95 core tools** (`seohead <command>` / `seo_<command>` on the MCP server) plus **5 crawl-audit tools** (`sf_<command>`, driven by `seohead sf ...`) — 100 in total.
+**97 core tools** (`seohead <command>` / `seo_<command>` on the MCP server) plus **5 crawl-audit tools** (`sf_<command>`, driven by `seohead sf ...`) — 102 in total.
 
 Every tool shares one contract: JSON in, JSON out. A target that could not be reached comes back as `{"ok": false, "error": "..."}` instead of raising, so an unreachable site is data, not a crash.
 
@@ -134,6 +134,14 @@ says, exactly like the CLI's flags -- pass one explicitly only to
 change that one setting. ``seo_crawl_describe_settings`` lists the
 defaults each of them falls back to.
 
+``http.proxy`` in ``config`` or ``overrides`` selects an explicit HTTP
+forward proxy for the entire native crawl, including sitemap, resource
+and pinned browser requests. Credentials require an ``env:VARIABLE``
+URL reference; ``http.proxy_allow_private`` authorizes only a private
+proxy endpoint, not private targets. Ambient proxy variables are ignored.
+Proxied runs require cache off and a fresh artifact; failures never
+fall back to direct egress.
+
 A URL crawl with neither ``scan_out`` nor ``out_dir`` writes a collision-safe
 SQLite scan below the caller's ``scans/`` directory. ``scan_out`` overrides
 that destination; ``out_dir`` selects the explicit legacy directory route.
@@ -181,6 +189,35 @@ Report claims a finished run makes that cannot all be true at once: a recorded s
 | `max_per_rule` | `int` | `20` |
 
 **Cost** — network: no · writes files: no · idempotent: yes · spends money: no
+
+### `crawl-diagnose`
+
+MCP name: `seo_crawl_diagnose`
+
+Explain a small or unfinished native crawl from retained scan or run evidence. This MCP tool is read-only and makes no network request. To deliberately write a new redacted JSON file, use ``seo_crawl_diagnose_export`` or the CLI's ``crawl-diagnose-export --export`` command.
+
+| Argument | Type | Default |
+|---|---|---|
+| `scan` | `str | None` | `None` |
+| `run` | `str | None` | `None` |
+| `max_decisions` | `int` | `20` |
+
+**Cost** — network: no · writes files: no · idempotent: yes · spends money: no
+
+### `crawl-diagnose-export`
+
+MCP name: `seo_crawl_diagnose_export`
+
+Create one new redacted crawl-diagnostic JSON file from retained evidence. This tool writes a file with no overwrite and makes no network request. Use the read-only ``seo_crawl_diagnose`` when a file is not needed.
+
+| Argument | Type | Default |
+|---|---|---|
+| `export` | `str` | `required` |
+| `scan` | `str | None` | `None` |
+| `run` | `str | None` | `None` |
+| `max_decisions` | `int` | `20` |
+
+**Cost** — network: no · writes files: yes · idempotent: no · spends money: no
 
 ### `sitemap-crawl`
 

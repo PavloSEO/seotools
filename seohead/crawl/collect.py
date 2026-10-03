@@ -201,14 +201,10 @@ class PageRecord:
     # URL's lookup was bypassed"). This is the per-URL half of "a report built partly from cache
     # must say so"; cache_stats on the run as a whole is the aggregate half.
     cache_status: str = ""
-    # "" when the body was parsed normally (or the page is non-HTML, or non-2xx, which are
-    # already governed by content_type/status_code). "oversized" means a 2xx HTML response
-    # arrived -- status_code, size_bytes and cache_status all reflect what was actually
-    # observed on the wire -- but max_response_bytes stopped it short of parsing, so every
-    # parser-derived field on this record (title, meta_description, h1, canonical, ...) is
-    # still its dataclass default, not an observed absence. See #243: a downstream consumer
-    # that reads those defaults without checking this field first will report a compliant,
-    # merely-too-large page as missing its title, description, H1 and canonical.
+    # Empty means parser-derived fields were measured normally (or the page was already
+    # governed by its status/content type). "oversized" means max_response_bytes stopped an
+    # HTML response short of parsing; the media-type reasons mean a configured response filter
+    # deliberately withheld parsing. In either case these fields are unmeasured, not absent.
     body_unavailable: str = ""
     # Which representation produced this page's evidence: "static" (raw HTML,
     # the default), "rendered" (JavaScript executed), or "legacy_fragment"
@@ -414,6 +410,7 @@ def _from_cache_entry(
     status: str,
     parse_options: dict[str, Any] | None = None,
     max_response_bytes: int = MAX_RESPONSE_BYTES,
+    response_filter: Callable[[str], str] | None = None,
 ) -> dict[str, Any] | None:
     """Build a record from a stored (or reconfirmed) cache entry. No network involved."""
     record.status_code = entry.status_code
@@ -428,6 +425,11 @@ def _from_cache_entry(
     record.redirect_url = urljoin(record.url, location) if location else ""
     record.response_time = 0.0
     record.cache_status = status
+    if response_filter is not None:
+        reason = response_filter(record.content_type)
+        if reason:
+            record.body_unavailable = reason
+            return None
     return _apply_body(
         record,
         record.url,
@@ -454,6 +456,7 @@ def fetch_one(
     wait: Callable[[], None] | None = None,
     capture_observer: Callable[[Any], None] | None = None,
     capture_max_bytes: int | None = None,
+    response_filter: Callable[[str], str] | None = None,
 ) -> tuple[PageRecord, dict[str, Any] | None]:
     """Fetch and parse one URL. Returns the record and the parsed document.
 
@@ -472,6 +475,9 @@ def fetch_one(
     ``parse_options`` is forwarded to ``parse_html`` untouched (e.g.
     ``{"classify_links": True, "link_position_rules": [...]}``); ``None``
     keeps every parser default, including link classification being off.
+    ``response_filter`` receives the response Content-Type and may return a
+    stable body-omission reason. It runs before parsing and, for native streamed
+    capture, before entity bytes are read; response metadata is still returned.
     ``cache``, when given, is consulted before anything else touches the network — see
     ``seohead.crawl.cache`` for the freshness policy. A credentialed request (``extra_headers``
     non-empty) always bypasses it in both directions. A conditional revalidation only ever
@@ -497,6 +503,7 @@ def fetch_one(
         entity: bytes | None = None,
         reason: str = "not_fetched",
         response_headers: dict[str, str] | None = None,
+        body_state: str | None = None,
     ) -> None:
         if capture_observer is None:
             return
@@ -568,11 +575,14 @@ def fetch_one(
                 content_encoding=record.content_encoding,
                 entity_bytes=entity,
                 body_fidelity="entity_bytes" if entity is not None else "unavailable",
-                body_state="complete"
-                if entity is not None
-                else "truncated"
-                if reason == "truncated"
-                else "unavailable",
+                body_state=body_state
+                or (
+                    "complete"
+                    if entity is not None
+                    else "truncated"
+                    if reason == "truncated"
+                    else "unavailable"
+                ),
                 body_reason=reason,
                 error=record.error,
                 error_kind=record.error_kind,
@@ -608,7 +618,12 @@ def fetch_one(
         outcome = cache.decide(url, request_headers)
         if outcome.status == "hit":
             parsed = _from_cache_entry(
-                record, outcome.entry, "hit", parse_options, max_response_bytes
+                record,
+                outcome.entry,
+                "hit",
+                parse_options,
+                max_response_bytes,
+                response_filter,
             )
             return record, parsed
 
@@ -629,7 +644,9 @@ def fetch_one(
     captured_text = None
     capture_failure = None
     capture_failure_reason = "truncated"
+    media_filter_reason = ""
     while True:
+        media_filter_reason = ""
         if capture_observer is not None:
             from seohead.crawl.capture import now_utc
 
@@ -667,20 +684,25 @@ def fetch_one(
                     ) as streamed:
                         response = streamed
                         streamed_headers = {k.lower(): v for k, v in dict(streamed.headers).items()}
-                        try:
-                            captured_entity = bounded_entity_chunks(
-                                streamed.iter_raw(chunk_size=64 * 1024),
-                                streamed_headers.get("content-encoding", ""),
-                                capture_limit,
+                        if response_filter is not None:
+                            media_filter_reason = response_filter(
+                                streamed_headers.get("content-type", "")
                             )
-                            captured_text = decode_entity(
-                                captured_entity, streamed_headers.get("content-type", "")
-                            )[0]
-                        except EntityLimitError as exc:
-                            capture_failure = str(exc)
-                            if isinstance(exc, EntityDecodeError):
-                                capture_failure_reason = "fetch_failed"
-                            captured_text = ""
+                        if not media_filter_reason:
+                            try:
+                                captured_entity = bounded_entity_chunks(
+                                    streamed.iter_raw(chunk_size=64 * 1024),
+                                    streamed_headers.get("content-encoding", ""),
+                                    capture_limit,
+                                )
+                                captured_text = decode_entity(
+                                    captured_entity, streamed_headers.get("content-type", "")
+                                )[0]
+                            except EntityLimitError as exc:
+                                capture_failure = str(exc)
+                                if isinstance(exc, EntityDecodeError):
+                                    capture_failure_reason = "fetch_failed"
+                                captured_text = ""
             observed_protocol = str(getattr(response, "http_version", "") or "") or None
             break
         except BlockedRedirectError as exc:
@@ -758,7 +780,12 @@ def fetch_one(
         # response_time above already reflects the real 304 round trip, not zero.
         cache.refresh(outcome.entry, headers)
         parsed = _from_cache_entry(
-            record, outcome.entry, "revalidated", parse_options, max_response_bytes
+            record,
+            outcome.entry,
+            "revalidated",
+            parse_options,
+            max_response_bytes,
+            response_filter,
         )
         record.response_time = round(elapsed, 3)
         return record, parsed
@@ -775,6 +802,22 @@ def fetch_one(
     # real URL rather than a fragment the scope check then rejects as off-host.
     location = headers.get("location", "")
     record.redirect_url = urljoin(url, location) if location else ""
+
+    if not media_filter_reason and response_filter is not None:
+        media_filter_reason = response_filter(record.content_type)
+    if media_filter_reason:
+        record.body_unavailable = media_filter_reason
+        if cache_eligible and outcome is not None and outcome.status == "bypass":
+            record.cache_status = "bypass"
+        elif cache_eligible and outcome is not None and record.status_code is not None:
+            record.cache_status = "miss"
+        if capture_observer is not None:
+            emit(
+                reason="unsupported_media",
+                response_headers=headers,
+                body_state="omitted",
+            )
+        return record, None
 
     if capture_failure is not None:
         record.error = "response too large or incomplete to parse: " + capture_failure
@@ -1047,6 +1090,7 @@ def collect_urls(
     robots_token: str = "*",
     resolve_redirect_destination: bool = False,
     resolve_canonical_destination: bool = False,
+    proxy_route: Any = None,
 ) -> CrawlResult:
     """Fetch an explicit list of URLs in the order given.
 
@@ -1107,8 +1151,13 @@ def collect_urls(
             # follow_redirects on, a 301 is recorded as a 200 carrying the
             # target's title and body, the Location is never seen, and redirect
             # auditing is impossible — the old and new URL become duplicates.
+            from seohead.recon.net import crawl_transport_options
+
             client, _ = http_client(
-                timeout, follow_redirects=False, headers={"User-Agent": user_agent or UA}
+                timeout,
+                follow_redirects=False,
+                headers={"User-Agent": user_agent or UA},
+                **crawl_transport_options(proxy_route),
             )
             stack.callback(client.close)
 

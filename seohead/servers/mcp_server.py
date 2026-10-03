@@ -181,6 +181,14 @@ def build_server(profile: str = "full", progress_notifications: bool = False):  
         change that one setting. ``seo_crawl_describe_settings`` lists the
         defaults each of them falls back to.
 
+        ``http.proxy`` in ``config`` or ``overrides`` selects an explicit HTTP
+        forward proxy for the entire native crawl, including sitemap, resource
+        and pinned browser requests. Credentials require an ``env:VARIABLE``
+        URL reference; ``http.proxy_allow_private`` authorizes only a private
+        proxy endpoint, not private targets. Ambient proxy variables are ignored.
+        Proxied runs require cache off and a fresh artifact; failures never
+        fall back to direct egress.
+
         A URL crawl with neither ``scan_out`` nor ``out_dir`` writes a collision-safe
         SQLite scan below the caller's ``scans/`` directory. ``scan_out`` overrides
         that destination; ``out_dir`` selects the explicit legacy directory route.
@@ -249,6 +257,36 @@ def build_server(profile: str = "full", progress_notifications: bool = False):  
         recorded size be checked against the bytes on disk."""
         return _checked(
             handlers.log_scan(run=run, images_dir=images_dir, max_per_rule=max_per_rule)
+        )
+
+    @mcp.tool(annotations=pure, structured_output=True)
+    def seo_crawl_diagnose(
+        scan: str | None = None,
+        run: str | None = None,
+        max_decisions: int = 20,
+    ) -> dict[str, Any]:
+        """Explain a small or unfinished native crawl from retained scan or run evidence.
+        This MCP tool is read-only and makes no network request. To deliberately write a
+        new redacted JSON file, use ``seo_crawl_diagnose_export`` or the CLI's
+        ``crawl-diagnose-export --export`` command.
+        """
+        return _checked(handlers.crawl_diagnose(scan=scan, run=run, max_decisions=max_decisions))
+
+    @mcp.tool(annotations=create_files, structured_output=True)
+    def seo_crawl_diagnose_export(
+        export: str,
+        scan: str | None = None,
+        run: str | None = None,
+        max_decisions: int = 20,
+    ) -> dict[str, Any]:
+        """Create one new redacted crawl-diagnostic JSON file from retained evidence.
+        This tool writes a file with no overwrite and makes no network request. Use the
+        read-only ``seo_crawl_diagnose`` when a file is not needed.
+        """
+        return _checked(
+            handlers.crawl_diagnose_export(
+                export=export, scan=scan, run=run, max_decisions=max_decisions
+            )
         )
 
     @mcp.tool(annotations=fetch, structured_output=True)

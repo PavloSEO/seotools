@@ -14,6 +14,7 @@ import pytest
 
 from seohead.crawl import settings as crawl_config
 from seohead.crawl import sqlite_render
+from seohead.tools import render
 from seohead.tools.render import render_document
 
 
@@ -137,6 +138,37 @@ class _FakePlaywright:
         return False
 
 
+class _FakeLauncher:
+    """One browser-type launcher; ``fail`` stands in for a launch-time error."""
+
+    def __init__(self, browser, fail=None):
+        self._browser = browser
+        self.fail = fail
+        self.launched = False
+        self.launch_calls = []
+
+    def launch(self, **options):
+        self.launched = True
+        self.launch_calls.append(options)
+        if self.fail is not None:
+            raise self.fail
+        return self._browser
+
+
+class _FakeEnginePlaywright:
+    """A Playwright stand-in exposing one launcher per supported engine."""
+
+    def __init__(self, launchers):
+        for name, launcher in launchers.items():
+            setattr(self, name, launcher)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
 @pytest.fixture
 def fake_stack(monkeypatch):
     """Stand in for the real ``playwright`` package via ``sys.modules``.
@@ -164,6 +196,36 @@ def fake_stack(monkeypatch):
     monkeypatch.setitem(sys.modules, "playwright.sync_api", fake_sync_api)
 
     return {"page": page, "context": context, "browser": browser, "chromium": chromium}
+
+
+@pytest.fixture
+def fake_engines(monkeypatch):
+    """The same stub ``playwright``, but with a launcher for every engine.
+
+    Each supported engine name must reach its own Playwright browser type --
+    selecting ``firefox`` and watching ``chromium`` launch would be exactly
+    the silent fallback #744 forbids, so the fixture records launches per
+    engine rather than on one shared attribute.
+    """
+    page = _FakePage()
+    context = _FakeContext(page)
+    browser = _FakeBrowser(context)
+    launchers = {name: _FakeLauncher(browser) for name in ("chromium", "firefox", "webkit")}
+    pw = _FakeEnginePlaywright(launchers)
+
+    fake_playwright = types.ModuleType("playwright")
+    fake_sync_api = types.ModuleType("playwright.sync_api")
+    fake_sync_api.sync_playwright = lambda: pw
+    fake_playwright.sync_api = fake_sync_api
+    monkeypatch.setitem(sys.modules, "playwright", fake_playwright)
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", fake_sync_api)
+
+    return {
+        "page": page,
+        "context": context,
+        "browser": browser,
+        "launchers": launchers,
+    }
 
 
 def _rendering_config(**browser_overrides):
@@ -201,6 +263,34 @@ def test_happy_path_returns_the_rendered_html(fake_stack):
     assert result["ok"] is True
     assert result["html"] == "<html><body>rendered</body></html>"
     assert result["final_url"] == "https://example.com/"
+
+
+def test_crawler_render_document_uses_the_same_pinned_proxy_route(fake_stack, monkeypatch):
+    from seohead.recon.net import ProxyRoute
+    from seohead.tools import render
+
+    route = ProxyRoute(
+        proxy=object(), identity="http://proxy.example.test:3128", authenticated=False
+    )
+    calls = []
+
+    class Client:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(render, "validate_url", lambda url: url)
+    monkeypatch.setattr(render, "_refuse_if_root", lambda: None)
+    monkeypatch.setattr(
+        render,
+        "http_client",
+        lambda timeout, **kwargs: (calls.append(kwargs) or Client(), True),
+    )
+    result = render_document("https://example.test/", _rendering_config(), proxy_route=route)
+
+    assert result["ok"] is True
+    assert len(calls) == 1
+    assert calls[0]["proxy_route"] is route
+    assert calls[0]["trust_env"] is False
 
 
 def test_a_cookie_the_browser_carries_is_not_the_operators_credential(fake_stack, monkeypatch):
@@ -533,3 +623,233 @@ def test_a_varying_server_returns_the_crawls_own_body(monkeypatch):
 
     assert result["ok"] is True
     assert "the real page" in result["html"]
+
+
+# ── engine selection, viewport pair, page concurrency (#744) ────────────────
+
+
+@pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
+def test_each_supported_engine_reaches_its_own_launcher(fake_engines, engine):
+    result = render_document("https://example.com/", _rendering_config(engine=engine))
+
+    assert result["ok"] is True
+    assert result["renderer"]["engine"] == f"playwright-{engine}"
+    for name, launcher in fake_engines["launchers"].items():
+        assert launcher.launched is (name == engine), name
+    assert fake_engines["launchers"][engine].launch_calls == [
+        dict(render.BROWSER_ENGINES[engine]["launch_options"])
+    ]
+
+
+def test_the_default_engine_remains_chromium(fake_engines):
+    result = render_document("https://example.com/", _rendering_config())
+
+    assert result["ok"] is True
+    assert result["renderer"]["engine"] == "playwright-chromium"
+    assert fake_engines["launchers"]["chromium"].launched is True
+    assert fake_engines["launchers"]["firefox"].launched is False
+    assert fake_engines["launchers"]["webkit"].launched is False
+
+
+def test_an_unknown_engine_is_refused_without_launching_anything(fake_engines):
+    config = _rendering_config()
+    config["browser"]["engine"] = "safari"  # cfg.load refuses this; render must too
+    result = render_document("https://example.com/", config)
+
+    assert result["ok"] is False
+    assert "unsupported rendering engine" in result["error"]
+    assert all(not launcher.launched for launcher in fake_engines["launchers"].values())
+
+
+def test_an_engine_without_mobile_support_gets_no_emulation_options(fake_engines):
+    result = render_document("https://example.com/", _rendering_config(engine="firefox"))
+
+    assert result["ok"] is True
+    assert "is_mobile" not in fake_engines["context"].options
+    assert "has_touch" not in fake_engines["context"].options
+
+
+def test_firefox_plus_mobile_emulation_is_a_capability_error(fake_engines):
+    config = _rendering_config()
+    config["browser"]["engine"] = "firefox"
+    config["browser"]["mobile_emulation"] = True
+    result = render_document("https://example.com/", config)
+
+    assert result["ok"] is False
+    assert "cannot emulate" in result["error"]
+    assert "mobile_emulation" in result["error"]
+    assert fake_engines["launchers"]["firefox"].launched is False
+
+
+def test_firefox_plus_touch_emulation_reaches_the_context(fake_engines):
+    """has_touch is a general context option Playwright accepts on every
+    engine -- only is_mobile is documented unsupported on Firefox, so touch
+    emulation alone must not be gated."""
+    result = render_document(
+        "https://example.com/",
+        _rendering_config(engine="firefox", touch_emulation=True),
+    )
+
+    assert result["ok"] is True
+    assert fake_engines["launchers"]["firefox"].launched is True
+    assert fake_engines["context"].options["has_touch"] is True
+    assert "is_mobile" not in fake_engines["context"].options
+
+
+def test_a_missing_browser_binary_is_a_distinct_actionable_error(fake_engines):
+    """Missing binaries are the commonest render failure; 'chromium not
+    installed' must say which browser to install, not fall back quietly."""
+    fake_engines["launchers"]["webkit"].fail = RuntimeError(
+        "Executable doesn't exist at /browsers/webkit-1234\n"
+        "Looks like Playwright Test or Playwright was just installed or updated."
+    )
+    result = render_document("https://example.com/", _rendering_config(engine="webkit"))
+
+    assert result["ok"] is False
+    assert "webkit" in result["error"]
+    assert "not installed" in result["error"]
+    assert result["install"] == "python -m playwright install webkit"
+    assert fake_engines["launchers"]["chromium"].launched is False
+    assert fake_engines["launchers"]["firefox"].launched is False
+
+
+def test_a_launch_failure_keeps_requested_engine_provenance(fake_engines):
+    fake_engines["launchers"]["firefox"].fail = RuntimeError("crash on start")
+    result = render_document("https://example.com/", _rendering_config(engine="firefox"))
+
+    assert result["ok"] is False
+    assert result["renderer"]["engine"] == "playwright-firefox"
+    assert result["renderer"]["engine_version"] == "unknown"
+    assert fake_engines["launchers"]["chromium"].launched is False
+
+
+@pytest.mark.parametrize(
+    "preset,size",
+    [("desktop", {"width": 1366, "height": 768}), ("mobile", {"width": 390, "height": 844})],
+)
+def test_named_viewport_presets_still_reach_the_context(fake_stack, preset, size):
+    result = render_document("https://example.com/", _rendering_config(viewport=preset))
+
+    assert result["ok"] is True
+    assert fake_stack["context"].options["viewport"] == size
+    assert result["renderer"]["settings"]["viewport"] == size
+
+
+def test_a_custom_viewport_pair_reaches_the_context_and_record(fake_stack):
+    result = render_document(
+        "https://example.com/",
+        _rendering_config(viewport_width=800, viewport_height=600),
+    )
+
+    assert result["ok"] is True
+    assert fake_stack["context"].options["viewport"] == {"width": 800, "height": 600}
+    assert result["renderer"]["settings"]["viewport"] == {"width": 800, "height": 600}
+
+
+def test_a_custom_pair_overrides_the_named_preset_dimensions(fake_stack):
+    """viewport='mobile' + 800x600 renders at 800x600, not the preset's
+    390x844 -- but the pair carries dimensions only: mobile and touch
+    emulation are separate settings that stay off unless asked for."""
+    result = render_document(
+        "https://example.com/",
+        _rendering_config(viewport="mobile", viewport_width=800, viewport_height=600),
+    )
+
+    assert fake_stack["context"].options["viewport"] == {"width": 800, "height": 600}
+    assert "is_mobile" not in fake_stack["context"].options
+    assert "has_touch" not in fake_stack["context"].options
+    assert result["renderer"]["settings"]["viewport"] == {"width": 800, "height": 600}
+
+
+def test_a_custom_pair_keeps_explicitly_enabled_emulation_flags(fake_stack):
+    """The preset stops supplying dimensions, never the emulation flags an
+    operator set: mobile + touch stay on when the pair overrides 390x844."""
+    render_document(
+        "https://example.com/",
+        _rendering_config(
+            viewport="mobile",
+            viewport_width=800,
+            viewport_height=600,
+            mobile_emulation=True,
+            touch_emulation=True,
+        ),
+    )
+
+    options = fake_stack["context"].options
+    assert options["viewport"] == {"width": 800, "height": 600}
+    assert options["is_mobile"] is True
+    assert options["has_touch"] is True
+
+
+def test_a_partial_viewport_pair_fails_before_any_browser_starts(fake_stack):
+    config = _rendering_config()
+    config["browser"]["viewport_width"] = 800  # cfg.load refuses this too; render must not guess
+    result = render_document("https://example.com/", config)
+
+    assert result["ok"] is False
+    assert "complete pair" in result["error"]
+    assert fake_stack["chromium"].launched is False
+
+
+def test_an_out_of_range_viewport_fails_before_any_browser_starts(fake_stack):
+    config = _rendering_config(viewport_width=999999, viewport_height=10)
+    result = render_document("https://example.com/", config)
+
+    assert result["ok"] is False
+    assert "complete pair" in result["error"]
+    assert fake_stack["chromium"].launched is False
+
+
+def test_a_failed_render_still_records_requested_engine_and_viewport(fake_stack):
+    """Timeout/cancellation provenance must say what was attempted -- an
+    800px webkit failure must not read like a desktop chromium success."""
+    fake_stack["page"].goto = lambda *a, **k: (_ for _ in ()).throw(
+        RuntimeError("Navigation timeout")
+    )
+    config = _rendering_config(viewport_width=800, viewport_height=600)
+    config["browser"]["engine"] = "webkit"
+    result = render_document("https://example.com/", config)
+
+    assert result["ok"] is False
+    assert result["renderer"]["engine"] == "playwright-webkit"
+    assert result["renderer"]["settings"]["viewport"] == {"width": 800, "height": 600}
+    assert result["renderer"]["page_concurrency"] == 1
+
+
+def test_the_configured_page_concurrency_is_recorded(fake_stack):
+    result = render_document("https://example.com/", _rendering_config(page_concurrency=4))
+
+    assert result["ok"] is True
+    assert result["renderer"]["page_concurrency"] == 4
+
+
+@pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
+def test_request_security_controls_hold_for_every_engine(fake_engines, engine):
+    """Engine selection changes the launcher, never the guards: the pinned
+    route, WebSocket interception, and service-worker blocking are contract,
+    not Chromium behaviour."""
+    result = render_document("https://example.com/", _rendering_config(engine=engine))
+
+    assert result["ok"] is True
+    context = fake_engines["context"]
+    assert context.options["service_workers"] == "block"
+    assert context.routes and context.routes[0][0] == "**/*"
+    assert context.ws_routes and context.ws_routes[0][0] == "**/*"
+
+
+def test_missing_playwright_names_the_selected_engine(monkeypatch):
+    import builtins
+
+    real_import = builtins.__import__
+
+    def _no_playwright(name, *args, **kwargs):
+        if name.startswith("playwright"):
+            raise ImportError("No module named 'playwright'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", _no_playwright)
+    result = render_document("https://example.com/", _rendering_config(engine="webkit"))
+
+    assert result["ok"] is False
+    assert result["error"] == "Playwright is required"
+    assert "playwright install webkit" in result["install"]

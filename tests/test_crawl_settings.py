@@ -178,6 +178,39 @@ def test_generic_headers_refuse_credentials_without_echoing_their_values(name):
             "unknown keys",
         ),
         ({"scope.segments_only": ["fr"]}, "scope.segments_only"),
+        ({"rendering.browser.engine": "safari"}, "rendering.browser.engine"),
+        (
+            {"rendering.browser.engine": "firefox", "rendering.browser.mobile_emulation": True},
+            "cannot emulate",
+        ),
+        # A partial pair: setting one side of a custom viewport asks for a
+        # dimensionless render -- refused here rather than guessed at launch.
+        ({"rendering.browser.viewport_width": 800}, "must be set together"),
+        ({"rendering.browser.viewport_height": 600}, "must be set together"),
+        (
+            {"rendering.browser.viewport_width": True, "rendering.browser.viewport_height": 600},
+            "must be an integer",
+        ),
+        (
+            {"rendering.browser.viewport_height": False, "rendering.browser.viewport_width": 800},
+            "must be an integer",
+        ),
+        (
+            {"rendering.browser.viewport_width": -5, "rendering.browser.viewport_height": 600},
+            "must be an integer",
+        ),
+        (
+            {"rendering.browser.viewport_width": 640, "rendering.browser.viewport_height": 0},
+            "must be set together",
+        ),
+        (
+            {"rendering.browser.viewport_width": 20000, "rendering.browser.viewport_height": 600},
+            "16384",
+        ),
+        ({"rendering.browser.page_concurrency": 0}, "between 1 and"),
+        ({"rendering.browser.page_concurrency": 17}, "between 1 and"),
+        ({"rendering.browser.page_concurrency": True}, "must be an integer between 1 and"),
+        ({"rendering.browser.page_concurrency": 2.5}, "must be an integer between 1 and"),
     ],
 )
 def test_invalid_values_are_refused(override, message):
@@ -274,6 +307,97 @@ def test_a_cost_only_setting_does_not_change_the_manifest():
 
 def test_the_manifest_is_json_serialisable():
     json.dumps(cfg.manifest(cfg.load()))
+
+
+# ── browser engine, viewport dimensions, render-page concurrency (#744) ─────
+
+
+def test_render_browser_defaults_stay_chromium_preset_and_sequential():
+    """Old configs keep meaning the same thing: the historical Chromium
+    renderer, the named presets, and one page at a time."""
+    browser = cfg.load()["rendering"]["browser"]
+    assert browser["engine"] == "chromium"
+    assert browser["viewport_width"] == 0
+    assert browser["viewport_height"] == 0
+    assert browser["page_concurrency"] == 1
+
+
+@pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
+def test_every_supported_engine_loads(engine):
+    resolved = cfg.load(overrides={"rendering.browser.engine": engine})
+    assert resolved["rendering"]["browser"]["engine"] == engine
+
+
+def test_firefox_touch_emulation_loads_without_mobile_emulation():
+    """has_touch is a general context option every engine accepts; only
+    is_mobile is gated, so touch alone is legal on Firefox."""
+    resolved = cfg.load(
+        overrides={
+            "rendering.browser.engine": "firefox",
+            "rendering.browser.touch_emulation": True,
+        }
+    )
+    assert resolved["rendering"]["browser"]["touch_emulation"] is True
+
+
+def test_a_complete_custom_viewport_pair_loads():
+    resolved = cfg.load(
+        overrides={
+            "rendering.browser.viewport_width": 800,
+            "rendering.browser.viewport_height": 600,
+        }
+    )
+    assert resolved["rendering"]["browser"]["viewport_width"] == 800
+    assert resolved["rendering"]["browser"]["viewport_height"] == 600
+
+
+def test_a_bounded_page_concurrency_loads():
+    resolved = cfg.load(overrides={"rendering.browser.page_concurrency": 4})
+    assert resolved["rendering"]["browser"]["page_concurrency"] == 4
+
+
+def test_engine_viewport_pair_and_concurrency_are_results_affecting():
+    """A webkit run and a chromium run can produce different DOMs, and an
+    800px DOM differs from a 1366px one -- both must show up in the manifest,
+    or two audits differ for no recorded reason."""
+    for path in (
+        "rendering.browser.engine",
+        "rendering.browser.viewport_width",
+        "rendering.browser.viewport_height",
+        "rendering.browser.page_concurrency",
+    ):
+        assert path in cfg.RESULTS_AFFECTING
+
+
+def test_the_manifest_records_engine_viewport_and_concurrency():
+    manifest = cfg.manifest(
+        cfg.load(
+            overrides={
+                "rendering.browser.engine": "webkit",
+                "rendering.browser.viewport_width": 800,
+                "rendering.browser.viewport_height": 600,
+                "rendering.browser.page_concurrency": 4,
+            }
+        )
+    )
+    assert manifest["rendering.browser.engine"] == "webkit"
+    assert manifest["rendering.browser.viewport_width"] == 800
+    assert manifest["rendering.browser.viewport_height"] == 600
+    assert manifest["rendering.browser.page_concurrency"] == 4
+
+
+def test_the_new_render_settings_reach_describe_settings():
+    """The CLI's --config-help and the MCP describe-settings surface share
+    this listing, so an entry here is what exposes the settings to an agent."""
+    rows = {row["path"]: row for row in cfg.describe_settings()}
+    for path in (
+        "rendering.browser.engine",
+        "rendering.browser.viewport_width",
+        "rendering.browser.viewport_height",
+        "rendering.browser.page_concurrency",
+    ):
+        assert rows[path]["results_affecting"] is True
+        assert rows[path]["description"]
 
 
 # ── describe_settings (CLI --config-help / MCP #23 share this) ──────────────

@@ -100,6 +100,22 @@ def test_config_help_lists_every_setting_from_the_config_module(capsys):
         assert row["path"] in out, row["path"]
 
 
+def test_config_help_advertises_the_new_rendering_browser_settings(capsys):
+    """#744: a setting that cannot be discovered is a setting that cannot be
+    used -- the generic describe_settings() loop would pass on a green helper
+    even if these paths were missing."""
+    rc = cli.main(["crawl-site", "--config-help"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    for path in (
+        "rendering.browser.engine",
+        "rendering.browser.viewport_width",
+        "rendering.browser.viewport_height",
+        "rendering.browser.page_concurrency",
+    ):
+        assert path in out, path
+
+
 def test_config_help_does_not_require_a_url_or_read_stdin(monkeypatch, capsys):
     class _NeverReadStdin(io.StringIO):
         def read(self, *a, **k):  # pragma: no cover - defensive guard
@@ -202,3 +218,55 @@ def test_the_rate_reflects_a_config_file_too_not_only_direct_flags(monkeypatch, 
     rc = cli.main(["crawl-site", "--url", "https://example.com/", "--config", str(path)])
     assert rc == 0
     assert "0.25 req/s" in capsys.readouterr().err
+
+
+def test_a_config_file_and_set_resolve_the_rendering_browser_settings(
+    monkeypatch, capsys, tmp_path
+):
+    """#744: the file supplies the engine and viewport pair, --set overrides
+    the page concurrency -- and what the handler resolves is exactly what a
+    render run will use."""
+    import json as _json
+
+    from seohead.crawl import settings as crawl_config
+
+    path = tmp_path / "crawl.json"
+    path.write_text(
+        _json.dumps(
+            {
+                "rendering": {
+                    "browser": {
+                        "engine": "webkit",
+                        "viewport_width": 1440,
+                        "viewport_height": 900,
+                        "page_concurrency": 2,
+                    }
+                }
+            }
+        )
+    )
+    received = []
+    monkeypatch.setattr(cli.sys, "stdin", io.StringIO(""))
+    monkeypatch.setitem(
+        handlers.HANDLERS,
+        "crawl_site",
+        lambda **kw: received.append(kw) or {"ok": True},
+    )
+    rc = cli.main(
+        [
+            "crawl-site",
+            "--url",
+            "https://example.com/",
+            "--config",
+            str(path),
+            "--set",
+            "rendering.browser.page_concurrency=4",
+        ]
+    )
+    assert rc == 0
+    browser = crawl_config.load(received[0]["config"], overrides=received[0]["overrides"])[
+        "rendering"
+    ]["browser"]
+    assert browser["engine"] == "webkit"
+    assert (browser["viewport_width"], browser["viewport_height"]) == (1440, 900)
+    assert browser["page_concurrency"] == 4

@@ -44,6 +44,7 @@ def capture_declared_roots(
     crawl_fn: Callable[..., dict[str, Any]] = crawl,
     concurrency: int = 3,
     request_gate: Callable[[], None] | None = None,
+    proxy_route=None,
 ) -> list[CaptureSummary]:
     """Capture roots one at a time with root-local normalized deduplication.
 
@@ -112,6 +113,8 @@ def capture_declared_roots(
         # shared budget is in play.
         if request_gate is not None:
             crawl_kwargs["request_gate"] = request_gate
+        if proxy_route is not None:
+            crawl_kwargs["proxy_route"] = proxy_route
         result = crawl_fn(root.url, **crawl_kwargs)
         if previous_members is not None and next(previous_members, None) is not None:
             previous_tail = True

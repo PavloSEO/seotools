@@ -12,6 +12,7 @@ from typing import Any
 
 from seohead.crawl.cache import _parse_cache_control
 from seohead.crawl.capture import CaptureEvent
+from seohead.crawl.settings import MAX_RENDER_PAGE_CONCURRENCY
 
 from . import ScanError
 from .bodies import decode_entity, encode_body
@@ -271,6 +272,15 @@ def _rendered_provenance(
         raise ScanError("rendered document lacks settings or navigation provenance")
     if type(raw_transforms) is not dict or type(raw_policy) is not dict:
         raise ScanError("rendered document lacks transform or policy provenance")
+    page_concurrency = renderer.get("page_concurrency", 1)
+    if (
+        type(page_concurrency) is not int
+        or not 1 <= page_concurrency <= MAX_RENDER_PAGE_CONCURRENCY
+    ):
+        raise ScanError(
+            "rendered page_concurrency must be an integer between 1 and "
+            f"{MAX_RENDER_PAGE_CONCURRENCY}"
+        )
 
     viewport = raw_settings.get("viewport")
     if (
@@ -353,6 +363,7 @@ def _rendered_provenance(
     payload = {
         "engine": engine,
         "engine_version": version,
+        "page_concurrency": page_concurrency,
         "settings": settings,
         "flattened_iframes": bool(settings["transforms"]["flatten_iframes_applied"]),
         "capture_limitations": [],

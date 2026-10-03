@@ -28,7 +28,9 @@ from __future__ import annotations
 
 import re
 import time
+from collections import deque
 from collections.abc import Callable, Iterable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, fields
 from typing import Any, Protocol
 from urllib.parse import urlsplit, urlunsplit
@@ -186,6 +188,10 @@ class EscalationResult:
     # never hydrates. The raw record is kept for these (#143); this list is
     # what makes the downgrade-that-didn't-happen auditable instead of silent.
     degenerate_render_urls: list[str] = field(default_factory=list)
+    # The rendering.browser.page_concurrency bound this call ran under. It is
+    # scheduling provenance, not a promise that jobs overlapped: a value of 2
+    # on a two-URL render could still have run sequentially.
+    render_page_concurrency: int = 1
 
 
 def escalate(
@@ -196,6 +202,9 @@ def escalate(
     render_fetch: Callable[[str], dict[str, Any]],
     representation_label: str,
     render_consumer: Callable[[str, dict[str, Any], str], dict[str, Any] | None] | None = None,
+    probe_prepare: Callable[[str], Any] | None = None,
+    probe_apply: Callable[[str, Any, dict[str, Any]], dict[str, Any]] | None = None,
+    render_prepare: Callable[[str], Any] | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> EscalationResult:
     """Sample, decide, and selectively re-fetch -- see the module docstring.
@@ -208,12 +217,30 @@ def escalate(
     business -- this function only counts requests and applies the two
     budgets (patterns sampled, then URLs rendered).
 
+    ``rendering.browser.page_concurrency`` bounds how many probes and how many
+    renders may be in flight at once; 1 keeps the historical sequential
+    behaviour and no pool is created at all. When it is above 1, work runs on
+    a bounded thread pool while every result is still applied on the calling
+    thread in submission order, so commit order stays deterministic. The
+    optional split hooks exist for callers whose unit is not a pure fetch:
+    ``probe_prepare(url)`` and ``render_prepare(url)`` run on the calling
+    thread before a job is scheduled (a caller may return ``{"verdict": ...}``
+    from ``probe_prepare`` to skip the fetch entirely, and anything else it
+    returns is handed to ``probe_apply`` as ``prep``); ``probe_apply(url,
+    prep, fetched)`` runs on the calling thread to turn the fetched answer
+    into the verdict dict. Without the hooks, ``probe`` and ``render_fetch``
+    are the whole unit, exactly as before. ``render_consumer`` already runs
+    on the calling thread and is applied the same way in both modes.
+
     ``rendering.escalation.max_render_seconds`` (0 = unlimited) is a single wall-clock
     deadline for the whole call, checked before every ``probe`` and every ``render_fetch`` --
     documented as covering "the escalation step", not the render phase alone, so probing eats
     into the same budget a slow site's renders would otherwise exhaust on their own. ``clock``
     is injectable so a test can advance a fake one from inside a fake ``render_fetch`` instead
-    of sleeping in real time.
+    of sleeping in real time. Hitting it -- or a worker failing, or the caller interrupting --
+    stops new work being scheduled; jobs already in flight are waited out and their results
+    applied, while jobs that never started are simply absent from the result. The pool is
+    shut down before this function returns or propagates, so no fetch outlives the call.
     """
     full_render = rendering_config.get("escalation", {}).get("policy", "sampled") == "full"
     urls = [
@@ -227,6 +254,10 @@ def escalate(
         )
     ]
     result = EscalationResult(mode=rendering_config.get("mode", "raw"))
+    page_concurrency = max(
+        1, int(rendering_config.get("browser", {}).get("page_concurrency", 1) or 1)
+    )
+    result.render_page_concurrency = page_concurrency
     for u in urls:
         result.representations[u] = "static"
 
@@ -243,104 +274,236 @@ def escalate(
     escalated: set[str] = set()
     probed_patterns: set[str] = set()
     unprobed_reasons: dict[str, str] = {}
-    full_render = escalation_cfg.get("policy", "sampled") == "full"
+    probe_state: dict[str, dict[str, Any]] = {
+        pattern: {"succeeded": False, "needs": False, "failure": ""} for pattern in samples
+    }
+
+    def apply_probe_verdict(pattern: str, sample_url: str, probed: dict[str, Any]) -> None:
+        result.probe_requests += 1
+        state = probe_state[pattern]
+        if not probed.get("ok"):
+            state["failure"] = str(probed.get("error") or "probe failed")
+            return
+        state["succeeded"] = True
+        if probed.get("empty_shell"):
+            result.empty_shell_urls.append(sample_url)
+        if probed.get("needs_escalation"):
+            state["needs"] = True
+
+    def finish_probe_pattern(pattern: str) -> None:
+        state = probe_state[pattern]
+        # Distinct from needs_it: a pattern with zero successful probes has no
+        # verdict at all, and must not be silently read as "verdict: no
+        # rendering needed" (#626).
+        if state["succeeded"]:
+            probed_patterns.add(pattern)
+            if state["needs"]:
+                escalated.add(pattern)
+        else:
+            unprobed_reasons[pattern] = state["failure"] or ("every probe for this pattern failed")
+
+    def run_probe(sample_url: str) -> dict[str, Any]:
+        """prepare -> fetch -> apply for one sample URL on the calling thread."""
+        prep = None
+        if probe_prepare is not None:
+            prepared = probe_prepare(sample_url)
+            if isinstance(prepared, dict) and "verdict" in prepared:
+                return prepared["verdict"]
+            prep = prepared
+        fetched = probe(sample_url)
+        if probe_apply is not None:
+            return probe_apply(sample_url, prep, fetched)
+        return fetched
+
+    def apply_render(pattern: str, target_url: str, fetched: dict[str, Any]) -> None:
+        result.render_requests += 1
+        result.render_counts[pattern] = result.render_counts.get(pattern, 0) + 1
+        if render_consumer is None:
+            if fetched.get("ok"):
+                result.representations[target_url] = representation_label
+                result.rendered[target_url] = fetched
+        else:
+            consumed = render_consumer(target_url, fetched, representation_label) or {}
+            accepted = bool(fetched.get("ok")) and bool(consumed.get("accepted"))
+            if accepted:
+                result.representations[target_url] = representation_label
+            result.rendered[target_url] = {
+                "ok": bool(fetched.get("ok")),
+                "final_url": fetched.get("final_url") or target_url,
+                "renderer": fetched.get("renderer") or {},
+                "capture": {
+                    "accepted": accepted,
+                    "state": str(consumed.get("state") or "unavailable"),
+                    "reason": str(consumed.get("reason") or ""),
+                },
+            }
+
     if full_render:
         escalated = set(samples)
         probed_patterns = set(samples)
         result.patterns_sampled = 0
-    for pattern, sample_urls in () if full_render else samples.items():
+
+    pool: ThreadPoolExecutor | None = None
+    try:
+        if page_concurrency > 1:
+            pool = ThreadPoolExecutor(
+                max_workers=page_concurrency,
+                thread_name_prefix="seohead-render",
+            )
+        if not full_render:
+            if pool is None:
+                for pattern, sample_urls in samples.items():
+                    if not time_left():
+                        break
+                    deadline_hit = False
+                    for sample_url in sample_urls:
+                        if not time_left():
+                            deadline_hit = True
+                            break
+                        apply_probe_verdict(pattern, sample_url, run_probe(sample_url))
+                    if deadline_hit:
+                        # the inner loop above ran out of time before
+                        # finishing this pattern's sample
+                        break
+                    finish_probe_pattern(pattern)
+            else:
+                # Bounded windowed probing: at most page_concurrency fetches
+                # in flight, verdicts still applied on this thread in the
+                # same order a sequential run would have produced them.
+                probe_items = [
+                    (pattern, sample_url)
+                    for pattern, members in samples.items()
+                    for sample_url in members
+                ]
+                remaining = {pattern: len(members) for pattern, members in samples.items()}
+                pending: deque[tuple[str, str, Any, Any, Any]] = deque()
+                item_iter = iter(probe_items)
+                exhausted_items = False
+                while True:
+                    while not exhausted_items and len(pending) < page_concurrency and time_left():
+                        try:
+                            pattern, sample_url = next(item_iter)
+                        except StopIteration:
+                            exhausted_items = True
+                            break
+                        prep = None
+                        verdict = None
+                        if probe_prepare is not None:
+                            prepared = probe_prepare(sample_url)
+                            if isinstance(prepared, dict) and "verdict" in prepared:
+                                verdict = prepared["verdict"]
+                            else:
+                                prep = prepared
+                        future = None if verdict is not None else pool.submit(probe, sample_url)
+                        pending.append((pattern, sample_url, prep, future, verdict))
+                    if not pending:
+                        break
+                    pattern, sample_url, prep, future, verdict = pending.popleft()
+                    if future is not None:
+                        fetched = future.result()
+                        verdict = (
+                            probe_apply(sample_url, prep, fetched)
+                            if probe_apply is not None
+                            else fetched
+                        )
+                    apply_probe_verdict(pattern, sample_url, verdict)
+                    remaining[pattern] -= 1
+                    if remaining[pattern] == 0:
+                        finish_probe_pattern(pattern)
+
+        result.patterns_escalated = sorted(escalated)
+        result.patterns_unprobed = sorted(set(samples) - probed_patterns)
+        result.patterns_unprobed_reasons = unprobed_reasons
         if not time_left():
-            break
-        needs_it = False
-        # Distinct from needs_it: a pattern with zero successful probes has no verdict at
-        # all, and must not be silently read as "verdict: no rendering needed" (#626).
-        probe_succeeded = False
-        failure_reason = ""
-        for sample_url in sample_urls:
-            if not time_left():
-                break
-            probed = probe(sample_url)
-            result.probe_requests += 1
-            if not probed.get("ok"):
-                failure_reason = str(probed.get("error") or "probe failed")
-                continue
-            probe_succeeded = True
-            if probed.get("empty_shell"):
-                result.empty_shell_urls.append(sample_url)
-            if probed.get("needs_escalation"):
-                needs_it = True
+            result.time_budget_exhausted = True
+        if not escalated:
+            return result
+
+        by_pattern: dict[str, list[str]] = {}
+        for u in urls:
+            by_pattern.setdefault(url_pattern(u), []).append(u)
+
+        # Spent breadth-first, one URL per escalated pattern per round, rather
+        # than draining patterns_escalated in order: sequential spending let
+        # whichever pattern sorted first consume the whole budget, leaving every
+        # later pattern at zero renders while still calling it "escalated" (#147).
+        # Round-robin instead means a budget that covers at least one URL per
+        # pattern reaches every pattern; render_counts and
+        # patterns_partially_rendered record honestly what a smaller budget could
+        # not finish, instead of the summary claiming a fuller fetch that never
+        # ran.
+        queues = {
+            pattern: list(by_pattern.get(pattern, [])) for pattern in result.patterns_escalated
+        }
+        budget = int(escalation_cfg.get("max_render_urls", 0))
+        if pool is None:
+            active = [pattern for pattern in result.patterns_escalated if queues[pattern]]
+            while active and budget > 0 and time_left():
+                next_active = []
+                for pattern in active:
+                    if budget <= 0 or not time_left():
+                        break
+                    target_url = queues[pattern].pop(0)
+                    if render_prepare is not None:
+                        render_prepare(target_url)
+                    apply_render(pattern, target_url, render_fetch(target_url))
+                    budget -= 1
+                    if queues[pattern]:
+                        next_active.append(pattern)
+                active = next_active
         else:
-            if probe_succeeded:
-                probed_patterns.add(pattern)
-                if needs_it:
-                    escalated.add(pattern)
-            else:
-                unprobed_reasons[pattern] = failure_reason or "every probe for this pattern failed"
-            continue
-        break  # the inner loop above ran out of time before finishing this pattern's sample
-    result.patterns_escalated = sorted(escalated)
-    result.patterns_unprobed = sorted(set(samples) - probed_patterns)
-    result.patterns_unprobed_reasons = unprobed_reasons
-    if not time_left():
-        result.time_budget_exhausted = True
-    if not escalated:
+            # Same round-robin spend as the sequential path, but at most
+            # page_concurrency fetches are ever in flight: the windowed loop
+            # pulls the next job only when a slot is free, the deadline has
+            # not run out, and budget remains. Results are applied on this
+            # thread strictly in submission order.
+            def render_jobs() -> Iterable[tuple[str, str]]:
+                active = [pattern for pattern in result.patterns_escalated if queues[pattern]]
+                while active:
+                    next_active = []
+                    for pattern in active:
+                        yield pattern, queues[pattern].pop(0)
+                        if queues[pattern]:
+                            next_active.append(pattern)
+                    active = next_active
+
+            job_iter = iter(render_jobs())
+            pending = deque()
+            exhausted_jobs = False
+            while True:
+                while (
+                    not exhausted_jobs
+                    and len(pending) < page_concurrency
+                    and budget > 0
+                    and time_left()
+                ):
+                    try:
+                        pattern, target_url = next(job_iter)
+                    except StopIteration:
+                        exhausted_jobs = True
+                        break
+                    if render_prepare is not None:
+                        render_prepare(target_url)
+                    pending.append((pattern, target_url, pool.submit(render_fetch, target_url)))
+                    budget -= 1
+                if not pending:
+                    break
+                pattern, target_url, future = pending.popleft()
+                apply_render(pattern, target_url, future.result())
+        result.patterns_partially_rendered = sorted(
+            pattern for pattern, remaining in queues.items() if remaining
+        )
+        result.render_budget_exhausted = bool(result.patterns_partially_rendered)
+        if not time_left():
+            result.time_budget_exhausted = True
         return result
-
-    by_pattern: dict[str, list[str]] = {}
-    for u in urls:
-        by_pattern.setdefault(url_pattern(u), []).append(u)
-
-    # Spent breadth-first, one URL per escalated pattern per round, rather
-    # than draining patterns_escalated in order: sequential spending let
-    # whichever pattern sorted first consume the whole budget, leaving every
-    # later pattern at zero renders while still calling it "escalated" (#147).
-    # Round-robin instead means a budget that covers at least one URL per
-    # pattern reaches every pattern; render_counts and
-    # patterns_partially_rendered record honestly what a smaller budget could
-    # not finish, instead of the summary claiming a fuller fetch that never
-    # ran.
-    queues = {pattern: list(by_pattern.get(pattern, [])) for pattern in result.patterns_escalated}
-    budget = int(escalation_cfg.get("max_render_urls", 0))
-    active = [pattern for pattern in result.patterns_escalated if queues[pattern]]
-    while active and budget > 0 and time_left():
-        next_active = []
-        for pattern in active:
-            if budget <= 0 or not time_left():
-                break
-            target_url = queues[pattern].pop(0)
-            fetched = render_fetch(target_url)
-            result.render_requests += 1
-            budget -= 1
-            result.render_counts[pattern] = result.render_counts.get(pattern, 0) + 1
-            if render_consumer is None:
-                if fetched.get("ok"):
-                    result.representations[target_url] = representation_label
-                    result.rendered[target_url] = fetched
-            else:
-                consumed = render_consumer(target_url, fetched, representation_label) or {}
-                accepted = bool(fetched.get("ok")) and bool(consumed.get("accepted"))
-                if accepted:
-                    result.representations[target_url] = representation_label
-                result.rendered[target_url] = {
-                    "ok": bool(fetched.get("ok")),
-                    "final_url": fetched.get("final_url") or target_url,
-                    "renderer": fetched.get("renderer") or {},
-                    "capture": {
-                        "accepted": accepted,
-                        "state": str(consumed.get("state") or "unavailable"),
-                        "reason": str(consumed.get("reason") or ""),
-                    },
-                }
-            if queues[pattern]:
-                next_active.append(pattern)
-        active = next_active
-    result.patterns_partially_rendered = sorted(
-        pattern for pattern, remaining in queues.items() if remaining
-    )
-    result.render_budget_exhausted = bool(result.patterns_partially_rendered)
-    if not time_left():
-        result.time_budget_exhausted = True
-    return result
+    finally:
+        # Deterministic teardown: in-flight jobs are waited out (each fetch
+        # closes its own page/context/browser/client), jobs never started are
+        # cancelled, and no worker outlives this call -- including when a
+        # worker failed or the caller was interrupted.
+        if pool is not None:
+            pool.shutdown(wait=True, cancel_futures=True)
 
 
 def _clears_content_floor(record: Any) -> bool:

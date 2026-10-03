@@ -55,6 +55,7 @@ cluster = ["scikit-learn>=1.4,<2", "numpy>=1.26,<3", "snowballstemmer>=2.2,<4"]
 gsc = ["google-auth[requests]>=2.0,<3"]
 dev = [
     "build>=1.2,<2",
+    "cryptography>=44,<51",
     "mypy>=1.13,<3",
     "pytest>=8.0,<10",
     "pytest-cov>=5.0,<8",

@@ -3377,6 +3377,7 @@ cluster = [
 ]
 dev = [
     { name = "build" },
+    { name = "cryptography" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -3410,6 +3411,7 @@ requires-dist = [
     { name = "beautifulsoup4", specifier = ">=4.12,<5" },
     { name = "build", marker = "extra == 'dev'", specifier = ">=1.2,<2" },
     { name = "charset-normalizer", specifier = ">=3.3,<4" },
+    { name = "cryptography", marker = "extra == 'dev'", specifier = ">=44,<51" },
     { name = "defusedxml", specifier = ">=0.7,<1" },
     { name = "google-auth", extras = ["requests"], marker = "extra == 'all'", specifier = ">=2.0,<3" },
     { name = "google-auth", extras = ["requests"], marker = "extra == 'gsc'", specifier = ">=2.0,<3" },

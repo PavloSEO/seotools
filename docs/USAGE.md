@@ -31,7 +31,26 @@ seohead report-build --audit native.sqlite --format md --out native-report.md --
 
 # if the crawl was interrupted, continue it from the artifact -- no other flag
 seohead crawl-site --resume native.sqlite
+
+# Explain a one-page or interrupted crawl from saved evidence; no new requests.
+seohead crawl-diagnose --scan native.sqlite
+seohead crawl-diagnose --run ./run --max-decisions 10
+
+# Optional redacted copy for sharing: creates a new file, never overwrites.
+seohead crawl-diagnose-export --scan native.sqlite --export diagnostic-redacted.json
 ```
+
+Proxied native crawls require a fresh output artifact; `--resume` refuses a saved proxy route
+because it cannot safely reconstruct the original connection and credentials from redacted state.
+
+The readable diagnosis goes to stderr and bounded JSON to stdout. Its decision
+samples name the recorded URL, reason, source and depth; the optional CLI export
+removes URLs, local paths, scan identity and unknown freeform labels. The MCP
+diagnosis is read-only; file export uses its separately annotated write tool
+(`seo_crawl_diagnose_export`) or the explicit CLI command. A saved scan cannot prove whether
+a worker process is still alive, and a one-page crawl does not establish the
+site-wide URL total. The command recommends a focused check or an explicit
+configuration change; it never changes robots policy or crawl settings.
 
 SQLite mode keeps queue, evidence and runtime in one transactional scan and resumes
 an interrupted file under the same build/configuration: `--resume` reads the start
@@ -46,6 +65,52 @@ only. Native capture requires raw rendering, cache off, and credential-free
 configuration. Audit creation has an explicit compatibility guard;
 check `audit_available` before requesting a report. See [STORAGE.md](STORAGE.md)
 for limits, provenance, interrupted-file handling and missing evidence.
+
+### Crawl file types
+
+URL-mode `crawl-site` can limit discovered routes separately by filename suffix
+and response media type. Put the rules under `scope` in the JSON passed with
+`--config`, or set dotted values with `--set`:
+
+```json
+{
+  "scope": {
+    "include_extensions": ["html", "pdf"],
+    "exclude_extensions": ["xml"],
+    "include_media_types": ["text/html"],
+    "exclude_media_types": ["text/xml"]
+  }
+}
+```
+
+Suffix rules inspect only the URL path's final suffix, case-insensitively; query
+strings and fragments do not change the match. A leading dot is optional. If an
+extension allowlist is set, extensionless routes are excluded. Exclusions win
+over inclusions within each list. Existing host, URL-regex and segment scope
+checks run before extension rules, and the explicitly supplied start URL retains
+its existing seed exemption.
+
+Media rules inspect the actual response `Content-Type` after the request, strip
+parameters such as `charset=utf-8`, and compare case-insensitively. Exact values
+and type wildcards such as `image/*` are accepted. Exclusions win; with an
+allowlist, a missing or malformed response type is recorded as
+`media_type_unavailable`. The URL, status, response headers, redirect chain and
+referring link remain evidence when a media rule withholds the body. Affected
+HTML metadata checks return `skipped` rather than treating empty parser fields as
+missing metadata. Such response-body decisions appear in the discovery exclusion
+counts and decision log; they do not mean the URL itself was never requested.
+Redirect targets are checked against suffix rules before the next request; a
+terminal media decision uses that response's header, never the URL suffix.
+
+These rules control the URL crawl frontier and page-body parsing. They do not
+download image bytes or change the independent `resources.fetch` script and
+stylesheet lane, its MIME checks, or its request/body/graph budgets. The page
+parser remains HTML-only: non-HTML responses keep their status and media type but
+do not become retained page bodies. `limits.max_response_bytes` still caps page
+parsing; filtered bodies are not parsed or retained, and `storage.max_body_bytes`
+continues to bound retained bodies. All four `scope` filters apply to URL-mode
+link discovery. Explicit URL-list mode remains a list of operator-supplied
+addresses and does not apply discovery-scope filters.
 
 ## Saved scan artifact
 
@@ -267,7 +332,7 @@ Money rules for this layer: [GOTCHAS.md](GOTCHAS.md).
 ## MCP server
 
 ```bash
-seohead mcp        # stdio server, all 95 seo_* tools + 5 sf_* audit tools
+seohead mcp        # stdio server, all 97 seo_* tools + 5 sf_* audit tools
 ```
 
 Client config (`.mcp.json` in this repo does exactly this):

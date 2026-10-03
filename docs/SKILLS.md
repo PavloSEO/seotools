@@ -99,7 +99,7 @@ Then by the layer of the task.
 
 ## Tools without a skill of their own
 
-65 of the 95 commands are not named in any skill's own body (a mention inside
+67 of the 97 commands are not named in any skill's own body (a mention inside
 another tool's Markdown table above does not count) — used inline as plumbing
 inside a workflow's write-up, or not yet needed by one at all — and have no
 skill of their own, deliberately: a skill per single command is noise.
@@ -107,7 +107,8 @@ skill of their own, deliberately: a skill per single command is noise.
 for each command name, so it cannot silently rot the way this line once did.
 
 Commands without their own skill: `asset-weight-check` · `audit-workflow` ·
-`boilerplate-report` · `crawl-describe-settings` · `crawl-enrich` · `crawl-import` ·
+`boilerplate-report` · `crawl-describe-settings` · `crawl-diagnose` ·
+`crawl-diagnose-export` · `crawl-enrich` · `crawl-import` ·
 `crtsh-subdomains` · `crux-report` · `facts-export` · `google-keywords` ·
 `google-serp` · `gsc-query` · `hreflang-check` · `images-download` ·
 `images-optimize` · `indexnow-submit` · `inspect-url` · `keywords-cluster` ·

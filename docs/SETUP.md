@@ -237,6 +237,34 @@ Use `http.headers` only for non-credential request headers such as `Accept-Langu
 headers, cookies, API keys, and tokens are refused there: put them in host-bound
 `http.credential_headers` as `env:VARIABLE` references and set `http.credentials_acknowledged=true`.
 
+For a native crawl through an HTTP forward proxy, set `http.proxy` explicitly. The default is
+direct and ignores ambient `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY`. An anonymous
+endpoint may be written as `http://proxy.example.test:3128`; credentials must come through an
+environment reference to the complete URL:
+
+```json
+{"http": {"proxy": "env:SEOHEAD_CRAWL_PROXY"}}
+```
+
+For example, `SEOHEAD_CRAWL_PROXY` may contain an `http://` URL with a percent-encoded username
+and password (`@` as `%40`, `:` in a password as `%3A`; colons in usernames are refused).
+It is read at crawl start, never stored in the scan or manifest. Only `http://`
+forward proxies with an explicit port are supported for HTTP targets and HTTPS CONNECT targets;
+HTTPS proxy endpoints, SOCKS, PAC, bypass lists and browser-native proxy fallback are rejected.
+`http.proxy_allow_private=true` authorizes a private **proxy socket** only; it never authorizes
+private target URLs. The crawler validates and pins both the proxy socket and each target/redirect
+before connecting. A proxy's onward behavior cannot be attested after the request reaches it.
+Proxy failures never switch to direct egress. The manifest records the safe proxy endpoint and
+whether authentication was configured, never its value. Proxied crawls require `cache.mode=off`
+and cannot resume from saved legacy or SQLite frontiers; start a new output instead. CA bundles
+may be selected with `SSL_CERT_FILE` or `SSL_CERT_DIR`, while TLS verification remains enabled.
+Proxied HTTPS uses a fresh verified CONNECT tunnel for each request, with the origin hostname
+kept for SNI and certificate validation even though CONNECT names its vetted IP; HTTP/2 and
+keepalive reuse are disabled on this route to avoid mixing hostnames on one IP.
+The same policy is reachable with `--set http.proxy=env:SEOHEAD_CRAWL_PROXY` or the MCP
+`seo_crawl_site` overrides. Browser subrequests remain on the pinned HTTP route; unsupported
+methods and WebSockets retain their existing unavailable behavior.
+
 `crawl-site --help` only shows the handful of settings used directly on the command line
 (`--url`, `--max-urls`, `--out-dir`, `--scan-out`, `--config`, `--robots`, `--sitemap`); everything else — the
 settings above and every one the crawler build-out has added since — lives in the config file. Run
@@ -286,10 +314,29 @@ The shared request budget covers robots, sitemap discovery and audit rechecks, p
 retries, redirects, captured resources, and browser HTTP routes. Robots directives can raise
 the configured delay floor, never lower it.
 
-Rendering launches Chromium with its sandbox enabled and refuses root execution. HTTP routes,
-including popup requests, are fulfilled through the same validated, pinned HTTP transport;
-Chromium does not continue those requests through its own DNS resolver. Browser cookies and
-cross-origin restrictions are preserved. Service workers are blocked.
+Rendering launches a headless browser — Chromium with its sandbox enabled — and refuses
+root execution. `rendering.browser.engine` selects which Playwright engine runs: `chromium`
+(the default), `firefox` or `webkit`. An unknown name is a config error before any browser starts, and a
+missing browser binary fails with an actionable `playwright install <engine>` hint rather
+than silently substituting another engine. Firefox cannot emulate a mobile viewport
+(`is_mobile` is unsupported there), so `rendering.browser.mobile_emulation` is refused for
+it; `rendering.browser.touch_emulation` (`has_touch`) is a general context option every
+engine accepts. HTTP routes, including popup requests, are fulfilled through the same
+validated, pinned HTTP transport; the browser does not continue those requests through its
+own DNS resolver. Browser cookies and cross-origin restrictions are preserved. Service
+workers are blocked.
+
+`rendering.browser.viewport` selects the `desktop` (1366×768) or `mobile` (390×844) preset;
+`rendering.browser.viewport_width` and `rendering.browser.viewport_height` override the
+preset's dimensions with an exact pixel pair. The pair is all-or-nothing, bounded to
+1 through 16384, and does not imply mobile or touch emulation — those remain explicit flags.
+`rendering.browser.page_concurrency` bounds how many browser fetches a rendering escalation
+runs at once, probes included, independently of `speed.concurrency` (which keeps governing
+HTTP request politeness). The default of 1 is the sequential behaviour older runs had.
+Probes and full renders in one run always share the same engine, viewport and emulation, and
+the effective values are recorded in the run manifest/fingerprint and in each rendered
+document's renderer provenance — including attempts that failed, which record what was
+requested rather than inventing a successful render.
 
 The renderer supports GET, HEAD, and OPTIONS, with a 5 MiB limit on each response's encoded
 HTTP body. A blocked WebSocket, unsupported method, refused destination, or exceeded response
