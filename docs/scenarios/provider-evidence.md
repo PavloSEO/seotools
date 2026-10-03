@@ -133,6 +133,50 @@ new crawl or an automatic priority change. `--review-external-only` writes
 separate candidate URLs in the private join; admitting them requires a later
 explicit list crawl.
 
+## Normalize imported evidence for a scan join
+
+`evidence-normalize` turns a supplied CSV/XLSX/JSON export — or a saved private
+provider envelope — into one `seohead.normalized-evidence.v1` document, fully
+offline. An optional `seohead.evidence-mapping.v1` manifest declares the
+source, URL field or dimension, metrics and units, dimensions, inclusive
+period, timezone, attribution and collection coverage; every resolved field
+records whether it came from the envelope, the manifest, a provider contract,
+or remains unknown. A supplied `0` stays a measured zero; an empty cell, a
+missing key, JSON `null`, a formula cell, a suppressed placeholder and a
+never-collected row each stay a distinct unavailable state — never zero. GSC
+page dimensions key on their absolute URL; GA4 `landingPagePlusQueryString`
+values stay unkeyable until `--site-origin` declares the binding explicitly.
+Rows keep their declared grain: a page+query row is never collapsed into its
+page, and duplicate natural keys are marked ambiguous, not summed.
+
+```bash
+seohead evidence-normalize --file ./gsc.csv
+```
+
+`evidence-join` joins the normalized document to `--pages`, `--scan`, or
+`--audit` under the strict `external_join.v1` key policy; the
+`--ignore-query`/`--ignore-scheme`/`--casefold-path` relaxations are explicit
+opt-ins, never defaults. The result preserves `matched`, `crawl_only`,
+`external_only` and `unkeyable` populations with their provenance, and reports
+normalization collisions on both sides instead of multiplying metrics across
+rows that share a key.
+
+```bash
+seohead evidence-join --scan ./scans/audit.sqlite --evidence ./gsc.csv
+```
+
+`--compare` plus a declared `--policy` adds a pure compatibility decision
+(`compatible`, `incompatible` or `unknown`) across inclusive period, timezone
+boundary, reporting identity, attribution, search engine, and grain. GSC
+clicks or impressions and GA4 sessions stay distinct labeled metrics on their
+own axes — a declared `cross_source: "juxtapose"` policy may juxtapose them on
+one URL and a compatible window, but never sums them or treats sessions as
+clicks. A cross-source quadrant is eligible only when both sources supplied a
+measured numeric value at the same URL key under a declared boundary policy;
+unavailable values cannot enter it. Restricted sources return counts and
+redacted provenance only; full populations live inside an explicit `--out-dir`
+private artifact.
+
 ## Yandex Webmaster operations
 
 `provider-collect --provider yandex_webmaster` reads API v4 only. `user_id` is resolved from the

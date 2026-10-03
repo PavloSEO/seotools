@@ -6,7 +6,7 @@ Generated from the MCP tool definitions in `seohead/servers/mcp_server.py` and `
 python scripts/generate_tool_reference.py
 ```
 
-**94 core tools** (`seohead <command>` / `seo_<command>` on the MCP server) plus **5 crawl-audit tools** (`sf_<command>`, driven by `seohead sf ...`) — 99 in total.
+**96 core tools** (`seohead <command>` / `seo_<command>` on the MCP server) plus **5 crawl-audit tools** (`sf_<command>`, driven by `seohead sf ...`) — 101 in total.
 
 Every tool shares one contract: JSON in, JSON out. A target that could not be reached comes back as `{"ok": false, "error": "..."}` instead of raising, so an unreachable site is data, not a crash.
 
@@ -1302,6 +1302,68 @@ Join supplied URL evidence exactly and preserve unmatched populations and techni
 | `adjustments` | `list[dict[str, Any]] | None` | `None` |
 
 **Cost** — network: no · writes files: no · idempotent: yes · spends money: no
+
+### `evidence-normalize`
+
+MCP name: `seo_evidence_normalize`
+
+Normalize a supplied CSV/XLSX/JSON or saved provider envelope, fully offline.
+
+| Argument | Type | Default |
+|---|---|---|
+| `file` | `str` | `required` |
+| `mapping` | `Any` | `None` |
+| `sheet` | `str | None` | `None` |
+| `site_origin` | `str | None` | `None` |
+| `out_dir` | `str | None` | `None` |
+
+**Cost** — network: no · writes files: yes · idempotent: no · spends money: no
+
+**Behavior and failure modes**
+
+Every row keeps its declared grain, provenance and availability state: a
+measured zero stays zero while missing, null, blank, suppressed,
+uncollected and failed inputs stay unavailable. Restricted sources
+return counts and redacted provenance; normalized rows live only in an
+explicit private ``out_dir`` artifact. No provider, DNS or page fetch
+ever runs here.
+
+### `evidence-join`
+
+MCP name: `seo_evidence_join`
+
+Join normalized analytics/search evidence to crawl pages, offline only.
+
+| Argument | Type | Default |
+|---|---|---|
+| `evidence` | `Any` | `required` |
+| `audit` | `Any` | `None` |
+| `scan` | `str | None` | `None` |
+| `pages` | `Any` | `None` |
+| `compare` | `Any` | `None` |
+| `mapping` | `Any` | `None` |
+| `compare_mapping` | `Any` | `None` |
+| `policy` | `Any` | `None` |
+| `sheet` | `str | None` | `None` |
+| `compare_sheet` | `str | None` | `None` |
+| `site_origin` | `str | None` | `None` |
+| `compare_site_origin` | `str | None` | `None` |
+| `ignore_query` | `bool` | `False` |
+| `ignore_scheme` | `bool` | `False` |
+| `casefold_path` | `bool` | `False` |
+| `out_dir` | `str | None` | `None` |
+
+**Cost** — network: no · writes files: yes · idempotent: no · spends money: no
+
+**Behavior and failure modes**
+
+Retains matched, crawl-only, external-only and unkeyable populations
+with per-field provenance, and reports key collisions instead of
+multiplying rows. ``compare`` plus a declared ``policy`` yields a pure
+compatible/incompatible/unknown decision across period, timezone,
+identity, attribution, engine and grain; source metrics such as GSC
+clicks and GA4 sessions stay distinct and are never summed. Restricted
+inputs return counts only.
 
 ### `inspect-url`
 

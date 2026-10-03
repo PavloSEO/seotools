@@ -3182,6 +3182,256 @@ def provider_join(
     )
 
 
+def _json_or_path(value: Any, label: str) -> Any:
+    """Resolve one argument that accepts inline JSON text or a bounded JSON file path."""
+    import json
+    from pathlib import Path
+
+    if value is None or isinstance(value, (dict, list)):
+        return value
+    if not isinstance(value, str):
+        raise ValueError(f"{label} must be JSON data or a file path")
+    text = value.strip()
+    if text[:1] in {"{", "["}:
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"{label} is not valid JSON: {exc}") from exc
+    path = Path(text)
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > 4 * 1024 * 1024:
+        raise ValueError(f"{label} must be inline JSON or a bounded readable JSON file")
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{label} is not valid JSON: {exc}") from exc
+
+
+def _evidence_document(
+    value: Any, *, mapping: Any = None, sheet: str | None = None, site_origin: str | None = None
+) -> dict[str, Any]:
+    """Resolve one evidence input into a normalized evidence document."""
+    from seohead.data_sources import evidence_import
+
+    if value is None:
+        raise ValueError("evidence source required")
+    manifest = _json_or_path(mapping, "mapping")
+    if isinstance(value, dict):
+        if value.get("format") == evidence_import.NORMALIZED_FORMAT:
+            return value
+        if isinstance(value.get("rows"), list):
+            return evidence_import.normalize_inline(
+                value["rows"], manifest=manifest or value.get("mapping")
+            )
+        raise ValueError("evidence must be a normalized document, a rows object, or a file path")
+    if isinstance(value, str):
+        text = value.strip()
+        if text[:1] in {"{", "["}:
+            import json
+
+            return _evidence_document(
+                json.loads(text), mapping=mapping, sheet=sheet, site_origin=site_origin
+            )
+        return evidence_import.normalize_file(
+            value, manifest=manifest, sheet=sheet, site_origin=site_origin
+        )
+    raise ValueError("evidence must be a normalized document, a rows object, or a file path")
+
+
+def evidence_normalize(
+    file: str | None = None,
+    mapping: Any = None,
+    sheet: str | None = None,
+    site_origin: str | None = None,
+    out_dir: str | None = None,
+) -> dict[str, Any]:
+    """Normalize one supplied CSV/XLSX/JSON or saved provider envelope, fully offline.
+
+    Restricted sources (saved provider evidence, or a manifest that declares
+    ``privacy: restricted``) report summary and redacted provenance only; their
+    normalized rows exist solely inside the optional restricted ``out_dir``
+    artifact. Supplied files return the full normalized document.
+    """
+    if not file:
+        raise ValueError("file required")
+    from seohead.data_sources import evidence_import
+    from seohead.data_sources.providers import _save_local_artifact
+
+    manifest = _json_or_path(mapping, "mapping")
+    document = evidence_import.normalize_file(
+        file, manifest=manifest, sheet=sheet, site_origin=site_origin
+    )
+    privacy = (document["mapping"].get("source") or {}).get("privacy") or "supplied"
+    artifact = _save_local_artifact(out_dir, document) if out_dir else None
+    result: dict[str, Any] = {
+        "ok": True,
+        "format": "seohead.evidence-normalize.v1",
+        "privacy": privacy,
+        "summary": document["summary"],
+        "artifact_reference": artifact,
+    }
+    if privacy == "restricted":
+        result["provenance"] = evidence_import.public_provenance(document["provenance"])
+        result["rows_redacted"] = True
+    else:
+        result["document"] = document
+    return result
+
+
+def evidence_join(
+    audit: Any = None,
+    scan: str | None = None,
+    pages: Any = None,
+    evidence: Any = None,
+    compare: Any = None,
+    mapping: Any = None,
+    compare_mapping: Any = None,
+    policy: Any = None,
+    sheet: str | None = None,
+    compare_sheet: str | None = None,
+    site_origin: str | None = None,
+    compare_site_origin: str | None = None,
+    ignore_query: bool = False,
+    ignore_scheme: bool = False,
+    casefold_path: bool = False,
+    out_dir: str | None = None,
+) -> dict[str, Any]:
+    """Join normalized analytics/search evidence to crawl pages, offline only.
+
+    One of ``pages``, ``scan`` or ``audit`` supplies the crawl side; ``evidence``
+    is a file or normalized document normalized through the shared
+    ``seohead.evidence-mapping.v1`` path. ``compare`` adds a pure
+    compatibility decision against a second source under a declared
+    ``policy``. Restricted sources keep every population inside the optional
+    private ``out_dir`` artifact and return counts, never row content.
+    """
+    from seohead.data_sources import evidence_join as join_core
+    from seohead.data_sources.providers import _save_local_artifact
+
+    document = _evidence_document(evidence, mapping=mapping, sheet=sheet, site_origin=site_origin)
+    compare_document = (
+        _evidence_document(
+            compare,
+            mapping=compare_mapping,
+            sheet=compare_sheet,
+            site_origin=compare_site_origin,
+        )
+        if compare is not None
+        else None
+    )
+    if sum(source is not None for source in (pages, scan, audit)) > 1:
+        raise ValueError("pages, scan and audit are alternative crawl inputs, not a set")
+    page_rows = None
+    crawl_context: dict[str, Any] = {}
+    if pages is not None:
+        page_rows = _json_or_path(pages, "pages")
+        if (
+            not isinstance(page_rows, list)
+            or len(page_rows) > 100_000
+            or any(not isinstance(page, dict) for page in page_rows)
+        ):
+            raise ValueError("pages must be a bounded list of page objects")
+        crawl_context = {"source": "pages"}
+    elif scan:
+        from seohead.storage import open_scan
+
+        con = open_scan(scan, require_audit=False)
+        try:
+            if con.execute("SELECT COUNT(*) FROM pages").fetchone()[0] > 100_000:
+                raise ValueError("saved scan exceeds the bounded join limit")
+            page_rows = [
+                dict(row)
+                for row in con.execute(
+                    "SELECT u.url,p.status_code FROM pages p JOIN urls u USING(url_id)"
+                    " ORDER BY p.url_id"
+                )
+            ]
+            scan_uuid = con.execute("SELECT scan_uuid FROM scan").fetchone()[0]
+            partial = None
+            audit_row = con.execute("SELECT document_json FROM audit WHERE singleton=1").fetchone()
+            if audit_row:
+                import json as _json
+
+                try:
+                    partial = bool(
+                        (_json.loads(audit_row[0]).get("run") or {}).get("crawl_partial")
+                    )
+                except (TypeError, ValueError):
+                    partial = None
+        finally:
+            con.close()
+        crawl_context = {"source": "scan", "scan_uuid": scan_uuid, "partial": partial}
+    elif audit is not None:
+        diagnostics: list[dict[str, str]] = []
+        audit_document = _load_audit(audit, "audit", diagnostics)
+        page_rows = audit_document.get("pages") or []
+        if len(page_rows) > 100_000:
+            raise ValueError("audit pages exceed the bounded join limit")
+        crawl_context = {
+            "source": "audit",
+            "partial": bool((audit_document.get("run") or {}).get("crawl_partial")),
+        }
+        if diagnostics:
+            crawl_context["input_diagnostics"] = diagnostics
+    if page_rows is None and compare_document is None:
+        raise ValueError(
+            "evidence_join needs a crawl input (pages, scan or audit) to join, "
+            "or a compare source for a compatibility-only decision"
+        )
+    join_result = (
+        join_core.join_evidence(
+            page_rows,
+            document,
+            url_policy={
+                "ignore_query": bool(ignore_query),
+                "ignore_scheme": bool(ignore_scheme),
+                "casefold_path": bool(casefold_path),
+            },
+            crawl=crawl_context,
+        )
+        if page_rows is not None
+        else None
+    )
+    compatibility = (
+        join_core.evidence_compatibility(
+            document, compare_document, policy=_json_or_path(policy, "policy")
+        )
+        if compare_document is not None
+        else None
+    )
+    restricted = any(
+        ((doc.get("mapping") or {}).get("source") or {}).get("privacy") == "restricted"
+        for doc in (document, compare_document)
+        if doc is not None
+    )
+    artifact = (
+        _save_local_artifact(out_dir, {"join": join_result, "compatibility": compatibility})
+        if out_dir
+        else None
+    )
+    response: dict[str, Any] = {
+        "ok": True,
+        "format": "seohead.evidence-join-result.v1",
+        "privacy": "restricted" if restricted else "supplied",
+        "artifact_reference": artifact,
+    }
+    if compatibility is not None:
+        response["compatibility"] = (
+            join_core.public_compatibility(compatibility) if restricted else compatibility
+        )
+    if restricted:
+        response["populations_redacted"] = True
+        if join_result is not None:
+            response["join"] = {
+                "format": join_result["format"],
+                "url_policy": join_result["url_policy"],
+                "crawl": join_result["crawl"],
+                "summary": join_result["summary"],
+            }
+    elif join_result is not None:
+        response["join"] = join_result
+    return response
+
+
 def inspect_url(url: str, checks: list[str] | None = None) -> dict[str, Any]:
     """Run a closed, bounded single-URL investigation using the existing shared tools."""
     chosen = checks if checks is not None else ["metadata", "headers", "robots"]
@@ -3416,6 +3666,8 @@ _RAW_HANDLERS = {
     "provider_verify": provider_verify,
     "provider_collect": provider_collect,
     "provider_join": provider_join,
+    "evidence_normalize": evidence_normalize,
+    "evidence_join": evidence_join,
 }
 
 # Journaling sits here rather than in each interface: the CLI and the MCP server

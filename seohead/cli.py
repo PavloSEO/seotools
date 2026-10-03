@@ -113,6 +113,8 @@ COMMANDS = (
     "provider-verify",
     "provider-collect",
     "provider-join",
+    "evidence-normalize",
+    "evidence-join",
     "inspect-url",
     "audit-workflow",
     "tool-catalog",
@@ -472,6 +474,31 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
         for name in ("provider", "operation", "artifact_dir"):
             if getattr(args, name, None) is not None:
                 kw[name] = getattr(args, name)
+    elif cmd == "evidence-normalize":
+        for name in ("file", "mapping", "sheet", "site_origin", "out_dir"):
+            if getattr(args, name, None) is not None:
+                kw[name] = getattr(args, name)
+    elif cmd == "evidence-join":
+        for name in (
+            "scan",
+            "audit",
+            "pages",
+            "evidence",
+            "compare",
+            "mapping",
+            "compare_mapping",
+            "policy",
+            "sheet",
+            "compare_sheet",
+            "site_origin",
+            "compare_site_origin",
+            "out_dir",
+        ):
+            if getattr(args, name, None) is not None:
+                kw[name] = getattr(args, name)
+        for name in ("ignore_query", "ignore_scheme", "casefold_path"):
+            if getattr(args, name, False):
+                kw[name] = True
     elif cmd == "boilerplate-report":
         if getattr(args, "scan", None):
             kw["scan"] = args.scan
@@ -1436,6 +1463,37 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
     if cmd == "provider-collect":
         _source_flag(sub, "--operation", help="declared read-only provider operation")
         _source_flag(sub, "--artifact-dir", help="restricted local raw-evidence directory")
+    if cmd == "evidence-normalize":
+        _source_flag(
+            sub,
+            "--file",
+            help="supplied CSV/XLSX/JSON rows or a saved provider-evidence envelope",
+        )
+        sub.add_argument("--mapping", help="seohead.evidence-mapping.v1 JSON or path")
+        sub.add_argument("--sheet", help="XLSX sheet name")
+        sub.add_argument("--site-origin", help="explicit origin binding for relative URL keys")
+        _source_flag(sub, "--out-dir", help="restricted normalized artifact directory")
+    if cmd == "evidence-join":
+        _source_flag(sub, "--scan", help="saved scan SQLite artifact")
+        _source_flag(sub, "--audit", help="crawl audit document")
+        _source_flag(sub, "--pages", help="inline JSON page list or JSON file path")
+        _source_flag(
+            sub,
+            "--evidence",
+            help="evidence file or inline normalized document/rows object",
+        )
+        _source_flag(sub, "--compare", help="second evidence source for compatibility")
+        sub.add_argument("--mapping", help="evidence mapping manifest JSON or path")
+        sub.add_argument("--compare-mapping", help="mapping manifest for --compare")
+        sub.add_argument("--policy", help="comparison policy JSON or path")
+        sub.add_argument("--sheet", help="XLSX sheet for --evidence")
+        sub.add_argument("--compare-sheet", help="XLSX sheet for --compare")
+        sub.add_argument("--site-origin", help="origin binding for --evidence")
+        sub.add_argument("--compare-site-origin", help="origin binding for --compare")
+        sub.add_argument("--ignore-query", action="store_true")
+        sub.add_argument("--ignore-scheme", action="store_true")
+        sub.add_argument("--casefold-path", action="store_true")
+        _source_flag(sub, "--out-dir", help="private local join output directory")
     if cmd == "project-checklist-record":
         _source_flag(sub, "--item-id", help="checklist item identifier to record")
     if cmd == "scan-body-diff":

@@ -284,6 +284,8 @@ and spend-journal rules.
 | `provider-collect` | Performs one declared read-only operation and returns a versioned evidence envelope with complete, partial, failed, or skipped state. An optional restricted artifact directory keeps raw rows locally. | provider read; optional local artifact |
 | `provider-join` | Joins supplied crawl pages and collected evidence rows without changing a frontier. It preserves matched, crawl-only, external-only, and unkeyable populations. | no |
 | `provider-replay` | Replays a private saved provider collection against a saved scan offline, writes a restricted joined artifact, and keeps the crawl frontier unchanged. | local artifact write |
+| `evidence-normalize` | Normalizes a supplied CSV/XLSX/JSON or a saved provider envelope into `seohead.normalized-evidence.v1` against an optional `seohead.evidence-mapping.v1` manifest, offline. Every row keeps its grain, provenance and availability state: a measured `0` stays zero while missing, null, blank, suppressed, uncollected and failed inputs stay unavailable. Restricted sources return counts and redacted provenance. | optional restricted artifact under `--out-dir` |
+| `evidence-join` | Joins normalized evidence to `--pages`, `--scan`, or `--audit` under the strict URL policy (explicit `--ignore-query`/`--ignore-scheme`/`--casefold-path` relaxations), preserving matched, crawl-only, external-only and unkeyable populations plus collision counts. `--compare` with a declared `--policy` yields a pure compatible/incompatible/unknown decision across period, timezone, identity, attribution, engine and grain; source metrics such as GSC clicks and GA4 sessions stay distinct and are never summed. | optional private artifact under `--out-dir` |
 
 Provider evidence can change work order only when its coverage is usable; sampled,
 truncated, unmatched, or privacy-thresholded values remain unavailable for a
@@ -457,7 +459,7 @@ echo '{"url":"https://example.com"}' | seohead parse
 tool must not knock where it was not asked to.
 
 **MCP.** The same set under the `seo_*` names plus the `sf_*` audit tools
-(94 + 5):
+(96 + 5):
 
 ```bash
 seohead mcp        # stdio

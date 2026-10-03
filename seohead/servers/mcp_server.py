@@ -1308,6 +1308,83 @@ def build_server(profile: str = "full", progress_notifications: bool = False):  
             )
         )
 
+    @mcp.tool(annotations=create_files, structured_output=True)
+    def seo_evidence_normalize(
+        file: str,
+        mapping: Any = None,
+        sheet: str | None = None,
+        site_origin: str | None = None,
+        out_dir: str | None = None,
+    ) -> dict[str, Any]:
+        """Normalize a supplied CSV/XLSX/JSON or saved provider envelope, fully offline.
+
+        Every row keeps its declared grain, provenance and availability state: a
+        measured zero stays zero while missing, null, blank, suppressed,
+        uncollected and failed inputs stay unavailable. Restricted sources
+        return counts and redacted provenance; normalized rows live only in an
+        explicit private ``out_dir`` artifact. No provider, DNS or page fetch
+        ever runs here.
+        """
+        return _checked(
+            handlers.evidence_normalize(
+                file=file,
+                mapping=mapping,
+                sheet=sheet,
+                site_origin=site_origin,
+                out_dir=out_dir,
+            )
+        )
+
+    @mcp.tool(annotations=create_files, structured_output=True)
+    def seo_evidence_join(
+        evidence: Any,
+        audit: Any = None,
+        scan: str | None = None,
+        pages: Any = None,
+        compare: Any = None,
+        mapping: Any = None,
+        compare_mapping: Any = None,
+        policy: Any = None,
+        sheet: str | None = None,
+        compare_sheet: str | None = None,
+        site_origin: str | None = None,
+        compare_site_origin: str | None = None,
+        ignore_query: bool = False,
+        ignore_scheme: bool = False,
+        casefold_path: bool = False,
+        out_dir: str | None = None,
+    ) -> dict[str, Any]:
+        """Join normalized analytics/search evidence to crawl pages, offline only.
+
+        Retains matched, crawl-only, external-only and unkeyable populations
+        with per-field provenance, and reports key collisions instead of
+        multiplying rows. ``compare`` plus a declared ``policy`` yields a pure
+        compatible/incompatible/unknown decision across period, timezone,
+        identity, attribution, engine and grain; source metrics such as GSC
+        clicks and GA4 sessions stay distinct and are never summed. Restricted
+        inputs return counts only.
+        """
+        return _checked(
+            handlers.evidence_join(
+                audit=audit,
+                scan=scan,
+                pages=pages,
+                evidence=evidence,
+                compare=compare,
+                mapping=mapping,
+                compare_mapping=compare_mapping,
+                policy=policy,
+                sheet=sheet,
+                compare_sheet=compare_sheet,
+                site_origin=site_origin,
+                compare_site_origin=compare_site_origin,
+                ignore_query=ignore_query,
+                ignore_scheme=ignore_scheme,
+                casefold_path=casefold_path,
+                out_dir=out_dir,
+            )
+        )
+
     @mcp.tool(annotations=fetch, structured_output=True)
     def seo_inspect_url(url: str, checks: list[str] | None = None) -> dict[str, Any]:
         """Inspect one URL with bounded metadata/header/robots/redirect/structured/render steps."""

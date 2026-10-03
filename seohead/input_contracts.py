@@ -348,6 +348,54 @@ COMMAND_CONTRACTS: tuple[CommandContract, ...] = (
         _form("inline_json", "adjustments", note="Optional evidence-backed priority adjustments."),
     ),
     _command(
+        "evidence-normalize",
+        "evidence_normalize",
+        _form(
+            "local_file",
+            "file",
+            note="Supplied CSV/XLSX/JSON rows or a saved provider-evidence envelope; fully offline.",
+        ),
+        _form(
+            "inline_json",
+            "mapping",
+            note="Optional seohead.evidence-mapping.v1 manifest, inline or file path.",
+        ),
+        _form(
+            "local_directory",
+            "out_dir",
+            note="Optional restricted normalized artifact directory.",
+        ),
+    ),
+    _command(
+        "evidence-join",
+        "evidence_join",
+        _form(
+            "scan_artifact",
+            "scan",
+            note="Alternative crawl side; offline scan read like provider-replay.",
+        ),
+        _form("audit_document", "audit", note="Alternative crawl side."),
+        _form("inline_json", "pages", note="Alternative crawl side, page objects."),
+        _form(
+            "local_file",
+            "evidence",
+            "compare",
+            note="CSV/XLSX/JSON or saved provider envelope; inline JSON also accepted.",
+        ),
+        _form(
+            "inline_json",
+            "mapping",
+            "compare_mapping",
+            "policy",
+            note="Mapping manifests and the declared comparison policy, inline or file path.",
+        ),
+        _form(
+            "local_directory",
+            "out_dir",
+            note="Optional private join/compatibility artifact directory.",
+        ),
+    ),
+    _command(
         "inspect-url",
         "inspect_url",
         _form("live_url", "url"),
