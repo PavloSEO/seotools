@@ -30,7 +30,7 @@ def _default_transport(method: str, url: str, payload: dict[str, Any] | None, to
 # Operation -> API v4 path below ``/user/{user_id}``; ``{host}`` marks host-level reads.
 OPERATIONS: dict[str, str] = {
     "hosts": "/hosts",
-    "indexing": "/hosts/{host}/search-urls",
+    "indexing": "/hosts/{host}/indexing/samples",
     "crawl": "/hosts/{host}/search-urls/events/samples",
     "sitemaps": "/hosts/{host}/sitemaps",
     "search_performance": "/hosts/{host}/search-queries/popular",
@@ -43,12 +43,18 @@ OPERATIONS: dict[str, str] = {
     "events_history": "/hosts/{host}/search-urls/events/history",
     "indexing_history": "/hosts/{host}/indexing/history",
     "important_urls": "/hosts/{host}/important-urls",
+    "broken_links_samples": "/hosts/{host}/links/internal/broken/samples",
     "broken_links_history": "/hosts/{host}/links/internal/broken/history",
     "external_links_history": "/hosts/{host}/links/external/history",
 }
-# Paged sample lists: operation -> key of the list in the answer. The API caps a page at 500.
-PAGED = {"search_performance": "queries", "crawl": "samples"}
-PAGE_SIZE = 500
+# Paged sample lists: operation -> (key of the list in the answer, documented page-size cap).
+# Popular queries allow up to 500 per page; the sample lists cap at 100.
+PAGED: dict[str, tuple[str, int]] = {
+    "search_performance": ("queries", 500),
+    "crawl": ("samples", 100),
+    "indexing": ("samples", 100),
+    "broken_links_samples": ("links", 100),
+}
 MAX_ROWS = 50_000
 DEFAULT_PARAMS = {"search_performance": {"order_by": "TOTAL_SHOWS"}}
 
@@ -57,6 +63,26 @@ def resolve_user_id(token: str, transport: Transport | None = None) -> str:
     """Return the account user id that every other API v4 path starts with."""
     body = json.loads((transport or _default_transport)("GET", HOST + "/user", None, token))
     return str(body["user_id"])
+
+
+def _sample_page(page: Any, list_key: str) -> tuple[list[Any], int]:
+    """Validate one documented paged response and return its row list and total count."""
+    if not isinstance(page, dict):
+        raise ValueError("malformed Yandex Webmaster response")
+    chunk = page.get(list_key)
+    if not isinstance(chunk, list):
+        raise ValueError(f"malformed Yandex Webmaster response: '{list_key}' must be a list")
+    count = page.get("count")
+    if isinstance(count, str):
+        try:
+            count = int(count)
+        except ValueError:
+            count = None
+    if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+        raise ValueError(
+            "malformed Yandex Webmaster response: 'count' must be a nonnegative integer"
+        )
+    return chunk, count
 
 
 def collect(
@@ -75,8 +101,13 @@ def collect(
 
     ``user_id`` is resolved from the token when omitted. ``params`` become the query string;
     a list value repeats the key (``query_indicator=TOTAL_SHOWS&query_indicator=TOTAL_CLICKS``).
-    With ``paginate`` the paged sample lists (search queries, crawl events) are read page by page
-    up to ``max_rows``; the answer says when that ceiling truncated the list.
+    With ``paginate`` the paged sample lists (search queries, crawl events, indexing and broken
+    links samples) are read page by page up to ``max_rows`` — each page requests at most the
+    remaining row budget; without it one page is still read and validated. ``truncated`` is
+    set whenever the documented ``count`` says rows remain unread — a ``max_rows`` cut, a
+    single-page slice, or a page that ended early — and the state becomes ``partial``; a
+    response without the documented list or count, or whose ``count`` contradicts the rows
+    returned, fails.
     """
     from seohead.data_sources.credentials import MissingCredential, yandex_webmaster_token
 
@@ -92,7 +123,9 @@ def collect(
         return {"ok": False, "state": "not_configured", "verified": False, "error": str(exc)}
     send = transport or _default_transport
     query = dict(DEFAULT_PARAMS.get(operation, {}), **(params or {}))
-    list_key = PAGED.get(operation) if paginate else None
+    spec = PAGED.get(operation)
+    if paginate and spec is not None and max_rows < 1:
+        raise ValueError("paginate requires a positive max_rows")
     try:
         user = user_id or resolve_user_id(bearer, send)
         path = (
@@ -109,23 +142,36 @@ def collect(
             encoded = urllib.parse.urlencode(dict(query, **extra), doseq=True)
             return json.loads(send("GET", path + (f"?{encoded}" if encoded else ""), None, bearer))
 
-        if not list_key:
+        truncated = False
+        returned = None
+        if spec is None:
             body = get({})
-            truncated = False
         else:
-            body, rows, offset, truncated = None, [], int(query.get("offset", 0)), False
+            list_key, page_size = spec
+            first, rows = None, []
+            start = int(query.get("offset", 0))
+            offset = start
             while True:
-                page = get({"offset": offset, "limit": PAGE_SIZE})
-                body = body if body is not None else page
-                chunk = page.get(list_key) or [] if isinstance(page, dict) else []
+                limit = min(page_size, max_rows - len(rows))
+                page = get({"offset": offset, "limit": limit} if paginate else {})
+                chunk, count = _sample_page(page, list_key)
+                if count < offset + len(chunk):
+                    raise ValueError(
+                        "malformed Yandex Webmaster response: 'count' is below the returned rows"
+                    )
+                first = first if first is not None else page
                 rows.extend(chunk)
                 offset += len(chunk)
+                if not paginate:
+                    break
                 if len(rows) >= max_rows:
-                    rows, truncated = rows[:max_rows], True
+                    rows = rows[:max_rows]
                     break
-                if len(chunk) < PAGE_SIZE:
+                if offset >= count or len(chunk) < limit:
                     break
-            body = dict(body or {}, **{list_key: rows})
+            truncated = start + len(rows) < count
+            body = dict(first or {}, **{list_key: rows})
+            returned = len(rows)
     except (
         urllib.error.HTTPError,
         urllib.error.URLError,
@@ -138,11 +184,11 @@ def collect(
         return {"ok": False, "state": "failed", "error": "malformed Yandex Webmaster response"}
     result = {
         "ok": True,
-        "state": "complete",
+        "state": "partial" if truncated else "complete",
         "operation": operation,
         "data": body,
         "read_only": True,
     }
-    if list_key:
-        result.update(returned=len(body[list_key]), truncated=truncated)
+    if spec is not None:
+        result.update(returned=returned, truncated=truncated)
     return result

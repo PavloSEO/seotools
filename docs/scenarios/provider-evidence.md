@@ -140,9 +140,17 @@ token when the request omits it; `host_id` has the form `https:example.com:443`.
 `hosts`, `summary` (SQI, pages in search, problems), `diagnostics`, `sqi_history`,
 `search_history` (shows and clicks by day), `search_performance` (popular queries),
 `query_history` (one query by day; `query_id` from `search_performance`),
-`in_search_history`, `events_history`, `indexing_history`, `important_urls`, `sitemaps`,
-`crawl` (appeared/removed samples), `indexing`, `broken_links_history`, `external_links_history`.
+`in_search_history`, `events_history`, `indexing_history`, `important_urls`, `sitemaps`
+(nested files via `params={"parent_id": "..."}`), `crawl` (appeared/removed samples), `indexing`
+(downloaded pages by HTTP code), `broken_links_samples`, `broken_links_history`,
+`external_links_history`.
 `params` becomes the query string — a list repeats the key, e.g.
 `{"query_indicator": ["TOTAL_SHOWS", "TOTAL_CLICKS"], "date_from": "2025-10-01"}`; with
-`"paginate": true` the query and crawl-sample lists are read page by page (500 per page, up to
-`max_rows`, 50 000 by default) and `truncated` says whether the ceiling cut the list.
+`"paginate": true` the query and sample lists are read page by page (500 per page for queries,
+100 for the sample lists — the documented API caps — up to `max_rows`, 50 000 by default; the
+last page requests only the remaining row budget).
+Each paged response is validated against the documented `count` and list shape; `truncated`
+marks rows left unread (a `max_rows` cut, a single first page, or a page that ended before
+`count`) and reports `partial`, while a page without the documented list or count, or whose
+`count` is below the rows it returned, fails —
+a paged operation never reports a complete zero-row collection while rows remain.
