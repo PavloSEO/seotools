@@ -334,7 +334,7 @@ priority adjustment. It never changes a technical finding's severity. See the
 | `regions-tree` | The authoritative Yandex region tree via `getRegionsTree` | **free** — the only free Wordstat method |
 | `metrika-counters` | Metrika counters visible to the token — this is where `counter_id` comes from | free |
 | `metrika-setup` | How a counter is configured: goals, filters, data operations | free |
-| `metrika-report` | What visitors actually did: any metrics and dimensions, auto-pagination | free |
+| `metrika-report` | What visitors actually did: any metrics and dimensions, auto-pagination; a `Query is too complicated` refusal is retried in month slices and, if needed, at sampled accuracy — the answer states what was used. Only additive count metrics (`ym:s:visits`, `ym:s:pageviews`) merge; unique-visitor, ratio, or average metrics fail rather than sum wrong | free |
 | `metrika-traffic-pdf` | Static A4 traffic report (HTML + PDF) in a dashboard layout: KPI cards with % change, daily dynamics, 3/6/12-month windows, engines, cities, countries, devices, age, gender, landing pages, phrases, channels, optional Search Console queries. Collection and rendering run separately | free; about 40 read-only Metrika requests; writes only `out_dir`; PDF needs a local Chrome/Edge/Chromium |
 | `google-keywords` | Google: search volume for a keyword list, semantic expansion from a seed phrase, keyword difficulty | DataForSEO price list; RUB 0 in the sandbox |
 | `google-serp` | Google organic results for a query | same |

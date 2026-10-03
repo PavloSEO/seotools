@@ -883,7 +883,13 @@ def build_server(profile: str = "full", progress_notifications: bool = False):  
         comma-separated in API notation (ym:s:visits, ym:s:startURL); dates accept relative
         forms like 30daysAgo. This is the missing half of an audit: a page can be technically
         perfect and get no visits at all. paginate=true walks every page but stops at
-        100 000 rows, and says so via "capped"."""
+        100 000 rows, and says so via "capped". A "Query is too complicated" refusal is
+        retried month by month and, when a month still refuses, at a sampled accuracy;
+        "split", "accuracy", "sampled" and "sample_share" in the answer say what was
+        actually used — a null "sampled" means the API did not report it, not "unsampled".
+        Only count metrics additive over disjoint periods (ym:s:visits, ym:s:pageviews)
+        can be merged — unique-visitor, ratio or average metrics fail rather than sum
+        wrong."""
         return _checked(
             handlers.metrika_report(
                 counter_id=counter_id,

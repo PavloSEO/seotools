@@ -471,11 +471,21 @@ def provider_collect(
                 )
                 result = {
                     "ok": True,
-                    "state": "partial" if body.get("capped") else "complete",
+                    "state": "partial"
+                    if body.get("capped") or body.get("incomplete")
+                    else "complete",
                     "period": {"start_date": request["date1"], "end_date": request["date2"]},
                     "rows": rows_to_records(body),
                     "returned": len(body.get("data") or []),
                     "truncated": bool(body.get("capped")),
+                    "incomplete": bool(body.get("incomplete")),
+                    # ``sampled`` is three-state: a body that does not report it stays
+                    # ``None`` — unknown must not read as "not sampled".
+                    "sampled": body.get("sampled"),
+                    "sample_share": body.get("sample_share"),
+                    "accuracy": body.get("accuracy_used")
+                    or (body.get("query") or {}).get("accuracy"),
+                    "split": body.get("split"),
                 }
         except MissingCredential as exc:
             result = {"ok": False, "state": "not_configured", "error": str(exc)}
