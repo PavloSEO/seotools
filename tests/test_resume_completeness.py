@@ -27,12 +27,20 @@ CHECKPOINTED = {
     # Crawl-wide report-only robots evidence, not per-invocation data (#349):
     # a resumed run must retain every block an uninterrupted run would have.
     "robots_blocked",
+    # v5 names the sidecar mode so an older in-memory reader cannot silently
+    # resume a run whose forms are no longer embedded in the checkpoint.
+    "spooled_evidence",
 }
 
 # Written to their own sidecar file as they are produced and read back on
 # resume, because they are the two structures large enough that reserialising
 # them on every checkpoint would dominate the cost of taking one.
 SIDECAR = {"pages", "links"}
+
+# Rebuilt from the page/link/form sidecars on each spooled invocation and
+# checked against the v5 checkpoint's evidence_counts before new work starts.
+# Direct in-memory calls derive the same fields from their lists.
+DERIVED_FROM_SIDECAR = {"page_count", "link_count", "form_count"}
 
 # Recomputed from scratch on every invocation, so carrying them would be wrong,
 # not merely unnecessary: each describes this call, not the crawl as a whole.
@@ -61,7 +69,7 @@ def test_every_spider_result_field_is_classified_for_resume():
     Failing here is the point: the alternative is discovering months later, on a
     real crawl, that a resumed run quietly reports less than an uninterrupted one.
     """
-    known = CHECKPOINTED | SIDECAR | PER_INVOCATION
+    known = CHECKPOINTED | SIDECAR | DERIVED_FROM_SIDECAR | PER_INVOCATION
     actual = {f.name for f in dataclasses.fields(SpiderResult)}
     unclassified = actual - known
     assert not unclassified, (

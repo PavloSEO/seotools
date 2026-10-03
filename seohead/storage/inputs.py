@@ -54,12 +54,32 @@ def _adjacent_diagnostics(path: Path, digest: str) -> list[dict[str, str]]:
 
 
 def resolve_audit_input(value: Any) -> tuple[Any, list[dict[str, str]]]:
-    """Return the original document and separate input diagnostics, without network access."""
+    """Return the complete legacy document and separate diagnostics, without network access.
+
+    The explicit compatibility path stays bounded at ``MAX_JSON_BYTES``. Callers that can
+    stream audit.v2 collections should use :func:`resolve_audit_source` instead.
+    """
+    source, diagnostics = resolve_audit_source(value)
+    if hasattr(source, "materialize_legacy"):
+        try:
+            return source.materialize_legacy(max_bytes=MAX_JSON_BYTES), diagnostics
+        finally:
+            source.close()
+    return source, diagnostics
+
+
+def resolve_audit_source(value: Any) -> tuple[Any, list[dict[str, str]]]:
+    """Return a document or validated audit.v2 reader, plus input diagnostics."""
     if isinstance(value, dict):
         return value, []
     path = Path(str(value))
     if not is_sqlite_input(path):
         return json.loads(path.read_text(encoding="utf-8")), []
+    from .audit_v2 import AuditV2Reader, audit_v2_path
+
+    companion = audit_v2_path(path)
+    if companion.exists():
+        return AuditV2Reader(path), []
     con = open_scan(path)
     try:
         row = con.execute("SELECT document_json, sha256 FROM audit WHERE singleton=1").fetchone()
@@ -79,6 +99,20 @@ def load_audit_document(
         return value
     if isinstance(value, (str, os.PathLike)):
         document, notices = resolve_audit_input(value)
+        if diagnostics is not None:
+            diagnostics.extend({**notice, "input": label} for notice in notices)
+        return document
+    raise ValueError(f"{label} required: an audit document or a path to its JSON file")
+
+
+def load_audit_source(
+    value: Any, label: str, diagnostics: list[dict[str, str]] | None = None
+) -> Any:
+    """Accept a dict, JSON path, scan path, or streaming audit.v2 source."""
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, (str, os.PathLike)):
+        document, notices = resolve_audit_source(value)
         if diagnostics is not None:
             diagnostics.extend({**notice, "input": label} for notice in notices)
         return document

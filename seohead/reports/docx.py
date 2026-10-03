@@ -9,6 +9,7 @@ limited and placed at the end because Word is not used for interactive sorting.
 from __future__ import annotations
 
 import pathlib
+from itertools import islice
 from typing import Any
 
 _MAX_PAGES_IN_TABLE = 60
@@ -161,12 +162,19 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
                 f"{check_title(item.get('tool'))} — {item.get('error')}", style="List Bullet"
             )
 
+    streaming_findings = getattr(document, "iter_findings", None)
     findings = document.get("findings") or []
     for level in ("critical", "warning", "notice"):
-        chunk = [f for f in findings if f.get("severity") == level]
-        if not chunk:
+        count = by_sev.get(level, 0) if streaming_findings else None
+        chunk = (
+            list(islice(streaming_findings(level), _MAX_FINDINGS_PER_LEVEL))
+            if streaming_findings
+            else [f for f in findings if f.get("severity") == level]
+        )
+        total = count if count is not None else len(chunk)
+        if not total:
             continue
-        doc.add_heading(f"{SEVERITY_TITLES.get(level, level)} — {len(chunk)}", level=1)
+        doc.add_heading(f"{SEVERITY_TITLES.get(level, level)} — {total}", level=1)
         if level == "critical":
             warn = doc.add_paragraph()
             run = warn.add_run(
@@ -190,20 +198,26 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
                 doc.add_paragraph(f"Evidence: {detail}", style="List Bullet 2")
             for location in finding.get("client_locations") or []:
                 doc.add_paragraph(f"Location: {location}", style="List Bullet 2")
-        if len(chunk) > _MAX_FINDINGS_PER_LEVEL:
+        if total > _MAX_FINDINGS_PER_LEVEL:
             doc.add_paragraph(
-                f"…and {len(chunk) - _MAX_FINDINGS_PER_LEVEL} more. "
+                f"…and {total - _MAX_FINDINGS_PER_LEVEL} more. "
                 "See the Excel version of this audit for the complete list."
             )
 
     pages = document.get("pages") or []
-    if pages:
+    page_count = document.page_count if hasattr(document, "page_count") else len(pages)
+    if page_count:
         doc.add_heading("Pages", level=1)
         table = doc.add_table(rows=1, cols=5)
         table.style = "Light Grid Accent 1"
         for i, title in enumerate(("URL", "Status", "Title", "Words", "Canonical")):
             table.rows[0].cells[i].text = title
-        for page in pages[:_MAX_PAGES_IN_TABLE]:
+        page_rows = (
+            islice(pages, _MAX_PAGES_IN_TABLE)
+            if streaming_findings
+            else pages[:_MAX_PAGES_IN_TABLE]
+        )
+        for page in page_rows:
             cells = table.add_row().cells
             for index, name, limit in (
                 (0, "url", None),
@@ -215,8 +229,8 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
                 value = page.get(name)
                 text = "" if value is None else str(value)
                 cells[index].text = text[:limit] if limit else text
-        if len(pages) > _MAX_PAGES_IN_TABLE:
-            doc.add_paragraph(f"Showing the first {_MAX_PAGES_IN_TABLE} of {len(pages)} pages.")
+        if page_count > _MAX_PAGES_IN_TABLE:
+            doc.add_paragraph(f"Showing the first {_MAX_PAGES_IN_TABLE} of {page_count} pages.")
 
     note = summary.get("severity_note")
     if note:

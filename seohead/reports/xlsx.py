@@ -319,3 +319,212 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
         evidence_sheet.auto_filter.ref = evidence_sheet.dimensions
 
     wb.save(path)
+
+
+def write_stream(document: Any, path: pathlib.Path) -> None:
+    """Write a streamed audit using openpyxl's bounded write-only worksheets."""
+    from openpyxl import Workbook
+    from openpyxl.cell import WriteOnlyCell
+    from openpyxl.chart import BarChart, Reference
+    from openpyxl.styles import Font, PatternFill
+
+    from seohead.reports import SEVERITY_TITLES, checks_completed_display, neutralize_formula
+
+    workbook = Workbook(write_only=True)
+    summary = document.get("summary") or {}
+    summary_sheet = workbook.create_sheet("Summary")
+    summary_sheet.column_dimensions["A"].width = 36
+    summary_sheet.column_dimensions["B"].width = 70
+    summary_rows = 3
+    summary_sheet.append([f"SEO Audit: {document.get('domain', '')}"])
+    summary_sheet.append([document.get("url", "")])
+    summary_sheet.append([f"Generated: {document.get('generated_at', '')}"])
+    if summary.get("crawl_valid") is False:
+        summary_sheet.append(
+            ["Crawl failed — no health score", summary.get("crawl_invalid_reason")]
+        )
+        summary_rows += 1
+    if summary.get("crawl_partial"):
+        summary_sheet.append(["Partial crawl — scope is limited", summary.get("crawl_scope_note")])
+        summary_rows += 1
+    for item in summary.get("checks_disabled") or []:
+        summary_sheet.append(["Disabled check", item.get("id"), item.get("reason")])
+        summary_rows += 1
+    for item in summary.get("tools_failed") or []:
+        summary_sheet.append(["Unavailable check", item.get("tool"), item.get("error")])
+        summary_rows += 1
+    by_severity = summary.get("findings_by_severity") or {}
+    summary_header_row = summary_rows + 1
+    summary_sheet.append(["Metric", "Value"])
+    summary_rows += 1
+    for row in (
+        ("Pages checked", summary.get("pages_checked", document.page_count)),
+        ("Total findings", summary.get("findings_total", document.finding_count)),
+        ("Critical findings", by_severity.get("critical", 0)),
+        ("Warnings", by_severity.get("warning", 0)),
+        ("Notices", by_severity.get("notice", 0)),
+        ("Checks completed", checks_completed_display(summary)),
+        ("Checks unavailable", len(summary.get("tools_failed") or [])),
+    ):
+        summary_sheet.append(list(row))
+        summary_rows += 1
+    chart = BarChart()
+    chart.title = "Findings by Severity"
+    chart.y_axis.title = "Count"
+    chart.add_data(
+        Reference(
+            summary_sheet,
+            min_col=2,
+            min_row=summary_header_row + 3,
+            max_row=summary_header_row + 5,
+        ),
+        titles_from_data=False,
+    )
+    chart.set_categories(
+        Reference(
+            summary_sheet,
+            min_col=1,
+            min_row=summary_header_row + 3,
+            max_row=summary_header_row + 5,
+        )
+    )
+    chart.legend = None
+    chart.height, chart.width = 7, 12
+    summary_sheet.add_chart(chart, f"D{summary_header_row}")
+
+    def add_header(sheet, values):
+        cells = []
+        for value in values:
+            cell = WriteOnlyCell(sheet, value=value)
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = PatternFill("solid", fgColor="1F3864")
+            cells.append(cell)
+        sheet.append(cells)
+        sheet.freeze_panes = "A2"
+
+    findings_sheet = workbook.create_sheet("Findings")
+    for column, width in {"A": 16, "B": 64, "C": 32, "D": 80, "E": 80, "H": 100, "I": 60}.items():
+        findings_sheet.column_dimensions[column].width = width
+    add_header(
+        findings_sheet,
+        [
+            "Severity",
+            "URL",
+            "Finding",
+            "Observation",
+            "Reproduction",
+            "Status",
+            "Occurrences",
+            "Evidence",
+            "Locations",
+            "Fix Hint",
+        ],
+    )
+    for finding in document.get("findings") or []:
+        values = [
+            SEVERITY_TITLES.get(finding.get("severity"), finding.get("severity")),
+            neutralize_formula(finding.get("url", "")),
+            neutralize_formula(finding.get("client_title", "Audit finding")),
+            neutralize_formula(finding.get("client_observation", "")),
+            neutralize_formula(finding.get("client_reproduction", "")),
+            finding.get("status_code", ""),
+            finding.get("occurrences_count", ""),
+            neutralize_formula("; ".join(finding.get("client_details") or [])),
+            neutralize_formula("; ".join(finding.get("client_locations") or [])),
+            neutralize_formula(finding.get("fix_hint", "")),
+        ]
+        cells = [WriteOnlyCell(findings_sheet, value=value) for value in values]
+        if colour := _HEAD.get(finding.get("severity")):
+            cells[0].font = Font(bold=True, color=colour)
+        findings_sheet.append(cells)
+    findings_sheet.auto_filter.ref = f"A1:J{document.finding_count + 1}"
+
+    pages_sheet = workbook.create_sheet("Pages")
+    pages_sheet.column_dimensions["A"].width = 70
+    pages_sheet.column_dimensions["C"].width = 60
+    pages_sheet.column_dimensions["F"].width = 40
+    columns = [
+        "url",
+        "status",
+        "title",
+        "title_length",
+        "description_length",
+        "h1",
+        "canonical",
+        "words",
+        "schema_types",
+        "schema_errors",
+        "social_missing",
+    ]
+    add_header(
+        pages_sheet,
+        [
+            "URL",
+            "Status",
+            "Title",
+            "Title Length",
+            "Description Length",
+            "H1",
+            "Canonical",
+            "Words",
+            "Schema Types",
+            "Schema Errors",
+            "Missing Social Tags",
+        ],
+    )
+    for page in document.get("pages") or []:
+        pages_sheet.append([neutralize_formula(page.get(column, "")) for column in columns])
+    pages_sheet.auto_filter.ref = f"A1:K{document.page_count + 1}"
+
+    coverage = summary.get("project_coverage")
+    if isinstance(coverage, dict):
+        from seohead.reports.project_coverage import value_text
+
+        project = coverage.get("project") or {}
+        checklist = coverage.get("status") or {}
+        coverage_sheet = workbook.create_sheet("Project Coverage")
+        coverage_sheet.append(["Project", neutralize_formula(project.get("site", ""))])
+        coverage_sheet.append(["Project UUID", neutralize_formula(project.get("uuid", ""))])
+        coverage_sheet.append(["Checklist state", neutralize_formula(checklist.get("state", ""))])
+        coverage_sheet.append(["Revision", checklist.get("revision", "")])
+        coverage_sheet.append(["Counts", neutralize_formula(value_text(checklist.get("counts")))])
+        add_header(
+            coverage_sheet,
+            [
+                "Item ID",
+                "Item",
+                "Kind",
+                "Execution",
+                "Priority",
+                "State",
+                "Attempt",
+                "Complete",
+                "Reason",
+            ],
+        )
+        for item in checklist.get("items") or []:
+            coverage_sheet.append(
+                [
+                    neutralize_formula(item.get("id", "")),
+                    neutralize_formula(item.get("title", "")),
+                    neutralize_formula(item.get("kind", "")),
+                    neutralize_formula(item.get("execution_kind", "")),
+                    neutralize_formula(item.get("priority", "")),
+                    neutralize_formula(item.get("state", "")),
+                    neutralize_formula(item.get("attempt_status", "")),
+                    item.get("complete", ""),
+                    neutralize_formula(item.get("reason", checklist.get("reason", ""))),
+                ]
+            )
+
+    technologies = workbook.create_sheet("Technologies")
+    add_header(technologies, ["Category", "Detected Technology", "Evidence"])
+    from seohead.reports.evidence_summary import rows as evidence_rows
+
+    evidence = evidence_rows(summary)
+    if evidence:
+        evidence_sheet = workbook.create_sheet("Evidence coverage")
+        add_header(evidence_sheet, ["Kind", "Measurement", "State", "Scope or reason"])
+        for row in evidence:
+            evidence_sheet.append([neutralize_formula(value) for value in row])
+    workbook.save(path)

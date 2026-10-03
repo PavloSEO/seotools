@@ -20,11 +20,12 @@ from dataclasses import dataclass, field
 from typing import Any
 
 # v2 adds forms and start_page_evidence (issue #188). v3 adds robots_blocked
-# (issue #349). v4 adds accepted_seed_urls (issue #348 extension). A file from
-# an older schema is rejected rather than read with the new field empty: a
-# resumed crawl that silently drops a finding it had already produced is
-# exactly the failure this bump prevents.
-SCHEMA_VERSION = "crawl_state.v4"
+# (issue #349). v4 adds accepted_seed_urls (issue #348 extension). v5 records
+# whether page/link/form evidence is spooled and its exact sidecar counts.
+# v4 remains readable for migration from inline forms; older schemas are
+# rejected rather than silently dropping findings. v5 names its sidecar
+# populations so a missing or shortened file cannot become a clean resume.
+SCHEMA_VERSION = "crawl_state.v5"
 
 
 @dataclass
@@ -70,6 +71,8 @@ class CrawlState:
     # audit reports fewer (or zero) sitemap-seeded URLs than the identical
     # uninterrupted crawl, even though it fetched them.
     accepted_seed_urls: list[str] = field(default_factory=list)
+    spooled_evidence: bool = False
+    evidence_counts: dict[str, int] | None = None
 
 
 def ensure_safe_dir(directory: str) -> None:
@@ -105,7 +108,8 @@ def load(path: str, start_url: str, config_fingerprint: str = "") -> tuple[Crawl
         return None, "checkpoint file is unreadable; starting fresh"
     if not isinstance(raw, dict):
         return None, "checkpoint file is not a JSON object; starting fresh"
-    if raw.get("schema_version") != SCHEMA_VERSION:
+    version = raw.get("schema_version")
+    if version not in {"crawl_state.v4", SCHEMA_VERSION}:
         return None, (
             f"checkpoint schema is {raw.get('schema_version')!r}, "
             f"this build expects {SCHEMA_VERSION!r}; starting fresh"
@@ -127,6 +131,25 @@ def load(path: str, start_url: str, config_fingerprint: str = "") -> tuple[Crawl
         start_page_evidence = dict(raw.get("start_page_evidence") or {})
         robots_blocked = [str(u) for u in raw.get("robots_blocked") or []]
         accepted_seed_urls = [str(u) for u in raw.get("accepted_seed_urls") or []]
+        spooled_evidence = (
+            raw.get("spooled_evidence", False) if version == SCHEMA_VERSION else False
+        )
+        evidence_counts = raw.get("evidence_counts") if version == SCHEMA_VERSION else None
+        if (
+            type(spooled_evidence) is not bool
+            or (
+                evidence_counts is not None
+                and (
+                    not isinstance(evidence_counts, dict)
+                    or set(evidence_counts) != {"pages", "links", "forms"}
+                    or any(
+                        type(value) is not int or value < 0 for value in evidence_counts.values()
+                    )
+                )
+            )
+            or (spooled_evidence and (evidence_counts is None or forms))
+        ):
+            raise ValueError("invalid spooled evidence checkpoint")
     except (TypeError, ValueError, AttributeError):
         # AttributeError: excluded/query_budget present but not JSON objects
         # (e.g. a list), so ``.items()`` itself fails.
@@ -143,6 +166,8 @@ def load(path: str, start_url: str, config_fingerprint: str = "") -> tuple[Crawl
         start_page_evidence=start_page_evidence,
         robots_blocked=robots_blocked,
         accepted_seed_urls=accepted_seed_urls,
+        spooled_evidence=spooled_evidence,
+        evidence_counts=evidence_counts,
     )
     return state, f"resuming from checkpoint: {len(queue)} URL(s) queued, {len(seen)} seen"
 
@@ -162,6 +187,8 @@ def save(path: str, state: CrawlState) -> None:
         "start_page_evidence": state.start_page_evidence,
         "robots_blocked": state.robots_blocked,
         "accepted_seed_urls": state.accepted_seed_urls,
+        "spooled_evidence": state.spooled_evidence,
+        "evidence_counts": state.evidence_counts,
     }
     tmp_path = f"{path}.tmp"
     with open(tmp_path, "w", encoding="utf-8") as handle:

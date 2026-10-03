@@ -42,7 +42,11 @@ def policy_for_config(config: dict[str, Any]) -> dict[str, Any]:
     return validate_policy(
         {
             "policy_version": "scan_retention.v1",
-            **{key: value for key, value in config["storage"].items() if key != "format_version"},
+            **{
+                key: value
+                for key, value in config["storage"].items()
+                if key not in {"format_version", "capacity_profile"}
+            },
             "automatic_delete": False,
         }
     )

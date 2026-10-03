@@ -390,6 +390,10 @@ def crawl_to_scan(
         raise ValueError(
             "SQLite scan collection requires cache.mode=off; its artifact owns retained bodies"
         )
+    if settings.get("storage", {}).get("capacity_profile", "stable") != "stable":
+        raise ValueError(
+            "experimental_synthetic capacity profile is storage-only, not a live crawl"
+        )
     limit = checked_url_budget(settings["limits"]["max_urls"])
     start = normalize_url(start_url)
     host = (urlsplit(start).hostname or "").lower()

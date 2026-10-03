@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+from collections import Counter
 from typing import Any
 
 from seohead.audit.site import SCHEMA as _SITE_AUDIT_SCHEMA
@@ -118,14 +119,14 @@ def checks_completed_display(summary: dict[str, Any]) -> int | str:
 
 def _load(data: Any, diagnostics: list[dict[str, str]] | None = None) -> dict[str, Any]:
     """Load a mapping, JSON file, or validated scan; keep diagnostics outside the audit."""
-    if isinstance(data, dict):
+    if isinstance(data, dict) or hasattr(data, "iter_collection"):
         return data
     path = pathlib.Path(str(data))
     if not path.exists():
         raise FileNotFoundError(f"audit file not found: {path}")
-    from seohead.storage.inputs import resolve_audit_input
+    from seohead.storage.inputs import resolve_audit_source
 
-    document, notices = resolve_audit_input(path)
+    document, notices = resolve_audit_source(path)
     if diagnostics is not None:
         diagnostics.extend(notices)
     return document
@@ -196,6 +197,40 @@ def _detect_kind(document: dict[str, Any]) -> tuple[str | None, str | None]:
     return None, None
 
 
+def _normalize_sf_issue(issue: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "severity": issue.get("severity"),
+        "source": issue.get("source", ""),
+        "url": issue.get("target_url") or "",
+        "text": issue.get("message", ""),
+        "check": issue.get("check", ""),
+        "status_code": issue.get("status_code"),
+        "occurrences_count": issue.get("occurrences_count"),
+        "fix_hint": issue.get("fix_hint") or "",
+        "locations": issue.get("locations") or [],
+        "details": issue.get("details") or {},
+        "evidence": issue.get("evidence") or {},
+    }
+
+
+def _normalize_sf_page(page: dict[str, Any]) -> dict[str, Any]:
+    metrics = page.get("metrics") or {}
+    h1 = metrics.get("h1")
+    return {
+        "url": page.get("url", ""),
+        "status": page.get("status_code"),
+        "title": metrics.get("title") or "",
+        "title_length": metrics.get("title_length") or "",
+        "description_length": metrics.get("desc_length") or "",
+        "h1": (h1[0] if isinstance(h1, list) and h1 else h1) or "",
+        "canonical": metrics.get("canonical") or "",
+        "words": metrics.get("word_count") or 0,
+        "schema_types": "",
+        "schema_errors": "",
+        "social_missing": "",
+    }
+
+
 def _normalize_sf_audit(document: dict[str, Any]) -> dict[str, Any]:
     """Reshape an SF Analyzer ``audit.json`` into the flat site-audit contract.
 
@@ -214,45 +249,8 @@ def _normalize_sf_audit(document: dict[str, Any]) -> dict[str, Any]:
     # promises the developer handoff carries all of it, so every field the SF
     # issue actually has is preserved here even where a given writer does not
     # yet render it (#220).
-    findings = [
-        {
-            "severity": issue.get("severity"),
-            "source": issue.get("source", ""),
-            "url": issue.get("target_url") or "",
-            "text": issue.get("message", ""),
-            "check": issue.get("check", ""),
-            "status_code": issue.get("status_code"),
-            "occurrences_count": issue.get("occurrences_count"),
-            "fix_hint": issue.get("fix_hint") or "",
-            "locations": issue.get("locations") or [],
-            "details": issue.get("details") or {},
-            "evidence": issue.get("evidence") or {},
-        }
-        for issue in document.get("issues") or []
-    ]
-
-    pages = []
-    for page in document.get("pages") or []:
-        metrics = page.get("metrics") or {}
-        h1 = metrics.get("h1")
-        pages.append(
-            {
-                "url": page.get("url", ""),
-                "status": page.get("status_code"),
-                "title": metrics.get("title") or "",
-                "title_length": metrics.get("title_length") or "",
-                "description_length": metrics.get("desc_length") or "",
-                "h1": (h1[0] if isinstance(h1, list) and h1 else h1) or "",
-                "canonical": metrics.get("canonical") or "",
-                "words": metrics.get("word_count") or 0,
-                # Schema.org and social-tag evidence live in the issue stream
-                # for this contract, not in a per-page metric column; left
-                # absent here rather than invented.
-                "schema_types": "",
-                "schema_errors": "",
-                "social_missing": "",
-            }
-        )
+    findings = [_normalize_sf_issue(issue) for issue in document.get("issues") or []]
+    pages = [_normalize_sf_page(page) for page in document.get("pages") or []]
 
     tools_failed = [
         {"tool": item.get("id"), "error": item.get("reason")}
@@ -347,6 +345,174 @@ def _normalize_sf_audit(document: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+class _AuditV2ReportView:
+    """Re-iterable display projection that never collects large audit rows."""
+
+    def __init__(self, reader: Any) -> None:
+        from .client_findings import client_reason
+
+        self.reader = reader
+        metadata = dict(reader.header)
+        metadata["issues"] = []
+        metadata["pages"] = []
+        self.document = _normalize_sf_audit(metadata)
+        summary = self.document["summary"]
+        source_summary = metadata.get("summary") or {}
+        totals = source_summary.get("totals") or {}
+        page_count = reader.count("/pages")
+        issue_count = reader.count("/issues")
+        if type(totals.get("urls_crawled")) is int and totals["urls_crawled"] != page_count:
+            raise ValueError("audit.v2 page count disagrees with its saved summary")
+        if type(totals.get("issues_total")) is int and totals["issues_total"] != issue_count:
+            raise ValueError("audit.v2 issue count disagrees with its saved summary")
+        severity_counts = Counter(
+            issue.get("severity")
+            for issue in reader.iter_collection("/issues")
+            if isinstance(issue, dict)
+        )
+        summary["pages_checked"] = totals.get("urls_crawled", page_count)
+        summary["findings_total"] = totals.get("issues_total", issue_count)
+        declared_severity = source_summary.get("by_severity") or {}
+        summary["findings_by_severity"] = {}
+        for name in ("critical", "warning", "notice"):
+            count = severity_counts.get(name, 0)
+            if type(declared_severity.get(name)) is int and declared_severity[name] != count:
+                raise ValueError(f"audit.v2 {name} issue count disagrees with its saved summary")
+            summary["findings_by_severity"][name] = declared_severity.get(name, count)
+        summary["checks_disabled"] = [
+            {**item, "reason": client_reason(item.get("reason"))}
+            for item in summary.get("checks_disabled") or []
+            if isinstance(item, dict)
+        ]
+        summary["tools_failed"] = [
+            {**item, "error": client_reason(item.get("error"))}
+            for item in summary.get("tools_failed") or []
+            if isinstance(item, dict)
+        ]
+        self.page_count = reader.count("/pages")
+        self.finding_count = reader.count("/issues")
+
+    def get(self, name: str, default: Any = None) -> Any:
+        if name == "findings":
+            from .client_findings import project_finding
+
+            return (
+                project_finding(_normalize_sf_issue(issue))
+                for issue in self.reader.iter_collection("/issues")
+                if isinstance(issue, dict)
+            )
+        if name == "pages":
+            return (
+                _normalize_sf_page(page)
+                for page in self.reader.iter_collection("/pages")
+                if isinstance(page, dict)
+            )
+        if name == "summary":
+            return self.document["summary"]
+        return self.document.get(name, default)
+
+    def iter_findings(self, severity: str | None = None):
+        from .client_findings import project_finding
+
+        for issue in self.reader.iter_collection("/issues"):
+            if not isinstance(issue, dict):
+                continue
+            finding = project_finding(_normalize_sf_issue(issue))
+            if severity is None or finding.get("severity") == severity:
+                yield finding
+
+
+def _build_audit_v2_report(
+    reader: Any, fmt: str, path: str | None, project: str | None, source: Any
+) -> dict[str, Any]:
+    header = reader.header
+    required = {"run": dict, "summary": dict}
+    if header.get("schema_version") != _SF_AUDIT_SCHEMA_VERSION:
+        return {
+            "ok": False,
+            "error": f"unsupported or missing 'schema_version' marker {header.get('schema_version')!r}; "
+            f"SF Analyzer audits require exactly {_SF_AUDIT_SCHEMA_VERSION!r}",
+        }
+    invalid = [
+        name for name, expected in required.items() if not isinstance(header.get(name), expected)
+    ]
+    if invalid or not {"/issues", "/pages"}.issubset(reader.collections):
+        return {
+            "ok": False,
+            "error": "SF Analyzer audit.v2 has invalid or missing containers: "
+            + ", ".join(
+                invalid
+                + [name for name in ("issues", "pages") if f"/{name}" not in reader.collections]
+            ),
+        }
+    if project is not None:
+        return {
+            "ok": False,
+            "error": "project checklist coverage is unavailable for streamed audit.v2 inputs",
+        }
+    if fmt not in {"json", "csv", "xlsx", "md", "docx"}:
+        return {
+            "ok": False,
+            "error": f"{fmt} output is not implemented for streamed audit.v2 inputs; use json, csv, xlsx, md, or docx",
+        }
+    try:
+        view = _AuditV2ReportView(reader)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    target = pathlib.Path(path or f"audit-{view.get('domain') or 'site'}.{fmt}")
+    targets = (
+        [target, target.with_suffix(".pages.csv"), target.with_suffix(".scope.csv")]
+        if fmt == "csv"
+        else [target]
+    )
+    scan_source = getattr(source, "scan_path", source)
+    from seohead.storage.inputs import protects_scan_input
+
+    if protects_scan_input(scan_source, targets):
+        return {"ok": False, "error": "report output must not overwrite its source scan"}
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        if fmt == "json":
+            with target.open("w", encoding="utf-8", newline="") as stream:
+                for chunk in reader.document_chunks():
+                    stream.write(chunk)
+        elif fmt == "csv":
+            from . import csvfile
+
+            csvfile.write(view, target)
+        elif fmt == "md":
+            from . import md
+
+            md.write_stream(view, target)
+        elif fmt == "docx":
+            from . import docx
+
+            docx.write(view, target)
+        else:
+            from . import xlsx
+
+            xlsx.write_stream(view, target)
+    except ImportError as exc:
+        return {
+            "ok": False,
+            "error": f"dependency required for {fmt} is missing: {exc}",
+            "install": "pip install 'seohead[reports]'",
+        }
+    except Exception as exc:
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    result = {
+        "ok": True,
+        "format": fmt,
+        "path": str(target),
+        "bytes": target.stat().st_size,
+        "findings": view.finding_count,
+        "pages": view.page_count,
+    }
+    if fmt == "csv":
+        result["outputs"] = [str(candidate) for candidate in targets if candidate.exists()]
+    return result
+
+
 def build_report(
     data: Any, fmt: str = "xlsx", path: str | None = None, project: str | None = None
 ) -> dict[str, Any]:
@@ -369,6 +535,20 @@ def build_report(
         document = _load(data, input_diagnostics)
     except (FileNotFoundError, ValueError) as exc:
         return {"ok": False, "error": str(exc)}
+    if hasattr(document, "iter_collection"):
+        try:
+            if fmt not in FORMATS:
+                return {
+                    "ok": False,
+                    "error": f"report format {fmt!r} is not supported; available formats: {', '.join(FORMATS)}",
+                }
+            result = _build_audit_v2_report(document, fmt, path, project, data)
+            if input_diagnostics and result.get("ok"):
+                result["input_diagnostics"] = input_diagnostics
+            return result
+        finally:
+            if not hasattr(data, "iter_collection"):
+                document.close()
     if not isinstance(document, dict):
         return {
             "ok": False,

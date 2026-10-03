@@ -1,5 +1,10 @@
 # SQLite operator workflow and acceptance record
 
+For the newer staged storage and recovery profile toward a one-million-URL target,
+see [SCAN_CAPACITY_PROFILE.md](SCAN_CAPACITY_PROFILE.md). It records separate
+experimental admission and incomplete capacity outcomes without changing this
+release baseline.
+
 > **The capacity profile has been run and did not pass in full.** Two limits were
 > measured and are published by name below: the 64 MiB saved-audit ceiling stops
 > the whole path at 10,000 pages, and the 50,000-page case reaches the profiler's
@@ -237,6 +242,26 @@ manufactured from an unsaved audit.
 
 Reproduce with the release command above, or by reading
 `10000-pages-300000-links-whole.stdout.log` in the log directory.
+
+### Audit-v2 storage and consumer checks (synthetic; native producer pending)
+
+On 2026-10-03, the `#816` offline fixture wrote 10,000 findings with 7,000-byte
+messages to an `audit.v2` companion and streamed a complete JSON export larger
+than 64 MiB. The reopened sidecar reported all 10,000 findings and the final URL.
+Separate focused checks exercised 10,000-page JSON/CSV/XLSX/Markdown/DOCX output,
+10,000-finding comparison, a 50,001-row save/reopen, and paired snapshot/prune.
+The focused audit-v2, history, report, comparison, and legacy parity set passed
+175 tests; Ruff and formatting passed.
+
+The oversized JSON fixture test took 1.89 seconds inside pytest (4.98 seconds
+for the complete pytest process under `/usr/bin/time -lp`) and the pytest process
+reported 343,244,800 bytes maximum RSS. Environment: macOS 26.6.2 arm64, Python
+3.14.6, SQLite 3.53.3. This process RSS includes pytest and the synthetic scan
+fixture; it is not a stage-isolated producer or full crawl profile. The native
+producer still needs #817's pre-materialization selection and analyzer iterables.
+This result therefore verifies the versioned store and its current consumers;
+it does not clear the measured 10,000-page whole-path block above or claim
+native crawl, recovery, or capacity acceptance.
 
 ### Measured limit: 50,000 pages does not finish inside the 900-second stage ceiling
 

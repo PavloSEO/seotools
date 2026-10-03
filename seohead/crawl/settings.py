@@ -71,6 +71,10 @@ from typing import Any
 # reduced: a run that fetched 50 000 of the 200 000 URLs asked for is a partial crawl,
 # and the caller has to know that before the audit is believed (#356).
 MAX_URLS_CEILING = 50_000
+# Direct NativeScan capacity experiments may record a larger declared population.
+# This is admission for synthetic storage measurement, not a crawler budget:
+# checked_url_budget() continues to refuse every real collector above 50,000.
+MAX_EXPERIMENTAL_URLS = 1_000_000
 
 
 def checked_url_budget(max_urls: int) -> int:
@@ -270,6 +274,7 @@ DEFAULTS: dict[str, Any] = {
     },
     "storage": {
         "format_version": "scan.v1",
+        "capacity_profile": "stable",
         "body_mode": "captured_entity_bytes",
         "max_body_bytes": 5 * 1024 * 1024,
         "max_body_store_bytes": 10 * 1024 * 1024 * 1024,
@@ -426,6 +431,7 @@ RESULTS_AFFECTING: frozenset[str] = frozenset(
         "cache.invalidate",
         "storage.body_mode",
         "storage.format_version",
+        "storage.capacity_profile",
         "resources.fetch",
         "resources.max_requests",
         "resources.max_response_bytes",
@@ -505,6 +511,11 @@ DESCRIPTIONS: dict[str, str] = {
     "resources.graph.max_nesting": "scan.v2 only: CSS import/url nesting depth.",
     "storage.body_mode": "SQLite only: captured_entity_bytes retains fetched HTML/DOM; off retains metadata only.",
     "storage.format_version": "Explicit scan storage format: scan.v1 (default) or scan.v2 for optional graph/event extensions.",
+    "storage.capacity_profile": (
+        "'stable' (default) admits at most 50,000 URLs. 'experimental_synthetic' permits "
+        "direct NativeScan storage profiles up to 1,000,000 declared URLs; every live crawler "
+        "still refuses above 50,000 and this setting does not certify capacity."
+    ),
     "storage.max_body_bytes": "SQLite only: maximum decoded bytes retained for one complete body.",
     "storage.max_body_store_bytes": "SQLite only: total unique encoded body bytes retained per scan.",
     "storage.min_free_bytes": "SQLite only: filesystem reserve; low space interrupts collection with a checkpoint.",
@@ -885,6 +896,11 @@ def validate(config: dict[str, Any]) -> None:
         storage = config["storage"]
         if storage["format_version"] not in {"scan.v1", "scan.v2"}:
             raise ConfigError("storage.format_version must be scan.v1 or scan.v2")
+        if type(storage["capacity_profile"]) is not str or storage["capacity_profile"] not in {
+            "stable",
+            "experimental_synthetic",
+        }:
+            raise ConfigError("storage.capacity_profile must be stable or experimental_synthetic")
         if storage["body_mode"] not in {"off", "captured_entity_bytes"}:
             raise ConfigError("storage.body_mode must be off or captured_entity_bytes")
         for name in (
@@ -910,14 +926,22 @@ def validate(config: dict[str, Any]) -> None:
                 raise ConfigError(f"scope.{key}: {pattern!r} is not a valid regex: {exc}") from exc
 
     limits = config["limits"]
-    if limits["max_urls"] < 1:
-        raise ConfigError("limits.max_urls must be at least 1")
-    if limits["max_urls"] > MAX_URLS_CEILING:
+    if type(limits["max_urls"]) is not int or limits["max_urls"] < 1:
+        raise ConfigError("limits.max_urls must be a positive integer")
+    if (
+        limits["max_urls"] > MAX_URLS_CEILING
+        and config["storage"]["capacity_profile"] != "experimental_synthetic"
+    ):
         raise ConfigError(
             f"limits.max_urls is {limits['max_urls']:,}, above this crawler's ceiling of "
             f"{MAX_URLS_CEILING:,}. A larger number would have been silently reduced to the "
             f"ceiling and the crawl reported as complete; crawl a narrower scope "
             f"(scope.include_patterns / scope.exclude_patterns) instead."
+        )
+    if limits["max_urls"] > MAX_EXPERIMENTAL_URLS:
+        raise ConfigError(
+            f"limits.max_urls is above the experimental synthetic ceiling of "
+            f"{MAX_EXPERIMENTAL_URLS:,}; no larger artifact is admitted"
         )
     if limits["max_depth"] < 0:
         raise ConfigError("limits.max_depth cannot be negative")

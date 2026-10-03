@@ -47,6 +47,18 @@ configuration. Audit creation has an explicit compatibility guard;
 check `audit_available` before requesting a report. See [STORAGE.md](STORAGE.md)
 for limits, provenance, interrupted-file handling and missing evidence.
 
+The legacy `--out-dir` collector writes page, link and form evidence incrementally
+instead of retaining a second full page/link list for collection and resume. Its
+current JSON audit bridge is limited to 10,000 pages, 20,000 forms and 1,500,000
+links. Beyond a bound, the command returns `audit_available: false` with exact
+counts and a reason while keeping the JSONL evidence. A prior `audit.json` or
+tasks file in that directory is renamed to a hidden `.stale-*` copy so it
+cannot be mistaken for the new run's report. The large-audit representation is
+tracked in #816; these collection bounds do not raise the 50,000-URL crawl cap.
+Native JS escalation reads page records from SQLite without first building a
+full PageRecord list; its later saved audit still follows the audit bridge's
+declared limits until #816 supplies a large-audit representation.
+
 ## Saved scan artifact
 
 ```bash

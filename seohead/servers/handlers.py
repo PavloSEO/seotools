@@ -673,6 +673,14 @@ def crawl_site(
     settings = crawl_config.load(
         config, overrides=resolved_overrides, base_overrides=base_overrides
     )
+    # A storage-only synthetic capacity marker never enters a live crawl route.
+    from seohead.crawl.settings import checked_url_budget
+
+    if settings.get("storage", {}).get("capacity_profile", "stable") != "stable":
+        raise ValueError(
+            "experimental_synthetic capacity profile is storage-only, not a live crawl"
+        )
+    checked_url_budget(settings["limits"]["max_urls"])
     if project_root is not None:
         gate = admission(str(project_root), settings, approved=approve_large_crawl)
         if not gate["ok"]:
@@ -818,6 +826,7 @@ def crawl_site(
             seed_urls=sitemap_seed["declared"] or None,
             out_path=pages_resume_path,
             links_path=links_path,
+            forms_path=os.path.join(out_dir, ".forms_resume.jsonl") if out_dir else None,
             decisions_path=decisions_path,
             credential_headers=settings["http"]["credential_headers"],
             # Checkpointed only when there is somewhere durable to put it; a
@@ -847,24 +856,15 @@ def crawl_site(
             capture_link_attributes=settings["link_attributes"]["capture"],
             dispatch_gate=dispatch_gate,
             progress=progress,
+            spool_evidence=True,
         )
-        # Nothing left to resume into, so the private sidecar (used only when the
-        # human-readable export was off) would otherwise linger as a hidden, ever
-        # more stale copy of pages.jsonl's data next to a finished run's output.
-        if (
-            pages_resume_path
-            and pages_resume_path != pages_export_path
-            and result.finish_reason == "finished"
-        ):
-            with contextlib.suppress(FileNotFoundError):
-                os.remove(pages_resume_path)
         discovery = {
             "mode": "spider",
             # #332: named here too, matching list mode -- a robots-blocked count
             # without the policy that produced it is not self-explanatory.
             "directive_policy": settings["robots"]["policy"],
             "max_depth_reached": result.max_depth_reached,
-            "links_seen": len(result.links),
+            "links_seen": result.link_count if result.spooled_evidence else len(result.links),
             "excluded": result.excluded,
             "robots_note": result.robots_note,
             "robots_blocked": len(result.robots_blocked),
@@ -915,6 +915,75 @@ def crawl_site(
             ],
         }
 
+    if url and result.spooled_evidence:
+        from seohead.crawl.spider import (
+            _read_forms_jsonl,
+            _read_links_jsonl,
+            _read_pages_jsonl,
+        )
+        from seohead.servers.scan_handlers import MAX_AUDIT_FORMS, MAX_AUDIT_PAGES
+
+        # The existing materialized audit is only admitted within explicit
+        # bounds. #816 owns its versioned streaming replacement.
+        max_legacy_audit_links = 1_500_000
+        if result.finish_reason == "robots_unavailable":
+            reason = (
+                "legacy audit unavailable: robots.txt could not be read; "
+                "any prior JSONL sidecars were not reconciled"
+            )
+        elif (
+            result.page_count > MAX_AUDIT_PAGES
+            or result.form_count > MAX_AUDIT_FORMS
+            or result.link_count > max_legacy_audit_links
+        ):
+            reason = (
+                "legacy audit materialization limit exceeded "
+                f"(pages={result.page_count}/{MAX_AUDIT_PAGES}, "
+                f"forms={result.form_count}/{MAX_AUDIT_FORMS}, "
+                f"links={result.link_count}/{max_legacy_audit_links}); "
+                "JSONL collection evidence is retained"
+            )
+        else:
+            reason = ""
+        if reason:
+            stale_reports = {}
+            for name in ("audit.json", "tasks.json", "tasks.md"):
+                previous = Path(out_dir) / name
+                if os.path.lexists(previous):
+                    retained = previous.with_name(f".{name}.stale-{time.time_ns()}")
+                    if os.path.lexists(retained):
+                        raise FileExistsError(
+                            f"stale report destination already exists: {retained}"
+                        )
+                    os.rename(previous, retained)
+                    stale_reports[name] = str(retained)
+            return {
+                "urls_collected": result.page_count,
+                "links_collected": result.link_count,
+                "forms_collected": result.form_count,
+                "audit_available": False,
+                "audit_reason": reason,
+                "partial": result.partial,
+                "stopped_reason": result.stopped_reason,
+                "finish_reason": result.finish_reason,
+                "resumed": result.resumed,
+                "discovery": discovery,
+                "limitations": result.limitations,
+                "out_dir": out_dir,
+                "cache_replay": result.cache_replay,
+                "cache_stats": result.cache_stats,
+                "stale_reports": stale_reports,
+            }
+        result.pages = _read_pages_jsonl(pages_resume_path)
+        result.links = _read_links_jsonl(links_path)
+        result.forms = _read_forms_jsonl(os.path.join(out_dir, ".forms_resume.jsonl"))
+        if (
+            len(result.pages),
+            len(result.links),
+            len(result.forms),
+        ) != (result.page_count, result.link_count, result.form_count):
+            raise ValueError("legacy evidence sidecar counts changed during audit preparation")
+
     response, _audit = _audit_crawl_result(
         result,
         settings=settings,
@@ -925,6 +994,18 @@ def crawl_site(
         pages_resume_path=pages_resume_path,
         dispatch_gate=dispatch_gate,
     )
+    if (
+        url
+        and result.spooled_evidence
+        and pages_resume_path
+        and pages_resume_path != pages_export_path
+        and result.finish_reason == "finished"
+    ):
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(pages_resume_path)
+    if url and result.spooled_evidence and result.finish_reason == "finished":
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(os.path.join(out_dir, ".forms_resume.jsonl"))
     return response
 
 
@@ -1702,11 +1783,22 @@ def compare_crawls(before: Any = None, after: Any = None, force: bool = False) -
     dropped out of the crawl entirely. See seohead.sf.core.compare for why
     "fixed" and "no longer crawled" are kept apart rather than merged."""
     from seohead.sf.core.compare import compare
+    from seohead.storage.inputs import load_audit_source
 
     diagnostics: list[dict[str, str]] = []
-    before_doc = _load_audit(before, "before", diagnostics)
-    after_doc = _load_audit(after, "after", diagnostics)
-    result = compare(before_doc, after_doc, force=force)
+    before_doc = load_audit_source(before, "before", diagnostics)
+    after_doc = load_audit_source(after, "after", diagnostics)
+    try:
+        result = compare(before_doc, after_doc, force=force)
+    finally:
+        if not hasattr(before, "iter_collection") and hasattr(before_doc, "close"):
+            before_doc.close()
+        if (
+            not hasattr(after, "iter_collection")
+            and after_doc is not before_doc
+            and hasattr(after_doc, "close")
+        ):
+            after_doc.close()
     if diagnostics:
         result["input_diagnostics"] = diagnostics
     return result

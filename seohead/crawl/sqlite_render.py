@@ -620,7 +620,11 @@ def run_render_escalation(
                 "reason": str(fetched.get("error") or "render failed"),
             }
 
-        record = next((page for page in result.pages if page.url == target), None)
+        record = (
+            result.pages.get(target)
+            if hasattr(result.pages, "get")
+            else next((page for page in result.pages if page.url == target), None)
+        )
         if record is None:
             return {"accepted": False, "state": "unavailable", "reason": "static page is absent"}
         raw_source_links = _source_links(scan, target, result.links)
@@ -728,7 +732,7 @@ def run_render_escalation(
                 (representation,),
             )
         }
-        render_pages = [page for page in result.pages if page.url not in attempted]
+        render_pages = (page for page in result.pages if page.url not in attempted)
         rendering_config["escalation"]["max_render_urls"] = max(
             0, rendering_config["escalation"]["max_render_urls"] - len(attempted)
         )

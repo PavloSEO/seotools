@@ -149,6 +149,12 @@ class SpiderResult(CrawlResult):
     # has no render to fall back on. Empty when the start page was not
     # (re-)fetched in this call, e.g. a resumed run that starts past depth 0.
     start_page_evidence: dict[str, Any] = field(default_factory=dict)
+    # The legacy output route may keep evidence in JSONL instead of duplicating
+    # it in these lists. Direct callers keep the original in-memory contract.
+    spooled_evidence: bool = False
+    page_count: int = 0
+    link_count: int = 0
+    form_count: int = 0
 
 
 def _canonical_key(url: str) -> str:
@@ -223,28 +229,33 @@ def _continues_failure_streak(record: PageRecord) -> bool:
 _PAGE_RECORD_FIELDS = {f.name for f in dataclasses.fields(PageRecord)}
 
 
+def _jsonl_rows(path: str):
+    """Read complete JSONL objects one at a time, ignoring a torn final line."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                try:
+                    raw = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(raw, dict):
+                    yield raw
+    except FileNotFoundError:
+        return
+
+
 def _read_pages_jsonl(path: str) -> list[PageRecord]:
     """Reconstruct previously fetched pages from a prior run's output.
 
     Unknown keys are dropped rather than rejected, so a state file written by
     an older build with fewer fields still resumes.
     """
-    try:
-        with open(path, encoding="utf-8") as handle:
-            lines = handle.readlines()
-    except FileNotFoundError:
-        return []
-    pages = []
-    for line in lines:
-        if not line.strip():
-            continue
-        try:
-            raw = json.loads(line)
-        except ValueError:
-            continue  # a truncated final line must not discard the rest
-        if isinstance(raw, dict):
-            pages.append(PageRecord(**{k: v for k, v in raw.items() if k in _PAGE_RECORD_FIELDS}))
-    return pages
+    return [
+        PageRecord(**{k: v for k, v in raw.items() if k in _PAGE_RECORD_FIELDS})
+        for raw in _jsonl_rows(path)
+    ]
 
 
 _LINK_EDGE_FIELDS = {f.name for f in dataclasses.fields(LinkEdge)}
@@ -282,29 +293,18 @@ def _read_links_jsonl(path: str) -> list[LinkEdge]:
     save — only ever appending what is new. Unknown keys are dropped rather
     than rejected, so a file written by an older build still resumes.
     """
-    try:
-        with open(path, encoding="utf-8") as handle:
-            lines = handle.readlines()
-    except FileNotFoundError:
-        return []
     edges = []
-    for line in lines:
-        if not line.strip():
-            continue
-        try:
-            raw = json.loads(line)
-        except ValueError:
-            continue  # a truncated final line must not discard the rest
-        if isinstance(raw, dict):
-            fields = {k: v for k, v in raw.items() if k in _LINK_EDGE_FIELDS}
-            # rel is a tuple in memory but a list once it has been through JSON. Without
-            # this, a resumed crawl would hand callers a different type for the same field
-            # than an uninterrupted one -- and comparisons against ("nofollow",) would
-            # quietly stop matching.
-            if "rel" in fields:
-                fields["rel"] = tuple(fields["rel"] or ())
-            edges.append(LinkEdge(**fields))
+    for raw in _jsonl_rows(path):
+        fields = {k: v for k, v in raw.items() if k in _LINK_EDGE_FIELDS}
+        # rel is a tuple in memory but a list once it has been through JSON.
+        if "rel" in fields:
+            fields["rel"] = tuple(fields["rel"] or ())
+        edges.append(LinkEdge(**fields))
     return edges
+
+
+def _read_forms_jsonl(path: str) -> list[FormEdge]:
+    return [FormEdge(**raw) for raw in _jsonl_rows(path)]
 
 
 def form_edges(parsed: dict[str, Any] | None, source_url: str) -> tuple[list[FormEdge], int]:
@@ -617,6 +617,7 @@ def crawl_site(
     seed_urls: list[str] | None = None,
     out_path: str | None = None,
     links_path: str | None = None,
+    forms_path: str | None = None,
     decisions_path: str | None = None,
     state_path: str | None = None,
     config_fingerprint: str = "",
@@ -648,6 +649,7 @@ def crawl_site(
     capture_link_attributes: bool = False,
     dispatch_gate: DispatchGate | None = None,
     progress: Callable[[int, int], None] | None = None,
+    spool_evidence: bool = False,
 ) -> SpiderResult:
     """Crawl one host breadth-first from ``start_url``, within ``scope``.
 
@@ -735,6 +737,8 @@ def crawl_site(
         raise ValueError(f"not a crawlable URL: {start_url!r}")
     rules = scope if isinstance(scope, Scope) else Scope.from_config(scope)
     limit = checked_url_budget(max_urls)
+    if spool_evidence and not (out_path and links_path and forms_path and state_path):
+        raise ValueError("spooled evidence requires page, link, form and state paths")
     depth_limit = max(0, min(int(max_depth), MAX_DEPTH_CEILING))
     max_concurrency = max(1, int(concurrency))
     if state_path:
@@ -749,7 +753,7 @@ def crawl_site(
         else None
     )
 
-    result = SpiderResult()
+    result = SpiderResult(spooled_evidence=spool_evidence)
     if dispatch_gate is None:
         throttle = Throttle(
             min_delay=min_delay,
@@ -764,6 +768,7 @@ def crawl_site(
     # Distinct query strings already enqueued for a given path, so the Nth+1
     # facet/filter variant on the same path is excluded rather than fetched.
     query_budget: dict[str, set[str]] = {}
+    page_count = link_count = form_count = 0
     crawl_started = clock()
 
     def exclude(reason: str, url: str | None = None) -> None:
@@ -851,27 +856,53 @@ def crawl_site(
         loaded_state, resume_note = (
             crawl_state.load(state_path, start, config_fingerprint) if state_path else (None, "")
         )
+        if loaded_state and loaded_state.spooled_evidence:
+            if not spool_evidence:
+                raise ValueError("checkpoint requires spooled page, link and form evidence")
+            if not os.path.isfile(forms_path):
+                raise ValueError("checkpoint form evidence sidecar is missing")
         result.resume_note = resume_note
         result.resumed = loaded_state is not None
 
         handle = None
         if out_path:
             if loaded_state:
-                # Prior pages already live on disk; append rather than replace,
-                # and bring them back into this run's evidence.
-                result.pages.extend(_read_pages_jsonl(out_path))
+                if spool_evidence:
+                    page_count = sum(1 for _ in _jsonl_rows(out_path))
+                else:
+                    result.pages.extend(_read_pages_jsonl(out_path))
             mode = "a" if loaded_state else "w"
             handle = stack.enter_context(open(out_path, mode, encoding="utf-8"))
 
         links_handle = None
         if links_path:
             if loaded_state:
-                # Same move as pages above: prior edges live in the sidecar,
-                # not the checkpoint, so bring them back here rather than
-                # starting result.links at [].
-                result.links.extend(_read_links_jsonl(links_path))
+                if spool_evidence:
+                    link_count = sum(1 for _ in _jsonl_rows(links_path))
+                else:
+                    result.links.extend(_read_links_jsonl(links_path))
             mode = "a" if loaded_state else "w"
             links_handle = stack.enter_context(open(links_path, mode, encoding="utf-8"))
+
+        forms_handle = None
+        if spool_evidence and forms_path:
+            if loaded_state and not loaded_state.spooled_evidence:
+                if os.path.exists(forms_path):
+                    if list(_jsonl_rows(forms_path)) != loaded_state.forms:
+                        raise ValueError("checkpoint inline forms and form sidecar disagree")
+                else:
+                    with open(forms_path, "w", encoding="utf-8") as previous:
+                        for entry in loaded_state.forms:
+                            previous.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            if loaded_state:
+                form_count = sum(1 for _ in _jsonl_rows(forms_path))
+            forms_handle = stack.enter_context(
+                open(forms_path, "a" if loaded_state else "w", encoding="utf-8")
+            )
+            if loaded_state and loaded_state.evidence_counts is not None:
+                actual = {"pages": page_count, "links": link_count, "forms": form_count}
+                if actual != loaded_state.evidence_counts:
+                    raise ValueError("checkpoint evidence sidecar counts disagree")
 
         # Appended across a resume like links_handle above — a decision recorded
         # before a checkpoint is still a decision this run made — but never read
@@ -892,7 +923,8 @@ def crawl_site(
             # resumed run would otherwise finish reporting fewer forms than the
             # interrupted one had already found, and would hand the rendering
             # gate an empty start page (issue #188).
-            result.forms.extend(FormEdge(**entry) for entry in loaded_state.forms)
+            if not spool_evidence:
+                result.forms.extend(FormEdge(**entry) for entry in loaded_state.forms)
             result.start_page_evidence = dict(loaded_state.start_page_evidence)
             # Crawl-wide evidence, not per-invocation data (issue #349): a
             # completed report-only audit needs every blocked URL ever seen,
@@ -991,7 +1023,11 @@ def crawl_site(
                 return None
 
             def record_edge(edge: LinkEdge) -> None:
-                result.links.append(edge)
+                nonlocal link_count
+                if spool_evidence:
+                    link_count += 1
+                else:
+                    result.links.append(edge)
                 _write_link(links_handle, edge)
 
             apply_document_links(
@@ -1013,8 +1049,17 @@ def crawl_site(
             )
 
         def handle_forms(parsed: dict[str, Any] | None, url: str) -> None:
+            nonlocal form_count
             forms, omitted = form_edges(parsed, url)
-            result.forms.extend(forms)
+            if spool_evidence:
+                form_count += len(forms)
+                for form in forms:
+                    forms_handle.write(
+                        json.dumps(dataclasses.asdict(form), ensure_ascii=False) + "\n"
+                    )
+                forms_handle.flush()
+            else:
+                result.forms.extend(forms)
             if omitted:
                 exclude("form_observations_limit")
 
@@ -1031,8 +1076,12 @@ def crawl_site(
             recorded but must not extend how many consecutive failures were
             tolerated, nor discover further URLs to chase.
             """
+            nonlocal page_count
             record.crawl_depth = depth
-            result.pages.append(record)
+            if spool_evidence:
+                page_count += 1
+            else:
+                result.pages.append(record)
             _write(handle, record)
             handle_forms(parsed, url)
 
@@ -1083,7 +1132,7 @@ def crawl_site(
         def report_progress() -> None:
             """Hand the caller the crawl's own counters, or do nothing when nobody asked."""
             if progress is not None:
-                progress(len(result.pages), len(queue))
+                progress(page_count if spool_evidence else len(result.pages), len(queue))
 
         stopped = False
         # Reported before the first request too: on a slow origin the operator
@@ -1096,7 +1145,7 @@ def crawl_site(
             # below so the common case (the default) carries zero concurrency
             # overhead and zero risk of it changing behaviour.
             while queue and not stopped:
-                if len(result.pages) >= limit:
+                if (page_count if spool_evidence else len(result.pages)) >= limit:
                     result.partial = True
                     result.stopped_reason = f"url limit reached ({limit})"
                     result.finish_reason = "url_limit"
@@ -1165,7 +1214,7 @@ def crawl_site(
 
             with ThreadPoolExecutor(max_workers=max_concurrency) as pool:
                 while queue and not stopped:
-                    if len(result.pages) >= limit:
+                    if (page_count if spool_evidence else len(result.pages)) >= limit:
                         result.partial = True
                         result.stopped_reason = f"url limit reached ({limit})"
                         result.finish_reason = "url_limit"
@@ -1194,7 +1243,7 @@ def crawl_site(
                     # concurrency or not: anything past the remaining budget
                     # goes back to the front of the queue rather than being
                     # dispatched.
-                    budget = limit - len(result.pages)
+                    budget = limit - (page_count if spool_evidence else len(result.pages))
                     if len(to_fetch) > budget:
                         overflow, to_fetch = to_fetch[budget:], to_fetch[:budget]
                         for item in reversed(overflow):
@@ -1309,14 +1358,25 @@ def crawl_site(
                             path_key: sorted(variants)
                             for path_key, variants in query_budget.items()
                         },
-                        forms=[dataclasses.asdict(form) for form in result.forms],
+                        forms=[]
+                        if spool_evidence
+                        else [dataclasses.asdict(form) for form in result.forms],
                         start_page_evidence=dict(result.start_page_evidence),
                         robots_blocked=list(result.robots_blocked),
                         accepted_seed_urls=list(result.seed_urls),
+                        spooled_evidence=spool_evidence,
+                        evidence_counts={
+                            "pages": page_count if spool_evidence else len(result.pages),
+                            "links": link_count if spool_evidence else len(result.links),
+                            "forms": form_count if spool_evidence else len(result.forms),
+                        },
                     ),
                 )
 
     result.excluded = excluded
+    result.page_count = page_count if spool_evidence else len(result.pages)
+    result.link_count = link_count if spool_evidence else len(result.links)
+    result.form_count = form_count if spool_evidence else len(result.forms)
     result.effective_delay = throttle.delay
     result.effective_concurrency = throttle.concurrency
     if cache is not None:

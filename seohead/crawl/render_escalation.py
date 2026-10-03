@@ -97,8 +97,10 @@ def select_samples(urls: Iterable[str], sample_per_pattern: int) -> dict[str, li
     n = max(1, int(sample_per_pattern))
     groups: dict[str, list[str]] = {}
     for u in urls:
-        groups.setdefault(url_pattern(u), []).append(u)
-    return {pattern: members[:n] for pattern, members in groups.items()}
+        members = groups.setdefault(url_pattern(u), [])
+        if len(members) < n:
+            members.append(u)
+    return groups
 
 
 @dataclass

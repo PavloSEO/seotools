@@ -10,6 +10,7 @@ import sqlite3
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from seohead import __version__
@@ -149,6 +150,29 @@ def _rebuild_page_result(scan) -> Any:
     result.effective_concurrency = snapshot["runtime"]["throttle"]["concurrency"]
     result.limitations = json.loads(snapshot["scan"]["limitations_json"])
     return result
+
+
+class _StoredPages:
+    """Re-iterable page view for rendering without a full PageRecord list."""
+
+    def __init__(self, con):
+        self.con = con
+
+    def __len__(self):
+        return self.con.execute("SELECT COUNT(*) FROM pages").fetchone()[0]
+
+    def __iter__(self):
+        from seohead.crawl.collect import PageRecord
+        from seohead.storage.exports import _page_rows
+
+        return (PageRecord(**row) for row in _page_rows(self.con))
+
+    def get(self, url: str):
+        from seohead.crawl.collect import PageRecord
+        from seohead.storage.exports import _page_rows
+
+        row = next(iter(_page_rows(self.con, url=url)), None)
+        return PageRecord(**row) if row is not None else None
 
 
 def _response(run, *, audit_available: bool, audit_reason: str, finalized: bool) -> dict[str, Any]:
@@ -389,7 +413,7 @@ def crawl_site_scan(
         render_cycles = 0
         while True:
             with NativeScan.open(run.path) as rendered_scan:
-                rendered_result = _rebuild_page_result(rendered_scan)
+                rendered_result = SimpleNamespace(pages=_StoredPages(rendered_scan.con), links=[])
                 run_render_escalation(
                     rendered_scan,
                     rendered_result,

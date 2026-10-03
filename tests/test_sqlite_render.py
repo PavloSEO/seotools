@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from seohead.crawl.collect import PageRecord
 from seohead.crawl.settings import load
 from seohead.crawl.spider import LinkEdge
@@ -233,8 +235,11 @@ def test_native_raw_mode_never_invokes_renderer():
     assert scan.preflight_calls == 0
 
 
-def test_native_render_updates_a_real_scan_without_materializing_its_graph(monkeypatch, tmp_path):
-    from seohead.servers.scan_handlers import _rebuild_page_result
+@pytest.mark.parametrize("cursor_pages", [False, True])
+def test_native_render_updates_a_real_scan_without_materializing_its_graph(
+    monkeypatch, tmp_path, cursor_pages
+):
+    from seohead.servers.scan_handlers import _rebuild_page_result, _StoredPages
     from seohead.tools import render as render_tool
 
     target = "https://example.test/"
@@ -277,7 +282,11 @@ def test_native_render_updates_a_real_scan_without_materializing_its_graph(monke
     )
 
     with NativeScan.open(path) as scan:
-        result = _rebuild_page_result(scan)
+        result = (
+            SimpleNamespace(pages=_StoredPages(scan.con), links=[])
+            if cursor_pages
+            else _rebuild_page_result(scan)
+        )
         escalation = run_render_escalation(scan, result, settings)
         page = scan.con.execute("SELECT title,representation FROM pages").fetchone()
         links = scan.con.execute(

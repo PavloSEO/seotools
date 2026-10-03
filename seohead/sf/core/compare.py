@@ -45,7 +45,7 @@ def _key(issue: dict[str, Any]) -> tuple[str, str]:
 
 
 def _crawled_urls(audit: dict[str, Any]) -> set[str]:
-    return {p["url"] for p in audit.get("pages", []) if p.get("url")}
+    return {p["url"] for p in _iter_rows(audit, "pages") if p.get("url")}
 
 
 def _by_key(audit: dict[str, Any]) -> dict[tuple[str, str], dict[str, Any]]:
@@ -55,16 +55,34 @@ def _by_key(audit: dict[str, Any]) -> dict[tuple[str, str], dict[str, Any]]:
     vanish from every bucket and the summary; compare must account for a
     finding it was actually given, not just the ones that name a page.
     """
-    return {_key(issue): issue for issue in audit.get("issues", [])}
+    return {_key(issue): issue for issue in _iter_rows(audit, "issues")}
 
 
-def preflight(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
+def _header(audit: Any) -> dict[str, Any]:
+    return audit.header if hasattr(audit, "iter_collection") else audit
+
+
+def _iter_rows(audit: Any, name: str):
+    if hasattr(audit, "iter_collection"):
+        pointer = f"/{name}"
+        if pointer not in audit.collections:
+            raise CompareError(f"audit.v2 is missing its {name} collection")
+        return audit.iter_collection(pointer)
+    return audit.get(name, [])
+
+
+def _run(audit: Any) -> dict[str, Any]:
+    return _header(audit).get("run", {})
+
+
+def preflight(before: Any, after: Any) -> list[str]:
     """Reasons a comparison would mislead, without refusing outright.
 
     A caller decides whether to proceed; this only says what to distrust.
     """
     warnings: list[str] = []
-    for label, audit in (("before", before), ("after", after)):
+    for label, source in (("before", before), ("after", after)):
+        audit = _header(source)
         if audit.get("run", {}).get("crawl_valid") is False:
             warnings.append(f"{label} crawl is marked invalid — it measured nothing usable")
     # A partial baseline and a partial current crawl poison opposite buckets, not
@@ -72,18 +90,18 @@ def preflight(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
     # brand new to it, so "appeared" — not "disappeared" — is the bucket that
     # baseline can no longer prove; symmetrically, a page the after crawl never
     # reached looks gone to it, so "disappeared" is what that side poisons.
-    if before.get("run", {}).get("crawl_partial"):
+    if _run(before).get("crawl_partial"):
         warnings.append(
             "before crawl is partial — an 'appeared' finding may only mean the before "
             "crawl did not reach that URL, not that the URL is new"
         )
-    if after.get("run", {}).get("crawl_partial"):
+    if _run(after).get("crawl_partial"):
         warnings.append(
             "after crawl is partial — a 'disappeared' finding may only mean the after "
             "crawl did not reach that URL, not that the URL is gone"
         )
-    before_cfg = before.get("run", {}).get("crawl_config")
-    after_cfg = after.get("run", {}).get("crawl_config")
+    before_cfg = _header(before).get("run", {}).get("crawl_config")
+    after_cfg = _header(after).get("run", {}).get("crawl_config")
     # A missing crawl_config is an unknown comparison basis, not an established match --
     # the same distinction crawl_partial already draws above (issue #287). Only a native
     # crawl currently records this manifest, so an SF-derived audit reaches here with
@@ -111,8 +129,8 @@ def preflight(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
     # equivalent today is its export profile (full/lite/...), which changes which
     # checks even had evidence to fire. Known profiles that differ are evidence of a
     # comparability gap even when neither side has a full effective manifest.
-    before_profile = before.get("run", {}).get("profile")
-    after_profile = after.get("run", {}).get("profile")
+    before_profile = _header(before).get("run", {}).get("profile")
+    after_profile = _header(after).get("run", {}).get("profile")
     if before_profile is not None and after_profile is not None and before_profile != after_profile:
         warnings.append(
             "SF export profile differs between the two runs "
@@ -122,9 +140,7 @@ def preflight(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
     return warnings
 
 
-def compare(
-    before: dict[str, Any], after: dict[str, Any], *, force: bool = False
-) -> dict[str, Any]:
+def compare(before: Any, after: Any, *, force: bool = False) -> dict[str, Any]:
     """Diff two audit.json documents into the four sets, per check.
 
     Both documents must carry ``pages`` and ``issues`` in the shape this
@@ -136,10 +152,14 @@ def compare(
     the site itself changed. Warnings about a partial crawl remain result data;
     they do not erase the historical observations or recategorize them.
     """
-    for label, audit in (("before", before), ("after", after)):
+    before_source, after_source = before, after
+    for label, source in (("before", before), ("after", after)):
+        audit = _header(source)
         if "pages" not in audit or "issues" not in audit:
             raise CompareError(f"{label} is not an audit.json document (missing pages or issues)")
 
+    before = _header(before)
+    after = _header(after)
     before_cfg = before.get("run", {}).get("crawl_config")
     after_cfg = after.get("run", {}).get("crawl_config")
     if before_cfg is not None and after_cfg is not None and before_cfg != after_cfg and not force:
@@ -153,19 +173,19 @@ def compare(
             f"{', '.join(changed)}; pass force=True only when this comparison is intended"
         )
 
-    before_urls = _crawled_urls(before)
-    after_urls = _crawled_urls(after)
-    before_issues = _by_key(before)
-    after_issues = _by_key(after)
+    before_urls = _crawled_urls(before_source)
+    after_urls = _crawled_urls(after_source)
+    before_issues = _by_key(before_source)
+    after_issues = _by_key(after_source)
     # A partial baseline cannot prove a URL it never reached is genuinely new —
     # only that it did not see it (issue #212). Without this, every finding on
     # a URL outside the truncated baseline is misreported as "appeared".
-    before_partial = bool(before.get("run", {}).get("crawl_partial"))
+    before_partial = bool(_run(before).get("crawl_partial"))
     # Symmetrically, a partial after-crawl cannot prove a URL it never reached
     # is genuinely gone — only that it did not see it (issue #458). Without
     # this, every finding on a URL outside the truncated after crawl is
     # misreported as "disappeared" instead of the unproven "left".
-    after_partial = bool(after.get("run", {}).get("crawl_partial"))
+    after_partial = bool(_run(after).get("crawl_partial"))
 
     entered: list[dict[str, Any]] = []
     left: list[dict[str, Any]] = []
@@ -233,11 +253,11 @@ def compare(
     return {
         "schema_version": "compare.v1",
         "before": {
-            "generated_at": before.get("run", {}).get("generated_at"),
+            "generated_at": _run(before_source).get("generated_at"),
             "urls_crawled": len(before_urls),
         },
         "after": {
-            "generated_at": after.get("run", {}).get("generated_at"),
+            "generated_at": _run(after_source).get("generated_at"),
             "urls_crawled": len(after_urls),
         },
         "warnings": preflight(before, after),

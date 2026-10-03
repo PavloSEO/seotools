@@ -70,11 +70,13 @@ def _publish(
     _unlink_owned(temporary, owned)
 
 
-def _page_rows(con) -> Iterable[dict[str, Any]]:
+def _page_rows(con, *, url: str | None = None) -> Iterable[dict[str, Any]]:
     late_columns = {column: name for name, column in _LATE_PAGE_FIELDS.items()}
-    for record in con.execute(
-        "SELECT p.*, u.url FROM pages AS p JOIN urls AS u USING(url_id) ORDER BY p.page_ordinal"
-    ):
+    query = "SELECT p.*, u.url FROM pages AS p JOIN urls AS u USING(url_id)"
+    if url is not None:
+        query += " WHERE u.url=?"
+    query += " ORDER BY p.page_ordinal"
+    for record in con.execute(query, (url,) if url is not None else ()):
         page: dict[str, Any] = {"url": record["url"]}
         for name in tuple(record.keys()):
             if name in _PAGE_SYSTEM_COLUMNS:

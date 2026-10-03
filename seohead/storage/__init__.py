@@ -827,7 +827,12 @@ def open_scan(path: str | Path, *, require_audit: bool = True):
 
 
 def read_audit(path: str | Path) -> dict[str, Any]:
-    """Read the unchanged audit contract from a supported artifact."""
+    """Read a complete compatibility document under the 64 MiB legacy limit."""
+    from .audit_v2 import AuditV2Reader, audit_v2_path
+
+    if audit_v2_path(path).exists():
+        with AuditV2Reader(path) as audit:
+            return audit.materialize_legacy(max_bytes=MAX_JSON_BYTES)
     con = open_scan(path)
     try:
         return _loads(

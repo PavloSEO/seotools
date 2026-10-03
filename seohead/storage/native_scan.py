@@ -147,6 +147,8 @@ def _native_config(value: Any, *, recorded: bool = False) -> dict[str, Any]:
             expected["resources"].pop("graph")
         if "storage" in config and "format_version" not in config["storage"]:
             expected["storage"].pop("format_version")
+        if "storage" in config and "capacity_profile" not in config["storage"]:
+            expected["storage"].pop("capacity_profile")
         if "rendering" in config and "rendered_links" not in config["rendering"]:
             expected["rendering"].pop("rendered_links")
         elif "rendering" in config and "crawl" not in config["rendering"]["rendered_links"]:
@@ -173,6 +175,7 @@ def _native_config(value: Any, *, recorded: bool = False) -> dict[str, Any]:
             "graph", copy.deepcopy(DEFAULTS["resources"]["graph"])
         )
         validation_config["storage"].setdefault("format_version", "scan.v1")
+        validation_config["storage"].setdefault("capacity_profile", "stable")
         validation_config.setdefault("rendering", {})
         validation_config["rendering"].setdefault(
             "rendered_links", copy.deepcopy(DEFAULTS["rendering"]["rendered_links"])
@@ -219,6 +222,12 @@ def _resume_fingerprint(expected_config: Any, recorded_config: Any) -> str:
         and expected["storage"].get("format_version") == "scan.v1"
     ):
         expected["storage"].pop("format_version")
+    if (
+        "storage" in recorded
+        and "capacity_profile" not in recorded["storage"]
+        and expected["storage"].get("capacity_profile") == "stable"
+    ):
+        expected["storage"].pop("capacity_profile")
     if (
         "rendering" in recorded
         and "rendered_links" not in recorded["rendering"]
@@ -518,6 +527,7 @@ class NativeScan:
         self._lock_fd = lock_fd
         self.failpoint: Callable[[str], None] | None = None
         self._event_sink = None
+        self._sparse_summary: tuple[dict[str, Any], dict[str, str]] | None = None
         if self.con.execute("PRAGMA user_version").fetchone()[0] == 2:
             from seohead.crawl.events import MAX_EVENTS, EventSink
             from seohead.storage.events import append, ensure_schema
@@ -1484,13 +1494,33 @@ class NativeScan:
         from .corpus import corpus_summary
 
         row = self.con.execute(
-            "SELECT capabilities_json,retention_json,source_kind FROM scan"
+            "SELECT capabilities_json,retention_json,source_kind,config_json FROM scan"
         ).fetchone()
         capabilities = json.loads(row[0])
-        summary = corpus_summary(self.con, json.loads(row[1]))
+        policy = json.loads(row[1])
+        config = json.loads(row[3])
+        sparse = (
+            row[2] == "native"
+            and policy["body_mode"] == "off"
+            and not config.get("resources", {}).get("fetch", False)
+            and not self.con.execute(
+                "SELECT EXISTS(SELECT 1 FROM responses) OR EXISTS(SELECT 1 FROM documents) "
+                "OR EXISTS(SELECT 1 FROM bodies) OR EXISTS(SELECT 1 FROM resource_refs)"
+            ).fetchone()[0]
+        )
+        if sparse and self._sparse_summary is not None:
+            summary, reanalysis = self._sparse_summary
+        else:
+            summary = corpus_summary(self.con, policy)
+            reanalysis = _reanalysis_capability(self.con) if row[2] == "native" else None
+            if sparse:
+                # Coverage is invariant while these evidence tables stay empty.
+                # The first full calculation uses the existing contract; later
+                # commits reuse it only after checking the invariant in SQL.
+                self._sparse_summary = (summary, reanalysis)
         capabilities.update(summary["capabilities"])
-        if row[2] == "native":
-            capabilities["offline_reanalysis"] = _reanalysis_capability(self.con)
+        if reanalysis is not None:
+            capabilities["offline_reanalysis"] = reanalysis
         self.con.execute(
             "UPDATE scan SET capabilities_json=?,corpus_partial=? WHERE singleton=1",
             (_dump(capabilities), int(summary["corpus_partial"])),

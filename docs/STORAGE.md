@@ -1,15 +1,28 @@
-# Scan storage (`scan.v1`)
+# Scan storage (`scan.v1` and `audit.v2`)
 
-A scan artifact is one ordinary SQLite file for one crawl. Its format identifier is
+A scan's collection artifact is one ordinary SQLite file for one crawl. Its format identifier is
 `scan.v1`; its SQLite file signature is the normal `SQLite format 3\000` header,
 and its identity is also recorded as `application_id=1397051208` (`SEOH`) and
 `user_version=1`. A reader must require all three identifiers to agree before it
 treats a file as a scan artifact.
 
+Large saved audits can use an adjacent, versioned `audit.v2` SQLite companion named
+`<scan-path>.audit-v2.sqlite`. It keeps the frozen `scan.v1`/`scan.v2` schema unchanged;
+the companion binds to the scan UUID, evidence revision, and analyzer build. Scan history
+counts the companion's disk bytes, excludes it from the scan-file catalogue, snapshots it
+as a validated pair, and prunes it with its scan. Copy both files when moving an artifact.
+The companion contains complete ordered collections, not a sample or a replacement for
+missing evidence.
+
 The legacy importer packages an existing crawl directory. A URL-mode `crawl-site`
 run writes a native SQLite artifact under `./scans/` by default; `--scan-out` chooses
 an explicit file. An explicit `--out-dir` or configured `output.dir` selects the
-legacy directory workflow. Both retain the existing audit/report contract.
+legacy directory workflow. Both retain the existing audit/report contract within
+their declared materialization limits.
+The directory collector writes page/link/form evidence incrementally. Its
+materialized audit is currently limited to 10,000 pages, 20,000 forms and
+1,500,000 links; a larger corpus retains its JSONL evidence and reports
+`audit_available: false` with exact counts and the exceeded bound.
 Use one file per imported run; do not merge runs or write an imported artifact
 concurrently.
 
@@ -51,6 +64,33 @@ The native default is `storage.body_mode=captured_entity_bytes`; the only other
 supported value is `off`. The recorded retention policy, body state, and
 capability state determine what a particular scan actually retained.
 
+## Experimental synthetic capacity admission
+
+The stable live crawler ceiling remains **50,000 URLs**. The optional
+`storage.capacity_profile="experimental_synthetic"` marker admits a declared
+`limits.max_urls` up to 1,000,000 for direct `NativeScan` synthetic storage
+profiles. It is persisted in `scan.config_json` and the configuration
+fingerprint, and is validated on create, inspect, reopen, snapshot, and resume.
+Older scans with no marker retain their original fingerprint and read as stable.
+The marker is rejected by live CLI/MCP crawl handlers and the SQLite collector,
+even below 50,000 URLs. It does not change `checked_url_budget`, actual crawl
+admission, audit/report limits, or release support.
+
+Use this mode only for predeclared offline profile cases with explicit page,
+link-density, body/DOM, time, memory, disk and interruption budgets. A profile
+that writes 100,000 or 1,000,000 synthetic rows establishes only the stages it
+actually completed. The #818 end-to-end gate remains **unmet** until #815 has
+recorded the required 10k/50k/100k/1M matrix, #816 has a measured large-audit
+representation, and #817 has measured bounded collection, resume, JS and
+audit-bridge behavior at multiple link densities. Each stage must pass its
+frozen budget with complete URL/link evidence, honest finish and partialness
+states, restart recovery, and working downstream compare/report consumers
+before proposing any live cap change. The published 50,000-page attempt below
+remains blocked by its 900-second stage ceiling. No benchmark result promotes
+the ceiling automatically: a specialist must review the frozen manifests,
+failed/skipped stages and retained artifacts, then explicitly approve a
+separate cap/configuration change.
+
 ## Explicit local history operations
 
 The `scan` CLI group and matching `seo_scan_*` MCP tools operate on individual,
@@ -58,13 +98,15 @@ validated `scan.v1` artifacts. They are deliberately not a catalog service: no d
 discovers scans, no command migrates an artifact, and no operation deletes bodies
 separately from their SQLite file.
 
-`scan list` accepts one existing directory and considers only `*.sqlite` files.
-For each candidate it validates the SQLite identity and `scan.v1` schema while
+`scan list` accepts one existing directory and considers scan `*.sqlite` files;
+it excludes `*.audit-v2.sqlite` companions from the scan count. For each candidate
+it validates the SQLite identity and scan schema while
 reading metadata only; it never reads retained body BLOBs. The directory scan is
 capped at 10,000 candidate files and 64 MiB of accumulated metadata. Invalid,
 foreign, inaccessible, or changed candidates appear in `errors` rather than being
 silently accepted. The result is ordered by finish (or creation) time and includes
-the aggregate disk use and history warning threshold.
+the aggregate disk use and history warning threshold. `disk_bytes` includes any
+audit-v2 companion.
 
 `scan inspect` validates one artifact, then exposes a paginated read-only view of
 one whitelist table: `pages`, `links`, `forms`, `decisions`, `frontier`,
@@ -75,6 +117,8 @@ or page would exceed the budget, the result says `truncated: true` and
 `has_more: true` instead of loading a partial BLOB or claiming the table ended.
 
 `scan snapshot` validates the source and copies it through SQLite's Backup API.
+When an audit-v2 companion exists, it validates and copies that companion too,
+publishing the companion before the scan so a visible snapshot has its audit.
 `--out` may be a new filename or an existing directory. For a directory, the tool
 creates `YYYYMMDDTHHMMSSZ_host_shortUUID.sqlite` in UTC. Both forms are no-clobber:
 an existing file, symlink, or generated-name collision is refused. A snapshot is
@@ -177,8 +221,9 @@ and `context_items` hold the native storage core's recovery and collection lanes
 (empty in legacy imports). `responses`,
 `documents` and `bodies` hold captured HTTP/document provenance. `resource_refs` records
 direct script/stylesheet declarations and their capture state. Fetching referenced
-resource bodies is a separate explicit option. `audit.document_json` is the only authoritative stored audit
-snapshot; report formats render that document and do not compute new findings.
+resource bodies is a separate explicit option. An inline audit is stored in
+`audit.document_json`; an audit-v2 audit is stored in the adjacent companion.
+Report formats render the saved document and do not compute new findings.
 
 Existing report and comparison routes can take a scan path directly. The MCP
 `seo_report_build`, `seo_compare_crawls`, and SF audit summary, issues, and tasks
@@ -556,10 +601,27 @@ arbitrary field lengths or finding populations. Sitemap capture streams membersh
 in chunks of 256, with the existing per-root expansion limits; it no longer
 allocates the full declared-URL list before an admission check.
 
-The complete serialized audit also has the existing 64 MiB reader limit.
-The writer checks that exact size before replacing an audit. If it cannot fit,
-the result explicitly says `audit_available=false`; all captured observations
-remain intact. No findings are truncated and the reader limit is not raised.
+The inline `audit.document_json` contract still has its existing 64 MiB limit.
+Its writer checks the exact serialized size before replacing the row. Audit-v2
+stores ordered collection rows in the adjacent SQLite companion, with a 64 MiB
+header ceiling and an 8 MiB ceiling per row; the collection population has no
+64 MiB total limit. Each row has a stable ordinal, and a SHA-256 digest covers
+the header, binding, collection paths, order, and exact JSON row text. Readers
+validate the scan binding, SQLite schema, foreign keys, row counts, ordering,
+and digest before exposing any collection. The four reconciliation arrays under
+`summary.sitemap` are separate collections too; they must not be truncated into
+an apparently complete summary.
+
+`report-build` and `compare-crawls` accept an audit-v2 scan path. JSON output
+streams the complete document; CSV, XLSX, Markdown and DOCX consume ordered rows
+without constructing a second audit dictionary. DOCX retains its established
+40-findings-per-severity and 60-page display limits while showing the exact
+stored totals. The compatibility `read_audit`, `resolve_audit_input`, and
+`export-run` document paths still materialize only up to 64 MiB and fail with a
+named size error above it. They never return a partial document or infer a clean
+result. A producer that chooses audit-v2 must do so before building the legacy
+complete audit dictionary; collection-to-header selection remains the producer's
+responsibility.
 
 A resumed scan without the required retained static start-page HTML has a named
 no-audit guard; it cannot invent a clean rendering verdict.
@@ -590,6 +652,18 @@ reports `ru_maxrss` in bytes; the profiler normalizes Linux KiB separately. This
 measures collection only: the analyzer compatibility bridge, report rendering,
 sitemap expansion, large page fields and retained bodies are outside this result.
 No larger default crawl ceiling follows from these measurements.
+
+For metadata-only native scans (`storage.body_mode=off`) with no captured
+responses, documents, bodies, or resource refs, the writer now derives corpus
+capabilities once from the existing full SQL calculation and reuses that exact
+summary after checking those evidence tables remain empty. It updates the same
+scan metadata inside each page transaction. Any body, render, or resource
+evidence returns to the full calculation; reopening a writer derives the
+invariant again, and inspection still validates against all stored rows. A
+bounded 2,048-page sparse cProfile reduced `corpus_summary` and reanalysis
+queries from 2,048 calls each to one each. This is a sparse-writer improvement,
+not a dense-body or million-URL capacity result; staged #815/#818 acceptance
+still gates any crawl ceiling change.
 
 Reproduce with `python scripts/profile_scan_collector.py`.
 The profiler emits progress and JSON with platform/runtime versions and source

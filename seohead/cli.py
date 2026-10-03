@@ -907,6 +907,8 @@ def _print_crawl_outcome(result: Any) -> None:
         line = f"crawl-site: finished; {fetched} URLs fetched"
         if result.get("resumed"):
             line += " (this run continued an earlier one)"
+    if result.get("audit_available") is False:
+        line += f"; audit unavailable: {result.get('audit_reason') or 'reason unrecorded'}"
     print(line, file=sys.stderr)
     _print_body_retention(result)
 
