@@ -107,6 +107,7 @@ and this decision makes no backend migration.
 | `audit-workflow` | Project directory (`directory`)<br>Selector (`action`)<br>Live URL (`target`)<br>Audit document (`audit`) | status, start, prepare, or report.; Required only for action=start.; Required only for action=report. |
 | `tool-catalog` | Inline text (`query`) | Optional bounded discovery query. |
 | `scan-inspect` | Scan artifact (`scan`) | — |
+| `scan-link-inspect` | Scan artifact (`scan`) | Offline path, inlinks or occurrence context selected by view; mode-specific selectors and limits are required. |
 | `scan-status` | Scan artifact (`scan`) | — |
 | `scan-rendered-routes` | Scan artifact (`scan`) | — |
 | `scan-snapshot` | Scan artifact (`scan`) | — |

@@ -243,6 +243,7 @@ without deleting its scan. The exact arguments and defaults are in the generated
 |---|---|---|
 | `scan-list` | Validates and lists metadata for `*.sqlite` files in one existing directory without reading retained body BLOBs. It stops at 10,000 files and 64 MiB of metadata, and reports unreadable candidates under `errors` rather than treating them as scans. | — |
 | `scan-inspect` | Reads one allowed table (`pages`, `links`, `forms`, `decisions`, `frontier`, `query_variants`, `context_items`, `responses`, `documents`, `resource_refs`, or `audit`) as a paginated view. At most 1,000 rows and 8 MiB of row payload are returned; `has_more`/`truncated` says when the caller must narrow or continue. | — |
+| `scan-link-inspect` | Reads an observed shortest path, cursor-paginated reverse inlinks, or one retained document's per-link placement/heading context. It returns scan identity and explicit partial/unavailable evidence; traversal, body and result sizes are bounded. | — |
 | `scan-status` | Separates queued, inflight, done, and excluded native frontier rows from committed page HTTP outcome classes and no-response records. It reports interrupted captures as unfinished; imported scans name their absent native frontier as unavailable rather than an empty queue. | — |
 | `scan-rendered-routes` | Reads stored eligible static/rendered `a[href]` route evidence offline. It never queues or fetches a route; relation is `unknown` until both representation coverages are complete. | — |
 | `scan-snapshot` | Makes a validated, portable single-file SQLite copy. `--out` may name a new file or an existing directory; a directory receives a UTC timestamp, host, and short scan UUID filename. Existing destinations are never overwritten. | writes a new file |
@@ -253,6 +254,14 @@ without deleting its scan. The exact arguments and defaults are in the generated
 | `scan-extract` | Applies closed declarative extraction rules to retained complete bodies only. It is offline, body-retention limited, and does not persist the ad-hoc result. | — |
 | `scan-requeue` | Requeues a restricted saved URL/page selection only after creating a mandatory verified backup. | writes artifact and backup |
 | `scan-import-urls` | Imports an explicit local URL list into a saved scan only after creating a mandatory verified backup. | writes artifact and backup |
+
+For a saved route, use `scan-link-inspect --scan FILE --view path --seed URL --target URL`.
+For reverse links use `--view inlinks --target URL`, then pass `next_cursor`
+back as `--cursor`; the cursor is tied to the scan revision, target and
+representation. For a particular occurrence use `--view context --link-id ID`,
+or paginate one source document with `--document-id ID --offset N --limit N`.
+Missing body/DOM context and incomplete graph coverage remain explicit in the
+JSON result.
 
 ```bash
 # metadata-only directory view; no retained body BLOBs are read
@@ -293,7 +302,7 @@ accepted `--plan` JSON file; a changed directory, identity, metadata, or rank
 invalidates it. After reviewing `plan.json`, run `seohead scan-prune --directory .
 --plan plan.json --apply` to perform that exact deletion plan. The flat commands
 also have the nested `scan list`, `scan inspect`, `scan status`, `scan snapshot`,
-`scan pin`, `scan prune`, and `scan body-diff` forms.
+`scan pin`, `scan prune`, `scan body-diff`, and `scan link-inspect` forms.
 
 Pinning acquires the writer lock and writes the artifact in SQLite DELETE journal
 mode. It changes only the `pinned` field, so the SQLite container hash changes,
@@ -490,7 +499,7 @@ echo '{"url":"https://example.com"}' | seohead parse
 tool must not knock where it was not asked to.
 
 **MCP.** The same set under the `seo_*` names plus the `sf_*` audit tools
-(95 + 5):
+(96 + 5):
 
 ```bash
 seohead mcp        # stdio

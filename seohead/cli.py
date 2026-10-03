@@ -88,6 +88,7 @@ COMMANDS = (
     "indexnow-submit",
     "scan-list",
     "scan-inspect",
+    "scan-link-inspect",
     "scan-status",
     "scan-rendered-routes",
     "scan-snapshot",
@@ -158,6 +159,7 @@ STDIN_WAIT_SECONDS = 0.2
 _SCAN_PATH_COMMANDS = frozenset(
     {
         "scan-inspect",
+        "scan-link-inspect",
         "scan-status",
         "scan-rendered-routes",
         "scan-snapshot",
@@ -661,6 +663,29 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
         if getattr(args, "input_path", None):
             kw["input_path"] = args.input_path
         for name in ("table", "offset", "limit", "max_bytes"):
+            value = getattr(args, name, None)
+            if value is not None:
+                kw[name] = value
+    if cmd == "scan-link-inspect":
+        if getattr(args, "input_path", None):
+            kw["input_path"] = args.input_path
+        for name in (
+            "view",
+            "seed",
+            "target",
+            "representation",
+            "cursor",
+            "link_id",
+            "document_id",
+            "offset",
+            "limit",
+            "max_bytes",
+            "max_body_bytes",
+            "max_nodes",
+            "max_edges",
+            "max_depth",
+            "timeout_seconds",
+        ):
             value = getattr(args, name, None)
             if value is not None:
                 kw[name] = value
@@ -1372,6 +1397,25 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
         sub.add_argument("--offset", type=int)
         sub.add_argument("--limit", type=int)
         sub.add_argument("--max-bytes", dest="max_bytes", type=int)
+    if cmd == "scan-link-inspect":
+        sub.add_argument("--view", choices=("path", "inlinks", "context"))
+        sub.add_argument("--seed")
+        sub.add_argument("--target")
+        sub.add_argument(
+            "--representation",
+            choices=("all", "static", "rendered", "legacy_fragment", "legacy_unknown"),
+        )
+        sub.add_argument("--cursor")
+        sub.add_argument("--link-id", dest="link_id", type=int)
+        sub.add_argument("--document-id", dest="document_id", type=int)
+        sub.add_argument("--offset", type=int)
+        sub.add_argument("--limit", type=int)
+        sub.add_argument("--max-bytes", dest="max_bytes", type=int)
+        sub.add_argument("--max-body-bytes", dest="max_body_bytes", type=int)
+        sub.add_argument("--max-nodes", dest="max_nodes", type=int)
+        sub.add_argument("--max-edges", dest="max_edges", type=int)
+        sub.add_argument("--max-depth", dest="max_depth", type=int)
+        sub.add_argument("--timeout-seconds", dest="timeout_seconds", type=float)
     if cmd == "scan-snapshot":
         _source_flag(sub, "--out", help="new snapshot SQLite file")
     if cmd == "scan-pin":
@@ -1597,6 +1641,7 @@ def build_parser() -> argparse.ArgumentParser:
     for action in (
         "list",
         "inspect",
+        "link-inspect",
         "status",
         "rendered-routes",
         "snapshot",

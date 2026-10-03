@@ -389,6 +389,15 @@ COMMAND_CONTRACTS: tuple[CommandContract, ...] = (
         _form("inline_text", "query", note="Optional bounded discovery query."),
     ),
     _command("scan-inspect", "scan_inspect", _form("scan_artifact", "input_path")),
+    _command(
+        "scan-link-inspect",
+        "scan_link_inspect",
+        _form(
+            "scan_artifact",
+            "input_path",
+            note="Offline path, inlinks or occurrence context selected by view; mode-specific selectors and limits are required.",
+        ),
+    ),
     _command("scan-status", "scan_status", _form("scan_artifact", "input_path")),
     _command("scan-rendered-routes", "scan_rendered_routes", _form("scan_artifact", "input_path")),
     _command("scan-snapshot", "scan_snapshot", _form("scan_artifact", "input_path")),
@@ -541,6 +550,7 @@ def render_markdown() -> str:
     ]
     scan_commands = {
         "scan-inspect",
+        "scan-link-inspect",
         "scan-status",
         "scan-rendered-routes",
         "scan-snapshot",

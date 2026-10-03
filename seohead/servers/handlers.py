@@ -2926,6 +2926,46 @@ def scan_inspect(
     return core(input_path, table=table, offset=offset, limit=limit, max_bytes=max_bytes)
 
 
+def scan_link_inspect(
+    input_path: str,
+    view: str = "path",
+    seed: str | None = None,
+    target: str | None = None,
+    representation: str = "all",
+    cursor: str | None = None,
+    link_id: int | None = None,
+    document_id: int | None = None,
+    offset: int = 0,
+    limit: int = 100,
+    max_bytes: int = 1_048_576,
+    max_body_bytes: int = 5 * 1024 * 1024,
+    max_nodes: int = 10_000,
+    max_edges: int = 200_000,
+    max_depth: int = 20,
+    timeout_seconds: float = 15.0,
+) -> dict[str, Any]:
+    from seohead.servers.history_handlers import scan_link_inspect as core
+
+    return core(
+        input_path,
+        view=view,
+        seed=seed,
+        target=target,
+        representation=representation,
+        cursor=cursor,
+        link_id=link_id,
+        document_id=document_id,
+        offset=offset,
+        limit=limit,
+        max_bytes=max_bytes,
+        max_body_bytes=max_body_bytes,
+        max_nodes=max_nodes,
+        max_edges=max_edges,
+        max_depth=max_depth,
+        timeout_seconds=timeout_seconds,
+    )
+
+
 def scan_status(input_path: str) -> dict[str, Any]:
     from seohead.servers.history_handlers import scan_status as core
 
@@ -3419,6 +3459,7 @@ _RAW_HANDLERS = {
     "scan_reanalyze": scan_reanalyze,
     "scan_list": scan_list,
     "scan_inspect": scan_inspect,
+    "scan_link_inspect": scan_link_inspect,
     "scan_status": scan_status,
     "scan_rendered_routes": scan_rendered_routes,
     "scan_evidence": scan_evidence,

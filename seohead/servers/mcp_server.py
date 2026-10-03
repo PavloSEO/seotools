@@ -1473,6 +1473,60 @@ def build_server(profile: str = "full", progress_notifications: bool = False):  
         )
 
     @mcp.tool(annotations=read_files, structured_output=True)
+    def seo_scan_link_inspect(
+        input_path: str,
+        view: str = "path",
+        seed: str | None = None,
+        target: str | None = None,
+        representation: str = "all",
+        cursor: str | None = None,
+        link_id: int | None = None,
+        document_id: int | None = None,
+        offset: int = 0,
+        limit: int = 100,
+        max_bytes: int = 1_048_576,
+        max_body_bytes: int = 5 * 1024 * 1024,
+        max_nodes: int = 10_000,
+        max_edges: int = 200_000,
+        max_depth: int = 20,
+        timeout_seconds: float = 15.0,
+    ) -> dict[str, Any]:
+        """Inspect saved shortest paths, reverse inlinks, or per-link DOM context offline.
+
+        Path hops and inlinks cite exact link IDs and scan identity; absence in a
+        partial graph is never a confirmed orphan. Inlinks use a cursor bound to
+        scan/revision/target/representation. Context requires link_id or
+        document_id, and missing retained bodies return unavailable evidence.
+        No network request or scan mutation occurs. Path defaults to 10,000
+        visited nodes, 200,000 examined edges, 20 hops and 15 seconds (hard
+        maxima 100,000/2,000,000/100/30). Inlinks page at most 500 rows; context
+        pages at most 500 rows and one document, with an 8 MiB body hard cap.
+        max_bytes bounds serialized item output (4 KiB..8 MiB); an over-budget
+        full response returns a named limit result. Invalid scans and URLs are
+        error results, not empty or clean graph evidence.
+        """
+        return _checked(
+            handlers.scan_link_inspect(
+                input_path=input_path,
+                view=view,
+                seed=seed,
+                target=target,
+                representation=representation,
+                cursor=cursor,
+                link_id=link_id,
+                document_id=document_id,
+                offset=offset,
+                limit=limit,
+                max_bytes=max_bytes,
+                max_body_bytes=max_body_bytes,
+                max_nodes=max_nodes,
+                max_edges=max_edges,
+                max_depth=max_depth,
+                timeout_seconds=timeout_seconds,
+            )
+        )
+
+    @mcp.tool(annotations=read_files, structured_output=True)
     def seo_scan_status(input_path: str) -> dict[str, Any]:
         """Summarize frontier work and committed page outcomes from one saved scan offline."""
         return _checked(handlers.scan_status(input_path=input_path))

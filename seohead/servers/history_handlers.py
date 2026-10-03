@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from typing import Any
 
 from seohead.storage import open_scan
@@ -16,6 +17,123 @@ from seohead.storage.history import (
     snapshot_scan,
 )
 from seohead.storage.status import scan_status as _scan_status
+
+
+def scan_link_inspect(
+    input_path: str,
+    view: str = "path",
+    seed: str | None = None,
+    target: str | None = None,
+    representation: str = "all",
+    cursor: str | None = None,
+    link_id: int | None = None,
+    document_id: int | None = None,
+    offset: int = 0,
+    limit: int = 100,
+    max_bytes: int = 1_048_576,
+    max_body_bytes: int = 5 * 1024 * 1024,
+    max_nodes: int = 10_000,
+    max_edges: int = 200_000,
+    max_depth: int = 20,
+    timeout_seconds: float = 15.0,
+) -> dict[str, Any]:
+    """One bounded saved-scan link query, shared by the CLI and local MCP."""
+    if not isinstance(view, str) or view not in {"path", "inlinks", "context"}:
+        return {"ok": False, "view": "invalid", "error": "view must be path, inlinks, or context"}
+    try:
+        path = _path(input_path, "scan")
+        if type(max_bytes) is not int or not 4096 <= max_bytes <= 8 * 1024 * 1024:
+            raise ValueError("max_bytes must be 4096..8388608")
+        if view == "path":
+            if not seed or not target:
+                raise ValueError("path view requires seed and target URLs")
+            if (
+                any(value is not None for value in (cursor, link_id, document_id))
+                or offset
+                or limit != 100
+            ):
+                raise ValueError(
+                    "path view does not accept cursor, link/document ID, offset or limit"
+                )
+            if max_body_bytes != 5 * 1024 * 1024:
+                raise ValueError("path view does not read a body")
+            from seohead.storage.link_queries import shortest_observed_path
+
+            result = shortest_observed_path(
+                path,
+                seed,
+                target,
+                representation=representation,
+                max_nodes=max_nodes,
+                max_edges=max_edges,
+                max_depth=max_depth,
+                timeout_seconds=timeout_seconds,
+            )
+        elif view == "inlinks":
+            if not target:
+                raise ValueError("inlinks view requires a target URL")
+            if seed is not None or link_id is not None or document_id is not None or offset:
+                raise ValueError("inlinks view does not accept seed, link/document ID or offset")
+            if (max_nodes, max_edges, max_depth, max_body_bytes) != (
+                10_000,
+                200_000,
+                20,
+                5 * 1024 * 1024,
+            ):
+                raise ValueError("inlinks view does not accept path or body budgets")
+            from seohead.storage.link_queries import reverse_inlinks
+
+            result = reverse_inlinks(
+                path,
+                target,
+                representation=representation,
+                cursor=cursor,
+                limit=limit,
+                max_bytes=max_bytes,
+                timeout_seconds=timeout_seconds,
+            )
+        elif view == "context":
+            if (link_id is None) == (document_id is None):
+                raise ValueError("context view requires exactly one of link_id or document_id")
+            if seed is not None or target is not None or cursor is not None:
+                raise ValueError("context view does not accept seed, target or cursor")
+            if (max_nodes, max_edges, max_depth, timeout_seconds) != (10_000, 200_000, 20, 15.0):
+                raise ValueError("context view does not accept path budgets")
+            from seohead.storage.link_context import context_for_link, contexts_for_document
+
+            if link_id is not None:
+                if offset or limit != 100:
+                    raise ValueError("single-link context does not accept offset or limit")
+                result = context_for_link(
+                    path, link_id, max_body_bytes=max_body_bytes, max_result_bytes=max_bytes
+                )
+            else:
+                result = contexts_for_document(
+                    path,
+                    document_id,
+                    offset=offset,
+                    limit=limit,
+                    max_body_bytes=max_body_bytes,
+                    max_result_bytes=max_bytes,
+                )
+            if representation != "all" and result["representation"] != representation:
+                raise ValueError("context representation differs from the requested filter")
+        answer = {"ok": True, "view": view, **result}
+        size = len(json.dumps(answer, ensure_ascii=False, default=str).encode("utf-8"))
+        if size > max_bytes:
+            return {
+                "ok": False,
+                "view": view,
+                "state": "limit_reached",
+                "reason": "output_byte_limit_exceeded",
+                "scan_uuid": result.get("scan_uuid"),
+                "evidence_revision": result.get("evidence_revision"),
+                "max_bytes": max_bytes,
+                "bytes_required": size,
+            }
+        return answer
+    except (ValueError, OSError, sqlite3.Error, TypeError) as exc:
+        return {"ok": False, "view": view, "error": str(exc)}
 
 
 def _path(value: str, label: str) -> str:
