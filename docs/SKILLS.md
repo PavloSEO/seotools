@@ -99,7 +99,7 @@ Then by the layer of the task.
 
 ## Tools without a skill of their own
 
-65 of the 95 commands are not named in any skill's own body (a mention inside
+66 of the 96 commands are not named in any skill's own body (a mention inside
 another tool's Markdown table above does not count) — used inline as plumbing
 inside a workflow's write-up, or not yet needed by one at all — and have no
 skill of their own, deliberately: a skill per single command is noise.
@@ -123,7 +123,7 @@ Commands without their own skill: `asset-weight-check` · `audit-workflow` ·
 `scan-reanalyze` · `scan-rendered-routes` · `scan-requeue` · `scan-snapshot` ·
 `scan-status` · `scenario-show` · `segment-diff` · `serp-fetch` · `skill-list` ·
 `skill-show` · `soft404-check` · `spend-report` · `tool-catalog` ·
-`wayback-history`
+`verify-fixes` · `wayback-history`
 
 Two of them are candidates for a skill if the work becomes regular:
 `log-analyze` (log parsing is its own genre with its own method) and

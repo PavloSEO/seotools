@@ -174,6 +174,7 @@ details (adaptive back-off, which checks come back `skipped` and why) and
 |---|---|---|
 | `crawl-site` | Follows links from a start URL on the same host, respects `robots.txt`, and audits the result. A URL crawl writes one collision-safe native SQLite artifact under `./scans/` by default; `--out-dir` is the explicit legacy directory route. Not full Screaming Frog parity — checks needing evidence a native crawl cannot produce (redirect chains, near-duplicates, readability, ...) come back `skipped`, never a false clean | writes a native scan, or legacy files under explicit `--out-dir` |
 | `compare-crawls` | Diffs two audit documents into `entered` / `left` / `appeared` / `disappeared` findings, so a fix is distinguished from a page that simply dropped out of the crawl. Refuses known-different effective crawl settings unless the operator explicitly passes `--force`. | — |
+| `verify-fixes` | Rechecks selected baseline finding IDs, URLs, or a saved `verification_view.v1` selection. Reuses recorded HTTP/robots/render policy and classifies resolved, persisting, changed, and not-verifiable findings from the affected pages only; whole-site and unmeasured checks cannot become fixed. `--after` uses an existing audit offline. | fetches selected URLs unless `--after` is given; creates a new immutable JSON/Markdown verification under `--out-dir` |
 | `crawl-enrich` | Joins an existing audit or scan to a local URL-keyed traffic/search CSV. It keeps matched, crawl-only, external-only, and unkeyable rows distinct; a completed crawl can export reliable same-origin external-only URLs for list mode. | optionally writes a URL-list file under `--out-urls` |
 | `crawl-import` | Reads a local manifest-mapped CSV crawl bundle and returns `third_party_crawl.v1` with foreign source identity, pages/links/statuses/redirects, exact field coverage, duplicate counts and input hashes. This is not a native scan or SF audit. | reads the manifest and listed CSV files |
 | `segment-diff` | Answers "which pages exist in one segment and not in another" from one crawl, using the site's own hreflang declarations as the authority. Mirrored paths are a fallback only where the site's declared pairs prove it mirrors them; a partially crawled target segment yields no absences at all, because a page nobody fetched is not a page that is missing. Reads a native crawl whose config declared `scope.segments`, not an SF export | — |
@@ -194,6 +195,7 @@ claiming the original time bound still applies.
 ```bash
 seohead crawl-site --url https://example.com/ --max-urls 200
 seohead compare-crawls --before old-audit.json --after new-audit.json
+seohead verify-fixes --baseline old-audit.json --finding-ids ISSUE-000001 --out-dir ./verification-1
 seohead crawl-import --manifest third_party_crawl/full/manifest.json
 seohead segment-diff --audit ./multilingual/audit.json --source en --target pl
 seohead crawl-describe-settings
@@ -462,7 +464,7 @@ echo '{"url":"https://example.com"}' | seohead parse
 tool must not knock where it was not asked to.
 
 **MCP.** The same set under the `seo_*` names plus the `sf_*` audit tools
-(95 + 5):
+(96 + 5):
 
 ```bash
 seohead mcp        # stdio

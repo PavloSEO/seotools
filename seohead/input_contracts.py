@@ -97,6 +97,27 @@ COMMAND_CONTRACTS: tuple[CommandContract, ...] = (
         _form("audit_document", "before", "after", note="Each path may be audit JSON or scan.v1."),
     ),
     _command(
+        "verify-fixes",
+        "verify_fixes",
+        _form("audit_document", "baseline", required_with=("out_dir",)),
+        _form(
+            "audit_document",
+            "after",
+            required_with=("baseline", "out_dir"),
+            note="Offline verification without recrawling.",
+        ),
+        _form("selector", "finding_ids", required_with=("baseline", "out_dir")),
+        _form(
+            "local_file",
+            "view",
+            required_with=("baseline", "out_dir"),
+            note="Saved verification_view.v1 selection.",
+        ),
+        _form("url_list", "urls", required_with=("baseline", "out_dir")),
+        _form("local_file", "urls_file", required_with=("baseline", "out_dir")),
+        _form("local_config", "config", note="Required when the baseline redacted credentials."),
+    ),
+    _command(
         "crawl-enrich",
         "crawl_enrich",
         _form("audit_document", "audit", required_with=("external_csv",)),

@@ -665,6 +665,41 @@ def build_server(profile: str = "full", progress_notifications: bool = False):  
         true; partial-crawl warnings remain attached to the historical result."""
         return _checked(handlers.compare_crawls(before=before, after=after, force=force))
 
+    @mcp.tool(annotations=create_files_from_web, structured_output=True)
+    def seo_verify_fixes(
+        baseline: Any,
+        out_dir: str,
+        finding_ids: list[str] | None = None,
+        view: Any = None,
+        urls: list[str] | None = None,
+        urls_file: str | None = None,
+        after: Any = None,
+        config: str | None = None,
+    ) -> dict[str, Any]:
+        """Recheck selected baseline findings in an explicit, bounded URL subset.
+
+        Select baseline finding IDs, a saved verification_view.v1 JSON view, or
+        affected URLs. With ``after`` the comparison is offline and requires a
+        distinct scan UUID plus a later observation time. Otherwise the
+        recorded HTTP/robots/render policy is verified before the existing crawler
+        fetches selected pages; JS baselines use one URL per rendered crawl. A new
+        directory receives the recrawl evidence and immutable verification JSON
+        and Markdown report. Unfetched, skipped, site-wide and incomparable
+        findings remain not_verifiable, never resolved.
+        """
+        return _checked(
+            handlers.verify_fixes(
+                baseline=baseline,
+                out_dir=out_dir,
+                finding_ids=finding_ids,
+                view=view,
+                urls=urls,
+                urls_file=urls_file,
+                after=after,
+                config=config,
+            )
+        )
+
     @mcp.tool(annotations=create_files, structured_output=True)
     def seo_crawl_enrich(
         audit: Any,

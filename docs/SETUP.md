@@ -184,7 +184,45 @@ never installs `pyarrow` regardless of the pandas pin. Pinning `pandas<3` would 
 remove it and was not made; if `sitemap`'s ~46 MB `pyarrow` weight needs trimming later, the fix is
 in `advertools`'s own dependency tree, tracked separately from this issue.
 
+## Targeted fix verification
+
+For a focused recheck, select baseline finding IDs or affected URLs and write a new
+verification directory:
+
+```bash
+seohead verify-fixes --baseline before.sqlite --finding-ids ISSUE-000001,ISSUE-000002 --out-dir ./verify-2026-10-03
+# Compare already collected evidence without making requests:
+seohead verify-fixes --baseline before.sqlite --after after.sqlite --finding-ids ISSUE-000003 --out-dir ./verify-offline
+```
+
+`--view` accepts a JSON file such as
+`{"schema_version":"verification_view.v1","finding_ids":["ISSUE-000001"]}`;
+`--urls-file` accepts the same TXT/CSV/XLSX/XML inputs as crawl list mode. The
+command creates `verification.json` and `verification.md` without overwriting an
+existing directory. It retains the baseline audit hash, observation time, exact
+before/after page and finding evidence, and the recrawl audit files. Raw pages
+use the existing list collector; a baseline with JavaScript rendering uses one
+bounded URL crawl per selected page. Missing, skipped, partial or changed-policy
+evidence is `not_verifiable`, never a fix; whole-site graph checks cannot be
+cleared by this URL subset. A baseline that redacts authentication settings
+needs the original local `--config` to reproduce its policy. No credential
+value is copied into the verification report.
+
+Each selected baseline finding gets one verdict: **resolved** when its check
+ran clean on the same measured page representation; **persisting** when the
+same finding and evidence remain; **changed** when its evidence or HTTP
+response changed without proving the old condition clear; **not_verifiable**
+when the page was not fetched, the check was skipped, the source/configuration
+changed, or the finding needs a whole-site population. A partial targeted run
+may still verify a page it did measure, while every unvisited page stays
+`not_verifiable`.
+With offline `--after`, both audits must record a scan UUID and a timezone-aware
+`run.generated_at`. The after scan must have a different UUID and a later time;
+otherwise the verification artifact explicitly says `not_verifiable`. This
+prevents a replayed scan or an older saved audit from appearing to prove a fix.
+
 ## Comparing two crawls
+
 
 ```bash
 seohead compare-crawls --before old-audit.json --after new-audit.json

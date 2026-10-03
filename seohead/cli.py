@@ -32,6 +32,7 @@ COMMANDS = (
     "scan-reanalyze",
     "log-scan",
     "compare-crawls",
+    "verify-fixes",
     "crawl-enrich",
     "crawl-import",
     "segment-diff",
@@ -518,6 +519,15 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
             kw["after"] = args.after
         if getattr(args, "force", False):
             kw["force"] = True
+    elif cmd == "verify-fixes":
+        for name in ("baseline", "view", "urls_file", "after", "config", "out_dir"):
+            value = getattr(args, name, None)
+            if value is not None:
+                kw[name] = value
+        for flag, key in (("finding_ids", "finding_ids"), ("urls", "urls")):
+            value = getattr(args, flag, None)
+            if value:
+                kw[key] = _split_list(value)
     elif cmd == "crawl-enrich":
         for name in ("audit", "external_csv", "url_column", "out_urls"):
             value = getattr(args, name, None)
@@ -1337,6 +1347,17 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
             sub, "--before", help="path to the earlier audit.json or scan.v1 SQLite artifact"
         )
         _source_flag(sub, "--after", help="path to the later audit.json or scan.v1 SQLite artifact")
+    if cmd == "verify-fixes":
+        _source_flag(sub, "--baseline", help="saved baseline audit.json or SQLite scan")
+        sub.add_argument("--finding-ids", help="comma-separated baseline finding IDs")
+        _source_flag(sub, "--view", help="saved verification_view.v1 JSON selection")
+        _source_flag(sub, "--urls", help="comma-separated affected baseline URLs")
+        _source_flag(sub, "--urls-file", help="TXT/CSV/XLSX/XML affected URL list")
+        _source_flag(sub, "--after", help="existing after audit/scan for offline verification")
+        sub.add_argument(
+            "--config", help="original crawler config when the baseline redacted secrets"
+        )
+        sub.add_argument("--out-dir", help="new directory for recrawl and immutable verification")
     if cmd == "segment-diff":
         # See the log-scan comment above: `required=True` here would reject a JSON-only
         # `--input '{"audit": ..., "source": ..., "target": ...}'` call the same way (#218).

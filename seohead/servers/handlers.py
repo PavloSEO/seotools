@@ -1700,6 +1700,201 @@ def compare_crawls(before: Any = None, after: Any = None, force: bool = False) -
     return result
 
 
+def verify_fixes(
+    baseline: Any = None,
+    finding_ids: list[str] | None = None,
+    view: Any = None,
+    urls: list[str] | None = None,
+    urls_file: str | None = None,
+    after: Any = None,
+    config: str | None = None,
+    out_dir: str | None = None,
+) -> dict[str, Any]:
+    """Recheck selected findings and save a separate, immutable verification.
+
+    An existing ``after`` audit provides an offline classification path. Otherwise
+    the selected baseline pages are fetched through the existing bounded crawler:
+    list mode for static evidence, or one URL per run for a recorded JS policy.
+    Results-affecting settings are replayed or checked before the first request.
+    """
+    import contextlib
+    import json
+    import os
+    import tempfile
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    from seohead.crawl import settings as crawl_settings
+    from seohead.crawl.list_input import read_url_list
+    from seohead.verification import (
+        classify,
+        digest,
+        markdown,
+        offline_observation_gap,
+        scan_identity,
+        select,
+    )
+
+    if not out_dir:
+        raise ValueError("out_dir required: a new directory for immutable verification evidence")
+    baseline_doc = _load_audit(baseline, "baseline")
+    if baseline_doc.get("schema_version") != "2.0":
+        raise ValueError("baseline must be an audit.json schema_version 2.0 document")
+    if isinstance(view, (str, os.PathLike)):
+        saved_view = json.loads(Path(view).read_text(encoding="utf-8"))
+    else:
+        saved_view = view
+    requested_urls = list(urls or [])
+    if urls_file:
+        requested_urls.extend(read_url_list(urls_file))
+    selected, targets = select(
+        baseline_doc, finding_ids=finding_ids, urls=requested_urls, view=saved_view
+    )
+
+    destination = Path(out_dir).absolute()
+    if destination.exists():
+        raise FileExistsError(f"verification output already exists: {destination}")
+    destination.mkdir(parents=True)
+    observations: dict[str, dict[str, Any]] = {}
+    collection: dict[str, Any] = {"state": "offline" if after is not None else "not_run"}
+
+    if after is not None:
+        after_doc = _load_audit(after, "after")
+        gap = offline_observation_gap(baseline_doc, after_doc)
+        if gap is None:
+            observations = dict.fromkeys(targets, after_doc)
+        after_run = after_doc.get("run")
+        collection.update(
+            state="offline" if gap is None else "not_verifiable",
+            audit_sha256=digest(after_doc),
+            scan_uuid=scan_identity(after_doc),
+            generated_at=after_run.get("generated_at") if isinstance(after_run, dict) else None,
+        )
+        if gap is not None:
+            collection["reason"] = gap
+    elif targets:
+        recorded = (baseline_doc.get("run") or {}).get("crawl_config")
+        if not isinstance(recorded, dict):
+            collection["reason"] = "baseline has no recorded crawl configuration"
+        elif (
+            any(
+                value == "REDACTED"
+                for setting in ("http.headers", "http.credential_headers")
+                for value in _verification_values(recorded.get(setting))
+            )
+            and not config
+        ):
+            collection["reason"] = (
+                "baseline redacts authentication settings; provide the original config"
+            )
+        else:
+            try:
+                settings = crawl_settings.load(config, overrides=None if config else recorded)
+                measured = crawl_settings.manifest(settings)
+                changed = sorted(
+                    key
+                    for key in set(recorded) | set(measured)
+                    if key not in {"limits.max_urls", "limits.max_depth"}
+                    and recorded.get(key) != measured.get(key)
+                )
+                if settings["cache"]["mode"] != "off":
+                    collection["reason"] = "fresh verification requires cache.mode=off"
+                elif changed:
+                    collection["reason"] = "recorded crawl policy differs: " + ", ".join(changed)
+                else:
+                    mode = settings["rendering"]["mode"]
+                    common = {"config": config, "overrides": None if config else recorded}
+                    if mode == "raw":
+                        folder = destination / "recrawl"
+                        crawl_site(
+                            urls=targets, out_dir=str(folder), max_urls=len(targets), **common
+                        )
+                        audit = json.loads((folder / "audit.json").read_text(encoding="utf-8"))
+                        observations = dict.fromkeys(targets, audit)
+                        collection = {
+                            "state": "measured",
+                            "mode": "list",
+                            "audits": [{"path": "recrawl/audit.json", "sha256": digest(audit)}],
+                        }
+                    else:
+                        audits = []
+                        collection = {"state": "partial", "mode": mode, "audits": audits}
+                        for index, target in enumerate(targets):
+                            folder = destination / "recrawl" / f"url-{index + 1:04d}"
+                            crawl_site(url=target, out_dir=str(folder), max_urls=1, **common)
+                            audit = json.loads((folder / "audit.json").read_text(encoding="utf-8"))
+                            observations[target] = audit
+                            audits.append(
+                                {
+                                    "url": target,
+                                    "path": str((folder / "audit.json").relative_to(destination)),
+                                    "sha256": digest(audit),
+                                }
+                            )
+                        collection["state"] = "measured"
+            except (OSError, ValueError, RuntimeError) as exc:
+                collection["state"] = "partial" if observations else "not_run"
+                collection["reason"] = str(exc)
+
+    findings = classify(
+        baseline_doc,
+        selected,
+        observations,
+        missing_reason=collection.get("reason") or "selected URL was not recrawled",
+    )
+    summary = {
+        name: sum(item["status"] == name for item in findings)
+        for name in ("resolved", "persisting", "changed", "not_verifiable")
+    }
+    document = {
+        "schema_version": "verification.v1",
+        "observed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "baseline": {
+            "audit_sha256": digest(baseline_doc),
+            "scan_uuid": scan_identity(baseline_doc),
+            "generated_at": (
+                baseline_doc["run"].get("generated_at")
+                if isinstance(baseline_doc.get("run"), dict)
+                else None
+            ),
+        },
+        "selection": {"finding_ids": [item.get("id") for item in selected], "urls": targets},
+        "collection": collection,
+        "summary": summary,
+        "findings": findings,
+    }
+
+    def write_new(path: Path, data: str) -> None:
+        fd, temporary = tempfile.mkstemp(prefix=".verification-", dir=destination)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                stream.write(data)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.link(temporary, path)
+        finally:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(temporary)
+
+    write_new(destination / "verification.json", json.dumps(document, ensure_ascii=False, indent=2))
+    write_new(destination / "verification.md", markdown(document))
+    return {
+        "ok": True,
+        "verification": str(destination / "verification.json"),
+        "report": str(destination / "verification.md"),
+        **document,
+    }
+
+
+def _verification_values(value: Any) -> list[Any]:
+    """Flatten recorded authentication metadata for redaction detection only."""
+    if isinstance(value, dict):
+        return [item for nested in value.values() for item in _verification_values(nested)]
+    if isinstance(value, list):
+        return [item for nested in value for item in _verification_values(nested)]
+    return [value]
+
+
 def crawl_import(manifest_path: str | None = None) -> dict[str, Any]:
     """Read an explicitly mapped third-party CSV crawl bundle offline.
 
@@ -3346,6 +3541,7 @@ _RAW_HANDLERS = {
     "redirects_check": redirects_check,
     "sitemap_crawl": sitemap_crawl,
     "crawl_site": crawl_site,
+    "verify_fixes": verify_fixes,
     "crawl_describe_settings": crawl_describe_settings,
     "images_download": images_download,
     "images_optimize": images_optimize,

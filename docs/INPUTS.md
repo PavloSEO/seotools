@@ -30,6 +30,7 @@ and this decision makes no backend migration.
 | `scan-reanalyze` | Scan artifact (`scan`) | — |
 | `log-scan` | Local directory (`run`) | — |
 | `compare-crawls` | Audit document (`before, after`) | Each path may be audit JSON or scan.v1. |
+| `verify-fixes` | Audit document (`baseline`); requires `out_dir`<br>Audit document (`after`); requires `baseline, out_dir`<br>Selector (`finding_ids`); requires `baseline, out_dir`<br>Local file (`view`); requires `baseline, out_dir`<br>URL list (`urls`); requires `baseline, out_dir`<br>Local file (`urls_file`); requires `baseline, out_dir`<br>Local configuration (`config`) | Offline verification without recrawling.; Saved verification_view.v1 selection.; Required when the baseline redacted credentials. |
 | `crawl-enrich` | Audit document (`audit`); requires `external_csv`<br>Local file (`external_csv`); requires `audit` | — |
 | `crawl-import` | Local file (`manifest_path`) | third_party_crawl_manifest.v1 with manifest-relative CSV datasets; output remains foreign crawl evidence |
 | `segment-diff` | Audit document (`audit`) | — |

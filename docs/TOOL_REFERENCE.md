@@ -6,7 +6,7 @@ Generated from the MCP tool definitions in `seohead/servers/mcp_server.py` and `
 python scripts/generate_tool_reference.py
 ```
 
-**95 core tools** (`seohead <command>` / `seo_<command>` on the MCP server) plus **5 crawl-audit tools** (`sf_<command>`, driven by `seohead sf ...`) — 100 in total.
+**96 core tools** (`seohead <command>` / `seo_<command>` on the MCP server) plus **5 crawl-audit tools** (`sf_<command>`, driven by `seohead sf ...`) — 101 in total.
 
 Every tool shares one contract: JSON in, JSON out. A target that could not be reached comes back as `{"ok": false, "error": "..."}` instead of raising, so an unreachable site is data, not a crash.
 
@@ -621,6 +621,36 @@ Diff two audit documents (dict, JSON path, or scan.v1 SQLite path) into four dis
 | `force` | `bool` | `False` |
 
 **Cost** — network: no · writes files: no · idempotent: yes · spends money: no
+
+### `verify-fixes`
+
+MCP name: `seo_verify_fixes`
+
+Recheck selected baseline findings in an explicit, bounded URL subset.
+
+| Argument | Type | Default |
+|---|---|---|
+| `baseline` | `Any` | `required` |
+| `out_dir` | `str` | `required` |
+| `finding_ids` | `list[str] | None` | `None` |
+| `view` | `Any` | `None` |
+| `urls` | `list[str] | None` | `None` |
+| `urls_file` | `str | None` | `None` |
+| `after` | `Any` | `None` |
+| `config` | `str | None` | `None` |
+
+**Cost** — network: yes · writes files: yes · idempotent: no · spends money: no
+
+**Behavior and failure modes**
+
+Select baseline finding IDs, a saved verification_view.v1 JSON view, or
+affected URLs. With ``after`` the comparison is offline and requires a
+distinct scan UUID plus a later observation time. Otherwise the
+recorded HTTP/robots/render policy is verified before the existing crawler
+fetches selected pages; JS baselines use one URL per rendered crawl. A new
+directory receives the recrawl evidence and immutable verification JSON
+and Markdown report. Unfetched, skipped, site-wide and incomparable
+findings remain not_verifiable, never resolved.
 
 ### `crawl-enrich`
 
