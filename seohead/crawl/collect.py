@@ -32,7 +32,14 @@ from seohead.crawl.settings import (
     resolve_credential_headers,
 )
 from seohead.crawl.throttle import MAX_DELAY_S, DispatchGate, Throttle
-from seohead.recon.net import UA, BlockedRedirectError, http_client, pinned_target, validate_url
+from seohead.recon.net import (
+    UA,
+    BlockedRedirectError,
+    client_network_policy,
+    http_client,
+    pinned_target,
+    validate_url,
+)
 from seohead.tools.parser import empty_link_placement, parse_html, uses_ajax_crawling_scheme
 from seohead.tools.robots import is_allowed, match_path, parse_robots
 
@@ -595,7 +602,11 @@ def fetch_one(
         # so running it against an injected transport would make offline tests
         # depend on the network and would guard a socket we never open.
         try:
-            validate_url(url)
+            policy = client_network_policy(client)
+            if policy is None:
+                validate_url(url)
+            else:
+                validate_url(url, policy=policy)
         except Exception as exc:  # blocked target, bad scheme, private network
             record.error = str(exc)
             emit()
@@ -641,7 +652,11 @@ def fetch_one(
                 # Connect to the address that was vetted, keeping the hostname for
                 # SNI and certificate verification. Resolving twice would leave a
                 # window between the check and the connection.
-                target, headers, extensions = pinned_target(url)
+                policy = client_network_policy(client)
+                if policy is None:
+                    target, headers, extensions = pinned_target(url)
+                else:
+                    target, headers, extensions = pinned_target(url, policy=policy)
                 request = {
                     **request_headers,
                     **headers,

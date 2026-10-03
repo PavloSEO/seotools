@@ -3,6 +3,12 @@
 One package `seohead/`, two faces (CLI and MCP), three core layers plus two
 service layers. Everything else follows from that.
 
+The optional remote service in epic #754 is a separate delivery adapter.
+`recon/remote_policy.py` supplies its project-bound target and egress guard;
+`remote_api/backend.py` supplies its durable queue and worker. Neither starts
+a listener or alters local CLI/MCP defaults. See [remote target safety](REMOTE_TARGET_SAFETY.md)
+and [durable jobs](REMOTE_JOBS.md) for their binding contracts.
+
 ## Package layout
 
 ```
@@ -144,8 +150,9 @@ numpy scalars and no `inf`/`NaN`.
 `sf/schema/audit.schema.json` and the test
 `test_reporters.py::test_json_validates_against_schema`.
 
-**Exactly two interfaces: CLI and MCP.** A GUI, desktop app, or hosted HTTP service is outside the
-project boundary.
+**CLI and local MCP stay independent of the optional remote contract.** The authenticated HTTP
+adapter needs an injected durable backend and egress policy; it starts no service by itself. A
+GUI, desktop app, hosted account, and public MCP endpoint are outside the current boundary.
 Report files (xlsx/docx) are output, not an interface.
 
 **MIT project code with compatible dependencies.** Prefer permissive dependencies and review any

@@ -9,6 +9,7 @@ core through two interfaces — CLI and local MCP. It is not a general-purpose c
 | You are… | Read |
 |---|---|
 | Setting the toolkit up from zero | [SETUP.md](SETUP.md) — versions, deps, first run |
+| Installing on a headless Linux VPS over SSH | [LINUX_VPS.md](LINUX_VPS.md) — pinned install, browser dependencies, upgrades, rollback, and measured CI smoke |
 | Looking for a copy-paste command | [USAGE.md](USAGE.md) — runnable examples |
 | Checking which source inputs a command accepts | [INPUTS.md](INPUTS.md) — generated command-input catalogue |
 | Managing or inspecting saved scans | [STORAGE.md](STORAGE.md) — SQLite import, provenance, retained bodies, snapshots, and reviewed retention |

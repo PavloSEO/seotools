@@ -31,12 +31,14 @@ import os
 import re
 import tempfile
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunsplit
 
 from bs4 import BeautifulSoup
 
-from seohead.recon.net import UA, http_client, normalize_url, validate_url
+from seohead.recon.net import UA, client_network_policy, http_client, normalize_url, validate_url
+from seohead.recon.remote_policy import RemoteTargetError, current_remote_policy
 from seohead.tools import dualcrawl
 from seohead.tools.browser_transport import (
     BrowserTransportError,
@@ -192,6 +194,7 @@ def _pinned_browser_route(
     if type(max_response_bytes) is not int or max_response_bytes < 1:
         raise ValueError("browser response limit must be a positive integer")
     limitations: list[str] = []
+    policy = client_network_policy(client)
 
     def abort(route: Any, reason: str) -> None:
         if reason not in limitations:
@@ -203,10 +206,18 @@ def _pinned_browser_route(
         url = str(request.url)
         method = str(request.method).upper()
         if method not in _BROWSER_METHODS:
-            abort(route, f"browser method {method} is unsupported by pinned rendering")
+            reason = (
+                "browser method is unsupported by pinned rendering"
+                if policy is not None
+                else f"browser method {method} is unsupported by pinned rendering"
+            )
+            abort(route, reason)
             return
         try:
-            validate_url(url)
+            if policy is None:
+                validate_url(url)
+            else:
+                validate_url(url, policy=policy)
             if request_gate is not None:
                 request_gate()
             headers = {
@@ -258,8 +269,12 @@ def _pinned_browser_route(
                 if undecoded:
                     abort(
                         route,
-                        f"browser response content coding {undecoded} is undecodable "
-                        "by pinned rendering",
+                        (
+                            "browser response content coding is undecodable by pinned rendering"
+                            if policy is not None
+                            else f"browser response content coding {undecoded} is undecodable "
+                            "by pinned rendering"
+                        ),
                     )
                     return
                 # Decoded bytes, not transferred ones: this is the body Chromium
@@ -275,7 +290,7 @@ def _pinned_browser_route(
                     status=response.status_code, headers=response_headers, body=bytes(body)
                 )
         except Exception as exc:
-            abort(route, f"pinned browser request failed: {type(exc).__name__}: {exc}")
+            abort(route, f"pinned browser request failed: {_error_summary(exc, policy)}")
 
     return handler, limitations
 
@@ -316,6 +331,15 @@ def _redact_console(value: Any) -> str:
         r"(?i)(?:authorization|token|secret|password|cookie)\s*[:=]\s*[^\s,;]+", "[redacted]", text
     )
     return re.sub(r"https?://[^\s'\"]+", "[url]", text)
+
+
+def _error_summary(exc: Exception, policy: Any = None) -> str:
+    """Keep remote operational failures free of URLs, headers and browser data."""
+    if policy is not None or current_remote_policy() is not None:
+        if isinstance(exc, RemoteTargetError):
+            return exc.code
+        return "remote browser request failed"
+    return f"{type(exc).__name__}: {exc}"
 
 
 def _staged_screenshot_path(artifacts_dir: str, url: str) -> str:
@@ -808,7 +832,7 @@ def render_check(
     except Exception as exc:
         return {
             "ok": False,
-            "error": f"Raw HTML fetch failed: {type(exc).__name__}: {exc}",
+            "error": f"Raw HTML fetch failed: {_error_summary(exc)}",
             "url": target,
             "viewport": viewport,
             "viewport_size": size,
@@ -827,7 +851,11 @@ def render_check(
                 pw.chromium,
                 endpoint,
                 timeout_seconds=timeout,
-                local_launch_options={"chromium_sandbox": True},
+                local_launch_options=(
+                    _local_chromium_launch_options()
+                    if endpoint is None
+                    else {"chromium_sandbox": True}
+                ),
             )
             context = None
             try:
@@ -891,9 +919,9 @@ def render_check(
             "ok": False,
             **({"reason": "remote_render_failed"} if endpoint is not None else {}),
             "error": (
-                f"Browser rendering failed: {type(exc).__name__}: {exc}"
-                if endpoint is None
-                else "Remote browser rendering failed after connection"
+                "Remote browser rendering failed after connection"
+                if endpoint is not None
+                else f"Browser rendering failed: {_error_summary(exc)}"
             ),
             "url": target,
             "viewport": viewport,
@@ -1055,7 +1083,11 @@ def rendered_html(
                 pw.chromium,
                 endpoint,
                 timeout_seconds=timeout,
-                local_launch_options={"chromium_sandbox": True},
+                local_launch_options=(
+                    _local_chromium_launch_options()
+                    if endpoint is None
+                    else {"chromium_sandbox": True}
+                ),
             )
             context = None
             try:
@@ -1087,9 +1119,9 @@ def rendered_html(
         return {"ok": False, "url": target, "reason": exc.code, "error": str(exc)}
     except Exception as exc:
         error = (
-            f"{type(exc).__name__}: {exc}"
-            if endpoint is None
-            else "Remote browser rendering failed after connection"
+            "Remote browser rendering failed after connection"
+            if endpoint is not None
+            else _error_summary(exc)
         )
         return {
             "ok": False,
@@ -1165,6 +1197,24 @@ def _safe_policy_facts(policy_facts: dict[str, Any] | None) -> dict[str, bool]:
         "credentials_used": bool(facts.get("credentials_used")),
         "cache_control_no_store": bool(facts.get("cache_control_no_store")),
     }
+
+
+def _local_chromium_launch_options() -> dict[str, Any]:
+    """Keep Chromium sandboxed and optionally select an installed local browser.
+
+    ``SEOHEAD_CHROME`` is an operator-controlled executable override. It applies
+    only to local Chromium launches; remote transport and other browser engines
+    do not consume it. An explicit but invalid path is an error rather than a
+    silent fallback to a different browser binary.
+    """
+    options: dict[str, Any] = {"chromium_sandbox": True}
+    executable = os.environ.get("SEOHEAD_CHROME")
+    if executable:
+        path = Path(executable).expanduser()
+        if not path.is_file() or not os.access(path, os.X_OK):
+            raise RuntimeError("SEOHEAD_CHROME must point to an executable local Chrome binary")
+        options["executable_path"] = str(path.resolve())
+    return options
 
 
 def render_document(
@@ -1315,7 +1365,11 @@ def render_document(
                 pw.chromium,
                 endpoint,
                 timeout_seconds=nav_timeout,
-                local_launch_options={"chromium_sandbox": True},
+                local_launch_options=(
+                    _local_chromium_launch_options()
+                    if endpoint is None
+                    else {"chromium_sandbox": True}
+                ),
             )
             context = open_context(browser, endpoint, context_options)
             actual_browser = browser if browser is not None else getattr(context, "browser", None)
@@ -1365,7 +1419,11 @@ def render_document(
                         screenshot_state = "staged"
                     except Exception as exc:
                         screenshot_state = "unavailable"
-                        screenshot_error = _redact_console(f"{type(exc).__name__}: {exc}")
+                        screenshot_error = (
+                            "browser screenshot failed"
+                            if current_remote_policy() is not None
+                            else _redact_console(f"{type(exc).__name__}: {exc}")
+                        )
                         with contextlib.suppress(OSError):
                             os.unlink(staged)
                 elif artifacts_cfg.get("screenshots"):
@@ -1383,9 +1441,9 @@ def render_document(
         return {"ok": False, "url": target, "reason": exc.code, "error": str(exc)}
     except Exception as exc:
         error = (
-            f"{type(exc).__name__}: {exc}"
-            if endpoint is None
-            else "Remote browser rendering failed after connection"
+            "Remote browser rendering failed after connection"
+            if endpoint is not None
+            else _error_summary(exc)
         )
         return {
             "ok": False,

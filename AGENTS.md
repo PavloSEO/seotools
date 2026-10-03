@@ -1,8 +1,11 @@
 # AGENTS.md — public repository contract
 
 SEOHEAD Tools is a headless, local-first evidence and audit-automation layer for SEO specialists
-and tool-calling agents. It has exactly two user interfaces: the `seohead` CLI and one local stdio
-MCP server. Do not add a GUI, desktop shell, hosted API, or remote MCP endpoint to this repository.
+and tool-calling agents. The `seohead` CLI and one local stdio MCP server remain the default
+interfaces. An optional, authenticated remote scan API may reuse the same core only with an
+explicit job backend and target/egress policy; it must never expose anonymous submission or
+silently enable a listener. A GUI, desktop shell, hosted account, and remote MCP endpoint remain
+outside this repository's current delivery boundary.
 
 ## Product model
 

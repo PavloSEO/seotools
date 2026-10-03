@@ -31,6 +31,12 @@ File contents are flushed and SQLite uses `synchronous=FULL`. The Windows CRT
 does not provide POSIX directory `fsync`: publication remains atomic, but the
 package does not claim the same directory-entry durability across a power failure.
 
+## Ubuntu Server VPS
+
+For the pinned release layout, config and project paths, Playwright system/browser dependencies,
+update, rollback, and Linux smoke profile, follow [Linux VPS over SSH](LINUX_VPS.md). The smoke
+evidence comes from a disposable Ubuntu 24.04 CI runner; it is not a provider-specific VPS claim.
+
 ## Linux and macOS
 
 ```bash

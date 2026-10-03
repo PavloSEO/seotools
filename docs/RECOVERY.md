@@ -4,6 +4,10 @@
 of starting over — what the checkpoint is, the one requirement for a clean resume, and how to
 tell a successful resume apart from an intentional fresh start.
 
+For rolling back the installed CLI on an SSH host, see [Linux VPS over SSH](LINUX_VPS.md). Switching
+the active application revision does not migrate a scan: native resume still requires the exact
+producer build and effective configuration recorded in that scan.
+
 ## The question
 
 > `crawl-site` got killed (Ctrl-C, an OOM, a closed laptop lid) partway through. Can I pick up

@@ -2,10 +2,14 @@
 
 This document records stable product choices that contributors should not have to rediscover.
 
-## Exactly two interfaces
+## Local interfaces and optional remote contract
 
-SEOHEAD Tools exposes a CLI and one local stdio MCP server. Both use the same handler registry.
-There is no GUI, desktop shell, HTTP API, hosted account, or public MCP endpoint.
+SEOHEAD Tools runs locally through a CLI and one stdio MCP server. Both use the same handler
+registry. The optional `remote` extra defines an authenticated, versioned HTTP contract over the
+same Python core. It does not start a listener or provide a worker backend: self-hosted execution,
+target/egress policy and deployment are separate work under #785–#787. Local installs and their
+CLI/MCP behavior do not depend on the HTTP extra. There is no hosted account, GUI, desktop shell,
+or public MCP endpoint.
 
 Reports are output formats, not interfaces. XLSX and DOCX are allowed because they are useful work
 products; report renderers still contain no network or finding logic.

@@ -426,6 +426,30 @@ def test_without_a_persistent_profile_the_ordinary_launch_path_is_used(fake_stac
     assert fake_stack["chromium"].launch_persistent_calls == []
 
 
+def test_explicit_local_chrome_executable_keeps_the_sandbox(fake_stack, monkeypatch, tmp_path):
+    chrome = tmp_path / "chrome"
+    chrome.write_text("synthetic executable")
+    chrome.chmod(0o755)
+    monkeypatch.setenv("SEOHEAD_CHROME", str(chrome))
+
+    result = render_document("https://example.com/", _rendering_config())
+
+    assert result["ok"] is True
+    assert fake_stack["chromium"].launch_calls == [
+        {"chromium_sandbox": True, "executable_path": str(chrome.resolve())}
+    ]
+
+
+def test_invalid_explicit_chrome_path_fails_without_fallback(fake_stack, monkeypatch, tmp_path):
+    monkeypatch.setenv("SEOHEAD_CHROME", str(tmp_path / "missing-chrome"))
+
+    result = render_document("https://example.com/", _rendering_config())
+
+    assert result["ok"] is False
+    assert "SEOHEAD_CHROME" in result["error"]
+    assert fake_stack["chromium"].launched is False
+
+
 def test_root_is_refused_before_any_playwright_call(fake_stack, monkeypatch):
     monkeypatch.setattr(os, "geteuid", lambda: 0, raising=False)
     result = render_document("https://example.com/", _rendering_config())

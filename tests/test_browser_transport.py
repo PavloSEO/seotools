@@ -147,6 +147,7 @@ def test_remote_preflight_rejects_missing_endpoint_before_raw_fetch(monkeypatch)
 
 def test_remote_document_connects_without_launch_and_keeps_pinned_routes(monkeypatch, fake_stack):
     config = _remote(monkeypatch)
+    monkeypatch.setenv("SEOHEAD_CHROME", "/missing/local/chrome")
     calls = []
 
     def connect(endpoint, **kwargs):

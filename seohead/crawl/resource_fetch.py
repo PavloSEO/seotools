@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 from seohead.crawl.capture import CaptureEvent
 from seohead.crawl.collect import fetch_one
 from seohead.crawl.sqlite_adapter import _headers
-from seohead.recon.net import validate_url
+from seohead.recon.net import client_network_policy, validate_url
 
 _MAX_ENTITY_BYTES = 64 * 1024 * 1024
 _MAX_METADATA_BYTES = 8 * 1024 * 1024
@@ -202,6 +202,14 @@ def fetch_resource(
         raise ValueError("resource kind must be script or stylesheet")
     if type(remaining_requests) is not int or remaining_requests < 0:
         raise ValueError("remaining_requests must be a nonnegative integer")
+
+    def validate_target(target: str) -> None:
+        policy = client_network_policy(client)
+        if policy is None:
+            validate_url(target)
+        else:
+            validate_url(target, policy=policy)
+
     resource_origin = _origin(url)
     configured_origin = _origin(origin_url)
     if resource_origin is None and fetcher is None:
@@ -209,7 +217,7 @@ def fetch_resource(
         # unsupported-scheme, and credential diagnostics without asking DNS
         # to resolve a candidate that cannot be in scope.
         try:
-            validate_url(url)
+            validate_target(url)
         except ValueError as exc:
             return ResourceFetchResult((), "excluded_scope", str(exc), 0)
         return ResourceFetchResult((), "excluded_scope", "resource origin is invalid", 0)
@@ -217,7 +225,7 @@ def fetch_resource(
         return ResourceFetchResult((), "excluded_scope", "resource origin differs from page", 0)
     if fetcher is None:
         try:
-            validate_url(url)
+            validate_target(url)
         except ValueError as exc:
             return ResourceFetchResult((), "excluded_scope", str(exc), 0)
     if not robots_allowed(url):
@@ -388,7 +396,7 @@ def fetch_resource(
             next_origin = _origin(next_url)
             if next_origin is None:
                 try:
-                    validate_url(next_url)
+                    validate_target(next_url)
                 except ValueError as exc:
                     return ResourceFetchResult(
                         tuple([*failures, _blocked_redirect(redirects[0], redirects)]),
@@ -411,7 +419,7 @@ def fetch_resource(
                 )
             if fetcher is None:
                 try:
-                    validate_url(next_url)
+                    validate_target(next_url)
                 except ValueError as exc:
                     return ResourceFetchResult(
                         tuple([*failures, _blocked_redirect(redirects[0], redirects)]),

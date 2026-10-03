@@ -11,6 +11,10 @@
 
 SEOHEAD crawls websites with its own native engine, retains scan evidence for offline reanalysis, and turns native scans, Screaming Frog exports, and live checks into reviewable audits, task backlogs, and reports. It runs as a Python CLI or a local stdio MCP server. There is no hosted account, dashboard, or public MCP endpoint.
 
+An [optional remote API](docs/REMOTE_API.md) and [durable worker backend](docs/REMOTE_JOBS.md)
+support authenticated self-hosted scan jobs when explicitly constructed with a target policy.
+Installation starts no listener or worker; the CLI and local MCP continue to work without that extra.
+
 It does not replace specialist judgement. It records what was measured, what failed, and what could not be measured so a specialist can assess scope, business context, and implementation risk.
 
 ## Capabilities at a glance
