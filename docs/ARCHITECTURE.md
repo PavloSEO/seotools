@@ -42,6 +42,11 @@ seohead/
                       the audit tools onto the same MCP server
   skills/             content skills shipped as package-data
   data/               packaged JSON data (e.g. the Schema.org vocabulary)
+  bot/                the versioned guided-scan conversation contract and
+                      wizard (docs/TELEGRAM_BOT.md) — an offline core-side
+                      contract for the approved bot roadmap, not a third
+                      interface; adapters bind it and submit through the
+                      JobSubmitter protocol into the shared handlers
 ```
 
 ## The main invariant
