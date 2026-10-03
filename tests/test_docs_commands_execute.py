@@ -415,6 +415,9 @@ def test_documented_command_executes_or_at_least_still_parses(
         "checklist-update",
         "checklist-record",
         "priorities",
+        "view-list",
+        "view-show",
+        "view-save",
     }:
         # Each documentation case runs independently; opening/status require the
         # project that the preceding creation command would have published. A line
@@ -428,6 +431,18 @@ def test_documented_command_executes_or_at_least_still_parses(
             from seohead.projects.coverage import initialize_coverage
 
             initialize_coverage(tmp_path / directory)
+        if argv[1] == "view-show":
+            from seohead.projects.finding_views import save_view
+
+            save_view(
+                tmp_path / directory,
+                {
+                    "name": argv[argv.index("--name") + 1],
+                    "filters": {"severity": ["critical"]},
+                    "columns": ["severity", "check", "url"],
+                },
+                expected_revision=0,
+            )
     if argv[:2] == ["project", "facts"] and "--detect" in argv:
         _seed_project_detection(monkeypatch)
     if argv[:2] == ["project", "prepare"]:
@@ -457,9 +472,46 @@ def test_documented_command_executes_or_at_least_still_parses(
         from seohead.projects.workspace import create_project
 
         directory = argv[argv.index("--project") + 1]
-        create_project(tmp_path / directory, "https://example.com/")
+        create_project(
+            tmp_path / directory,
+            "https://example.test/" if "--view" in argv else "https://example.com/",
+        )
+    if argv[:2] == ["project", "view-save"] or argv[:1] == ["findings-view"]:
+        from seohead.projects.finding_views import save_view
+        from seohead.projects.workspace import create_project
+
+        directory = argv[argv.index("--directory") + 1]
+        project_path = tmp_path / directory
+        if not project_path.exists():
+            create_project(project_path, "https://example.test/")
+        if argv[:1] == ["findings-view"]:
+            save_view(
+                project_path,
+                {
+                    "name": argv[argv.index("--name") + 1],
+                    "filters": {"severity": ["critical"]},
+                    "columns": ["severity", "check", "url"],
+                },
+                expected_revision=0,
+            )
     if argv[:2] == ["scan", "reanalyze"] or argv[:1] == ["scan-reanalyze"]:
         _seed_reanalysis_input(tmp_path)
+    if argv[:1] == ["findings-view"] and "--audit" in argv:
+        _seed_documented_body_scan(tmp_path, argv[argv.index("--audit") + 1])
+    if argv[:1] == ["report-build"] and "--view" in argv and "--audit" in argv:
+        from seohead.projects.finding_views import save_view
+
+        directory = argv[argv.index("--project") + 1]
+        save_view(
+            tmp_path / directory,
+            {
+                "name": argv[argv.index("--view") + 1],
+                "filters": {"severity": ["critical"]},
+                "columns": ["severity", "check", "url"],
+            },
+            expected_revision=0,
+        )
+        _seed_documented_body_scan(tmp_path, argv[argv.index("--audit") + 1])
     if "--plan" in argv:
         _seed_prune_plan(tmp_path)
     if command.source.name == "robots-blocked.md":

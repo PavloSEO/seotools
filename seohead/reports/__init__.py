@@ -228,6 +228,7 @@ def _normalize_sf_audit(document: dict[str, Any]) -> dict[str, Any]:
             "details": issue.get("details") or {},
             "evidence": issue.get("evidence") or {},
         }
+        | ({"__view_segment": issue["__view_segment"]} if "__view_segment" in issue else {})
         for issue in document.get("issues") or []
     ]
 
@@ -343,19 +344,27 @@ def _normalize_sf_audit(document: dict[str, Any]) -> dict[str, Any]:
             or run.get("crawl_stopped_reason"),
             "crawl_scope_note": summary.get("health_score_scope"),
             "severity_note": severity_note,
+            "finding_exclusions": summary.get("finding_exclusions"),
         },
     }
 
 
 def build_report(
-    data: Any, fmt: str = "xlsx", path: str | None = None, project: str | None = None
+    data: Any,
+    fmt: str = "xlsx",
+    path: str | None = None,
+    project: str | None = None,
+    view: str | None = None,
+    offset: int = 0,
 ) -> dict[str, Any]:
     """Render an audit document in the requested report format.
 
     ``data`` is either the audit mapping itself or the path to its JSON file.
     ``path`` selects the output location; when omitted, the name is derived from
     the audited domain and the format.  A project binds human reports to its
-    exact checklist snapshot without executing work or changing the audit.
+    exact checklist snapshot without executing work or changing the audit. An
+    optional saved view filters and projects only report findings; it leaves
+    source evidence, coverage and health/scoring values unchanged.
     """
     fmt = (fmt or "xlsx").lower().lstrip(".")
     if fmt not in FORMATS:
@@ -386,9 +395,36 @@ def build_report(
                 f"got top-level keys {sorted(document.keys())!r}"
             ),
         }
+    view_result = None
+    if view is not None:
+        if project is None:
+            return {"ok": False, "error": "a project is required to apply a saved finding view"}
+        try:
+            from seohead.projects.finding_views import _apply_view_details
+
+            view_result, selected_rows = _apply_view_details(project, view, document, offset=offset)
+        except (OSError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+        filtered_document = dict(document)
+        filtered_document[view_result["source"]["rows_key"]] = selected_rows
+    else:
+        filtered_document = document
+
     # The four human-facing writers only ever read the flat site-audit shape;
-    # ``json`` relays the original document, on either contract, untouched.
-    rendered = document if kind == "site-audit" else _normalize_sf_audit(document)
+    # ``json`` relays the original document when no saved view was requested.
+    rendered = filtered_document if kind == "site-audit" else _normalize_sf_audit(filtered_document)
+    if view_result is not None:
+        summary = dict(rendered.get("summary") or {})
+        summary["finding_view"] = {
+            **view_result["view"],
+            "state": view_result["state"],
+            "counts": view_result["counts"],
+            "pagination": view_result["pagination"],
+            "columns": view_result["columns"],
+            "sort": view_result["sort"],
+            "source": view_result["source"],
+        }
+        rendered = {**rendered, "summary": summary}
 
     target = pathlib.Path(path or f"audit-{rendered.get('domain', 'site')}.{fmt}")
     from seohead.storage.inputs import protects_scan_input
@@ -417,7 +453,17 @@ def build_report(
 
     try:
         if fmt == "json":
-            target.write_text(json.dumps(document, ensure_ascii=False, indent=2), encoding="utf-8")
+            json_document = document
+            if view_result is not None:
+                json_document = {
+                    "schema": "seohead.finding-view/1",
+                    "view": rendered["summary"]["finding_view"],
+                    "source": view_result["source"],
+                    "rows": view_result["items"],
+                }
+            target.write_text(
+                json.dumps(json_document, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
         else:
             if project_snapshot is not None:
                 from seohead.reports.project_coverage import attach_snapshot
@@ -464,6 +510,8 @@ def build_report(
     }
     if input_diagnostics:
         result["input_diagnostics"] = input_diagnostics
+    if view_result is not None:
+        result["finding_view"] = rendered["summary"]["finding_view"]
     if fmt == "csv":
         result["outputs"] = [str(candidate) for candidate in targets if candidate.exists()]
     return result

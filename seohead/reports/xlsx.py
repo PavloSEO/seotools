@@ -48,7 +48,12 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
     from openpyxl.utils import get_column_letter
 
     from seohead.reports import checks_completed_display, neutralize_formula
-    from seohead.reports.client_findings import check_title
+    from seohead.reports.client_findings import (
+        check_title,
+        finding_view_columns,
+        finding_view_label,
+        finding_view_notice,
+    )
 
     wb = Workbook()
     summary = document.get("summary") or {}
@@ -81,6 +86,13 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
         )
     for item in summary.get("checks_disabled") or []:
         scope_rows.append(f"Disabled check {check_title(item.get('id'))} -- {item.get('reason')}")
+    if notice := finding_view_notice(summary):
+        scope_rows.append(notice)
+    exclusions = summary.get("finding_exclusions")
+    if isinstance(exclusions, dict) and exclusions.get("suppressed_total"):
+        scope_rows.append(
+            f"The source audit records {exclusions['suppressed_total']} findings excluded by its saved policy."
+        )
 
     row = 4
     for text in scope_rows:
@@ -141,44 +153,56 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
     # carries beyond its message, and dropping them here forced the reader
     # back to raw audit.json (#220).
     ws = wb.create_sheet("Findings")
-    ws.append(
-        [
-            "Severity",
-            "URL",
-            "Finding",
-            "Observation",
-            "Reproduction",
-            "Status",
-            "Occurrences",
-            "Evidence",
-            "Locations",
-            "Fix Hint",
-        ]
-    )
+    view_columns = finding_view_columns(summary)
+    if view_columns is not None:
+        ws.append([finding_view_label(column) for column in view_columns])
+    else:
+        ws.append(
+            [
+                "Severity",
+                "URL",
+                "Finding",
+                "Observation",
+                "Reproduction",
+                "Status",
+                "Occurrences",
+                "Evidence",
+                "Locations",
+                "Fix Hint",
+            ]
+        )
     _style_header(ws)
     from seohead.reports import SEVERITY_TITLES
 
     for finding in document.get("findings") or []:
-        ws.append(
-            [
-                SEVERITY_TITLES.get(finding.get("severity"), finding.get("severity")),
-                neutralize_formula(finding.get("url", "")),
-                neutralize_formula(finding.get("client_title", "Audit finding")),
-                neutralize_formula(finding.get("client_observation", "")),
-                neutralize_formula(finding.get("client_reproduction", "")),
-                finding.get("status_code", ""),
-                finding.get("occurrences_count", ""),
-                neutralize_formula("; ".join(finding.get("client_details") or [])),
-                neutralize_formula("; ".join(finding.get("client_locations") or [])),
-                neutralize_formula(finding.get("fix_hint", "")),
-            ]
-        )
+        if view_columns is not None:
+            values = finding.get("view_fields") or {}
+            ws.append([neutralize_formula(values.get(column, "")) for column in view_columns])
+            severity_column = (
+                view_columns.index("severity") + 1 if "severity" in view_columns else None
+            )
+        else:
+            ws.append(
+                [
+                    SEVERITY_TITLES.get(finding.get("severity"), finding.get("severity")),
+                    neutralize_formula(finding.get("url", "")),
+                    neutralize_formula(finding.get("client_title", "Audit finding")),
+                    neutralize_formula(finding.get("client_observation", "")),
+                    neutralize_formula(finding.get("client_reproduction", "")),
+                    finding.get("status_code", ""),
+                    finding.get("occurrences_count", ""),
+                    neutralize_formula("; ".join(finding.get("client_details") or [])),
+                    neutralize_formula("; ".join(finding.get("client_locations") or [])),
+                    neutralize_formula(finding.get("fix_hint", "")),
+                ]
+            )
+            severity_column = 1
         colour = _HEAD.get(finding.get("severity"))
-        if colour:
-            ws.cell(row=ws.max_row, column=1).font = Font(bold=True, color=colour)
+        if colour and severity_column:
+            ws.cell(row=ws.max_row, column=severity_column).font = Font(bold=True, color=colour)
     if ws.max_row > 1:
-        ws.auto_filter.ref = f"A1:J{ws.max_row}"
-    _autofit(ws, {4: 100, 8: 100, 9: 60})
+        ws.auto_filter.ref = f"A1:{get_column_letter(len(view_columns) if view_columns is not None else 10)}{ws.max_row}"
+    _autofit(ws, {4: 100, 8: 100, 9: 60} if view_columns is None else {})
 
     # -- Pages ---------------------------------------------------------------
     pages = document.get("pages") or []

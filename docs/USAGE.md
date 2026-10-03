@@ -33,6 +33,22 @@ seohead report-build --audit native.sqlite --format md --out native-report.md --
 seohead crawl-site --resume native.sqlite
 ```
 
+Save a reusable finding view and apply it to a retained scan and report:
+
+```bash
+seohead project view-save --directory ./example-project --expected-revision 0 \
+  --input '{"view":{"name":"critical-pages","filters":{"severity":["critical"]},"sort":{"field":"url","direction":"asc"},"columns":["severity","check","url","text"],"page_size":100}}'
+seohead findings-view --directory ./example-project --name critical-pages \
+  --audit ./example-project/scans/current.sqlite --offset 0
+seohead report-build --audit ./example-project/scans/current.sqlite --project ./example-project \
+  --view critical-pages --format md --out ./example-project/reports/critical-pages.md
+```
+
+`project view-list` reports the config revision; each `view-save` needs that revision, with `0`
+used for the first save. Applying a view returns explicit source/match/page counts, missing-field
+counts and the next offset. A report identifies the selected view and page; its audit totals and
+evidence coverage remain source-wide.
+
 SQLite mode keeps queue, evidence and runtime in one transactional scan and resumes
 an interrupted file under the same build/configuration: `--resume` reads the start
 URL and that configuration back from the artifact, and refuses by name when the
@@ -267,7 +283,7 @@ Money rules for this layer: [GOTCHAS.md](GOTCHAS.md).
 ## MCP server
 
 ```bash
-seohead mcp        # stdio server, all 95 seo_* tools + 5 sf_* audit tools
+seohead mcp        # stdio server, all 99 seo_* tools + 5 sf_* audit tools
 ```
 
 Client config (`.mcp.json` in this repo does exactly this):

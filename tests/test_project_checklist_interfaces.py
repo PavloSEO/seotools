@@ -145,5 +145,7 @@ def test_mcp_checklist_tools_forward_data_without_execution(monkeypatch):
             "fmt": "md",
             "out": "report.md",
             "project": "project",
+            "view": None,
+            "offset": 0,
         },
     }

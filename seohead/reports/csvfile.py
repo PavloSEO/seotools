@@ -20,7 +20,7 @@ from typing import Any
 
 def _scope_rows(summary: dict[str, Any]) -> list[list[Any]]:
     """Return run evidence separately from task-tracker finding rows (#574)."""
-    from seohead.reports.client_findings import check_title
+    from seohead.reports.client_findings import check_title, finding_view_notice
     from seohead.reports.evidence_summary import rows as evidence_rows
 
     rows: list[list[Any]] = evidence_rows(summary)
@@ -44,6 +44,33 @@ def _scope_rows(summary: dict[str, Any]) -> list[list[Any]]:
         rows.append(["check", check_title(item.get("id")), "disabled", item.get("reason", "")])
     for item in summary.get("tools_failed") or []:
         rows.append(["check", check_title(item.get("tool")), "unavailable", item.get("error", "")])
+    if notice := finding_view_notice(summary):
+        view = summary.get("finding_view") or {}
+        rows.append(["finding view", view.get("name", ""), view.get("state", "measured"), notice])
+    exclusions = summary.get("finding_exclusions")
+    suppressed = exclusions.get("suppressed_total") if isinstance(exclusions, dict) else None
+    if type(suppressed) is int and suppressed > 0:
+        by_rule = exclusions.get("by_rule")
+        rule_rows = (
+            sorted(by_rule.items(), key=lambda item: str(item[0]))
+            if isinstance(by_rule, dict)
+            else []
+        )
+        detail = (
+            "; by rule: "
+            + ", ".join(f"{str(name)[:64]}={count}" for name, count in rule_rows[:20])
+            + (f" (+{len(rule_rows) - 20} more)" if len(rule_rows) > 20 else "")
+            if rule_rows
+            else ""
+        )
+        rows.append(
+            [
+                "finding exclusions",
+                "source audit",
+                "recorded",
+                f"{suppressed} findings are recorded as excluded by source policy{detail}",
+            ]
+        )
     return rows
 
 
@@ -116,6 +143,7 @@ def _write_project_coverage(summary: dict[str, Any], path: pathlib.Path) -> None
 
 def write(document: dict[str, Any], path: pathlib.Path) -> None:
     from seohead.reports import SEVERITY_TITLES, neutralize_formula
+    from seohead.reports.client_findings import finding_view_columns, finding_view_label
 
     with path.open("w", encoding="utf-8-sig", newline="") as fh:
         # ``utf-8-sig`` includes a BOM so Excel detects UTF-8 instead of corrupting
@@ -125,35 +153,44 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
         # documented developer handoff promises (docs/scenarios/broken-pages.md):
         # which check fired, the status code, how many occurrences, every
         # linking location, and the fix hint (#220).
-        writer.writerow(
-            [
-                "Severity",
-                "URL",
-                "Finding",
-                "Observation",
-                "Reproduction",
-                "Status",
-                "Occurrences",
-                "Evidence",
-                "Locations",
-                "Fix Hint",
-            ]
-        )
-        for finding in document.get("findings") or []:
+        view_columns = finding_view_columns(document.get("summary") or {})
+        if view_columns is not None:
+            writer.writerow([finding_view_label(column) for column in view_columns])
+            for finding in document.get("findings") or []:
+                values = finding.get("view_fields") or {}
+                writer.writerow(
+                    [neutralize_formula(values.get(column, "")) for column in view_columns]
+                )
+        else:
             writer.writerow(
                 [
-                    SEVERITY_TITLES.get(finding.get("severity"), finding.get("severity")),
-                    neutralize_formula(finding.get("url", "")),
-                    neutralize_formula(finding.get("client_title", "Audit finding")),
-                    neutralize_formula(finding.get("client_observation", "")),
-                    neutralize_formula(finding.get("client_reproduction", "")),
-                    finding.get("status_code", ""),
-                    finding.get("occurrences_count", ""),
-                    neutralize_formula("; ".join(finding.get("client_details") or [])),
-                    neutralize_formula("; ".join(finding.get("client_locations") or [])),
-                    neutralize_formula(finding.get("fix_hint", "")),
+                    "Severity",
+                    "URL",
+                    "Finding",
+                    "Observation",
+                    "Reproduction",
+                    "Status",
+                    "Occurrences",
+                    "Evidence",
+                    "Locations",
+                    "Fix Hint",
                 ]
             )
+            for finding in document.get("findings") or []:
+                writer.writerow(
+                    [
+                        SEVERITY_TITLES.get(finding.get("severity"), finding.get("severity")),
+                        neutralize_formula(finding.get("url", "")),
+                        neutralize_formula(finding.get("client_title", "Audit finding")),
+                        neutralize_formula(finding.get("client_observation", "")),
+                        neutralize_formula(finding.get("client_reproduction", "")),
+                        finding.get("status_code", ""),
+                        finding.get("occurrences_count", ""),
+                        neutralize_formula("; ".join(finding.get("client_details") or [])),
+                        neutralize_formula("; ".join(finding.get("client_locations") or [])),
+                        neutralize_formula(finding.get("fix_hint", "")),
+                    ]
+                )
 
     scope_rows = _scope_rows(document.get("summary") or {})
     scope_path = path.with_suffix(".scope.csv")

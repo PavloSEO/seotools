@@ -1652,12 +1652,14 @@ def report_build(
     fmt: str = "xlsx",
     out: str | None = None,
     project: str | None = None,
+    view: str | None = None,
+    offset: int = 0,
 ) -> dict[str, Any]:
     if audit is None:
         raise ValueError("audit required: audit document or path to its JSON representation")
     from seohead.reports import build_report
 
-    return build_report(audit, fmt=fmt, path=out, project=project)
+    return build_report(audit, fmt=fmt, path=out, project=project, view=view, offset=offset)
 
 
 def facts_export(sites: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -3051,6 +3053,34 @@ def project_checklist_record(
     return core(directory, item_id=item_id, record=record, expected_revision=expected_revision)
 
 
+def project_view_list(directory: str) -> dict[str, Any]:
+    from seohead.servers.project_handlers import project_view_list as core
+
+    return core(directory)
+
+
+def project_view_show(directory: str, name: str) -> dict[str, Any]:
+    from seohead.servers.project_handlers import project_view_show as core
+
+    return core(directory, name)
+
+
+def project_view_save(directory: str, view: dict, expected_revision: int) -> dict[str, Any]:
+    from seohead.servers.project_handlers import project_view_save as core
+
+    return core(directory, view, expected_revision)
+
+
+def findings_view(directory: str, name: str, audit: Any, offset: int = 0) -> dict[str, Any]:
+    from seohead.projects.finding_views import apply_view_to_audit
+    from seohead.storage.inputs import resolve_audit_input
+
+    document, diagnostics = resolve_audit_input(audit)
+    result = apply_view_to_audit(directory, name, document, offset=offset)
+    result["input_diagnostics"] = diagnostics
+    return result
+
+
 def project_priorities(
     directory: str,
     policy: dict | None = None,
@@ -3421,6 +3451,10 @@ _RAW_HANDLERS = {
     "project_checklist_update": project_checklist_update,
     "project_checklist_record": project_checklist_record,
     "project_priorities": project_priorities,
+    "project_view_list": project_view_list,
+    "project_view_show": project_view_show,
+    "project_view_save": project_view_save,
+    "findings_view": findings_view,
     "inspect_url": inspect_url,
     "audit_workflow": audit_workflow,
     "tool_catalog": tool_catalog,

@@ -18,7 +18,12 @@ def _coverage_field(value: Any) -> str:
 
 def write(document: dict[str, Any], path: pathlib.Path) -> None:
     from seohead.reports import SEVERITY_TITLES
-    from seohead.reports.client_findings import check_title
+    from seohead.reports.client_findings import (
+        check_title,
+        finding_view_columns,
+        finding_view_label,
+        finding_view_notice,
+    )
 
     summary = document.get("summary") or {}
     by_sev = summary.get("findings_by_severity") or {}
@@ -41,6 +46,8 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
         bits = [b for b in (f"stopped: {finish}" if finish else None, scope) if b]
         detail = f" {'; '.join(bits)}" if bits else ""
         out += [f"> **Partial crawl — scope is limited.**{detail}", ""]
+    if notice := finding_view_notice(summary):
+        out += [f"> **Filtered finding view.** {notice}", ""]
 
     from seohead.reports.evidence_summary import rows as evidence_rows
 
@@ -146,22 +153,43 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
         out += [f"- **{check_title(f.get('tool'))}** — {f.get('error')}" for f in failed] + [""]
 
     findings = document.get("findings") or []
-    for level in ("critical", "warning", "notice"):
-        chunk = [f for f in findings if f.get("severity") == level]
-        if not chunk:
-            continue
-        out += [f"## {SEVERITY_TITLES.get(level, level)} — {len(chunk)}", ""]
-        for finding in chunk:
-            out.append(f"- **{finding.get('client_title', 'Audit finding')}**")
-            observation = finding.get("client_observation")
-            if observation:
-                out.append(f"  - Observation: {observation}")
-            out.append(f"  - Reproduction: {finding.get('client_reproduction', '')}")
-            for detail in finding.get("client_details") or []:
-                out.append(f"  - Evidence: {detail}")
-            for location in finding.get("client_locations") or []:
-                out.append(f"  - Location: {location}")
+    view_columns = finding_view_columns(summary)
+    if view_columns is not None:
+        out += [
+            "## Saved finding view",
+            "",
+            "| " + " | ".join(finding_view_label(column) for column in view_columns) + " |",
+            "|" + "|".join("---" for _ in view_columns) + "|",
+        ]
+        out.extend(
+            "| "
+            + " | ".join(
+                _field((finding.get("view_fields") or {}).get(column))
+                .replace("\r", " ")
+                .replace("\n", " ")
+                for column in view_columns
+            )
+            + " |"
+            for finding in findings
+        )
         out.append("")
+    else:
+        for level in ("critical", "warning", "notice"):
+            chunk = [f for f in findings if f.get("severity") == level]
+            if not chunk:
+                continue
+            out += [f"## {SEVERITY_TITLES.get(level, level)} — {len(chunk)}", ""]
+            for finding in chunk:
+                out.append(f"- **{finding.get('client_title', 'Audit finding')}**")
+                observation = finding.get("client_observation")
+                if observation:
+                    out.append(f"  - Observation: {observation}")
+                out.append(f"  - Reproduction: {finding.get('client_reproduction', '')}")
+                for detail in finding.get("client_details") or []:
+                    out.append(f"  - Evidence: {detail}")
+                for location in finding.get("client_locations") or []:
+                    out.append(f"  - Location: {location}")
+            out.append("")
 
     pages = document.get("pages") or []
     if pages:

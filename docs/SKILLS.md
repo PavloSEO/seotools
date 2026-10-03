@@ -99,7 +99,7 @@ Then by the layer of the task.
 
 ## Tools without a skill of their own
 
-65 of the 95 commands are not named in any skill's own body (a mention inside
+69 of the 99 commands are not named in any skill's own body (a mention inside
 another tool's Markdown table above does not count) — used inline as plumbing
 inside a workflow's write-up, or not yet needed by one at all — and have no
 skill of their own, deliberately: a skill per single command is noise.
@@ -109,12 +109,13 @@ for each command name, so it cannot silently rot the way this line once did.
 Commands without their own skill: `asset-weight-check` · `audit-workflow` ·
 `boilerplate-report` · `crawl-describe-settings` · `crawl-enrich` · `crawl-import` ·
 `crtsh-subdomains` · `crux-report` · `facts-export` · `google-keywords` ·
-`google-serp` · `gsc-query` · `hreflang-check` · `images-download` ·
+`findings-view` · `google-serp` · `gsc-query` · `hreflang-check` · `images-download` ·
 `images-optimize` · `indexnow-submit` · `inspect-url` · `keywords-cluster` ·
 `keywords-exact` · `keywords-expand` · `keywords-seasonality` · `log-analyze` ·
 `mirror-check` · `project-checklist-init` · `project-checklist-record` ·
 `project-checklist-update` · `project-facts` · `project-new` · `project-open` ·
 `project-policy` · `project-prepare` · `project-priorities` · `project-start` ·
+`project-view-list` · `project-view-save` · `project-view-show` ·
 `project-status` ·
 `provider-auth` · `provider-collect` · `provider-join` · `provider-registry` ·
 `provider-replay` · `provider-verify` · `redirects-check` · `redirects-generate` ·

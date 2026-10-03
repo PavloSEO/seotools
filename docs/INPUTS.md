@@ -64,7 +64,7 @@ and this decision makes no backend migration.
 | `regions-check` | Live URL (`url`) | — |
 | `render-check` | Live URL (`url`) | — |
 | `site-audit` | Live URL (`url`)<br>URL list (`urls`) | — |
-| `report-build` | Audit document (`audit`)<br>Project directory (`project`) | Audit JSON or a retained scan.v1 artifact.; Includes validated checklist coverage in human reports; JSON audit is unchanged. |
+| `report-build` | Audit document (`audit`)<br>Project directory (`project`)<br>Selector (`view`)<br>Selector (`offset`) | Audit JSON or a retained scan.v1 artifact.; Includes validated checklist coverage and optionally applies a saved finding view.; Optional saved project finding view; requires project.; Optional stable finding-view page offset. |
 | `facts-export` | Inline JSON (`sites`) | — |
 | `keywords-expand` | Provider query (`phrase`) | — |
 | `keywords-seasonality` | Provider query (`phrase`) | — |
@@ -92,6 +92,10 @@ and this decision makes no backend migration.
 | `project-checklist-init` | Project directory (`directory`)<br>Inline JSON (`template`) | Optional reusable data-only checklist template. |
 | `project-checklist-update` | Project directory (`directory`)<br>Inline JSON (`item`) | Requires expected_revision for optimistic concurrency. |
 | `project-checklist-record` | Project directory (`directory`)<br>Selector (`item_id`)<br>Inline JSON (`record`) | Requires expected_revision; records supplied evidence only. |
+| `project-view-list` | Project directory (`directory`) | — |
+| `project-view-show` | Project directory (`directory`)<br>Selector (`name`) | — |
+| `project-view-save` | Project directory (`directory`)<br>Inline JSON (`view`)<br>Selector (`expected_revision`) | Required; use 0 for the first saved view. |
+| `findings-view` | Project directory (`directory`)<br>Selector (`name`)<br>Audit document (`audit`)<br>Selector (`offset`) | Audit JSON, inline audit object, or retained scan.v1.; Optional stable finding-view page offset. |
 | `project-priorities` | Project directory (`directory`)<br>Inline JSON (`policy`) | Optional data-only priority policy; preview by default. Apply requires expected_revision. |
 | `project-policy` | Project directory (`directory`)<br>Inline JSON (`policy`) | Optional data-only policy; preview by default. Apply requires expected_revision. |
 | `project-prepare` | Project directory (`directory`)<br>Inline JSON (`template`)<br>Inline JSON (`competitors`) | Optional data-only project template.; Optional bounded competitor inputs. |

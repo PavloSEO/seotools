@@ -19,6 +19,67 @@ _ATTRIBUTION = re.compile(
 _PROTECTED_EVIDENCE = re.compile(r"https?://\S+|`[^`]*`|\"[^\"]*\"|'[^']*'")
 _PRODUCER_REASON = re.compile(r"\b(?:seohead|screaming frog)\b", re.IGNORECASE)
 _MAX_EVIDENCE_ITEMS = 10
+_FINDING_VIEW_LABELS = {
+    "severity": "Severity",
+    "check": "Check",
+    "url": "URL",
+    "text": "Observation",
+    "status_code": "Status",
+    "occurrences_count": "Occurrences",
+    "fix_hint": "Fix hint",
+    "details": "Evidence",
+    "locations": "Locations",
+    "segment": "Segment",
+}
+
+
+def finding_view_notice(summary: dict[str, Any]) -> str | None:
+    """Explain that a saved view is a displayed subset while audit totals remain source-wide."""
+    view = summary.get("finding_view")
+    if not isinstance(view, dict):
+        return None
+    counts = view.get("counts") or {}
+    page = view.get("pagination") or {}
+    note = (
+        f"Saved finding view {view.get('name')} (view revision {view.get('revision')}, "
+        f"config revision {view.get('config_revision')}): showing {counts.get('returned', 0)} "
+        f"rows at offset {page.get('offset', 0)} of {counts.get('matched', 0)} matches "
+        f"from {counts.get('source', 0)} source findings; {counts.get('filtered', 0)} did not match."
+    )
+    if page.get("truncated"):
+        note += " More matching rows remain; use the next offset to continue."
+    if view.get("state") == "partial":
+        missing = dict(counts.get("missing_filter_fields") or {})
+        for field, count in (counts.get("missing_projection_fields") or {}).items():
+            missing[field] = max(missing.get(field, 0), count)
+        detail = ", ".join(f"{field}={count}" for field, count in sorted(missing.items()))
+        note += f" Some filter or projection fields were unavailable ({detail})."
+    note += " Audit totals, evidence coverage, and scores describe the full source audit."
+    exclusions = summary.get("finding_exclusions")
+    suppressed = exclusions.get("suppressed_total") if isinstance(exclusions, dict) else None
+    if type(suppressed) is int and suppressed > 0:
+        note += f" The source audit also records {suppressed} excluded findings."
+        by_rule = exclusions.get("by_rule")
+        if isinstance(by_rule, dict) and by_rule:
+            rule_rows = sorted(by_rule.items(), key=lambda item: str(item[0]))
+            details = ", ".join(
+                f"{re.sub(r'[^A-Za-z0-9_.-]', '?', str(name))[:64]}="
+                f"{count if type(count) is int and count >= 0 else 'unknown'}"
+                for name, count in rule_rows[:20]
+            )
+            suffix = f" (+{len(rule_rows) - 20} more)" if len(rule_rows) > 20 else ""
+            note += f" Exclusion counts by rule: {details}{suffix}."
+    return note
+
+
+def finding_view_columns(summary: dict[str, Any]) -> list[str] | None:
+    view = summary.get("finding_view")
+    columns = view.get("columns") if isinstance(view, dict) else None
+    return columns if isinstance(columns, list) else None
+
+
+def finding_view_label(column: str) -> str:
+    return _FINDING_VIEW_LABELS.get(column, column)
 
 
 def check_title(check: Any) -> str:
@@ -278,4 +339,22 @@ def project_document(document: dict[str, Any]) -> dict[str, Any]:
         for finding in document.get("findings") or []
         if isinstance(finding, dict)
     ]
+    columns = finding_view_columns(summary)
+    if columns is not None:
+        for finding in projected["findings"]:
+            raw = finding
+            client_details = "; ".join(raw.get("client_details") or [])
+            client_locations = "; ".join(raw.get("client_locations") or [])
+            finding["view_fields"] = {
+                "severity": raw.get("severity"),
+                "check": raw.get("check"),
+                "url": raw.get("url"),
+                "text": raw.get("client_observation"),
+                "status_code": raw.get("status_code"),
+                "occurrences_count": raw.get("occurrences_count"),
+                "fix_hint": raw.get("fix_hint"),
+                "details": client_details if client_details else None,
+                "locations": client_locations if client_locations else None,
+                "segment": raw.get("__view_segment"),
+            }
     return projected
