@@ -27,13 +27,51 @@
         "sf_version_detected": {"type": ["string", "null"]},
         "generated_at": {"type": "string"},
         "profile": {"type": ["string", "null"]},
+        "profile_requested": {"type": ["string", "null"]},
         "exports_used": {"type": "array", "items": {"type": "string"}},
         "exports_encodings": {"type": "object"},
+        "exports_derived": {"type": "object", "additionalProperties": {"type": "string"}},
+        "sf_export_manifest": {
+          "type": "object",
+          "required": ["format", "state", "requested_profile", "resolved_profile", "requests"],
+          "properties": {
+            "format": {"const": "seohead.sf-export-manifest.v1"},
+            "state": {"enum": ["files_present", "complete"]},
+            "requested_profile": {"type": "string"},
+            "resolved_profile": {"type": "string"},
+            "uses_full_manifest": {"type": "boolean"},
+            "requests": {"type": "array", "items": {"type": "object"}},
+            "derived_keys": {"type": "object", "additionalProperties": {"type": "string"}},
+            "loaded_keys": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "sf_capability": {
+          "type": "object",
+          "required": ["state", "requests"],
+          "properties": {
+            "state": {"enum": ["help_verified", "no_exports_requested"]},
+            "version": {"type": ["string", "null"]},
+            "fingerprint": {"type": "string"},
+            "requests": {"type": "array", "items": {"type": "object"}}
+          }
+        },
+        "sf_rate_limit": {
+          "type": "object",
+          "required": ["state"],
+          "properties": {
+            "state": {"type": "string"},
+            "requested_urls_per_second": {"type": ["number", "null"]},
+            "effective_urls_per_second": {"type": ["number", "null"]},
+            "base_source": {"type": "string"},
+            "base_config_sha256": {"type": ["string", "null"]},
+            "derived_config_sha256": {"type": ["string", "null"]}
+          }
+        },
         "crawl_valid": {"type": "boolean"},
         "crawl_invalid_reason": {"type": ["string", "null"]},
         "crawl_partial": {"type": "boolean"},
         "crawl_config": {"type": "object"},
-        "effective_max_requests_per_second": {"type": ["number", "string"]},
+        "effective_max_requests_per_second": {"type": ["number", "string", "null"]},
         "crawl_stopped_reason": {"type": ["string", "null"]},
         "collector": {"type": "string"},
         "scan_uuid": {"type": "string"},

@@ -92,6 +92,8 @@ class LoadedExports:
     encodings: dict[str, str] = field(default_factory=dict)
     found: list[str] = field(default_factory=list)
     missing: list[str] = field(default_factory=list)
+    derived_from: dict[str, str] = field(default_factory=dict)
+    derivation_errors: dict[str, str] = field(default_factory=dict)
 
     def get(self, key: str) -> pd.DataFrame | None:
         return self.frames.get(key)
@@ -196,8 +198,62 @@ def discover_exports(exports_dir: str) -> dict[str, str]:
     return found
 
 
-def load_exports(exports_dir: str, required: tuple[str, ...] = ("internal_all",)) -> LoadedExports:
-    """Discover and read every recognized export; report what's missing."""
+def _derive_sitemap_status_exports(result: LoadedExports) -> None:
+    """Derive sitemap status subsets from SF's URLs-In-Sitemap table.
+
+    SF 19.8 exposes the status code as a column of ``Sitemaps:URLs In Sitemap``
+    rather than separate redirect/non-200 CLI exports. Derive the existing
+    logical keys only when every row has an HTTP status; partial status data
+    must remain unavailable rather than looking like a zero-finding pass.
+    """
+    source = result.get("sitemap_in")
+    if source is None:
+        return
+    status_column = next(
+        (column for column in source.columns if str(column).strip().casefold() == "status code"),
+        None,
+    )
+    if status_column is None:
+        reason = "cannot derive sitemap status findings: URLs In Sitemap has no Status Code column"
+        for key in ("sitemap_redirects", "sitemap_non_200"):
+            if key not in result.frames:
+                result.derivation_errors[key] = reason
+        return
+
+    status = pd.to_numeric(source[status_column], errors="coerce")
+    invalid = status.isna() | (status < 100) | (status > 599)
+    if bool(invalid.any()):
+        reason = (
+            "cannot derive sitemap status findings: "
+            f"{int(invalid.sum())} URL(s) have missing or invalid Status Code values"
+        )
+        for key in ("sitemap_redirects", "sitemap_non_200"):
+            if key not in result.frames:
+                result.derivation_errors[key] = reason
+        return
+
+    masks = {
+        "sitemap_redirects": (status >= 300) & (status < 400),
+        "sitemap_non_200": status >= 400,
+    }
+    for key, mask in masks.items():
+        if key in result.frames:
+            # A separately exported, user-supplied filter remains authoritative.
+            continue
+        result.frames[key] = source.loc[mask].copy()
+        result.files[key] = result.files["sitemap_in"]
+        result.encodings[key] = result.encodings.get("sitemap_in", "")
+        result.found.append(key)
+        result.derived_from[key] = "sitemap_in"
+
+
+def load_exports(
+    exports_dir: str,
+    required: tuple[str, ...] = ("internal_all",),
+    *,
+    derive_sitemap_status: bool = False,
+) -> LoadedExports:
+    """Discover and read recognized exports; optionally derive full-profile sitemap status."""
     paths = discover_exports(exports_dir)
     result = LoadedExports()
     read_errors: dict[str, tuple[str, Exception]] = {}
@@ -211,6 +267,8 @@ def load_exports(exports_dir: str, required: tuple[str, ...] = ("internal_all",)
         except Exception as err:
             result.missing.append(f"{key} (read error: {err})")
             read_errors[key] = (path, err)
+    if derive_sitemap_status:
+        _derive_sitemap_status_exports(result)
     for key in EXPORT_MATCHERS:
         if key not in result.frames and key not in (m.split(" ")[0] for m in result.missing):
             result.missing.append(key)

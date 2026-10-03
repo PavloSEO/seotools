@@ -126,7 +126,7 @@ def test_a_completed_run_returns_its_output(tmp_path):
 def test_the_timeout_error_names_the_budget_and_the_crawler_s_fate(tmp_path, monkeypatch):
     monkeypatch.setenv("SEOHEAD_ALLOW_PRIVATE_NETWORKS", "1")
     monkeypatch.setattr(runner, "resolve_cli", lambda *a, **k: "/bin/sf")
-    monkeypatch.setattr(runner, "_apply_rate_limit", lambda config, folder, log: config)
+    monkeypatch.setattr(runner, "_apply_rate_limit", lambda config, folder, log, **_kwargs: config)
 
     def timed_out(cmd, timeout, output_folder, log):
         raise subprocess.TimeoutExpired(
@@ -152,7 +152,7 @@ def test_the_timeout_error_names_the_budget_and_the_crawler_s_fate(tmp_path, mon
 def test_the_derived_timeout_is_logged_before_the_crawl_starts(tmp_path, monkeypatch):
     monkeypatch.setenv("SEOHEAD_ALLOW_PRIVATE_NETWORKS", "1")
     monkeypatch.setattr(runner, "resolve_cli", lambda *a, **k: "/bin/sf")
-    monkeypatch.setattr(runner, "_apply_rate_limit", lambda config, folder, log: config)
+    monkeypatch.setattr(runner, "_apply_rate_limit", lambda config, folder, log, **_kwargs: config)
     said: list[str] = []
 
     def fake(cmd, timeout, output_folder, log):

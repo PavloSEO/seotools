@@ -181,6 +181,31 @@ Useful `sf run` flags: `--profile lite|full|custom`, `--config config.json`,
 staging, `--sf-cli <path>`, `--max-urls-per-second N` (polite crawling),
 `--live-recheck` (network re-check of sitemap URLs — off by default).
 
+Mode A's `full` profile checks the installed Screaming Frog CLI's export help before
+starting, then requires every supported requested file in that run's fresh export
+directory before audit rules run. A missing, unreadable, or unsupported export fails
+the run; it cannot be supplied by an older output folder. JavaScript, Canonicals, H1,
+and structured-data validation tabs are retained as raw evidence. Sitemap redirect and
+4xx/5xx evidence is derived from `Sitemaps:URLs in Sitemap` only when every row has a
+valid `Status Code`. `lite` and explicitly selected `custom` exports remain smaller.
+Mode B (`--exports-dir`) continues to analyze a supplied subset and reports skipped
+checks.
+
+For a polite fresh crawl, save a reusable SF config after choosing a speed in the GUI:
+
+```bash
+# In Screaming Frog: Config → Speed, set 1–2 URLs/s, then Config → File → Config → Save As.
+seohead sf save-config --out audit.seospiderconfig
+seohead sf run --crawl https://example.com --max-urls-per-second 1.5 --out report
+```
+
+Alternatively set `sf_cli.seospiderconfig` and `sf_cli.max_urls_per_second` in
+`config.json`. A requested limit is written to a derived config and read back before
+the crawl; the saved base file is unchanged. If no readable base config exists, the
+run stops before Screaming Frog starts. `sf doctor` reports the saved rate or says it
+is unknown; it does not infer a rate from a missing file. Loading a saved crawl has no
+new crawl-rate limit to apply.
+
 Prefer an SF-owned `--auth-config` profile where possible. A literal `--auth USER:PASS` value can
 be exposed by shell history or process inspection, so use it only in an isolated transient
 session and never paste it into logs or issue reports.

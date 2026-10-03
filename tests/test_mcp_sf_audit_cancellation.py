@@ -34,8 +34,14 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # never finishes on its own, so only an explicit stop (ours, or the runner's own
 # timeout) ends it.
 _SLEEPING_SF = """#!/usr/bin/env python3
-import os, time
+import os, sys, time
 from pathlib import Path
+if len(sys.argv) > 2 and sys.argv[1] == "--help":
+    print("Running: Screaming Frog SEO Spider 19.8")
+    print(f"The option '--{sys.argv[2]}' supports the following arguments:")
+    print()
+    print("Internal:All")
+    raise SystemExit(0)
 Path(os.environ["FAKE_SF_PID_FILE"]).write_text(str(os.getpid()), encoding="utf-8")
 while True:
     time.sleep(0.1)
@@ -77,7 +83,20 @@ def _sleeping_sf_fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path, Path]:
     # A generous runner deadline: long enough that only our own cancellation cleanup,
     # not the runner's unrelated timeout (#9), can explain the process dying in time.
     config = tmp_path / "config.json"
-    config.write_text(json.dumps({"sf_cli": {"path": str(fake), "timeout_minutes": 5}}))
+    config.write_text(
+        json.dumps(
+            {
+                "sf_cli": {"path": str(fake), "timeout_minutes": 5},
+                "profile": "custom",
+                "exports": {
+                    "tabs": ["Internal:All"],
+                    "bulk": [],
+                    "reports": [],
+                    "fetch_all_inlinks": False,
+                },
+            }
+        )
+    )
     return fake, urls, pid_file, out, config
 
 

@@ -13,6 +13,12 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ..config import apply_profile, load_config, validate_config
+from ..export_manifest import (
+    is_full_manifest,
+    requests_from_config,
+    resolved_profile,
+    validate_loaded_requests,
+)
 from .aggregate import aggregate
 from .context import AuditContext
 from .heuristics import run_heuristics
@@ -109,11 +115,14 @@ def run_audit(
 
     # --- obtain the exports directory ------------------------------------
     sf_version: str | None = None
+    sf_run_info: dict[str, Any] = {}
+    export_requests = ()
     if input_mode in CRAWL_MODES:
         from .runner import run_sf
 
         if not source:
             raise ValueError(f"input_mode {input_mode!r} requires a source")
+        export_requests = requests_from_config(cfg.get("exports", {}))
         if input_mode == "load-crawl":
             sf_version = detect_seospider_version(source)
         out = output_dir or cfg.get("input", {}).get("exports_dir", "exports")
@@ -124,7 +133,10 @@ def run_audit(
             config=cfg,
             cli_override=sf_cli,
             log=log,
+            run_info=sf_run_info,
         )
+        if sf_version is None:
+            sf_version = (sf_run_info.get("sf_capability") or {}).get("version")
         log(f"[audit] exports written to {exports_dir}")
         # A Basic-Auth crawl uses the local proxy as its visible origin. Restore
         # the real host so the audit does not analyze 127.0.0.1 URLs.
@@ -137,7 +149,18 @@ def run_audit(
         exports_dir = exports_dir or cfg.get("input", {}).get("exports_dir", "exports")
 
     # --- load + audit -----------------------------------------------------
-    exports = load_exports(exports_dir)
+    resolved = resolved_profile(cfg.get("profile", "full"), cfg.get("exports", {}))
+    derive_sitemap_status = input_mode in CRAWL_MODES and is_full_manifest(cfg.get("exports", {}))
+    exports = load_exports(exports_dir, derive_sitemap_status=derive_sitemap_status)
+    if input_mode in CRAWL_MODES:
+        validate_loaded_requests(
+            exports, export_requests, derive_sitemap_status=derive_sitemap_status
+        )
+        manifest = sf_run_info.get("export_manifest")
+        if manifest is not None:
+            manifest["state"] = "complete"
+            manifest["loaded_keys"] = list(exports.found)
+            manifest["derived_from"] = dict(exports.derived_from)
     log(f"[audit] loaded exports: {', '.join(exports.found)}")
     ctx = AuditContext(exports, cfg)
     log(f"[audit] {len(ctx.pages)} URLs ({len(ctx.html_pages())} HTML)")
@@ -158,7 +181,7 @@ def run_audit(
         "exports_dir": exports_dir,
         "sf_version_detected": sf_version,
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "profile": cfg.get("profile"),
+        "profile": resolved if input_mode in CRAWL_MODES else cfg.get("profile"),
         "exports_used": exports.found,
         "exports_missing": exports.missing,
         # A cp1251 export decodes with no exception (#160) -- the codec is the
@@ -166,6 +189,22 @@ def run_audit(
         # trusting that a successful run read the bytes correctly.
         "exports_encodings": exports.encodings,
     }
+    if input_mode in CRAWL_MODES:
+        rate_info = sf_run_info.get("rate_limit") or {}
+        run_meta.update(
+            {
+                "profile_requested": cfg.get("profile"),
+                "exports_derived": exports.derived_from,
+                "sf_export_manifest": sf_run_info.get("export_manifest"),
+                "sf_capability": sf_run_info.get("sf_capability"),
+                "sf_rate_limit": rate_info,
+                "effective_max_requests_per_second": (
+                    rate_info.get("effective_urls_per_second")
+                    if rate_info.get("state") in {"verified", "verified_from_base"}
+                    else rate_info.get("state", "unknown")
+                ),
+            }
+        )
     result = aggregate(ctx, run_meta, size_stats, sitemap_summary)
     log(
         f"[audit] {result.summary['totals']['issues_total']} issues "

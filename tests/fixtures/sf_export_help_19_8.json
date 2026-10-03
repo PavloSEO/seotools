@@ -1,0 +1,44 @@
+{
+  "product": "Screaming Frog SEO Spider",
+  "version": "19.8.0",
+  "source": "selected names from local read-only --help export-tabs / bulk-export / save-report output",
+  "exports": {
+    "tabs": [
+      "Internal:All",
+      "Response Codes:Client Error (4xx)",
+      "Response Codes:Server Error (5xx)",
+      "Response Codes:Redirection (3xx)",
+      "Response Codes:No Response",
+      "Response Codes:Blocked by Robots.txt",
+      "Sitemaps:URLs in Sitemap",
+      "Sitemaps:URLs not in Sitemap",
+      "Sitemaps:Orphan URLs",
+      "Sitemaps:Non-Indexable URLs in Sitemap",
+      "Page Titles:Multiple",
+      "Page Titles:Duplicate",
+      "Meta Description:Duplicate",
+      "Structured Data:Validation Errors",
+      "Structured Data:Validation Warnings",
+      "Structured Data:Missing",
+      "Security:Mixed Content",
+      "Security:Missing HSTS Header",
+      "Images:Missing Alt Text",
+      "Images:Missing Size Attributes",
+      "Images:Over X KB",
+      "Hreflang:Non-200 hreflang URLs",
+      "JavaScript:All",
+      "Canonicals:All",
+      "H1:All"
+    ],
+    "bulk": [
+      "Links:All Inlinks",
+      "Response Codes:Internal & External:Client Error (4xx) Inlinks",
+      "Response Codes:Internal & External:Server Error (5xx) Inlinks",
+      "Response Codes:Internal & External:Redirection (3xx) Inlinks"
+    ],
+    "reports": [
+      "Redirects:Redirect Chains",
+      "Hreflang:All hreflang URLs"
+    ]
+  }
+}

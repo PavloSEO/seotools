@@ -56,7 +56,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--profile",
         choices=["lite", "full", "custom"],
         default=None,
-        help="Audit/export profile: full (default, maximum coverage), lite, or custom",
+        help=(
+            "Audit/export profile: full (default; verifies the supported export manifest), "
+            "lite, or custom"
+        ),
     )
     run.add_argument("--config", default="config.json", help="Path to config.json")
     run.add_argument(
@@ -85,10 +88,9 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="N",
         help=(
-            "Limit the Mode A crawl request rate. The tool gives SF a derived "
-            ".seospiderconfig containing this limit, so an existing base config "
-            "is required (sf_cli.seospiderconfig or a previous crawl). Thread "
-            "count is left unchanged because the request-rate cap is stricter."
+            "Limit the Mode A crawl request rate (0.1..1000 URLs/s; 1-2 is a polite "
+            "starting point). Requires a readable base .seospiderconfig; the tool "
+            "writes and verifies a derived config without changing the base."
         ),
     )
     run.add_argument(
@@ -248,7 +250,7 @@ def _report_base_config(cfg: dict) -> None:
     """
     import os
 
-    from .core.spiderconfig import find_base_config, read_module_flags
+    from .core.spiderconfig import find_base_config, read_module_flags, read_speed
 
     configured = (cfg.get("sf_cli") or {}).get("seospiderconfig") or ""
     print("\nBase Screaming Frog config:")
@@ -261,8 +263,10 @@ def _report_base_config(cfg: dict) -> None:
     resolved = find_base_config(configured or None)
     if not resolved:
         print("  resolved: NO BASE CONFIG FOUND")
-        print("    → SF runs with its own defaults and the module-dependent checks")
-        print("      come back skipped. Create one with: seohead sf save-config")
+        print("    request-rate limit: NOT VERIFIED; no reusable SF config was found")
+        print("    → In SF, open Config → Speed, set a limit such as 1-2 URLs/s, then")
+        print("      use Config → File → Config → Save As or `seohead sf save-config`.")
+        print("      Set that file as sf_cli.seospiderconfig before requesting a limit.")
         return
 
     mtime = time.strftime("%Y-%m-%d %H:%M", time.localtime(os.path.getmtime(resolved)))
@@ -272,9 +276,11 @@ def _report_base_config(cfg: dict) -> None:
 
     try:
         with open(resolved, "rb") as fh:
-            flags = read_module_flags(fh.read())
+            blob = fh.read()
+            flags = read_module_flags(blob)
     except OSError as err:
         print(f"    modules: unreadable ({err})")
+        print("    request-rate limit: unknown")
         return
 
     print("    modules (unknown = could not be read, not off):")
@@ -282,6 +288,17 @@ def _report_base_config(cfg: dict) -> None:
         value = flags.get(key)
         mark = "unknown" if value is None else ("on" if value else "off")
         print(f"      [{mark:>7}] {label}")
+    try:
+        limited, rate = read_speed(blob)
+        state = f"enabled at {rate:g} URLs/s" if limited else "disabled in the saved config"
+        print(f"    request-rate limit: {state} (read back from config)")
+    except ValueError:
+        print("    request-rate limit: unknown (speed block could not be read safely)")
+    requested = (cfg.get("sf_cli") or {}).get("max_urls_per_second")
+    if requested is not None:
+        print(
+            f"    per-run limit requested: {requested} URLs/s; Mode A will verify a derived config"
+        )
 
 
 def _run_doctor(args) -> int:
@@ -320,7 +337,7 @@ def _run_save_config(args) -> int:
     import os
     import shutil
 
-    from .core.spiderconfig import find_base_config, read_module_flags
+    from .core.spiderconfig import find_base_config, read_module_flags, read_speed
 
     if os.path.exists(args.out) and not args.force:
         print(f"{args.out} already exists — pass --force to overwrite")
@@ -335,10 +352,19 @@ def _run_save_config(args) -> int:
     print(f"Copied {source}\n     -> {args.out}")
     try:
         with open(args.out, "rb") as fh:
-            flags = read_module_flags(fh.read())
+            blob = fh.read()
+            flags = read_module_flags(blob)
     except OSError as err:
         print(f"  written, but could not be read back: {err}")
         return 0
+    try:
+        limited, rate = read_speed(blob)
+        print(
+            "  request-rate limit: "
+            + (f"enabled at {rate:g} URLs/s" if limited else "disabled in this config")
+        )
+    except ValueError:
+        print("  request-rate limit: unknown (speed block could not be read safely)")
     on = [label for key, label in _MODULE_LABELS if flags.get(key)]
     print("  modules on: " + (", ".join(on) if on else "none"))
     if not on:
@@ -411,7 +437,7 @@ def main(argv: list[str] | None = None) -> int:
         cfg_overrides: dict = {}
         if getattr(args, "auth_config", None):
             cfg_overrides.setdefault("sf_cli", {})["auth_config"] = args.auth_config
-        if getattr(args, "max_urls_per_second", None):
+        if getattr(args, "max_urls_per_second", None) is not None:
             cfg_overrides.setdefault("sf_cli", {})["max_urls_per_second"] = args.max_urls_per_second
         # SF does not reliably accept Basic credentials in the URL or through a
         # CLI flag. A loopback proxy therefore injects the Authorization header;

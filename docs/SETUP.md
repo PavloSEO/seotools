@@ -146,6 +146,17 @@ seohead sf save-config                # copy the latest SF crawl config to audit
 seohead sf save-config --out base.seospiderconfig --force
 ```
 
+To limit a new crawl, set a speed in Screaming Frog before saving the config:
+open **Config → Speed**, choose a modest value such as 1–2 URLs/s, then use
+**Config → File → Config → Save As**. `seohead sf save-config` copies the latest
+SF crawl config; it does not choose or add a rate. Point `sf_cli.seospiderconfig`
+at the saved file and set `sf_cli.max_urls_per_second` (or pass
+`--max-urls-per-second 1.5`). The runner writes and reads back a derived config,
+leaving the saved base untouched. If the requested limit cannot be applied, it
+fails before SF starts. `sf doctor` reports the saved rate when it can read it,
+otherwise it marks the rate unknown; a missing config is not treated as an
+unlimited rate that was measured.
+
 `sf run` prints a `[preflight]` line before a fresh crawl for every check that
 the configuration in force cannot satisfy, so the config can be fixed first.
 Mode B (`--exports-dir`) already has the exports and is not affected.

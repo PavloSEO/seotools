@@ -12,6 +12,8 @@ import math
 import os
 from typing import Any
 
+from seohead.sf.export_manifest import profile_exports
+
 # The only severities the schema and the scoring weights know about (issue
 # #211): anything else silently drops out of by_severity and the weighted
 # penalty, which inflates the health score exactly when a check is supposed
@@ -45,38 +47,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # How many URLs the run will request, when the caller knows better than
         # the sitemap does. 0 means "work it out".
         "expected_urls": 0,
+        # Explicitly opt in to a polite SF request rate. This is applied to a
+        # derived .seospiderconfig; the user's saved base config is untouched.
+        "max_urls_per_second": None,
     },
     "profile": "full",  # lite | full | custom
-    "exports": {
-        "tabs": [
-            "Internal:All",
-            "Response Codes:Client Error (4xx)",
-            "Response Codes:Server Error (5xx)",
-            "Response Codes:Redirection (3xx)",
-            "Sitemaps:URLs In Sitemap",
-            "Sitemaps:URLs Not In Sitemap",
-            "Sitemaps:Orphan URLs",
-            "Sitemaps:Non-Indexable URLs In Sitemap",
-            "Page Titles:Multiple",
-            # Unlocked by audit.seospiderconfig modules; empty (skipped) without it.
-            "Structured Data:Validation Errors",
-            "Structured Data:Validation Warnings",
-            "Security:Mixed Content",
-            "Images:Missing Alt Text",
-            "Images:Missing Size Attributes",
-        ],
-        "bulk": [
-            "Response Codes:Client Error (4xx) Inlinks",
-            "Response Codes:Server Error (5xx) Inlinks",
-            "Response Codes:Redirection (3xx) Inlinks",
-        ],
-        # Crawl Overview is deliberately not requested: SF writes it as a
-        # two-column metadata header followed by a five-column table in the
-        # same CSV, a shape no consumer parses (#286), so registering it only
-        # produced a false "read error" for a file that was written correctly.
-        "reports": ["Redirects:Redirect Chains"],
-        "fetch_all_inlinks": False,
-    },
+    "exports": profile_exports(),
     "input": {"mode": "auto", "exports_dir": "exports", "html_store_dir": None},
     "filters": {
         "content_type_include": ["text/html"],
@@ -174,12 +150,12 @@ LITE_EXPORTS = {
         "Response Codes:Client Error (4xx)",
         "Response Codes:Server Error (5xx)",
         "Response Codes:Redirection (3xx)",
-        "Sitemaps:URLs In Sitemap",
+        "Sitemaps:URLs in Sitemap",
     ],
     "bulk": [
-        "Response Codes:Client Error (4xx) Inlinks",
-        "Response Codes:Server Error (5xx) Inlinks",
-        "Response Codes:Redirection (3xx) Inlinks",
+        "Response Codes:Internal & External:Client Error (4xx) Inlinks",
+        "Response Codes:Internal & External:Server Error (5xx) Inlinks",
+        "Response Codes:Internal & External:Redirection (3xx) Inlinks",
     ],
     # See the comment on the full profile's "reports" default: Crawl Overview
     # is not requested because nothing parses its two-section CSV yet (#286).
