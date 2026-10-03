@@ -157,6 +157,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "checks": {},  # per-check overrides: {"CHECK_ID": {"enabled": false, "severity": "notice"}}
     "severity_overrides": {},  # {"CHECK_ID": "notice"}
+    # URL-pattern exceptions affect audit presentation/scoring only. They never
+    # alter what the collector requests; native crawl settings carry the same
+    # ordered rule shape under analysis.finding_exclusions.
+    "finding_exclusions": [],
     "scoring": {"weights": {"critical": 5, "warning": 2, "notice": 0.5}},
     "output": {
         "json_path": "audit.json",
@@ -263,6 +267,13 @@ def validate_config(cfg: dict[str, Any]) -> None:
             errors.append(
                 f"checks[{check_id!r}].enabled is {check_cfg['enabled']!r}; must be true or false"
             )
+
+    from seohead.tools.finding_exclusions import validate_rules
+
+    try:
+        validate_rules(cfg.get("finding_exclusions", []), known_checks=CHECKS)
+    except ValueError as exc:
+        errors.append(str(exc))
 
     for severity, weight in cfg.get("scoring", {}).get("weights", {}).items():
         if isinstance(weight, bool) or not isinstance(weight, (int, float)):

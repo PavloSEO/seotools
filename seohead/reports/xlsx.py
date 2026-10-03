@@ -11,6 +11,7 @@ import pathlib
 from typing import Any
 
 _HEAD = {"critical": "C00000", "warning": "BF8F00", "notice": "808080"}
+_MAX_SUPPRESSED_FINDINGS = 10000
 
 
 def _style_header(ws, row: int = 1) -> None:
@@ -48,7 +49,13 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
     from openpyxl.utils import get_column_letter
 
     from seohead.reports import checks_completed_display, neutralize_formula
-    from seohead.reports.client_findings import check_title
+    from seohead.reports.client_findings import (
+        check_title,
+        finding_exclusion_report,
+        finding_view_columns,
+        finding_view_label,
+        finding_view_notice,
+    )
 
     wb = Workbook()
     summary = document.get("summary") or {}
@@ -81,6 +88,20 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
         )
     for item in summary.get("checks_disabled") or []:
         scope_rows.append(f"Disabled check {check_title(item.get('id'))} -- {item.get('reason')}")
+    if notice := finding_view_notice(summary):
+        scope_rows.append(notice)
+    exclusions = finding_exclusion_report(summary, document.get("suppressed_issues"))
+    if exclusions is not None:
+        count = exclusions["suppressed_total"]
+        finding_label = "finding" if count == 1 else "findings"
+        occurrences = exclusions["suppressed_occurrences"]
+        occurrence_label = "occurrence" if occurrences == 1 else "occurrences"
+        rule_count = exclusions["rules_configured"]
+        rule_label = "rule" if rule_count == 1 else "rules"
+        scope_rows.append(
+            f"Finding exclusions: {count} {finding_label} and {occurrences} {occurrence_label} "
+            f"suppressed by {rule_count} configured URL {rule_label}; see Finding Exclusions."
+        )
 
     row = 4
     for text in scope_rows:
@@ -134,6 +155,51 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
         )
     _autofit(ws, {2: 40})
 
+    if exclusions is not None:
+        ws = wb.create_sheet("Finding Exclusions")
+        ws.append(["Rule", "Pattern", "Checks", "Suppressed findings", "Occurrences", "Reason"])
+        _style_header(ws)
+        for rule in exclusions["rules"]:
+            ws.append(
+                [
+                    neutralize_formula(rule["id"]),
+                    neutralize_formula(rule["pattern"]),
+                    neutralize_formula(", ".join(rule["checks"]) or "all checks"),
+                    rule["suppressed_findings"],
+                    rule["suppressed_occurrences"],
+                    neutralize_formula(rule["reason"]),
+                ]
+            )
+        _autofit(ws)
+
+        suppressed = exclusions["issues"]
+        if suppressed:
+            ws = wb.create_sheet("Suppressed Findings")
+            ws.append(["Issue ID", "Check", "Severity", "URL", "Occurrences", "Rule", "Reason"])
+            _style_header(ws)
+            for issue in suppressed[:_MAX_SUPPRESSED_FINDINGS]:
+                issue = issue if isinstance(issue, dict) else {}
+                marker = issue.get("suppression")
+                marker = marker if isinstance(marker, dict) else {}
+                ws.append(
+                    [
+                        neutralize_formula(issue.get("id", "")),
+                        neutralize_formula(check_title(issue.get("check"))),
+                        neutralize_formula(issue.get("severity", "")),
+                        neutralize_formula(issue.get("target_url", "")),
+                        issue.get("occurrences_count", ""),
+                        neutralize_formula(marker.get("rule_id", "")),
+                        neutralize_formula(marker.get("reason", "")),
+                    ]
+                )
+            if len(suppressed) > _MAX_SUPPRESSED_FINDINGS:
+                ws.append(
+                    [
+                        f"Showing {_MAX_SUPPRESSED_FINDINGS} of {len(suppressed)}; see source audit JSON for all records"
+                    ]
+                )
+            _autofit(ws)
+
     # -- Findings ------------------------------------------------------------
     # This sheet is the documented developer handoff for a Screaming Frog
     # audit (docs/scenarios/broken-pages.md): Check/Status/Occurrences/
@@ -141,44 +207,56 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
     # carries beyond its message, and dropping them here forced the reader
     # back to raw audit.json (#220).
     ws = wb.create_sheet("Findings")
-    ws.append(
-        [
-            "Severity",
-            "URL",
-            "Finding",
-            "Observation",
-            "Reproduction",
-            "Status",
-            "Occurrences",
-            "Evidence",
-            "Locations",
-            "Fix Hint",
-        ]
-    )
+    view_columns = finding_view_columns(summary)
+    if view_columns is not None:
+        ws.append([finding_view_label(column) for column in view_columns])
+    else:
+        ws.append(
+            [
+                "Severity",
+                "URL",
+                "Finding",
+                "Observation",
+                "Reproduction",
+                "Status",
+                "Occurrences",
+                "Evidence",
+                "Locations",
+                "Fix Hint",
+            ]
+        )
     _style_header(ws)
     from seohead.reports import SEVERITY_TITLES
 
     for finding in document.get("findings") or []:
-        ws.append(
-            [
-                SEVERITY_TITLES.get(finding.get("severity"), finding.get("severity")),
-                neutralize_formula(finding.get("url", "")),
-                neutralize_formula(finding.get("client_title", "Audit finding")),
-                neutralize_formula(finding.get("client_observation", "")),
-                neutralize_formula(finding.get("client_reproduction", "")),
-                finding.get("status_code", ""),
-                finding.get("occurrences_count", ""),
-                neutralize_formula("; ".join(finding.get("client_details") or [])),
-                neutralize_formula("; ".join(finding.get("client_locations") or [])),
-                neutralize_formula(finding.get("fix_hint", "")),
-            ]
-        )
+        if view_columns is not None:
+            values = finding.get("view_fields") or {}
+            ws.append([neutralize_formula(values.get(column, "")) for column in view_columns])
+            severity_column = (
+                view_columns.index("severity") + 1 if "severity" in view_columns else None
+            )
+        else:
+            ws.append(
+                [
+                    SEVERITY_TITLES.get(finding.get("severity"), finding.get("severity")),
+                    neutralize_formula(finding.get("url", "")),
+                    neutralize_formula(finding.get("client_title", "Audit finding")),
+                    neutralize_formula(finding.get("client_observation", "")),
+                    neutralize_formula(finding.get("client_reproduction", "")),
+                    finding.get("status_code", ""),
+                    finding.get("occurrences_count", ""),
+                    neutralize_formula("; ".join(finding.get("client_details") or [])),
+                    neutralize_formula("; ".join(finding.get("client_locations") or [])),
+                    neutralize_formula(finding.get("fix_hint", "")),
+                ]
+            )
+            severity_column = 1
         colour = _HEAD.get(finding.get("severity"))
-        if colour:
-            ws.cell(row=ws.max_row, column=1).font = Font(bold=True, color=colour)
+        if colour and severity_column:
+            ws.cell(row=ws.max_row, column=severity_column).font = Font(bold=True, color=colour)
     if ws.max_row > 1:
-        ws.auto_filter.ref = f"A1:J{ws.max_row}"
-    _autofit(ws, {4: 100, 8: 100, 9: 60})
+        ws.auto_filter.ref = f"A1:{get_column_letter(len(view_columns) if view_columns is not None else 10)}{ws.max_row}"
+    _autofit(ws, {4: 100, 8: 100, 9: 60} if view_columns is None else {})
 
     # -- Pages ---------------------------------------------------------------
     pages = document.get("pages") or []

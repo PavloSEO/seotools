@@ -13,6 +13,7 @@ from typing import Any
 
 _MAX_PAGES_IN_TABLE = 60
 _MAX_FINDINGS_PER_LEVEL = 40
+_MAX_SUPPRESSED_FINDINGS = 40
 
 
 def write(document: dict[str, Any], path: pathlib.Path) -> None:
@@ -21,7 +22,12 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
     from docx.shared import Pt, RGBColor
 
     from seohead.reports import SEVERITY_TITLES
-    from seohead.reports.client_findings import check_title
+    from seohead.reports.client_findings import (
+        check_title,
+        finding_view_columns,
+        finding_view_label,
+        finding_view_notice,
+    )
 
     doc = Document()
     summary = document.get("summary") or {}
@@ -50,6 +56,8 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
         run = warn.add_run(f"Partial crawl — scope is limited.{detail}")
         run.bold = True
         run.font.color.rgb = RGBColor(0xC0, 0, 0)
+    if notice := finding_view_notice(summary):
+        doc.add_paragraph(notice)
 
     doc.add_heading("Executive Summary", level=1)
     table = doc.add_table(rows=0, cols=2)
@@ -76,6 +84,69 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
         for row in evidence:
             for cell, value in zip(table.add_row().cells, row, strict=True):
                 cell.text = value
+
+    from seohead.reports.client_findings import finding_exclusion_report
+
+    exclusions = finding_exclusion_report(summary, document.get("suppressed_issues"))
+    if exclusions is not None:
+        doc.add_heading("Finding Exclusions", level=1)
+        total = exclusions["suppressed_total"]
+        finding_label = "finding" if total == 1 else "findings"
+        rule_count = exclusions["rules_configured"]
+        rule_label = "rule" if rule_count == 1 else "rules"
+        doc.add_paragraph(
+            f"The source audit records {total} excluded {finding_label} "
+            f"across {rule_count} configured URL {rule_label}, representing "
+            f"{exclusions['suppressed_occurrences']} occurrences. They are absent from the "
+            "active findings below."
+        )
+        table = doc.add_table(rows=1, cols=6)
+        table.style = "Light Grid Accent 1"
+        for cell, label in zip(
+            table.rows[0].cells,
+            ("Rule", "Pattern", "Checks", "Findings", "Occurrences", "Reason"),
+            strict=True,
+        ):
+            cell.text = label
+        for rule in exclusions["rules"]:
+            values = (
+                rule["id"],
+                rule["pattern"],
+                ", ".join(rule["checks"]) or "all checks",
+                rule["suppressed_findings"],
+                rule["suppressed_occurrences"],
+                rule["reason"],
+            )
+            for cell, value in zip(table.add_row().cells, values, strict=True):
+                cell.text = "" if value is None else str(value)
+
+        excluded = exclusions["issues"]
+        if excluded:
+            doc.add_heading("Suppressed Findings", level=2)
+            table = doc.add_table(rows=1, cols=5)
+            table.style = "Light Grid Accent 1"
+            for cell, label in zip(
+                table.rows[0].cells, ("Check", "Severity", "URL", "Rule", "Reason"), strict=True
+            ):
+                cell.text = label
+            for issue in excluded[:_MAX_SUPPRESSED_FINDINGS]:
+                issue = issue if isinstance(issue, dict) else {}
+                suppression = issue.get("suppression")
+                suppression = suppression if isinstance(suppression, dict) else {}
+                values = (
+                    check_title(issue.get("check")),
+                    issue.get("severity", ""),
+                    issue.get("target_url", ""),
+                    suppression.get("rule_id", ""),
+                    suppression.get("reason", ""),
+                )
+                for cell, value in zip(table.add_row().cells, values, strict=True):
+                    cell.text = "" if value is None else str(value)
+            if len(excluded) > _MAX_SUPPRESSED_FINDINGS:
+                doc.add_paragraph(
+                    f"Showing {_MAX_SUPPRESSED_FINDINGS} of {len(excluded)} suppressed findings; "
+                    "the complete records remain in the source audit JSON."
+                )
 
     coverage = summary.get("project_coverage")
     if isinstance(coverage, dict):
@@ -162,39 +233,53 @@ def write(document: dict[str, Any], path: pathlib.Path) -> None:
             )
 
     findings = document.get("findings") or []
-    for level in ("critical", "warning", "notice"):
-        chunk = [f for f in findings if f.get("severity") == level]
-        if not chunk:
-            continue
-        doc.add_heading(f"{SEVERITY_TITLES.get(level, level)} — {len(chunk)}", level=1)
-        if level == "critical":
-            warn = doc.add_paragraph()
-            run = warn.add_run(
-                "These are the highest-severity issues this audit found, by the "
-                "aggregator's severity rules. This report does not measure current "
-                "search rankings, so it does not say whether these issues have "
-                "already cost the site any."
-            )
-            run.bold = True
-            run.font.color.rgb = RGBColor(0xC0, 0, 0)
-        for finding in chunk[:_MAX_FINDINGS_PER_LEVEL]:
-            para = doc.add_paragraph(style="List Bullet")
-            para.add_run(finding.get("client_title", "Audit finding")).bold = True
-            observation = finding.get("client_observation")
-            if observation:
-                doc.add_paragraph(f"Observation: {observation}", style="List Bullet 2")
-            doc.add_paragraph(
-                f"Reproduction: {finding.get('client_reproduction', '')}", style="List Bullet 2"
-            )
-            for detail in finding.get("client_details") or []:
-                doc.add_paragraph(f"Evidence: {detail}", style="List Bullet 2")
-            for location in finding.get("client_locations") or []:
-                doc.add_paragraph(f"Location: {location}", style="List Bullet 2")
-        if len(chunk) > _MAX_FINDINGS_PER_LEVEL:
-            doc.add_paragraph(
-                f"…and {len(chunk) - _MAX_FINDINGS_PER_LEVEL} more. "
-                "See the Excel version of this audit for the complete list."
-            )
+    view_columns = finding_view_columns(summary)
+    if view_columns is not None:
+        doc.add_heading("Saved Finding View", level=1)
+        table = doc.add_table(rows=1, cols=len(view_columns))
+        table.style = "Light Grid Accent 1"
+        for cell, column in zip(table.rows[0].cells, view_columns, strict=True):
+            cell.text = finding_view_label(column)
+        for finding in findings:
+            cells = table.add_row().cells
+            values = finding.get("view_fields") or {}
+            for cell, column in zip(cells, view_columns, strict=True):
+                value = values.get(column)
+                cell.text = "" if value is None else str(value)
+    else:
+        for level in ("critical", "warning", "notice"):
+            chunk = [f for f in findings if f.get("severity") == level]
+            if not chunk:
+                continue
+            doc.add_heading(f"{SEVERITY_TITLES.get(level, level)} — {len(chunk)}", level=1)
+            if level == "critical":
+                warn = doc.add_paragraph()
+                run = warn.add_run(
+                    "These are the highest-severity issues this audit found, by the "
+                    "aggregator's severity rules. This report does not measure current "
+                    "search rankings, so it does not say whether these issues have "
+                    "already cost the site any."
+                )
+                run.bold = True
+                run.font.color.rgb = RGBColor(0xC0, 0, 0)
+            for finding in chunk[:_MAX_FINDINGS_PER_LEVEL]:
+                para = doc.add_paragraph(style="List Bullet")
+                para.add_run(finding.get("client_title", "Audit finding")).bold = True
+                observation = finding.get("client_observation")
+                if observation:
+                    doc.add_paragraph(f"Observation: {observation}", style="List Bullet 2")
+                doc.add_paragraph(
+                    f"Reproduction: {finding.get('client_reproduction', '')}", style="List Bullet 2"
+                )
+                for detail in finding.get("client_details") or []:
+                    doc.add_paragraph(f"Evidence: {detail}", style="List Bullet 2")
+                for location in finding.get("client_locations") or []:
+                    doc.add_paragraph(f"Location: {location}", style="List Bullet 2")
+            if len(chunk) > _MAX_FINDINGS_PER_LEVEL:
+                doc.add_paragraph(
+                    f"…and {len(chunk) - _MAX_FINDINGS_PER_LEVEL} more. "
+                    "See the Excel version of this audit for the complete list."
+                )
 
     pages = document.get("pages") or []
     if pages:

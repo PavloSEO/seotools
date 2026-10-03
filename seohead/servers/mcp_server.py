@@ -633,6 +633,8 @@ def build_server(profile: str = "full", progress_notifications: bool = False):  
         fmt: str = "xlsx",
         out: str | None = None,
         project: str | None = None,
+        view: str | None = None,
+        offset: int = 0,
     ) -> dict[str, Any]:
         """Turn an audit document into a file: xlsx, docx, csv, md or json. Pass the dict
         returned by seo_site_audit, an SF Analyzer audit.json from sf_audit_run (or a
@@ -645,8 +647,14 @@ def build_server(profile: str = "full", progress_notifications: bool = False):  
         what is not in the JSON does not appear in the report. A document matching neither
         schema is refused with ok: false naming the mismatch, never rendered as an empty report.
         Pass project to include validated checklist coverage, reasons, scope and measurements in a
-        human report; the original JSON audit remains unchanged. This never makes a network request."""
-        return _checked(handlers.report_build(audit=audit, fmt=fmt, out=out, project=project))
+        human report. Optional view applies one saved finding view; it leaves health, evidence,
+        coverage and source scan untouched. offset pages through the stable sorted view. This never
+        makes a network request."""
+        return _checked(
+            handlers.report_build(
+                audit=audit, fmt=fmt, out=out, project=project, view=view, offset=offset
+            )
+        )
 
     @mcp.tool(annotations=pure, structured_output=True)
     def seo_facts_export(sites: list[dict[str, Any]]) -> dict[str, Any]:
@@ -1187,6 +1195,44 @@ def build_server(profile: str = "full", progress_notifications: bool = False):  
             )
         )
 
+    @mcp.tool(annotations=read_files, structured_output=True)
+    def seo_project_view_list(directory: str) -> dict[str, Any]:
+        """List saved declarative finding views and the current project view-config revision."""
+        return _checked(handlers.project_view_list(directory=directory))
+
+    @mcp.tool(annotations=read_files, structured_output=True)
+    def seo_project_view_show(directory: str, name: str) -> dict[str, Any]:
+        """Read one saved finding view with its stable identity, schema version and revision."""
+        return _checked(handlers.project_view_show(directory=directory, name=name))
+
+    @mcp.tool(annotations=create_files, structured_output=True)
+    def seo_project_view_save(
+        directory: str, view: dict[str, Any], expected_revision: int
+    ) -> dict[str, Any]:
+        """Create or revise a bounded declarative finding view using an expected config revision.
+
+        Filters are closed severity/check/URL/segment selections. Sorting and column projection
+        use registered fields only; no SQL, code, or regular expressions are accepted. This
+        changes project view configuration only; it does not edit scans or affect scores/tasks."""
+        return _checked(
+            handlers.project_view_save(
+                directory=directory, view=view, expected_revision=expected_revision
+            )
+        )
+
+    @mcp.tool(annotations=read_files, structured_output=True)
+    def seo_findings_view(
+        directory: str, name: str, audit: dict | str, offset: int = 0
+    ) -> dict[str, Any]:
+        """Apply one saved view to an audit object, JSON file, or validated scan.v1 SQLite artifact.
+
+        Returns a deterministic projected page with total matches, missing-field counts,
+        truncation, source identity, and view/config revisions. Filtering never suppresses
+        findings or changes audit coverage/scoring; no crawl or provider call occurs."""
+        return _checked(
+            handlers.findings_view(directory=directory, name=name, audit=audit, offset=offset)
+        )
+
     @mcp.tool(annotations=create_files, structured_output=True)
     def seo_project_priorities(
         directory: str,
@@ -1509,6 +1555,25 @@ def build_server(profile: str = "full", progress_notifications: bool = False):  
     def seo_scan_snapshot(input_path: str, out: str) -> dict[str, Any]:
         """Create a consistent new SQLite snapshot without overwriting a destination."""
         return _checked(handlers.scan_snapshot(input_path=input_path, out=out))
+
+    @mcp.tool(annotations=create_files, structured_output=True)
+    def seo_scan_export(
+        input_path: str,
+        out: str,
+        format: str = "json",
+        records: list[str] | None = None,
+        fields: dict[str, list[str]] | None = None,
+    ) -> dict[str, Any]:
+        """Export retained scan data under scan_export.v1 as CSV, XLSX, JSON, or XML."""
+        return _checked(
+            handlers.scan_export(
+                input_path=input_path,
+                out=out,
+                format=format,
+                records=records,
+                fields=fields,
+            )
+        )
 
     @mcp.tool(annotations=rewrite_files, structured_output=True)
     def seo_scan_pin(input_path: str, pinned: bool = True) -> dict[str, Any]:

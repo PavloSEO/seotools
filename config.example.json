@@ -139,6 +139,7 @@
   },
   "checks": {},
   "severity_overrides": {},
+  "finding_exclusions": [],
   "scoring": {
     "weights": {
       "critical": 5,

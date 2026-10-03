@@ -257,6 +257,14 @@ def aggregate(
     size_stats: dict[str, Any],
     sitemap_summary: dict[str, Any],
 ) -> AuditResult:
+    from seohead.sf.core.registry import CHECKS
+    from seohead.tools.finding_exclusions import (
+        annotate_suppressed_finding,
+        compile_rules,
+        matching_rule,
+        validate_rules,
+    )
+
     issues = _dedupe(ctx.issues)
 
     # Partial-crawl status must be known before issues are finalized: an
@@ -292,41 +300,71 @@ def aggregate(
         issue.id = f"ISSUE-{n:06d}"
         issue.fingerprint = _fingerprint(issue)
 
-    # back-link issues onto pages
+    # Check coverage and crawl validity describe what the analyzer measured.
+    # URL exclusions only change the derived finding view, score and tasks;
+    # retain every issue payload with the matching rule so suppression cannot
+    # turn a measured problem into a silent/clean check.
+    policy = validate_rules(ctx.config.get("finding_exclusions", []), known_checks=CHECKS)
+    compiled_policy = compile_rules(policy)
+    active_issues: list[Issue] = []
+    suppressed_issues: list[dict[str, Any]] = []
+    suppressed_by_rule: Counter[str] = Counter()
+    suppressed_occurrences_by_rule: Counter[str] = Counter()
     for issue in issues:
+        rule = matching_rule(issue.check, issue.target_url, compiled_policy)
+        if rule is None:
+            active_issues.append(issue)
+            continue
+        suppressed_issues.append(annotate_suppressed_finding(issue.to_json(), rule))
+        suppressed_by_rule[rule["id"]] += 1
+        suppressed_occurrences_by_rule[rule["id"]] += issue.occurrences_count
+    if policy:
+        run["finding_exclusion_policy"] = policy
+
+    # back-link issues onto pages
+    for issue in active_issues:
         page = ctx.page_by_url.get(issue.target_url) if issue.target_url else None
         if page is not None:
             if issue.check not in page.issues:
                 page.issues.append(issue.check)
             page.issue_ids.append(issue.id)
+    for issue in suppressed_issues:
+        page = ctx.page_by_url.get(issue.get("target_url")) if issue.get("target_url") else None
+        if page is not None:
+            page.suppressed_issue_ids.append(str(issue["id"]))
 
     # strip private record from page metrics before serialization
     for page in ctx.pages:
         page.metrics.pop("_record", None)
 
-    by_severity = Counter(i.severity for i in issues)
-    by_check = Counter(i.check for i in issues)
+    by_severity = Counter(i.severity for i in active_issues)
+    by_check = Counter(i.check for i in active_issues)
     weights = ctx.config.get("scoring", {}).get("weights", {})
+    summary_totals = {
+        "urls_crawled": len(ctx.pages),
+        "html_pages": n_pages,
+        "html_indexable": len(ctx.indexable_html_pages()),
+        "issues_total": len(active_issues),
+        "groups_total": len(ctx.groups),
+        # "static" unless a collector recorded otherwise (#18). Kept in
+        # the standard totals block, not a rendering-specific one, so
+        # every report -- crawled natively or loaded from an SF export --
+        # states the two populations without a caller having to ask.
+        "pages_by_representation": dict(
+            sorted(
+                Counter(
+                    (page.metrics.get("representation") or "static") for page in ctx.pages
+                ).items()
+            )
+        ),
+    }
+    if policy:
+        summary_totals["findings_total"] = len(issues)
+        summary_totals["suppressed_findings"] = len(suppressed_issues)
+        summary_totals["suppressed_occurrences"] = sum(suppressed_occurrences_by_rule.values())
 
     summary: dict[str, Any] = {
-        "totals": {
-            "urls_crawled": len(ctx.pages),
-            "html_pages": n_pages,
-            "html_indexable": len(ctx.indexable_html_pages()),
-            "issues_total": len(issues),
-            "groups_total": len(ctx.groups),
-            # "static" unless a collector recorded otherwise (#18). Kept in
-            # the standard totals block, not a rendering-specific one, so
-            # every report -- crawled natively or loaded from an SF export --
-            # states the two populations without a caller having to ask.
-            "pages_by_representation": dict(
-                sorted(
-                    Counter(
-                        (page.metrics.get("representation") or "static") for page in ctx.pages
-                    ).items()
-                )
-            ),
-        },
+        "totals": summary_totals,
         "by_severity": {
             "critical": by_severity.get("critical", 0),
             "warning": by_severity.get("warning", 0),
@@ -337,9 +375,29 @@ def aggregate(
         # Empty is the ordinary case, and an empty list is still reported so
         # "nothing looked suspicious" is visible rather than inferred from a
         # missing key.
-        "implausible_checks": _implausible_checks(issues, n_pages),
+        "implausible_checks": _implausible_checks(active_issues, n_pages),
         "health_score": _health_score(by_severity, n_pages, weights),
     }
+    if policy:
+        suppressed_by_check = Counter(str(item["check"]) for item in suppressed_issues)
+        suppressed_by_severity = Counter(str(item["severity"]) for item in suppressed_issues)
+        summary["finding_exclusions"] = {
+            "rules_configured": len(policy),
+            "suppressed_total": len(suppressed_issues),
+            "by_rule": [
+                {
+                    "id": rule["id"],
+                    "reason": rule["reason"],
+                    "suppressed_findings": suppressed_by_rule.get(rule["id"], 0),
+                    "suppressed_occurrences": suppressed_occurrences_by_rule.get(rule["id"], 0),
+                }
+                for rule in policy
+            ],
+            "by_check": dict(sorted(suppressed_by_check.items())),
+            "by_severity": {
+                sev: suppressed_by_severity.get(sev, 0) for sev in ("critical", "warning", "notice")
+            },
+        }
 
     run["crawl_valid"] = crawl_valid
     run["crawl_invalid_reason"] = invalid_reason
@@ -364,8 +422,6 @@ def aggregate(
     # A score built from half the checks is not comparable to one built from all
     # of them, and the difference is invisible in the number. Fewer checks means
     # less penalty means a HIGHER score, so silence here rewards missing data.
-    from seohead.sf.core.registry import CHECKS
-
     checks_total = len(CHECKS)
     # Four disjoint buckets partition the registry, all derived here in one place
     # (issue #177) so the summary counts and the returned records can never
@@ -427,6 +483,15 @@ def aggregate(
             f"{urls_crawled} of {urls_in_sitemap} sitemap URLs crawled — "
             "the score describes the crawled subset, not the whole site"
         )
+    if suppressed_issues:
+        suppressed_label = "finding was" if len(suppressed_issues) == 1 else "findings were"
+        note = (
+            f"{len(suppressed_issues)} {suppressed_label} suppressed from the derived issue "
+            "totals, score and tasks by the configured URL policy; the original findings "
+            "and reasons remain in suppressed_issues"
+        )
+        basis = summary.get("health_score_basis")
+        summary["health_score_basis"] = f"{basis}; {note}" if basis else note
     # The link graph's own shape (#634): edges by position, how much of the graph
     # is a copy of itself, and click depth from the start URL. Present whenever the
     # measurement ran at all -- including when it could not, in which case it says
@@ -461,7 +526,8 @@ def aggregate(
     return AuditResult(
         run=run,
         summary=summary,
-        issues=issues,
+        issues=active_issues,
+        suppressed_issues=suppressed_issues,
         pages=pages,
         groups=ctx.groups,
         skipped=skipped,

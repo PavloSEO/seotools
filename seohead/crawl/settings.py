@@ -118,7 +118,12 @@ DEFAULTS: dict[str, Any] = {
     },
     # Post-crawl grouping is distinct from scope.segments: scope controls
     # discovery, while analysis rules classify already collected evidence.
-    "analysis": {"segments": []},
+    "analysis": {
+        "segments": [],
+        # Post-analysis URL-pattern suppressions. These never affect scope or
+        # collection; the effective ordered policy is stored with the scan.
+        "finding_exclusions": [],
+    },
     "sitemaps": {
         # Seed the crawl from the sitemap declared in robots.txt (the
         # ``Sitemap:`` directive) when no explicit sitemap URL is given.
@@ -376,6 +381,7 @@ RESULTS_AFFECTING: frozenset[str] = frozenset(
         "scope.segments",
         "scope.segments_only",
         "analysis.segments",
+        "analysis.finding_exclusions",
         # Seeding from the sitemap changes which URLs are fetched at all.
         "sitemaps.auto_discover",
         "discovery.hyperlinks.store",
@@ -533,6 +539,11 @@ DESCRIPTIONS: dict[str, str] = {
     "analysis.segments": (
         "Post-crawl segment rules: [{'name': ..., 'rules': [{'op': 'eq|prefix|contains|regex|in|segment', "
         "'field': ..., 'value': ...}]}]. Rules may use page fields or another segment."
+    ),
+    "analysis.finding_exclusions": (
+        "Post-crawl finding suppressions only; never narrows URLs fetched. Ordered rules use "
+        "Python regex search on a finding's target_url, optional exact check IDs, and a required "
+        "reason. First matching rule wins."
     ),
     "sitemaps.auto_discover": (
         "Seed the crawl from the sitemap declared in robots.txt when no explicit "
@@ -954,6 +965,12 @@ def validate(config: dict[str, Any]) -> None:
     _validate_segments(config["scope"])
     if not isinstance(config["analysis"]["segments"], list):
         raise ConfigError("analysis.segments must be a list")
+    from seohead.tools.finding_exclusions import validate_rules
+
+    try:
+        validate_rules(config["analysis"]["finding_exclusions"])
+    except ValueError as exc:
+        raise ConfigError(f"analysis.finding_exclusions: {exc}") from exc
     _validate_http_headers(config["http"])
     _validate_credential_headers(config["http"])
     _validate_rendering(config["rendering"])
@@ -1188,6 +1205,14 @@ def load(
             p for p in DESTRUCTIVE_PATH_PATTERNS if p not in existing
         ]
 
+    from seohead.tools.finding_exclusions import validate_rules
+
+    try:
+        config["analysis"]["finding_exclusions"] = validate_rules(
+            config["analysis"]["finding_exclusions"]
+        )
+    except ValueError as exc:
+        raise ConfigError(f"analysis.finding_exclusions: {exc}") from exc
     validate(config)
     return config
 

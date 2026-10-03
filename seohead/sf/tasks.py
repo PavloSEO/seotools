@@ -140,29 +140,32 @@ def build_tasks(audit: dict[str, Any], config: dict[str, Any] | None = None) -> 
 
     run = audit.get("run", {})
     summary = audit.get("summary", {})
+    source = {
+        "project": run.get("project"),
+        # Resolved once here, from the same start_url -> source -> project
+        # order facts.py uses for its own site-domain fact (#640), so the
+        # heading names the actual site instead of the literal string
+        # "None" whenever a native crawl or reanalysis left "project" unset.
+        "site_name": crawl_domain(run) or None,
+        "generated_at": run.get("generated_at"),
+        "health_score": summary.get("health_score"),
+        "crawl_valid": run.get("crawl_valid", True),
+        "crawl_invalid_reason": run.get("crawl_invalid_reason"),
+        # Carried through, not recomputed (#308): a partial or
+        # coverage-limited audit must keep saying so all the way to the
+        # backlog a developer actually reads, instead of a normal-looking
+        # scored task list quietly losing what it was scored against.
+        "crawl_partial": run.get("crawl_partial", False),
+        "crawl_finish_reason": run.get("crawl_finish_reason"),
+        "health_score_scope": summary.get("health_score_scope"),
+        "health_score_basis": summary.get("health_score_basis"),
+        "check_coverage": summary.get("check_coverage"),
+    }
+    if summary.get("finding_exclusions") is not None:
+        source["finding_exclusions"] = summary["finding_exclusions"]
     return {
         "schema_version": "1.0",
-        "source": {
-            "project": run.get("project"),
-            # Resolved once here, from the same start_url -> source -> project
-            # order facts.py uses for its own site-domain fact (#640), so the
-            # heading names the actual site instead of the literal string
-            # "None" whenever a native crawl or reanalysis left "project" unset.
-            "site_name": crawl_domain(run) or None,
-            "generated_at": run.get("generated_at"),
-            "health_score": summary.get("health_score"),
-            "crawl_valid": run.get("crawl_valid", True),
-            "crawl_invalid_reason": run.get("crawl_invalid_reason"),
-            # Carried through, not recomputed (#308): a partial or
-            # coverage-limited audit must keep saying so all the way to the
-            # backlog a developer actually reads, instead of a normal-looking
-            # scored task list quietly losing what it was scored against.
-            "crawl_partial": run.get("crawl_partial", False),
-            "crawl_finish_reason": run.get("crawl_finish_reason"),
-            "health_score_scope": summary.get("health_score_scope"),
-            "health_score_basis": summary.get("health_score_basis"),
-            "check_coverage": summary.get("check_coverage"),
-        },
+        "source": source,
         "pipeline": cfg,
         "summary": {"tasks_total": len(tasks), "by_priority": by_priority},
         "tasks": tasks,
@@ -328,6 +331,18 @@ def render_tasks_md(backlog: dict[str, Any]) -> str:
     # backlog even when the crawl_partial block above never fires.
     if src.get("health_score_basis"):
         lines.append(f"> {src['health_score_basis']}")
+        lines.append("")
+    exclusions = src.get("finding_exclusions") or {}
+    if exclusions.get("rules_configured"):
+        findings = int(exclusions.get("suppressed_total", 0))
+        rules = int(exclusions["rules_configured"])
+        finding_label = "finding" if findings == 1 else "findings"
+        rule_label = "rule" if rules == 1 else "rules"
+        lines.append(
+            "> Explicit URL-pattern exclusions: "
+            f"{findings} {finding_label} suppressed by {rules} {rule_label}. Suppressed findings are absent "
+            "from this task list; see the audit JSON for their full records and reasons."
+        )
         lines.append("")
     health = src.get("health_score")
     health_text = "n/a" if health is None else health

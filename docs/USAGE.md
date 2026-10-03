@@ -33,6 +33,22 @@ seohead report-build --audit native.sqlite --format md --out native-report.md --
 seohead crawl-site --resume native.sqlite
 ```
 
+Save a reusable finding view and apply it to a retained scan and report:
+
+```bash
+seohead project view-save --directory ./example-project --expected-revision 0 \
+  --input '{"view":{"name":"critical-pages","filters":{"severity":["critical"]},"sort":{"field":"url","direction":"asc"},"columns":["severity","check","url","text"],"page_size":100}}'
+seohead findings-view --directory ./example-project --name critical-pages \
+  --audit ./example-project/scans/current.sqlite --offset 0
+seohead report-build --audit ./example-project/scans/current.sqlite --project ./example-project \
+  --view critical-pages --format md --out ./example-project/reports/critical-pages.md
+```
+
+`project view-list` reports the config revision; each `view-save` needs that revision, with `0`
+used for the first save. Applying a view returns explicit source/match/page counts, missing-field
+counts and the next offset. A report identifies the selected view and page; its audit totals and
+evidence coverage remain source-wide.
+
 SQLite mode keeps queue, evidence and runtime in one transactional scan and resumes
 an interrupted file under the same build/configuration: `--resume` reads the start
 URL and that configuration back from the artifact, and refuses by name when the
@@ -181,6 +197,37 @@ Useful `sf run` flags: `--profile lite|full|custom`, `--config config.json`,
 staging, `--sf-cli <path>`, `--max-urls-per-second N` (polite crawling),
 `--live-recheck` (network re-check of sitemap URLs — off by default).
 
+Add ordered URL-pattern rules to `finding_exclusions` in the SF config file
+(the key is shown in `config.example.json`). Native crawls use the same rule
+shape under `analysis.finding_exclusions` in the crawl config. Rules use Python
+regex search against a finding's target URL; `checks` optionally limits a rule
+to exact check IDs, and an empty or omitted `checks` list applies to every
+check. The first matching rule wins. Every rule needs an `id` and a
+human-readable `reason`. A policy can contain up to 100 rules; each rule ID is
+at most 64 characters, each pattern and reason is at most 500 characters, and
+each `checks` list can contain up to 200 IDs.
+
+```json
+{
+  "finding_exclusions": [
+    {
+      "id": "retired-help-pages",
+      "pattern": "/help/legacy(?:/|$)",
+      "checks": ["TITLE_MISSING"],
+      "reason": "These legacy help pages are scheduled for removal."
+    }
+  ]
+}
+```
+
+Rules run after collection and analysis; they never narrow the crawl or change
+check coverage. Audit JSON keeps full suppressed records under
+`suppressed_issues`, including each matching rule and reason, and reports
+counts under `summary.finding_exclusions`. Native scan artifacts save the
+effective policy so offline `scan reanalyze` replays it without fetching the
+site again. Review the suppression summary before interpreting the active score
+or task list.
+
 Prefer an SF-owned `--auth-config` profile where possible. A literal `--auth USER:PASS` value can
 be exposed by shell history or process inspection, so use it only in an isolated transient
 session and never paste it into logs or issue reports.
@@ -267,7 +314,7 @@ Money rules for this layer: [GOTCHAS.md](GOTCHAS.md).
 ## MCP server
 
 ```bash
-seohead mcp        # stdio server, all 95 seo_* tools + 5 sf_* audit tools
+seohead mcp        # stdio server, all 101 seo_* tools + 5 sf_* audit tools
 ```
 
 Client config (`.mcp.json` in this repo does exactly this):

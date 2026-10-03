@@ -10,7 +10,8 @@ seohead project open --directory ./example-project
 seohead project status --directory ./example-project
 ```
 
-The directory contains `project.json`, `scans/`, `reports/` and `log.md`.
+The directory contains `project.json`, `scans/`, `reports/`, `log.md`, and, after
+the first saved view, `finding-views.json`.
 `project.json` records format `seohead.project.v1`, integer version 1, a persistent
 project UUID, UTC creation time, normalized target/host and an optional human label.
 Unknown formats/versions refuse; opening never upgrades or rewrites the file.
@@ -140,6 +141,37 @@ scan paths. The CLI and MCP share these rules. Merely opening or listing a proje
 does not fetch pages, run a checklist, or contact a provider. The MCP equivalents
 are `seo_project_checklist_init`, `seo_project_checklist_update` and
 `seo_project_checklist_record`.
+
+## Saved finding views
+
+Named finding views are stored in project-local `finding-views.json` with a closed schema and
+schema/config revisions. A view can select severities, check IDs, exact URLs and declared segment
+names, then specify a registered sort field, display columns and page size. Values within a
+filter are ORed; separate filters are ANDed. Expressions, SQL, code and regex filters are refused.
+
+```bash
+seohead project view-list --directory ./example-project
+seohead project view-save --directory ./example-project --expected-revision 0 \
+  --input '{"view":{"name":"critical-pages","filters":{"severity":["critical"]},"sort":{"field":"url","direction":"asc"},"columns":["severity","check","url","text"],"page_size":100}}'
+seohead findings-view --directory ./example-project --name critical-pages \
+  --audit ./example-project/scans/current.sqlite --offset 0
+seohead report-build --audit ./example-project/scans/current.sqlite --project ./example-project \
+  --view critical-pages --format md --out ./example-project/reports/critical-pages.md
+```
+
+The first save uses config revision `0`; each following save requires the most recent
+`config_revision`. A view keeps its stable ID while its own revision increments. The apply result
+includes source scan identity, schema and config revisions, total/matched/returned counts,
+missing-field counts and stable pagination metadata. Missing values in a filter do not match and
+are counted. Missing projected values are `null` and named on the row. Sort ties keep source order;
+missing sort values are last. Segment filters reuse the segment definitions and existing evaluator
+stored with the audit; absent definitions return an explicit unavailable error instead of an empty
+result. View definitions themselves accept no regex expressions.
+
+Views only affect displayed finding rows and fields. Reports label the view and returned page;
+audit totals, evidence coverage and scores still describe the source audit. The saved scan and its
+findings are unchanged. The MCP `seo_findings_view` operation exposes the same bounded projection
+to terminal clients and future navigation surfaces.
 
 `report-build --project DIRECTORY` includes the validated checklist coverage, reasons,
 scope and measurement in a human report without fetching or rerunning the audit. The

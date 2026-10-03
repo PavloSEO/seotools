@@ -64,6 +64,7 @@ class Page:
     metrics: dict[str, Any] = field(default_factory=dict)
     issues: list[str] = field(default_factory=list)
     issue_ids: list[str] = field(default_factory=list)
+    suppressed_issue_ids: list[str] = field(default_factory=list)
 
     @property
     def is_html(self) -> bool:
@@ -83,7 +84,7 @@ class Page:
         return (self.indexability or "").strip().lower() == "indexable"
 
     def to_json(self) -> dict[str, Any]:
-        return {
+        out = {
             "url": self.url,
             "status_code": self.status_code,
             "indexability": self.indexability,
@@ -93,6 +94,9 @@ class Page:
             "issues": self.issues,
             "issue_ids": self.issue_ids,
         }
+        if self.suppressed_issue_ids:
+            out["suppressed_issue_ids"] = self.suppressed_issue_ids
+        return out
 
 
 @dataclass
@@ -179,6 +183,7 @@ class AuditResult:
     groups: list[Group] = field(default_factory=list)
     skipped: list[SkippedCheck] = field(default_factory=list)
     disabled: list[SkippedCheck] = field(default_factory=list)
+    suppressed_issues: list[dict[str, Any]] = field(default_factory=list)
 
     def to_json(self) -> dict[str, Any]:
         from .. import __version__
@@ -186,7 +191,7 @@ class AuditResult:
         run = dict(self.run)
         run["checks_skipped"] = [s.to_json() for s in self.skipped]
         run["checks_disabled"] = [d.to_json() for d in self.disabled]
-        return {
+        document = {
             "schema_version": "2.0",
             "tool": {
                 "name": "SF Analyzer",
@@ -199,3 +204,6 @@ class AuditResult:
             "pages": [p.to_json() for p in self.pages],
             "groups": [g.to_json() for g in self.groups],
         }
+        if self.suppressed_issues:
+            document["suppressed_issues"] = self.suppressed_issues
+        return document

@@ -73,6 +73,13 @@ input. Sources are the current code contracts, provider documentation, and
 - **"Skipped" is not "clean".** A check with no data reports itself as
   skipped with a reason. "0 problems" and "nothing to check" are different
   statements — trust the skip list.
+- **Finding exclusions are a post-analysis view.** Ordered URL regex rules
+  change active issue totals, scoring and tasks, but never the URLs collected
+  or the checks measured. The first matching rule wins; audit JSON keeps the
+  full finding and its rule/reason under `suppressed_issues`, with counts under
+  `summary.finding_exclusions`. Check that provenance before treating the
+  active score as the complete set of measured findings. This differs from
+  `scope.*` discovery filters and task-pipeline check filters.
 - **Some sites serve 403 to bots**: a "broken" external link can be a bot
   block, not a dead page (see the `BROKEN_EXTERNAL_LINK` fix hint).
 - **Robots blocks crawling, not indexing**: a page blocked in robots.txt

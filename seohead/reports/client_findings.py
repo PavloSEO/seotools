@@ -19,6 +19,67 @@ _ATTRIBUTION = re.compile(
 _PROTECTED_EVIDENCE = re.compile(r"https?://\S+|`[^`]*`|\"[^\"]*\"|'[^']*'")
 _PRODUCER_REASON = re.compile(r"\b(?:seohead|screaming frog)\b", re.IGNORECASE)
 _MAX_EVIDENCE_ITEMS = 10
+_FINDING_VIEW_LABELS = {
+    "severity": "Severity",
+    "check": "Check",
+    "url": "URL",
+    "text": "Observation",
+    "status_code": "Status",
+    "occurrences_count": "Occurrences",
+    "fix_hint": "Fix hint",
+    "details": "Evidence",
+    "locations": "Locations",
+    "segment": "Segment",
+}
+
+
+def finding_view_notice(summary: dict[str, Any]) -> str | None:
+    """Explain that a saved view is a displayed subset while audit totals remain source-wide."""
+    view = summary.get("finding_view")
+    if not isinstance(view, dict):
+        return None
+    counts = view.get("counts") or {}
+    page = view.get("pagination") or {}
+    note = (
+        f"Saved finding view {view.get('name')} (view revision {view.get('revision')}, "
+        f"config revision {view.get('config_revision')}): showing {counts.get('returned', 0)} "
+        f"rows at offset {page.get('offset', 0)} of {counts.get('matched', 0)} matches "
+        f"from {counts.get('source', 0)} source findings; {counts.get('filtered', 0)} did not match."
+    )
+    if page.get("truncated"):
+        note += " More matching rows remain; use the next offset to continue."
+    if view.get("state") == "partial":
+        missing = dict(counts.get("missing_filter_fields") or {})
+        for field, count in (counts.get("missing_projection_fields") or {}).items():
+            missing[field] = max(missing.get(field, 0), count)
+        detail = ", ".join(f"{field}={count}" for field, count in sorted(missing.items()))
+        note += f" Some filter or projection fields were unavailable ({detail})."
+    note += " Audit totals, evidence coverage, and scores describe the full source audit."
+    exclusions = summary.get("finding_exclusions")
+    suppressed = exclusions.get("suppressed_total") if isinstance(exclusions, dict) else None
+    if type(suppressed) is int and suppressed > 0:
+        note += f" The source audit also records {suppressed} excluded findings."
+        by_rule = exclusions.get("by_rule")
+        if isinstance(by_rule, dict) and by_rule:
+            rule_rows = sorted(by_rule.items(), key=lambda item: str(item[0]))
+            details = ", ".join(
+                f"{re.sub(r'[^A-Za-z0-9_.-]', '?', str(name))[:64]}="
+                f"{count if type(count) is int and count >= 0 else 'unknown'}"
+                for name, count in rule_rows[:20]
+            )
+            suffix = f" (+{len(rule_rows) - 20} more)" if len(rule_rows) > 20 else ""
+            note += f" Exclusion counts by rule: {details}{suffix}."
+    return note
+
+
+def finding_view_columns(summary: dict[str, Any]) -> list[str] | None:
+    view = summary.get("finding_view")
+    columns = view.get("columns") if isinstance(view, dict) else None
+    return columns if isinstance(columns, list) else None
+
+
+def finding_view_label(column: str) -> str:
+    return _FINDING_VIEW_LABELS.get(column, column)
 
 
 def check_title(check: Any) -> str:
@@ -29,6 +90,96 @@ def check_title(check: Any) -> str:
     if re.fullmatch(r"[a-z][a-z0-9]*(?:_[a-z0-9]+)+", check_id):
         return check_id.replace("_", " ").capitalize()
     return "Audit finding"
+
+
+def finding_exclusion_report(
+    summary: dict[str, Any], suppressed_issues: list[dict[str, Any]] | None = None
+) -> dict[str, Any] | None:
+    """Join saved exclusion rules to their recorded counts without recomputing them."""
+    exclusion = summary.get("finding_exclusions")
+    exclusion = exclusion if isinstance(exclusion, dict) else {}
+    policy = summary.get("finding_exclusion_policy")
+    policy = policy if isinstance(policy, list) else []
+    suppressed = suppressed_issues if isinstance(suppressed_issues, list) else []
+    if not exclusion and not policy and not suppressed:
+        return None
+
+    counts_by_rule: dict[str, dict[str, Any]] = {}
+    raw_counts = exclusion.get("by_rule")
+    if isinstance(raw_counts, list):
+        for row in raw_counts:
+            if isinstance(row, dict) and row.get("id") is not None:
+                counts_by_rule[str(row["id"])] = row
+    elif isinstance(raw_counts, dict):
+        for rule_id, count in raw_counts.items():
+            counts_by_rule[str(rule_id)] = (
+                count if isinstance(count, dict) else {"suppressed_findings": count}
+            )
+
+    policy_by_id = {
+        str(row["id"]): row for row in policy if isinstance(row, dict) and row.get("id") is not None
+    }
+    for issue in suppressed:
+        marker = issue.get("suppression") if isinstance(issue, dict) else None
+        if isinstance(marker, dict) and marker.get("rule_id") is not None:
+            rule_id = str(marker["rule_id"])
+            policy_by_id.setdefault(
+                rule_id,
+                {
+                    "id": rule_id,
+                    "pattern": marker.get("pattern", ""),
+                    "reason": marker.get("reason", ""),
+                    "checks": [],
+                },
+            )
+
+    rules = []
+    for rule_id, rule in policy_by_id.items():
+        counts = counts_by_rule.get(rule_id, {})
+        rules.append(
+            {
+                "id": rule_id,
+                "pattern": rule.get("pattern", ""),
+                "checks": rule.get("checks") or [],
+                "reason": rule.get("reason") or counts.get("reason", ""),
+                "suppressed_findings": counts.get("suppressed_findings", 0),
+                "suppressed_occurrences": counts.get("suppressed_occurrences", 0),
+            }
+        )
+    for rule_id, counts in counts_by_rule.items():
+        if rule_id not in policy_by_id:
+            rules.append(
+                {
+                    "id": rule_id,
+                    "pattern": "",
+                    "checks": [],
+                    "reason": counts.get("reason", ""),
+                    "suppressed_findings": counts.get("suppressed_findings", 0),
+                    "suppressed_occurrences": counts.get("suppressed_occurrences", 0),
+                }
+            )
+
+    total = exclusion.get("suppressed_total")
+    if type(total) is not int or total < 0:
+        total = len(suppressed)
+    rules_configured = exclusion.get("rules_configured")
+    if type(rules_configured) is not int or rules_configured < 0:
+        rules_configured = len(policy_by_id)
+    totals = summary.get("totals") if isinstance(summary.get("totals"), dict) else {}
+    occurrences = totals.get("suppressed_occurrences")
+    if type(occurrences) is not int or occurrences < 0:
+        occurrences = sum(
+            value["suppressed_occurrences"]
+            for value in rules
+            if type(value["suppressed_occurrences"]) is int and value["suppressed_occurrences"] >= 0
+        )
+    return {
+        "suppressed_total": total,
+        "suppressed_occurrences": occurrences,
+        "rules_configured": rules_configured,
+        "rules": rules,
+        "issues": suppressed,
+    }
 
 
 def _detail_rows(details: Any) -> list[str]:
@@ -278,4 +429,22 @@ def project_document(document: dict[str, Any]) -> dict[str, Any]:
         for finding in document.get("findings") or []
         if isinstance(finding, dict)
     ]
+    columns = finding_view_columns(summary)
+    if columns is not None:
+        for finding in projected["findings"]:
+            raw = finding
+            client_details = "; ".join(raw.get("client_details") or [])
+            client_locations = "; ".join(raw.get("client_locations") or [])
+            finding["view_fields"] = {
+                "severity": raw.get("severity"),
+                "check": raw.get("check"),
+                "url": raw.get("url"),
+                "text": raw.get("client_observation"),
+                "status_code": raw.get("status_code"),
+                "occurrences_count": raw.get("occurrences_count"),
+                "fix_hint": raw.get("fix_hint"),
+                "details": client_details if client_details else None,
+                "locations": client_locations if client_locations else None,
+                "segment": raw.get("__view_segment"),
+            }
     return projected

@@ -65,7 +65,7 @@ audit.docx        the narrative, for a person who will not open JSON — summary
 audit.xlsx        the working file, filterable by severity and section
 audit.csv         findings — needs recipient-side field mapping to become tracker rows
 audit.pages.csv   page facts
-audit.scope.csv   crawl validity, scope, and unavailable/disabled check evidence
+audit.scope.csv   crawl validity, scope, unavailable/disabled checks, and finding-exclusion rules and reasons
 tasks.json/.md     the grouped, prioritized backlog, from `sf run --tasks`, not from `report-build`
 run/audit.json    the machine-readable original, which the formats above cannot contradict
 ```

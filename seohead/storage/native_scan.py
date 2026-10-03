@@ -164,6 +164,8 @@ def _native_config(value: Any, *, recorded: bool = False) -> dict[str, Any]:
             expected["limits"].pop("max_requests")
         if "evidence" in config and "retain_no_store_acknowledged" not in config["evidence"]:
             expected["evidence"].pop("retain_no_store_acknowledged")
+        if "analysis" in config and "finding_exclusions" not in config["analysis"]:
+            expected["analysis"].pop("finding_exclusions")
     require_fields(config, expected)
     validation_config = copy.deepcopy(config)
     if recorded:
@@ -191,6 +193,8 @@ def _native_config(value: Any, *, recorded: bool = False) -> dict[str, Any]:
         validation_config["limits"].setdefault("max_requests", 0)
         validation_config.setdefault("evidence", {})
         validation_config["evidence"].setdefault("retain_no_store_acknowledged", False)
+        validation_config.setdefault("analysis", {})
+        validation_config["analysis"].setdefault("finding_exclusions", [])
     try:
         validate_crawl_config(
             validate_recorded_credentials(validation_config) if recorded else value
@@ -256,6 +260,12 @@ def _resume_fingerprint(expected_config: Any, recorded_config: Any) -> str:
         and expected["evidence"].get("retain_no_store_acknowledged") is False
     ):
         expected["evidence"].pop("retain_no_store_acknowledged")
+    if (
+        "analysis" in recorded
+        and "finding_exclusions" not in recorded["analysis"]
+        and expected["analysis"].get("finding_exclusions") == []
+    ):
+        expected["analysis"].pop("finding_exclusions")
     return crawl_config_fingerprint(expected)
 
 

@@ -116,6 +116,146 @@ def test_json_output_of_a_recognized_document_is_an_untouched_copy(tmp_path):
     assert json.loads(target.read_text(encoding="utf-8")) == SF_DOCUMENT
 
 
+def _sf_audit_with_finding_exclusions():
+    doc = copy.deepcopy(SF_DOCUMENT)
+    doc["run"]["finding_exclusion_policy"] = [
+        {
+            "id": "legacy-title",
+            "pattern": "/legacy/",
+            "checks": ["TITLE_MISSING"],
+            "reason": "Legacy pages are scheduled for removal.",
+        }
+    ]
+    doc["summary"]["totals"].update(
+        {
+            "issues_total": 1,
+            "findings_total": 2,
+            "suppressed_findings": 1,
+            "suppressed_occurrences": 3,
+        }
+    )
+    doc["summary"]["finding_exclusions"] = {
+        "rules_configured": 1,
+        "suppressed_total": 1,
+        "by_rule": [
+            {
+                "id": "legacy-title",
+                "reason": "Legacy pages are scheduled for removal.",
+                "suppressed_findings": 1,
+                "suppressed_occurrences": 3,
+            }
+        ],
+        "by_check": {"TITLE_MISSING": 1},
+        "by_severity": {"critical": 1, "warning": 0, "notice": 0},
+    }
+    doc["issues"] = [
+        {
+            "id": "ISSUE-000001",
+            "check": "TITLE_TOO_LONG",
+            "severity": "notice",
+            "source": "SF-derived",
+            "message": "Title exceeds configured length.",
+            "target_url": "https://example.test/current/",
+            "occurrences_count": 1,
+        }
+    ]
+    doc["suppressed_issues"] = [
+        {
+            "id": "ISSUE-000002",
+            "check": "TITLE_MISSING",
+            "severity": "critical",
+            "source": "SF-derived",
+            "message": "Title is missing.",
+            "target_url": "https://example.test/legacy/",
+            "status_code": 200,
+            "occurrences_count": 3,
+            "suppression": {
+                "rule_id": "legacy-title",
+                "pattern": "/legacy/",
+                "reason": "Legacy pages are scheduled for removal.",
+                "matched_url": "https://example.test/legacy/",
+            },
+        }
+    ]
+    return doc
+
+
+def test_report_build_keeps_exclusion_provenance_across_human_exports(tmp_path):
+    from docx import Document
+
+    from seohead.reports import _normalize_sf_audit
+
+    source = _sf_audit_with_finding_exclusions()
+    normalized = _normalize_sf_audit(source)
+    assert normalized["summary"]["finding_exclusions"] == source["summary"]["finding_exclusions"]
+    assert (
+        normalized["summary"]["finding_exclusion_policy"]
+        == source["run"]["finding_exclusion_policy"]
+    )
+    assert normalized["suppressed_issues"] == source["suppressed_issues"]
+    assert "finding_view" not in normalized["summary"]
+
+    json_path = tmp_path / "excluded.json"
+    assert build_report(source, fmt="json", path=str(json_path))["ok"]
+    assert json.loads(json_path.read_text(encoding="utf-8")) == source
+
+    md_path = tmp_path / "excluded.md"
+    assert build_report(source, fmt="md", path=str(md_path))["ok"]
+    md = md_path.read_text(encoding="utf-8")
+    assert "Finding exclusions" in md
+    assert "legacy-title" in md and "/legacy/" in md
+    assert "Legacy pages are scheduled for removal." in md
+    assert "https://example.test/legacy/" in md
+    assert "https://example.test/current/" in md
+
+    csv_path = tmp_path / "excluded.csv"
+    csv_result = build_report(source, fmt="csv", path=str(csv_path))
+    assert csv_result["ok"]
+    with csv_path.open(encoding="utf-8-sig", newline="") as stream:
+        findings = list(csv.reader(stream, delimiter=";"))
+    assert len(findings) == 2  # excluded rows stay out of the active tracker findings file
+    with csv_path.with_suffix(".scope.csv").open(encoding="utf-8-sig", newline="") as stream:
+        scope = list(csv.DictReader(stream, delimiter=";"))
+    exclusion_rows = [
+        row
+        for row in scope
+        if row["Evidence type"].startswith("finding")
+        or row["Evidence type"] == "suppressed finding"
+    ]
+    assert len(exclusion_rows) == 3
+    joined_scope = "\n".join(" ".join(row.values()) for row in exclusion_rows)
+    assert "legacy-title" in joined_scope
+    assert "/legacy/" in joined_scope
+    assert "Legacy pages are scheduled for removal." in joined_scope
+    assert "https://example.test/legacy/" in joined_scope
+
+    xlsx_path = tmp_path / "excluded.xlsx"
+    assert build_report(source, fmt="xlsx", path=str(xlsx_path))["ok"]
+    workbook = load_workbook(xlsx_path)
+    rule_rows = list(workbook["Finding Exclusions"].iter_rows(values_only=True))
+    assert any(
+        "Legacy pages are scheduled for removal." in str(value)
+        for row in rule_rows
+        for value in row
+    )
+    suppressed_rows = list(workbook["Suppressed Findings"].iter_rows(values_only=True))
+    assert any(
+        "https://example.test/legacy/" in str(value) for row in suppressed_rows for value in row
+    )
+
+    docx_path = tmp_path / "excluded.docx"
+    assert build_report(source, fmt="docx", path=str(docx_path))["ok"]
+    docx = Document(docx_path)
+    docx_text = "\n".join(
+        [paragraph.text for paragraph in docx.paragraphs]
+        + [cell.text for table in docx.tables for row in table.rows for cell in row.cells]
+    )
+    assert "Finding Exclusions" in docx_text
+    assert "legacy-title" in docx_text and "/legacy/" in docx_text
+    assert "Legacy pages are scheduled for removal." in docx_text
+    assert "https://example.test/legacy/" in docx_text
+
+
 # ── #337: "Checks completed" must not be a finding-only list's length ──────
 
 

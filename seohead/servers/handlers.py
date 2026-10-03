@@ -673,6 +673,14 @@ def crawl_site(
     settings = crawl_config.load(
         config, overrides=resolved_overrides, base_overrides=base_overrides
     )
+    # Check selectors refer to the SF finding registry. Validate them at this
+    # shared CLI/MCP boundary before the crawl can issue its first request.
+    from seohead.sf.config import load_config as load_audit_config
+    from seohead.sf.config import validate_config as validate_audit_config
+
+    audit_config = load_audit_config(None)
+    audit_config["finding_exclusions"] = settings["analysis"]["finding_exclusions"]
+    validate_audit_config(audit_config)
     if project_root is not None:
         gate = admission(str(project_root), settings, approved=approve_large_crawl)
         if not gate["ok"]:
@@ -952,7 +960,11 @@ def _audit_crawl_result(
     from seohead.crawl import settings as crawl_config
     from seohead.crawl.evidence import build_evidence
     from seohead.crawl.reconcile import reconcile_sitemap
-    from seohead.sf.config import load_config
+    from seohead.sf.config import load_config, validate_config
+
+    audit_config = load_config(None)
+    audit_config["finding_exclusions"] = settings.get("analysis", {}).get("finding_exclusions", [])
+    validate_config(audit_config)
     from seohead.sf.core.aggregate import aggregate
     from seohead.sf.core.context import AuditContext
     from seohead.sf.core.heuristics import run_heuristics
@@ -1102,7 +1114,7 @@ def _audit_crawl_result(
     exports.found = list(evidence["found"])
     exports.missing = list(evidence["missing"])
 
-    ctx = AuditContext(exports, load_config(None))
+    ctx = AuditContext(exports, audit_config)
     # Where this crawl actually began. A native crawl knows; nothing else does,
     # and pages.crawl_depth is not a substitute -- a sitemap-seeded crawl records
     # 0 for every seeded URL, so the click-depth walk would start from an
@@ -1664,12 +1676,14 @@ def report_build(
     fmt: str = "xlsx",
     out: str | None = None,
     project: str | None = None,
+    view: str | None = None,
+    offset: int = 0,
 ) -> dict[str, Any]:
     if audit is None:
         raise ValueError("audit required: audit document or path to its JSON representation")
     from seohead.reports import build_report
 
-    return build_report(audit, fmt=fmt, path=out, project=project)
+    return build_report(audit, fmt=fmt, path=out, project=project, view=view, offset=offset)
 
 
 def facts_export(sites: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -2957,6 +2971,19 @@ def scan_snapshot(input_path: str, out: str) -> dict[str, Any]:
     return core(input_path, out)
 
 
+def scan_export(
+    input_path: str,
+    out: str,
+    format: str = "json",
+    records: Any = None,
+    fields: Any = None,
+) -> dict[str, Any]:
+    """Export retained scan data under the versioned ``scan_export.v1`` contract."""
+    from seohead.storage.scan_export import export_scan_data
+
+    return export_scan_data(input_path, out, fmt=format, records=records, fields=fields)
+
+
 def scan_pin(input_path: str, pinned: bool = True) -> dict[str, Any]:
     from seohead.servers.history_handlers import scan_pin as core
 
@@ -3078,6 +3105,34 @@ def project_checklist_record(
     from seohead.servers.project_handlers import project_checklist_record as core
 
     return core(directory, item_id=item_id, record=record, expected_revision=expected_revision)
+
+
+def project_view_list(directory: str) -> dict[str, Any]:
+    from seohead.servers.project_handlers import project_view_list as core
+
+    return core(directory)
+
+
+def project_view_show(directory: str, name: str) -> dict[str, Any]:
+    from seohead.servers.project_handlers import project_view_show as core
+
+    return core(directory, name)
+
+
+def project_view_save(directory: str, view: dict, expected_revision: int) -> dict[str, Any]:
+    from seohead.servers.project_handlers import project_view_save as core
+
+    return core(directory, view, expected_revision)
+
+
+def findings_view(directory: str, name: str, audit: Any, offset: int = 0) -> dict[str, Any]:
+    from seohead.projects.finding_views import apply_view_to_audit
+    from seohead.storage.inputs import resolve_audit_input
+
+    document, diagnostics = resolve_audit_input(audit)
+    result = apply_view_to_audit(directory, name, document, offset=offset)
+    result["input_diagnostics"] = diagnostics
+    return result
 
 
 def project_priorities(
@@ -3440,6 +3495,7 @@ _RAW_HANDLERS = {
     "scan_requeue": scan_requeue,
     "scan_import_urls": scan_import_urls,
     "scan_snapshot": scan_snapshot,
+    "scan_export": scan_export,
     "scan_pin": scan_pin,
     "scan_prune": scan_prune,
     "scan_body_diff": scan_body_diff,
@@ -3451,6 +3507,10 @@ _RAW_HANDLERS = {
     "project_checklist_update": project_checklist_update,
     "project_checklist_record": project_checklist_record,
     "project_priorities": project_priorities,
+    "project_view_list": project_view_list,
+    "project_view_show": project_view_show,
+    "project_view_save": project_view_save,
+    "findings_view": findings_view,
     "inspect_url": inspect_url,
     "audit_workflow": audit_workflow,
     "tool_catalog": tool_catalog,

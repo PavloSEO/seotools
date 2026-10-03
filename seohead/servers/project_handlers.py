@@ -76,6 +76,24 @@ def project_checklist_record(
     )
 
 
+def project_view_list(directory: str) -> dict[str, Any]:
+    from seohead.projects.finding_views import list_views
+
+    return list_views(directory)
+
+
+def project_view_show(directory: str, name: str) -> dict[str, Any]:
+    from seohead.projects.finding_views import show_view
+
+    return show_view(directory, name)
+
+
+def project_view_save(directory: str, view: dict, expected_revision: int) -> dict[str, Any]:
+    from seohead.projects.finding_views import save_view
+
+    return save_view(directory, view, expected_revision=expected_revision)
+
+
 def project_priorities(
     directory: str,
     policy: dict | None = None,

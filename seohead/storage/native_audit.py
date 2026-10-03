@@ -38,9 +38,13 @@ def validate_audit(con, scan, *, required=False):
         raise ScanError("native saved audit version, revision or analyzer identity disagrees")
     if document["tool"]["version"] != scan["writer_version"]:
         raise ScanError("native audit tool version differs from the producing build")
-    config = manifest(json.loads(scan["config_json"]))
+    effective_config = json.loads(scan["config_json"])
+    config = manifest(effective_config)
     if _dump(document["run"].get("crawl_config")) != _dump(config):
         raise ScanError("native audit effective configuration disagrees")
+    finding_exclusions = effective_config.get("analysis", {}).get("finding_exclusions", [])
+    if _dump(document["run"].get("finding_exclusion_policy", [])) != _dump(finding_exclusions):
+        raise ScanError("native audit finding-exclusion policy disagrees with saved scan config")
     if bool(document["run"].get("crawl_partial")) != bool(scan["crawl_partial"]):
         raise ScanError("native audit collection completeness disagrees")
     urls = {page["url"] for page in document["pages"]}

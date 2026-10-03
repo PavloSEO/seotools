@@ -92,6 +92,7 @@ COMMANDS = (
     "scan-status",
     "scan-rendered-routes",
     "scan-snapshot",
+    "scan-export",
     "scan-pin",
     "scan-prune",
     "scan-body-diff",
@@ -103,6 +104,10 @@ COMMANDS = (
     "project-checklist-update",
     "project-checklist-record",
     "project-priorities",
+    "project-view-list",
+    "project-view-show",
+    "project-view-save",
+    "findings-view",
     "project-policy",
     "project-prepare",
     "project-start",
@@ -507,6 +512,25 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
             kw["out"] = args.out
         if getattr(args, "project", None):
             kw["project"] = args.project
+        if getattr(args, "view", None):
+            kw["view"] = args.view
+        if getattr(args, "offset", None) is not None:
+            kw["offset"] = args.offset
+    elif cmd == "project-view-list":
+        if getattr(args, "directory", None):
+            kw["directory"] = args.directory
+    elif cmd == "project-view-show":
+        for name in ("directory", "name"):
+            if getattr(args, name, None) is not None:
+                kw[name] = getattr(args, name)
+    elif cmd == "project-view-save":
+        for name in ("directory", "expected_revision"):
+            if getattr(args, name, None) is not None:
+                kw[name] = getattr(args, name)
+    elif cmd == "findings-view":
+        for name in ("directory", "name", "audit", "offset"):
+            if getattr(args, name, None) is not None:
+                kw[name] = getattr(args, name)
     elif cmd == "log-scan":
         if getattr(args, "run", None):
             kw["run"] = args.run
@@ -672,6 +696,11 @@ def _build_kwargs(cmd: str, args: argparse.Namespace) -> tuple[str, dict[str, An
             kw["input_path"] = args.input_path
         if getattr(args, "out", None):
             kw["out"] = args.out
+    if cmd == "scan-export":
+        for name in ("input_path", "out", "format", "records", "fields"):
+            value = getattr(args, name, None)
+            if value is not None:
+                kw[name] = value
     if cmd == "scan-pin":
         if getattr(args, "input_path", None):
             kw["input_path"] = args.input_path
@@ -1331,6 +1360,8 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
         )
         sub.add_argument("--out", help="output file path")
         _source_flag(sub, "--project", help="validated local project workspace")
+        sub.add_argument("--view", help="saved finding view to apply from the project")
+        sub.add_argument("--offset", type=int, help="finding-view page offset")
     if cmd == "log-scan":
         # Not `required=True`: that would reject a JSON-only `--input '{"run": ...}'` call before
         # _build_kwargs ever runs, since argparse enforces required flags ahead of dispatch. The
@@ -1375,6 +1406,31 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
         sub.add_argument("--max-bytes", dest="max_bytes", type=int)
     if cmd == "scan-snapshot":
         _source_flag(sub, "--out", help="new snapshot SQLite file")
+    if cmd == "scan-export":
+        _source_flag(
+            sub,
+            "--scan",
+            dest="input_path",
+            metavar="FILE",
+            help="scan.v1 SQLite artifact or SF Analyzer audit.json to export",
+        )
+        sub.add_argument(
+            "--out",
+            metavar="PATH",
+            help="output file; CSV mode treats it as the base for per-entity files",
+        )
+        sub.add_argument("--format", choices=("csv", "xlsx", "json", "xml"), default="json")
+        sub.add_argument(
+            "--records",
+            metavar="TYPES",
+            help="comma-separated record types: pages, links, findings (default: all available)",
+        )
+        sub.add_argument(
+            "--fields",
+            action="append",
+            metavar="TYPE=F1,F2",
+            help="record field selection, repeatable, e.g. --fields pages=url,title",
+        )
     if cmd == "scan-pin":
         sub.add_argument("--unpin", action="store_true")
     if cmd == "scan-prune":
@@ -1407,6 +1463,22 @@ def _add_flags(sub: argparse.ArgumentParser, cmd: str) -> None:
             type=int,
             help="current checklist revision required before a write",
         )
+    if cmd in {"project-view-list", "project-view-show", "project-view-save"}:
+        _source_flag(sub, "--directory", help="validated local project workspace")
+    if cmd == "project-view-show":
+        sub.add_argument("--name", help="saved finding view name")
+    if cmd == "project-view-save":
+        sub.add_argument(
+            "--expected-revision",
+            dest="expected_revision",
+            type=int,
+            help="current project view config revision; use 0 for the first save",
+        )
+    if cmd == "findings-view":
+        _source_flag(sub, "--directory", help="validated local project workspace")
+        sub.add_argument("--name", help="saved finding view name")
+        _source_flag(sub, "--audit", help="audit JSON document or validated scan.v1 SQLite file")
+        sub.add_argument("--offset", type=int, help="finding-view page offset")
     if cmd == "project-facts":
         _source_flag(sub, "--directory", help="project directory")
         sub.add_argument(
@@ -1601,6 +1673,7 @@ def build_parser() -> argparse.ArgumentParser:
         "status",
         "rendered-routes",
         "snapshot",
+        "export",
         "pin",
         "prune",
         "body-diff",
@@ -1623,6 +1696,9 @@ def build_parser() -> argparse.ArgumentParser:
         "checklist-update",
         "checklist-record",
         "priorities",
+        "view-list",
+        "view-show",
+        "view-save",
         "policy",
         "prepare",
         "start",

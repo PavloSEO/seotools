@@ -205,8 +205,10 @@ COMMAND_CONTRACTS: tuple[CommandContract, ...] = (
         _form(
             "project_directory",
             "project",
-            note="Includes validated checklist coverage in human reports; JSON audit is unchanged.",
+            note="Includes validated checklist coverage and optionally applies a saved finding view.",
         ),
+        _form("selector", "view", note="Optional saved project finding view; requires project."),
+        _form("selector", "offset", note="Optional stable finding-view page offset."),
     ),
     _command("facts-export", "facts_export", _form("inline_json", "sites")),
     _command("keywords-expand", "keywords_expand", _form("provider_query", "phrase")),
@@ -314,6 +316,30 @@ COMMAND_CONTRACTS: tuple[CommandContract, ...] = (
             note="Requires expected_revision; records supplied evidence only.",
         ),
     ),
+    _command("project-view-list", "project_view_list", _form("project_directory", "directory")),
+    _command(
+        "project-view-show",
+        "project_view_show",
+        _form("project_directory", "directory"),
+        _form("selector", "name"),
+    ),
+    _command(
+        "project-view-save",
+        "project_view_save",
+        _form("project_directory", "directory"),
+        _form("inline_json", "view"),
+        _form("selector", "expected_revision", note="Required; use 0 for the first saved view."),
+    ),
+    _command(
+        "findings-view",
+        "findings_view",
+        _form("project_directory", "directory"),
+        _form("selector", "name"),
+        _form(
+            "audit_document", "audit", note="Audit JSON, inline audit object, or retained scan.v1."
+        ),
+        _form("selector", "offset", note="Optional stable finding-view page offset."),
+    ),
     _command(
         "project-priorities",
         "project_priorities",
@@ -402,6 +428,21 @@ COMMAND_CONTRACTS: tuple[CommandContract, ...] = (
     _command("scan-status", "scan_status", _form("scan_artifact", "input_path")),
     _command("scan-rendered-routes", "scan_rendered_routes", _form("scan_artifact", "input_path")),
     _command("scan-snapshot", "scan_snapshot", _form("scan_artifact", "input_path")),
+    _command(
+        "scan-export",
+        "scan_export",
+        _form(
+            "scan_artifact",
+            "input_path",
+            note="Also accepts an SF Analyzer audit.json document; links are unavailable there.",
+        ),
+        _form(
+            "selector",
+            "records",
+            "fields",
+            note="Optional record-type and field projection validated before any file is written.",
+        ),
+    ),
     _command("scan-pin", "scan_pin", _form("scan_artifact", "input_path")),
     _command(
         "scan-prune",

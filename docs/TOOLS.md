@@ -57,6 +57,9 @@ not the geographic region `key`; `summary` takes the singular `region_index`.
 | `project-checklist-init` | Initialize or reconcile a local checklist from the built-in catalogue and an optional data-only template; does not execute items | no |
 | `project-checklist-update` | Add or edit one checklist definition with an expected revision; does not execute it | no |
 | `project-checklist-record` | Validate and record supplied evidence for one item with an expected revision; does not execute it | no |
+| `project-view-list` / `project-view-show` | List saved finding views or retrieve one with stable identity and schema/config revisions | no |
+| `project-view-save` | Create or revise a closed declarative finding view using an expected config revision | writes project view configuration |
+| `findings-view` | Apply a saved view to audit JSON or a validated scan.v1 artifact; return a bounded stable page with explicit counts | no |
 | `project-priorities` | Preview saved-fact work order; an explicit expected-revision apply preserves operator decisions and never changes technical severity | no |
 | `project-policy` | Preview or explicitly save the bounded crawl/admission policy; applying it requires the current policy revision | no |
 | `project-prepare` | Runs the declared bounded preparation path: checklist initialization, a policy-bounded crawl, supplied competitor workspace setup, and an inspectable initial plan | yes |
@@ -65,6 +68,7 @@ not the geographic region `key`; `summary` takes the singular `region_index`.
 The nested aliases are `seohead project new`, `seohead project open`,
 `seohead project status`, `seohead project facts`, `seohead project checklist-init`,
 `seohead project checklist-update`, `seohead project checklist-record`,
+`seohead project view-list`, `seohead project view-show`, `seohead project view-save`,
 `seohead project priorities`, `seohead project policy`, `seohead project prepare`,
 and `seohead project start`.
 See [PROJECTS.md](PROJECTS.md) for the format, custom references and shared
@@ -75,6 +79,15 @@ its own. Competitors must be supplied and the preparation state keeps every
 not-run or partial step. Use `project-policy` first when its default 50-page,
 150-request, 60-second preparation crawl is not the intended scope; a larger
 requested budget needs `approve_large_crawl=true`.
+
+Saved finding views use closed severity/check/URL/segment filters, registered sort fields,
+selected columns and a bounded page size. The same read-only view is available through
+`findings-view`, `seo_findings_view`, and `report-build --project DIR --view NAME [--offset N]`.
+Results expose source identity, view/config revisions, source/matched/returned counts,
+missing-field counts, and `has_more`/`next_offset`. Missing filter fields stay unmatched and are
+counted; missing projected values remain `null`. These views do not suppress findings, modify
+evidence, or alter scoring, tasks or coverage. Segment selections reuse declarations in the audit;
+missing definitions are explicitly unavailable. The view schema itself does not accept regexes.
 
 ## Guided workflow and catalogue tools
 
@@ -172,7 +185,7 @@ because the rules could not be read, so the command never claims crawling is all
 | Command | What it does |
 |---|---|
 | `site-audit` | Runs a bounded live pass: 10 site-level tools once and 3 page-level tools per selected URL (from the sitemap by default; 25 pages by default). Returns one `seohead.site-audit/1` document. It is not a full crawl or an exhaustive run of the catalog; site-level failures remain in `summary.tools_failed`, while page-level failures remain in that page's issues |
-| `report-build` | Document -> file: `xlsx`, `docx`, `csv`, `md`, `json`; optional `--project` includes validated checklist coverage in human reports while preserving the original JSON audit |
+| `report-build` | Document -> file: `xlsx`, `docx`, `csv`, `md`, `json`; optional `--project --view` applies a saved finding view to a bounded report page while preserving source-wide totals |
 | `scan-reanalyze` | Reparse retained HTML/DOM and run existing checks offline into a new SQLite artifact, preserving source evidence and provenance |
 | `facts-export` | Zero-network comparison: reads crawl/site audits you already produced for several domains and returns one `facts.v1` document — measured/absent/partial/unavailable/not_requested facts per site, never a score, rank, or ratio |
 
@@ -276,6 +289,7 @@ without deleting its scan. The exact arguments and defaults are in the generated
 | `scan-status` | Separates queued, inflight, done, and excluded native frontier rows from committed page HTTP outcome classes and no-response records. It reports interrupted captures as unfinished; imported scans name their absent native frontier as unavailable rather than an empty queue. | — |
 | `scan-rendered-routes` | Reads stored eligible static/rendered `a[href]` route evidence offline. It never queues or fetches a route; relation is `unknown` until both representation coverages are complete. | — |
 | `scan-snapshot` | Makes a validated, portable single-file SQLite copy. `--out` may name a new file or an existing directory; a directory receives a UTC timestamp, host, and short scan UUID filename. Existing destinations are never overwritten. | writes a new file |
+| `scan-export` | Exports retained scan data under the versioned `scan_export.v1` contract as CSV, XLSX, JSON, or XML. Accepts a `scan.v1` artifact or an SF Analyzer `audit.json`; validates `--records`/`--fields` before writing; XML uses the documented `scan-export` root element and namespace. | writes new files |
 | `scan-pin` | Explicitly pins a scan, or unpins it with `--unpin`, so retention will not select it. | changes scan metadata |
 | `scan-prune` | Produces a retention plan by default. Deletion needs `--apply` and the exact reviewed plan. | deletes only with `--apply` |
 | `scan-body-diff` | Compares matching retained body hashes from two validated scans; optional text output is bounded and only applies to compatible textual evidence. A changed body is not an SEO score or verdict. | — |
@@ -297,6 +311,11 @@ seohead scan-status --scan native.sqlite
 # no-clobber snapshot: either a new filename or an existing directory
 seohead scan-snapshot --scan native.sqlite --out snapshot.sqlite
 seohead scan-snapshot --scan native.sqlite --out .
+
+# versioned scan_export.v1 data export; field selection is validated upfront
+seohead scan-export --scan native.sqlite --out export.json --format json
+seohead scan-export --scan native.sqlite --out export.xml --format xml
+seohead scan-export --scan audit.json --out export.csv --format csv --records pages,findings --fields pages=url,status_code
 
 # pin before retaining a comparison baseline; use --unpin to reverse only the pin
 seohead scan-pin --scan native.sqlite
@@ -520,7 +539,7 @@ echo '{"url":"https://example.com"}' | seohead parse
 tool must not knock where it was not asked to.
 
 **MCP.** The same set under the `seo_*` names plus the `sf_*` audit tools
-(95 + 5):
+(101 + 5):
 
 ```bash
 seohead mcp        # stdio

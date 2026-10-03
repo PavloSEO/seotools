@@ -7541,7 +7541,7 @@
           "template": null,
           "urls": []
         },
-        "source_hash": "f991c19f90a7d78db1c52ee1ac07d1936640f0df476c828bd0ce095d95f5e032",
+        "source_hash": "e6aeff201d4fc8e3ff1f9f085c5565ae7bf081d9124854392857c440279cc688",
         "title": "Scenario 56 \u2014 From audit to deliverable: the last mile"
       },
       "definitions": [
@@ -7561,7 +7561,7 @@
               "template": null,
               "urls": []
             },
-            "source_hash": "f991c19f90a7d78db1c52ee1ac07d1936640f0df476c828bd0ce095d95f5e032",
+            "source_hash": "e6aeff201d4fc8e3ff1f9f085c5565ae7bf081d9124854392857c440279cc688",
             "title": "Scenario 56 \u2014 From audit to deliverable: the last mile"
           },
           "observed_at": "2026-09-09T00:00:00Z"

@@ -154,6 +154,14 @@ def write_markdown(result: AuditResult, path: str) -> str:
         f"(HTML: {totals.get('html_pages')}, indexable: {totals.get('html_indexable')})"
     )
     w(f"- Total issues: **{totals.get('issues_total')}**")
+    finding_policy = result.run.get("finding_exclusion_policy") or []
+    if finding_policy:
+        total = len(result.suppressed_issues)
+        label = "finding" if total == 1 else "findings"
+        w(
+            f"- **Finding exclusions:** {total} {label} suppressed by "
+            f"{len(finding_policy)} configured rule(s)."
+        )
     w("")
     by_sev = s.get("by_severity", {})
     w("| Severity | Count |")
@@ -220,6 +228,49 @@ def write_markdown(result: AuditResult, path: str) -> str:
         w(f"## {SEVERITY_LABEL[sev]} ({len(issues)})")
         w("")
         _render_severity_section(w, issues)
+
+    if finding_policy:
+        w(f"## Finding exclusions ({len(finding_policy)} rules)")
+        w("")
+        w(
+            "Rules are evaluated in order against finding target URLs; the first matching rule is used."
+        )
+        w("")
+        w("| Rule | Pattern | Checks | Reason | Suppressed findings |")
+        w("|---|---|---|---|---:|")
+        by_rule = {
+            str(item.get("id")): item
+            for item in result.summary.get("finding_exclusions", {}).get("by_rule", [])
+        }
+        for rule in finding_policy:
+            rule_summary = by_rule.get(str(rule["id"]), {})
+            checks = ", ".join(rule.get("checks") or []) or "all checks"
+            w(
+                f"| {_esc(rule.get('id'))} | `{_code(rule.get('pattern'))}` "
+                f"| {_esc(checks)} | {_esc(rule.get('reason'))} "
+                f"| {rule_summary.get('suppressed_findings', 0)} |"
+            )
+        w("")
+
+    if result.suppressed_issues:
+        w(f"## Suppressed findings ({len(result.suppressed_issues)})")
+        w("")
+        w(
+            "These measured findings are excluded from active totals, score and tasks by the explicit URL policy."
+        )
+        w("")
+        w("| Check | Severity | URL | Rule | Reason |")
+        w("|---|---|---|---|---|")
+        for issue in result.suppressed_issues[:MAX_GENERIC_ROWS]:
+            suppression = issue.get("suppression") or {}
+            w(
+                f"| {issue.get('check', '')} | {issue.get('severity', '')} "
+                f"| {_esc(issue.get('target_url'))} | {_esc(suppression.get('rule_id'))} "
+                f"| {_esc(suppression.get('reason'))} |"
+            )
+        if len(result.suppressed_issues) > MAX_GENERIC_ROWS:
+            w(f"| … {len(result.suppressed_issues) - MAX_GENERIC_ROWS} more | | | | |")
+        w("")
 
     # 6. sitemap & robots
     if "sitemap" in s:
