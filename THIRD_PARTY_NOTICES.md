@@ -49,4 +49,7 @@ code or creative text is included.
 Installed dependencies retain their own licences. The resolved environment uses common
 permissive or weak-copyleft terms, including MIT, BSD, Apache-2.0, ISC, PSF, MPL-2.0, and similar
 licences. Build and documentation tooling can have additional dual-licensed components. Use your
-package manager's licence report for the exact versions resolved in your environment.
+package manager's licence report for the exact versions resolved in your environment, or generate
+the per-profile dependency/license inventory described in
+[docs/SOFTWARE_REVIEW.md](docs/SOFTWARE_REVIEW.md) — this file records bundled-data and
+interoperability notices and is not a dependency inventory.

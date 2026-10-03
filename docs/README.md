@@ -31,6 +31,7 @@ core through two interfaces — CLI and local MCP. It is not a general-purpose c
 | Arguing with a past decision | [DECISIONS.md](DECISIONS.md) — why it was done that way |
 | Checking what our guidance was aligned against | [GOOGLE_GUIDANCE_REVIEW.md](GOOGLE_GUIDANCE_REVIEW.md) — the 175 Google Search Central guides read on 2026-09-09, their labels, and the three repairs |
 | Understanding the product and its role beside Screaming Frog | [COMPARISON.md](COMPARISON.md) — canonical positioning, workflow, and boundaries |
+| Reviewing the software for security, legal, or procurement | [SOFTWARE_REVIEW.md](SOFTWARE_REVIEW.md) — generated evidence pack, outbound endpoints, data flow, storage |
 
 ## What lives here
 
@@ -94,6 +95,10 @@ core through two interfaces — CLI and local MCP. It is not a general-purpose c
 - **[RECOVERY.md](RECOVERY.md)** — resuming a native `crawl-site` run that stopped early: the
   `crawl_state.json` checkpoint and its identical-invocation requirement, `--resume` for a
   SQLite scan, and how to tell a successful resume from an intentional fresh start.
+- **[SOFTWARE_REVIEW.md](SOFTWARE_REVIEW.md)** — the evidence pack an internal
+  security/legal/procurement review asks for: generated dependency/license
+  inventory, release checksums and provenance, the outbound-endpoint and
+  data-flow map, storage and telemetry facts, and how to verify it all.
 
 ### Repository contracts
 

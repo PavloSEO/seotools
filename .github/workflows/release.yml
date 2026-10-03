@@ -12,11 +12,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Third-party build dependencies execute in this job while it holds
+          # contents:write; keep the token out of git config. `gh` below uses
+          # its own GH_TOKEN, not the persisted checkout credential.
+          persist-credentials: false
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
       - run: python -m pip install --upgrade pip build twine
+      # Every supported extra installs so the review pack's dependency profiles
+      # resolve in this environment rather than being recorded as unresolved.
+      - run: python -m pip install -e ".[all,dev]"
       - name: Verify tag matches package version
         shell: python
         run: |
@@ -30,6 +38,15 @@ jobs:
               raise SystemExit(f"tag {tag!r} does not match package version v{version}")
       - run: python -m build
       - run: twine check dist/*
+      - name: Generate and verify the software-review evidence pack
+        run: |
+          python scripts/generate_review_pack.py generate --dist dist --tag "$GITHUB_REF_NAME" --out review-pack
+          python scripts/generate_review_pack.py verify --pack review-pack
       - env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --generate-notes --verify-tag
+        run: >
+          gh release create "$GITHUB_REF_NAME" dist/*
+          review-pack/dependency-inventory.json
+          review-pack/release-provenance.json
+          review-pack/SHA256SUMS.txt
+          --generate-notes --verify-tag

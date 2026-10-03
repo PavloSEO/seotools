@@ -128,6 +128,37 @@ jobs:
           name: python-distributions
           path: dist/
 
+  review-pack:
+    name: Software-review evidence pack
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install --upgrade pip build
+      # Every supported extra installs so each documented dependency profile
+      # resolves in this environment rather than being recorded as unresolved.
+      - run: python -m pip install -e ".[all,dev]"
+      - run: python -m build
+      - name: Generate and verify the pack for a disposable tag
+        env:
+          # Planted sentinels: nothing in the pack or the diagnostics may carry
+          # these values. verify() scans the files; the greps scan the log output.
+          SEOHEAD_REVIEW_CANARY_CREDENTIAL: canary-credential-7f3c2a1e
+          SEOHEAD_REVIEW_CANARY_CLIENT: https://canary-client.example.invalid
+        run: |
+          TAG="v$(python -c 'import pathlib,tomllib;print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')"
+          python scripts/generate_review_pack.py generate --dist dist --tag "$TAG" --out review-pack | tee /tmp/review-generate.log
+          python scripts/generate_review_pack.py verify --pack review-pack | tee /tmp/review-verify.log
+          ! grep -R "$SEOHEAD_REVIEW_CANARY_CREDENTIAL" review-pack /tmp/review-generate.log /tmp/review-verify.log
+          ! grep -R "$SEOHEAD_REVIEW_CANARY_CLIENT" review-pack /tmp/review-generate.log /tmp/review-verify.log
+      - uses: actions/upload-artifact@v7
+        with:
+          name: software-review-pack
+          path: review-pack/
+
   docker:
     runs-on: ubuntu-latest
     steps:
