@@ -86,6 +86,16 @@ def _is_licensed_sf_mode(argv: list[str]) -> bool:
     return argv[1:2] and argv[1] in SF_SUBCOMMANDS_NEEDING_AN_INSTALL
 
 
+def _needs_pdf_runtime(argv: list[str]) -> bool:
+    """PDF printing needs the separate optional pypdf extra and local Chromium."""
+    for option in ("--format", "--report"):
+        if option in argv:
+            index = argv.index(option)
+            if argv[index + 1 : index + 2] == ["pdf"]:
+                return True
+    return False
+
+
 def _substitute(raw: str, base_url: str) -> str:
     """Point every URL/domain placeholder in a documented command at the fixture site."""
     host = base_url.split("//", 1)[1]
@@ -389,7 +399,11 @@ def test_documented_command_executes_or_at_least_still_parses(
     spellings = {argv[0]}
     if len(argv) > 1 and not argv[1].startswith("-"):
         spellings.add(f"{argv[0]}-{argv[1]}")
-    if spellings & NEEDS_LIVE_INFRASTRUCTURE or _is_licensed_sf_mode(argv):
+    if (
+        spellings & NEEDS_LIVE_INFRASTRUCTURE
+        or _is_licensed_sf_mode(argv)
+        or _needs_pdf_runtime(argv)
+    ):
         from seohead.cli import build_parser
         from seohead.sf.cli import build_parser as build_sf_parser
 

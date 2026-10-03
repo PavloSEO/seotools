@@ -320,7 +320,10 @@ DOCUMENT = {
 
 
 def test_every_format_produces_a_file(tmp_path):
-    for fmt in FORMATS:
+    # Chromium is an optional external executable; PDF success/failure is
+    # exercised by dedicated integration and local-runtime checks.
+    formats = tuple(fmt for fmt in FORMATS if fmt != "pdf")
+    for fmt in formats:
         result = build_report(DOCUMENT, fmt=fmt, path=str(tmp_path / f"r.{fmt}"))
         assert result["ok"] is True, f"{fmt}: {result.get('error')}"
         assert result["bytes"] > 0, f"{fmt}: empty output file"
@@ -375,8 +378,8 @@ def test_excel_has_the_four_sheets(tmp_path):
 
 
 def test_unknown_format_is_data_not_a_crash():
-    result = build_report(DOCUMENT, fmt="pdf")
-    assert result["ok"] is False and "pdf" in result["error"]
+    result = build_report(DOCUMENT, fmt="unsupported")
+    assert result["ok"] is False and "unsupported" in result["error"]
 
 
 def test_report_can_be_built_from_a_json_path(tmp_path):

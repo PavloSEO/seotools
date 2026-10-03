@@ -1664,12 +1664,13 @@ def report_build(
     fmt: str = "xlsx",
     out: str | None = None,
     project: str | None = None,
+    lang: str = "en",
 ) -> dict[str, Any]:
     if audit is None:
         raise ValueError("audit required: audit document or path to its JSON representation")
     from seohead.reports import build_report
 
-    return build_report(audit, fmt=fmt, path=out, project=project)
+    return build_report(audit, fmt=fmt, path=out, project=project, lang=lang)
 
 
 def facts_export(sites: list[dict[str, Any]] | None = None) -> dict[str, Any]:

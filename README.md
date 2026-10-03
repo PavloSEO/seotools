@@ -148,7 +148,7 @@ seohead images-optimize \
   --quality 82
 ```
 
-`report-build` formats evidence already collected as XLSX, DOCX, CSV, Markdown, or JSON. It does not run new checks or invent findings. [Report fixtures and the field contract](examples/reports/README.md) show the resulting artifacts.
+`report-build` formats evidence already collected as XLSX, DOCX, CSV, Markdown, JSON, or a bilingual offline PDF. It does not run new checks or invent findings. PDF output needs the optional `seohead-seotools[pdf]` extra and a local Chrome, Edge, or Chromium executable. [Report fixtures and the field contract](examples/reports/README.md) show the resulting artifacts.
 
 For a retained native scan, `scan reanalyze` creates a new derived SQLite artifact without a network request. [Storage documentation](docs/STORAGE.md) describes retention, provenance, and the limits of offline reanalysis.
 

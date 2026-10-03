@@ -15,6 +15,14 @@ suite contains **over 1500 offline tests**. Runtime varies
 with Python version and installed extras. CI (`.github/workflows/ci.yml`) runs the same suite on
 Python 3.10, 3.12, and 3.13 plus the gates described below.
 
+PDF structure and extraction tests need the optional parser and run separately from the
+core test matrix:
+
+```bash
+uv sync --locked --extra dev --extra pdf
+.venv/bin/pytest tests/test_pdf_validation.py -q
+```
+
 ## The one rule: offline or it does not exist
 
 No test goes to the network. Mocking is done with `monkeypatch`, fake
@@ -93,6 +101,9 @@ From `.github/workflows/ci.yml` (all run on every push/PR to `main`):
 3. **Faces come up**: `seohead --version`, `sf-analyzer --version`, and the
    MCP server must build and list tools (asserts `seo_parse`,
    `seo_domain_profile`, `sf_audit_run` among them).
+4. **PDF acceptance**: the `pdf-validation` job runs synthetic page, extraction, model-count,
+   page-limit, byte-limit, and missing-dependency checks on Ubuntu 24.04 with its preinstalled
+   Chrome. It installs only the optional `pdf` Python extra in the job environment.
 
 ## What is deliberately not covered, and why
 
@@ -100,9 +111,9 @@ From `.github/workflows/ci.yml` (all run on every push/PR to `main`):
   Metrika, DataForSEO): clients are tested against fakes with representative response shapes.
   Live paid calls are deliberately excluded from the offline suite; DataForSEO defaults to its
   sandbox so integration checks can be performed without an accidental production charge.
-- **The browser itself**: Playwright runs are not part of the suite;
+- **The crawl browser itself**: Playwright runs are not part of the core suite;
   `render-check` is covered at the `compare()` level. `playwright` is not
-  even installed in CI.
+  installed in the core CI matrix. PDF printing has a separate Chrome smoke job.
 - **A real SF CLI crawl (mode A)**: only the generated config and discovery
   logic are tested; launching Screaming Frog requires a license.
 - **CLI flag -> kwarg mapping for every command**: covered for stdin

@@ -13,10 +13,13 @@ seohead site-audit --url https://example.com --limit 50 --report xlsx --out audi
 
 # re-render an existing audit document into other formats
 seohead report-build --audit audit.json --format docx --out client.docx
+seohead report-build --audit audit.json --format pdf --lang ru --out client.pdf
 ```
 
 `--limit` caps the pages parsed (default 25); URLs come from the sitemap
-unless `--urls` is given. Any format: `xlsx`, `docx`, `csv`, `md`, `json`.
+unless `--urls` is given. Formats are `xlsx`, `docx`, `csv`, `md`, `json`, and
+`pdf`. PDF output is offline, accepts `--lang en|ru`, and needs the optional
+`seohead-seotools[pdf]` extra plus a local Chrome, Edge, or Chromium executable.
 
 ## Native SQLite crawl (default for a URL crawl)
 

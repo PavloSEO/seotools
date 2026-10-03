@@ -46,6 +46,7 @@ works, and the affected tool answers `{"ok": false, "error": ...,
 |---|---|---|
 | base (always) | `httpx`, `beautifulsoup4`, `lxml`, `defusedxml`, `pandas`, `h2`, `pydantic`, `jsonschema`, `openpyxl`, `Pillow` | nothing, this is the minimum |
 | `reports` | `python-docx` (+ openpyxl already in base) | `docx` output of `report-build` (xlsx/csv/md/json stay) |
+| `pdf` | `pypdf` | Validate generated PDF signature, pages, extracted text, source counts and declared size limits |
 | `render` | `playwright` | `render-check`, `regions-check --render` |
 | `sitemap` | `advertools`, `python-dateutil` | deep parsing of very large sitemaps |
 | `mcp` | `mcp` | the MCP server (the CLI stays) |

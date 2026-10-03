@@ -2377,6 +2377,18 @@ wheels = [
 ]
 
 [[package]]
+name = "pypdf"
+version = "6.19.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions", marker = "python_full_version < '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/1f/ac/63d71aaedb59acbcdef491e6ca6469165e3771c9c74358204818fd9bc5a6/pypdf-6.19.0.tar.gz", hash = "sha256:bbc43aca292369ccc6cbc8a921991ecf2538a3587ab5a116eff06c321d647155", size = 7033266, upload-time = "2026-09-16T09:32:05.946Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3c/2c/c43c03eaf630435f023f1dc61ec4a4a78951ad5530a62c71cc89bde307b7/pypdf-6.19.0-py3-none-any.whl", hash = "sha256:7e5d6e730e7dae87d560a2cee218b852f6498c8be61966f3cd02ead971e48d14", size = 395480, upload-time = "2026-09-16T09:32:04.087Z" },
+]
+
+[[package]]
 name = "pyproject-hooks"
 version = "1.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3391,6 +3403,9 @@ gsc = [
 mcp = [
     { name = "mcp" },
 ]
+pdf = [
+    { name = "pypdf" },
+]
 render = [
     { name = "playwright" },
 ]
@@ -3430,6 +3445,7 @@ requires-dist = [
     { name = "playwright", marker = "extra == 'all'", specifier = ">=1.48,<2" },
     { name = "playwright", marker = "extra == 'render'", specifier = ">=1.48,<2" },
     { name = "pydantic", specifier = ">=2.6,<3" },
+    { name = "pypdf", marker = "extra == 'pdf'", specifier = ">=5,<7" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0,<10" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0,<8" },
     { name = "python-dateutil", marker = "extra == 'all'", specifier = ">=2.8,<3" },
@@ -3446,7 +3462,7 @@ requires-dist = [
     { name = "twine", marker = "extra == 'dev'", specifier = ">=6,<8" },
     { name = "typing-extensions", marker = "python_full_version < '3.12'", specifier = ">=4.7" },
 ]
-provides-extras = ["sitemap", "mcp", "render", "reports", "cluster", "gsc", "dev", "all"]
+provides-extras = ["sitemap", "mcp", "render", "reports", "pdf", "cluster", "gsc", "dev", "all"]
 
 [[package]]
 name = "service-identity"
